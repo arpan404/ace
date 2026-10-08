@@ -94,6 +94,7 @@ export async function startDevice(
     owner.emit(session);
     return (options.capture ?? startCapture)({
       device,
+      ...(session.threadId ? { scope: { threadId: session.threadId, agentId: "human" } } : {}),
       streamId,
       fps,
       signal: controller.signal,

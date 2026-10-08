@@ -24,7 +24,7 @@ export async function startScreen({
           inheritResponsibility: config.screenHelperInheritsResponsibility,
         })
       : undefined);
-  if (manager) {
+  {
     const [{ ScreenGrants }, { ScreenApprovals }] = await Promise.all([
       import("../screen-grants.ts"),
       import("../screen-approvals.ts"),
@@ -40,6 +40,10 @@ export async function startScreen({
       engine: () => services.engine,
       schedule: scheduleScreenTimeout,
     });
+    services.screenApprovals = approvals;
+    resources.own(() => approvals.close());
+    resources.onShutdown(() => approvals.close());
+    if (!manager) return;
     manager.configureAccess({
       enabled: () => grants.enabled(),
       enable: (enabled) => grants.enable(enabled),
@@ -81,9 +85,6 @@ export async function startScreen({
         );
       },
     });
-    services.screenApprovals = approvals;
-    resources.own(() => approvals.close());
-    resources.onShutdown(() => approvals.close());
     resources.own(
       store.subscribe((events) => {
         if (

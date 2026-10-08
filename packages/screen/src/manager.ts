@@ -171,8 +171,8 @@ export class ScreenManager {
     const helper = await this.host.open();
     return ScreenPermissions.parse(await helper.request({ op: "permissions.request", permission }));
   }
-  requireApproval(bundleId: string): void {
-    this.accessPolicy.requireApproval(bundleId);
+  requireApproval(bundleId: string, scope?: ScreenAgentScope): void {
+    this.accessPolicy.requireApproval(bundleId, scope);
   }
   configureAccess(access: ScreenAccess): void {
     this.accessPolicy.configureAccess(access);

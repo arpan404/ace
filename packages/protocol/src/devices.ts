@@ -84,6 +84,7 @@ export const DeviceState = z.object({
   approved: z.boolean(),
   threadId: ThreadId.optional(),
   lifecycle: z.enum(["idle", "starting", "live", "stopping", "failed"]),
+  recording: z.boolean().optional(),
   streamId: ScreenId.optional(),
   controller: z.enum(["none", "human", "agent"]),
   holder: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),

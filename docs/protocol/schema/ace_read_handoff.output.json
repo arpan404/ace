@@ -4353,6 +4353,11 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "artifactId": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
               "bytes": {
                 "maximum": 9007199254740991,
                 "minimum": 0,
@@ -4472,7 +4477,10 @@
                 "type": "string"
               },
               "source": {
-                "const": "browser",
+                "enum": [
+                  "browser",
+                  "device"
+                ],
                 "type": "string"
               },
               "type": {

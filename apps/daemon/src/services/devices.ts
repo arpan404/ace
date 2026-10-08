@@ -7,7 +7,7 @@ import {
 } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logFields } from "@ace/diagnostics";
-import { ThreadId, AgentId } from "@ace/protocol";
+import { ThreadId, AgentId, ItemId } from "@ace/protocol";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, realpath, unlink } from "node:fs/promises";
@@ -60,6 +60,23 @@ export async function startDevices(context: ServiceContext): Promise<void> {
           category: "recording",
           id: artifact.id,
         });
+        context.store.appendEvents(ThreadId.parse(threadId), [
+          {
+            type: "item.created",
+            item: {
+              type: "artifact",
+              source: "device",
+              artifactId: artifact.id,
+              id: ItemId.parse(id()),
+              createdAt: now(),
+              complete: true,
+              filename: "Device recording.mp4",
+              path: video.path,
+              mimeType: video.mimeType,
+              bytes: video.bytes,
+            },
+          },
+        ]);
         await unlink(artifact.path);
         return video;
       },

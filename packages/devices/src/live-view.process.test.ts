@@ -201,6 +201,7 @@ it("a simulator booted from ace reads as running for every watcher, without a re
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await waitFor(() => expect(other.client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   await client.request({ op: "controller", deviceId, controller: "human" });
   expect(deviceState(client)?.device.state).toBe("shutdown");
@@ -217,6 +218,7 @@ it("boot and shutdown answer with the state after them, not a read that started 
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   await client.request({ op: "controller", deviceId, controller: "human" });
 
@@ -267,6 +269,7 @@ it("a simulator booted or shut down outside ace shows up while a Devices view is
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "inventory.watch", watching: true });
   await client.request({ op: "list" });
   expect(client.getSnapshot().devices).toMatchObject([{ id: deviceId, state: "shutdown" }]);
@@ -331,12 +334,13 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   expect(await f.readCount()).toBe(closed);
 });
 
-it("frames from the simulator's window reach a person's client, with no thread approval needed", async () => {
+it("frames from an explicitly approved simulator reach the client", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
   client.watchFrames(deviceId, async (frame) => {
@@ -346,7 +350,7 @@ it("frames from the simulator's window reach a person's client, with no thread a
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
 
-  expect(deviceState(client)).toMatchObject({ lifecycle: "live", approved: false });
+  expect(deviceState(client)).toMatchObject({ lifecycle: "live", approved: true });
   await waitFor(() => expect(shown).toContain("simulator:home"));
 });
 
@@ -356,6 +360,7 @@ it("input is refused without control and reaches the simulator with it", async (
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
   client.watchFrames(deviceId, async (frame) => {
@@ -397,6 +402,7 @@ it("without Screen Recording the live view says which permission is missing, ask
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
 
   const refused: unknown = await client
@@ -438,6 +444,7 @@ it("a tap refused for want of Accessibility names that permission", async () => 
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "controller", deviceId, controller: "human" });
@@ -454,6 +461,7 @@ it("human typing reaches Simulator behind another app without native idb", async
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "list" });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "controller", deviceId, controller: "human" });
@@ -478,6 +486,7 @@ it("agent typing cannot activate a background Simulator without native idb", asy
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "approve", deviceId, threadId, allowed: true });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({
@@ -515,6 +524,7 @@ it("lease expiry posts mouse-up at the native boundary without another client co
   const { client } = connect(f.service);
   await vi.waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "approve", deviceId, threadId: ThreadId.parse("thread-1"), allowed: true });
   await client.request({ op: "start", deviceId, fps: 60 });
   await client.request({ op: "controller", deviceId, controller: "human" });
   await client.request({
@@ -533,4 +543,17 @@ it("lease expiry posts mouse-up at the native boundary without another client co
     nativeMouseUp: { windowId: 42, button: "left" },
   });
   expect(deviceState(client)?.controller).toBe("none");
+});
+
+it("opening and starting an unapproved Simulator cannot enable computer use or grant app access", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  const { client } = connect(f.service);
+  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "list" });
+  await expect(client.request({ op: "start", deviceId, fps: 10 })).rejects.toBeInstanceOf(DeviceClientError);
+  expect(f.screen.isEnabled()).toBe(false);
+  expect(f.screen.approvals()).toEqual([]);
+  expect(f.screen.states()).toEqual([]);
 });
