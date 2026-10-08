@@ -82,7 +82,7 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
         ),
         mode(
           codexReviewerMode("guardian_subagent"),
-          "guardian_subagent",
+          "Guardian review",
           "Routes approvals to Codex's guardian subagent reviewer.",
           "medium",
         ),
