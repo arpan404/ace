@@ -75,6 +75,7 @@ export class AccountRegistry {
     return () => this.quotaListeners.delete(listener);
   }
   private db: DatabaseSync;
+  private pending = new Set<string>();
   private homeMigration: { notice?: (event: HomeMigrationNotice) => void } | undefined;
   private validating = false;
   private managedDataDir: string | undefined;
@@ -104,6 +105,9 @@ export class AccountRegistry {
     db.exec(
       "CREATE TABLE IF NOT EXISTS account_selection (backend TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES accounts(id))",
     );
+    db.exec("CREATE TABLE IF NOT EXISTS pending_accounts (id TEXT PRIMARY KEY)");
+    for (const value of db.prepare("SELECT id FROM pending_accounts LIMIT 257").all())
+      this.pending.add(AccountId.parse(value.id));
     this.selection = db.prepare("SELECT instance_id FROM account_selection WHERE backend=?");
     this.selections = db.prepare("SELECT backend, instance_id FROM account_selection LIMIT 257");
     this.setSelection = db.prepare(
@@ -172,19 +176,47 @@ export class AccountRegistry {
   }
   list() {
     if (this.validating) throw new Error("Account homes are still being validated");
-    return this.readAccounts();
+    return this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
   }
   private readAccounts() {
     const rows = this.all.all();
     if (rows.length > 256) throw new Error("Instance limit exceeded");
     return rows.map((value) => this.decode(value));
   }
-  async register(input: ProviderInstance) {
+  register(input: ProviderInstance) {
+    return this.registerWith(input, () => {});
+  }
+  /** A login owns this home until it succeeds; public lists and scheduling never see it. */
+  registerPending(input: ProviderInstance) {
+    return this.registerWith(
+      input,
+      () => {
+        this.db.prepare("INSERT INTO pending_accounts VALUES (?)").run(input.id);
+      },
+      () => this.pending.add(input.id),
+    );
+  }
+  isPending(id: string): boolean {
+    return this.pending.has(id);
+  }
+  pendingInstances() {
+    return this.readAccounts().filter(({ instance }) => this.pending.has(instance.id));
+  }
+  publishAccount(id: string): void {
+    this.db.prepare("DELETE FROM pending_accounts WHERE id=?").run(id);
+    this.pending.delete(id);
+    for (const listener of this.quotaListeners) listener(id);
+  }
+  private async registerWith(
+    input: ProviderInstance,
+    beforeCommit: () => void,
+    afterCommit: () => void = () => {},
+  ) {
     const instance = await canonicalInstance(input);
     await this.validateHome(instance);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const accounts = this.list();
+      const accounts = this.readAccounts();
       if (accounts.length >= 256 && !accounts.some((a) => a.instance.id === instance.id))
         throw new Error("Instance limit exceeded");
       const roots = new Set(
@@ -229,7 +261,9 @@ export class AccountRegistry {
         }),
         JSON.stringify(current?.quota ?? initialQuota()),
       );
+      beforeCommit();
       this.db.exec("COMMIT");
+      afterCommit();
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -244,7 +278,7 @@ export class AccountRegistry {
     return this.ready;
   }
   private async normalizeHomes(signal?: AbortSignal): Promise<void> {
-    const accounts = this.readAccounts();
+    const accounts = this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
     const normalized = [];
     for (const account of accounts) {
       signal?.throwIfAborted();
@@ -371,7 +405,8 @@ export class AccountRegistry {
   }
   selectProvider(provider: string, id: string): void {
     id = provider === "cursor" ? (cursorInstanceId(id) ?? id) : id;
-    if (this.get(id)?.instance.provider !== provider) throw new Error("Provider mismatch");
+    if (this.pending.has(id) || this.get(id)?.instance.provider !== provider)
+      throw new Error("Provider mismatch");
     this.setSelection.run(`provider:${provider}`, id);
     if (provider === "cursor") this.clearSelection.run("cursor-sdk");
   }
@@ -391,6 +426,7 @@ export class AccountRegistry {
     try {
       this.deleteSelections.run(id);
       this.deleteAccount.run(id);
+      this.publishAccount(id);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -399,7 +435,7 @@ export class AccountRegistry {
   }
   summary(id: string, now: number) {
     const account = this.get(id);
-    return account
+    return account && !this.pending.has(id)
       ? {
           ...summarize(account, now),
           isDefault:
@@ -417,18 +453,24 @@ export class AccountRegistry {
         return [selectedRow.backend, selectedRow.instance_id];
       }),
     );
-    return this.list().map((account) =>
-      Object.assign(summarize(account, now), {
-        isDefault:
-          (selected.get(`provider:${account.instance.provider}`) ??
-            (account.instance.provider === "cursor"
-              ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
-              : `${account.instance.provider}-cli-default`)) === account.instance.id,
-      }),
-    );
+    return this.list()
+      .filter(({ instance }) => !this.pending.has(instance.id))
+      .map((account) =>
+        Object.assign(summarize(account, now), {
+          isDefault:
+            (selected.get(`provider:${account.instance.provider}`) ??
+              (account.instance.provider === "cursor"
+                ? (this.selectedCursorSdk() ?? cursorDefaultInstanceId)
+                : `${account.instance.provider}-cli-default`)) === account.instance.id,
+        }),
+      );
   }
   pickInstance(input: Parameters<typeof pickInstance>[0], now: number) {
-    return pickInstance(input, this.list(), now);
+    return pickInstance(
+      input,
+      this.list().filter(({ instance }) => !this.pending.has(instance.id)),
+      now,
+    );
   }
   close() {
     this.quotaListeners.clear();

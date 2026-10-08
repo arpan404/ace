@@ -32,14 +32,7 @@ export async function providerAccounts(
         (!apiKey.supported || (request.provider === "opencode" && !request.upstream))
       )
         return fail("unsupported");
-      const added = await management.handle(owner, {
-        type: "accounts.add",
-        requestId: request.requestId,
-        provider: request.provider,
-        label: request.label ?? "New account",
-      });
-      if (added.type !== "accounts.changed" || !added.account) return fail("failed");
-      instanceId = added.account.id;
+      instanceId = await management.addPending(request.provider, request.label ?? "New account");
     } else {
       instanceId = request.instanceId;
       const account = management.summaries(request.provider).find((row) => row.id === instanceId);
@@ -52,15 +45,25 @@ export async function providerAccounts(
         (!apiKey.supported || (request.provider === "opencode" && !request.upstream))
       )
         return fail("unsupported", instanceId);
-      const result = await login.handle(owner, {
-        type: "provider.login.start",
-        requestId: request.requestId,
-        provider: request.provider,
-        instance: instanceId,
-        method: request.method,
-        ...(request.upstream ? { upstream: request.upstream } : {}),
-      });
-      if (!result.result.ok) return fail("failed", instanceId);
+      const result = await login.handle(
+        owner,
+        {
+          type: "provider.login.start",
+          requestId: request.requestId,
+          provider: request.provider,
+          instance: instanceId,
+          method: request.method,
+          ...(request.upstream ? { upstream: request.upstream } : {}),
+        },
+        request.type === "provider.accounts.add"
+          ? (state) => management.finishPending(instanceId, state)
+          : undefined,
+      );
+      if (!result.result.ok) {
+        if (request.type === "provider.accounts.add")
+          await management.finishPending(instanceId, "failed");
+        return fail("failed", instanceId);
+      }
       progress = result.result.progress;
     } else if (request.type === "provider.accounts.remove") {
       // These providers expose reviewed unattended logout. A failed logout retains metadata/home.

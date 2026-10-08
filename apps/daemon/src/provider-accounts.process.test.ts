@@ -452,7 +452,13 @@ test("legacy removal keeps its reply contract and logs out the managed CLI befor
         message.progress.session === session &&
         message.progress.state === "awaiting_api_key",
     );
-    await f.request({ type: "provider.login.cancel", requestId: "cancel-legacy", session });
+    await f.request({
+      type: "provider.login.apiKey",
+      requestId: "submit-legacy",
+      session,
+      apiKey: sentinel,
+    });
+    await f.login.completed("device", session);
     expect(
       await f.request({
         type: "accounts.remove",
@@ -470,3 +476,51 @@ test("legacy removal keeps its reply contract and logs out the managed CLI befor
     await f.close();
   }
 });
+
+for (const method of ["login", "api_key"] as const) {
+  test(`cancelling a new ${method} sign-in removes its private home before replying and leaves existing accounts intact`, async () => {
+    const f = await harness();
+    try {
+      const before = await f.request({ type: "accounts.list", requestId: "before-cancel" });
+      const added = await f.request({
+        type: "provider.accounts.add",
+        requestId: "stage",
+        provider: "codex",
+        label: "Cancelled",
+        method,
+      });
+      if (
+        added.type !== "provider.accounts.result" ||
+        !added.result.ok ||
+        !added.result.progress?.instance
+      )
+        throw new Error("Missing sign-in");
+      const { session, instance } = added.result.progress;
+      await until(
+        f.owner,
+        f.seen,
+        (message) =>
+          message.type === "provider.login.progress" &&
+          message.progress.session === session &&
+          message.progress.state ===
+            (method === "api_key" ? "awaiting_api_key" : "awaiting_code_entry"),
+      );
+      const during = await f.request({ type: "accounts.list", requestId: "during-cancel" });
+      if (before.type !== "accounts.list" || during.type !== "accounts.list")
+        throw new Error("Missing account list");
+      expect(during.accounts.map((row) => row.id)).toEqual(before.accounts.map((row) => row.id));
+      expect(
+        await f.request({ type: "provider.login.cancel", requestId: "cancel-staged", session }),
+      ).toMatchObject({ result: { ok: true, progress: { state: "cancelled" } } });
+      expect(await readdir(join(f.dataDir, "account-homes"))).not.toContain(instance);
+      expect(f.login.busy("codex", instance)).toBe(false);
+      expect(f.models.list().models.some((row) => row.instance === instance)).toBe(false);
+      const after = await f.request({ type: "accounts.list", requestId: "after-cancel" });
+      if (after.type !== "accounts.list") throw new Error("Missing account list");
+      expect(after.accounts.map((row) => row.id)).toEqual(before.accounts.map((row) => row.id));
+      expect(await readdir(f.normal)).toEqual(["untouched"]);
+    } finally {
+      await f.close();
+    }
+  });
+}

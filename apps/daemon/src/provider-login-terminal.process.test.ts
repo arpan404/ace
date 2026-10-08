@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { ProviderLoginSessions } from "@ace/accounts";
 import { DeviceId, SocketTicket, type ServerMessage } from "@ace/protocol";
@@ -158,3 +158,116 @@ test("Cursor browser sign-in cannot create a native CLI fallback or reserve its 
     await f.close();
   }
 });
+
+for (const finish of [false, true]) {
+  test(`a new account using terminal fallback ${finish ? "publishes only after verified sign-in" : "is removed on cancel"}`, async () => {
+    const f = await harness();
+    const sessions = new ProviderLoginSessions({
+      now: () => 1000,
+      id: () => "new-manual",
+      schedule: () => () => {},
+      prepare: async () => ({
+        run: async () => ({ success: false, manual: manualLogin("codex", "login") }),
+      }),
+    });
+    const server = await fixture({
+      providerLogin: sessions,
+      accounts: f.accounts,
+      accountManagement: f.management,
+    });
+    try {
+      const client = await server.connect();
+      await client.next();
+      client.send({
+        type: "provider.accounts.add",
+        requestId: "new",
+        provider: "codex",
+        label: "Studio",
+        method: "login",
+      });
+      const reply = await next(
+        client,
+        (message) => message.type === "provider.accounts.result" && message.requestId === "new",
+      );
+      if (
+        reply.type !== "provider.accounts.result" ||
+        !reply.result.ok ||
+        !reply.result.progress?.instance
+      )
+        throw new Error("Missing staged account");
+      const { instance, session } = reply.result.progress;
+      await sessions.completed("device", session).catch(() => {});
+      // Wait via a poll reply, rather than relying on process timing.
+      client.send({ type: "provider.login.poll", requestId: "poll", session });
+      const progress = await next(
+        client,
+        (message) => message.type === "provider.login.result" && message.requestId === "poll",
+      );
+      expect(progress).toMatchObject({
+        result: { progress: { state: "failed", manual: { action: "open_terminal" } } },
+      });
+      expect(f.registry.summary(instance, 1000)).toBeUndefined();
+      if (finish) {
+        client.send({ type: "provider.login.terminal", requestId: "terminal", session });
+        const opened = await next(
+          client,
+          (message) => message.type === "provider.login.result" && message.requestId === "terminal",
+        );
+        if (
+          opened.type !== "provider.login.result" ||
+          !opened.result.ok ||
+          !opened.result.progress.manual?.terminalId
+        )
+          throw new Error("Missing terminal");
+        const terminalId = opened.result.progress.manual.terminalId;
+        client.send({
+          type: "terminal.request",
+          requestId: "subscribe",
+          operation: { op: "subscribe", terminalId, subscriptionId: "new-auth", fromOffset: 0 },
+        });
+        await next(
+          client,
+          (message) =>
+            message.type === "terminal.output" &&
+            message.event.type === "data" &&
+            message.event.data.includes("fixture-auth-output-private"),
+        );
+        client.send({
+          type: "terminal.request",
+          requestId: "finish",
+          operation: { op: "write", terminalId, data: "finish\n" },
+        });
+        await next(
+          client,
+          (message) => message.type === "terminal.output" && message.event.type === "exit",
+        );
+        client.send({
+          type: "terminal.request",
+          requestId: "drain",
+          operation: { op: "close", terminalId },
+        });
+        await next(
+          client,
+          (message) => message.type === "terminal.result" && message.requestId === "drain",
+        );
+        expect(f.registry.summary(instance, 1000)).toMatchObject({
+          label: "Studio",
+          quota: { auth: "logged_in" },
+        });
+      } else {
+        client.send({ type: "provider.login.cancel", requestId: "cancel", session });
+        expect(
+          await next(
+            client,
+            (message) => message.type === "provider.login.result" && message.requestId === "cancel",
+          ),
+        ).toMatchObject({ result: { progress: { state: "cancelled" } } });
+        expect(await readdir(join(f.dataDir, "account-homes"))).not.toContain(instance);
+      }
+    } finally {
+      await server.close();
+      await sessions.close();
+      await f.close();
+    }
+  });
+}
