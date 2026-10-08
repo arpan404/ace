@@ -62,6 +62,9 @@
     "favourite": {
       "type": "boolean"
     },
+    "free": {
+      "type": "boolean"
+    },
     "group": {
       "enum": [
         "current",

@@ -2,6 +2,7 @@ import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
+import { hasUnauthenticatedOpenCodeModels } from "../provider-model-availability.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
@@ -32,6 +33,10 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      modelsAvailable: () =>
+        Boolean(
+          context.services.models && hasUnauthenticatedOpenCodeModels(context.services.models),
+        ),
       attention(row) {
         const registry = context.services.accountRegistry;
         const selected =

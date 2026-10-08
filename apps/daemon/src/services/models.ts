@@ -111,6 +111,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   if (stopConfiguration) resources.own(stopConfiguration);
   resources.own(() => models.close());
   services.models = models;
+  resources.own(models.listen(() => services.providerStatuses?.publish()));
   // These CLIs own connect/disconnect outside ace. Metadata-only reconciliation is bounded.
   const connectionsTimer = setInterval(() => {
     models.revalidate();

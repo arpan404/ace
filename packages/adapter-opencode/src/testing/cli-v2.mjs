@@ -2,6 +2,21 @@
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
 const args = process.argv.slice(2);
+const freeModels =
+  process.env.ACE_TEST_FREE_MODELS === "1"
+    ? ["big-pickle", "mimo-v2.5-free", "ling-3.0-tiny-free"].map((modelID) => ({
+        id: `opencode/${modelID}`,
+        providerID: "opencode",
+        modelID,
+        name: modelID,
+        enabled: true,
+        status: "active",
+        variants: [],
+        capabilities: { tools: true, input: ["text/plain"], output: ["text/plain"] },
+        limit: { context: 128000, output: 8192 },
+        cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+      }))
+    : [];
 if (args.includes("--version")) {
   console.log(`opencode v${process.env.ACE_TEST_OPENCODE_VERSION ?? "2.0.22"}`);
   process.exit(0);
@@ -17,6 +32,7 @@ if (args[0] === "auth") {
 if (args[0] === "models") {
   if (args.length !== 1) process.exit(7);
   console.log("opencode-go/muse-spark-1.3-contributor");
+  for (const model of freeModels) console.log(model.id);
   process.exit(0);
 }
 if (args[0] !== "serve") process.exit(1);
@@ -325,6 +341,17 @@ const server = createServer(async (req, res) => {
     json({
       location: { directory },
       data: [
+        ...freeModels,
+        ...(freeModels.length
+          ? [
+              {
+                ...freeModels[0],
+                id: "opencode/paid-test",
+                modelID: "paid-test",
+                cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
+              },
+            ]
+          : []),
         {
           id: "opencode-go/muse-spark-1.3-contributor",
           modelID: "muse-spark-1.3-contributor",

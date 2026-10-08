@@ -2,6 +2,7 @@ import { CatalogModel } from "@ace/protocol";
 import { OpenCodeModel } from "./native-schemas.ts";
 import { base } from "./model.ts";
 import { chatMetadata, legacyMetadata } from "./catalog-metadata.ts";
+import { freeOpenCodeModel } from "./opencode-free.ts";
 import type { ModelInstance } from "./types.ts";
 
 /** Retains one bounded native object at a time, plus at most 512 normalized rows. */
@@ -83,6 +84,7 @@ export function normalizeOpenCodeV2(
     const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
     model.nativeProviderId = native.providerID;
     model.contextWindow = native.limit.context;
+    if (freeOpenCodeModel(native)) model.free = true;
     model.inputModalities = [
       ...new Set(native.capabilities.input.map((mime) => mime.split("/")[0] ?? mime)),
     ];

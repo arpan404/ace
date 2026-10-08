@@ -6,6 +6,7 @@ import { providerNames } from "./providers.ts";
 
 /** One model on one account (or source) as the model picker lists it. */
 export interface PickerModel {
+  free?: boolean | undefined;
   /** `modelKey(provider, id)`: what favorites store and what choosing one hands back. */
   key: string;
   provider: ProviderKind;
@@ -274,6 +275,7 @@ export function pickerModel(
     label,
     detail: row.detail,
     isNew: row.isNew,
+    free: row.free,
     legacy: row.legacy,
     isDefault: row.isDefault,
     userDefault: row.userDefault,

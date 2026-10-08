@@ -14,6 +14,8 @@ export const ModelTier = z.object({
     .meta({ maxProperties: 16, "x-ace-constraint": "At most 16 entries." }),
 });
 export const ModelSource = z.object({
+  /** False when the source is available without a sign-in or API key. */
+  requiresAuth: z.boolean().optional(),
   service: z.enum(["opencode_go", "opencode_zen"]).optional(),
   kind: z.enum(["local", "subscription", "api_key", "account", "other"]),
   id: label,
@@ -92,6 +94,8 @@ export const CatalogModel = z
     deprecated: z.boolean(),
     /** The provider marks the model as newly released; pickers badge it. */
     isNew: z.boolean().optional(),
+    /** The CLI reports this model as free to use. */
+    free: z.boolean().optional(),
     raw: z.object({
       json: z
         .string()
