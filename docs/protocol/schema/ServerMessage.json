@@ -730,7 +730,12 @@
             "window_minimized",
             "window_offscreen",
             "secure_input_required",
-            "clipboard_changed"
+            "clipboard_changed",
+            "window_ambiguous",
+            "key_unsupported",
+            "modifier_unsupported",
+            "no_key_window",
+            "delivery_unconfirmed"
           ],
           "type": "string"
         },

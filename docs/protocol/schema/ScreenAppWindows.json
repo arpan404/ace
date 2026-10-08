@@ -1,16 +1,23 @@
 {
-  "$id": "https://ace.local/protocol/v1/ScreenError.json",
+  "$id": "https://ace.local/protocol/v1/ScreenAppWindows.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "candidates": {
+    "selectedWindowId": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "windows": {
       "items": {
         "properties": {
           "bounds": {
             "properties": {
-              "h": {
+              "height": {
+                "minimum": 0,
                 "type": "number"
               },
-              "w": {
+              "width": {
+                "minimum": 0,
                 "type": "number"
               },
               "x": {
@@ -23,17 +30,26 @@
             "required": [
               "x",
               "y",
-              "w",
-              "h"
+              "width",
+              "height"
             ],
             "type": "object"
           },
           "bundleId": {
             "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
           },
+          "focused": {
+            "type": "boolean"
+          },
+          "main": {
+            "type": "boolean"
+          },
           "title": {
             "maxLength": 1024,
             "type": "string"
+          },
+          "usable": {
+            "type": "boolean"
           },
           "windowId": {
             "exclusiveMinimum": 0,
@@ -43,58 +59,17 @@
         },
         "required": [
           "windowId",
+          "bundleId",
           "title"
         ],
         "type": "object"
       },
       "maxItems": 2048,
       "type": "array"
-    },
-    "code": {
-      "enum": [
-        "forbidden",
-        "permission_denied",
-        "approval_required",
-        "screen_disabled",
-        "denied",
-        "read_only",
-        "target_gone",
-        "not_supported",
-        "bounds",
-        "busy",
-        "timeout",
-        "internal",
-        "target_busy",
-        "foreground_required",
-        "focus_changed",
-        "window_minimized",
-        "window_offscreen",
-        "secure_input_required",
-        "clipboard_changed",
-        "window_ambiguous",
-        "key_unsupported",
-        "modifier_unsupported",
-        "no_key_window",
-        "delivery_unconfirmed"
-      ],
-      "type": "string"
-    },
-    "message": {
-      "maxLength": 1024,
-      "type": "string"
-    },
-    "phase": {
-      "enum": [
-        "rejected-before-dispatch",
-        "dispatched",
-        "partial"
-      ],
-      "type": "string"
     }
   },
   "required": [
-    "code",
-    "message"
+    "windows"
   ],
   "type": "object"
 }

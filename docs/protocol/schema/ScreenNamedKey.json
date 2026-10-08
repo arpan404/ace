@@ -3,26 +3,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "key": {
-      "maxLength": 64,
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ScreenKey.json"
     },
     "modifiers": {
-      "default": [],
-      "items": {
-        "enum": [
-          "control",
-          "shift",
-          "alt",
-          "meta",
-          "super",
-          "command",
-          "option"
-        ],
-        "type": "string"
-      },
-      "maxItems": 4,
-      "type": "array"
+      "$ref": "https://ace.local/protocol/v1/ScreenKeyModifiers.json"
     }
   },
   "required": [

@@ -31,8 +31,24 @@
       ],
       "type": "string"
     },
+    "notes": {
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "snapshot": {
       "$ref": "https://ace.local/protocol/v1/ScreenUITreeResult.json"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
     }
   },
   "required": [

@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-07",
+  "baselineCommit": "88805977573795427ce056293726b89a28075aef",
+  "fixture": "fake-helper-behavior.ts; 10 ms artificial delay for each request; semantic input returns a settled snapshot",
+  "host": "macOS arm64; shared host load was high; medians are non-gating",
+  "before": {
+    "fixtureRoundTripMs": 10,
+    "samplesPerAction": 10,
+    "medianMs": {
+      "screen_key": 35.57,
+      "screen_type": 34.01,
+      "screen_click": 34.04,
+      "screen_scroll": 36.64,
+      "screen_paste": 34.97
+    }
+  },
+  "after": {
+    "fixtureRoundTripMs": 10,
+    "samplesPerAction": 10,
+    "medianMs": {
+      "screen_key": 11.92,
+      "screen_type": 12.08,
+      "screen_click": 11.97,
+      "screen_scroll": 12.42,
+      "screen_paste": 12.24
+    }
+  },
+  "native": "Not measured in this daemon worktree. The native-helper worker owns the fixture build and real-helper timings."
+}

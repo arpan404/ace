@@ -80,30 +80,14 @@
     {
       "properties": {
         "key": {
-          "maxLength": 32,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/ScreenKey.json"
         },
         "kind": {
           "const": "key.press",
           "type": "string"
         },
         "modifiers": {
-          "default": [],
-          "items": {
-            "enum": [
-              "command",
-              "shift",
-              "option",
-              "control",
-              "alt",
-              "meta",
-              "super"
-            ],
-            "type": "string"
-          },
-          "maxItems": 4,
-          "type": "array"
+          "$ref": "https://ace.local/protocol/v1/ScreenKeyModifiers.json"
         }
       },
       "required": [
