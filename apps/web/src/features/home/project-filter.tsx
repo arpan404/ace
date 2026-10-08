@@ -1,43 +1,35 @@
-import {
-  ArchiveIcon,
-  CaretDownIcon,
-  FolderPlusIcon,
-  FolderSimpleIcon,
-} from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+} from "@/components/ui/context-menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import {
   Menu,
   MenuContent,
-  MenuItem,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { NeedsDaemon, useDaemonReachable } from "./needs-daemon.tsx";
-import { useArchivedList, useProjects } from "./use-home-threads.ts";
+import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
-import {
-  AddProjectItem,
-  ManageProjectItems,
-  useProjectDialogs,
-} from "@/features/projects/index.ts";
+import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
 
 /**
- * The Threads heading's project filter and Add project: out of the way until the pointer or
+ * The Threads heading's project filter: out of the way until the pointer or
  * keyboard is on the heading, or a filter narrows the list.
  */
 export function ThreadsActions() {
   const { project } = useOrganizerState();
-  const dialogs = useProjectDialogs();
-  // Adding a project browses the daemon's folders, which can't wait for a reconnect.
-  const reachable = useDaemonReachable();
   return (
     <span
       className={cn(
@@ -46,19 +38,6 @@ export function ThreadsActions() {
       )}
     >
       <ProjectFilter />
-      <NeedsDaemon reachable={reachable}>
-        <IconButton
-          icon={FolderPlusIcon}
-          label="Add project"
-          shortcut="addProject"
-          tooltip={reachable}
-          disabled={!reachable}
-          focusableWhenDisabled
-          onClick={() => dialogs.open({ kind: "add", tab: "open" })}
-          onPointerEnter={dialogs.preload}
-          className="size-[26px] rounded-sm hover:bg-sidebar-accent data-disabled:pointer-events-auto"
-        />
-      </NeedsDaemon>
     </span>
   );
 }
@@ -66,8 +45,7 @@ export function ThreadsActions() {
 const all = "\u0000all";
 
 /**
- * "All projects ▾" in the Threads header: narrow Home to one project, open the archive (in that
- * project), add a project, and rename or remove the one Home shows. Every project the daemon
+ * "All projects ▾" narrows Home to one project and offers actions for each project. Every project the daemon
  * lists is here, with or without threads, beside any project only threads still mention.
  */
 export function ProjectFilter() {
@@ -85,9 +63,7 @@ export function ProjectFilter() {
       .map((id) => ({ id, label: name(id), threads: counts.get(id) ?? 0 }))
       .toSorted((a, b) => a.label.localeCompare(b.label));
   }, [withThreads, directory.projects, name]);
-  const registered = project !== null && directory.projects.some((p) => p.id === project);
-  const archived = useArchivedList().length;
-  const navigate = useNavigate();
+
   return (
     <Menu>
       <MenuTrigger
@@ -107,30 +83,30 @@ export function ProjectFilter() {
           <ProjectItem value={all} label="All projects" count={total} />
           {rows.length > 0 && <MenuSeparator />}
           {rows.map((row) => (
-            <ProjectItem key={row.id} value={row.id} label={row.label} count={row.threads} />
+            <ProjectItem
+              key={row.id}
+              value={row.id}
+              label={row.label}
+              count={row.threads}
+              registered={directory.projects.some((p) => p.id === row.id)}
+            />
           ))}
         </MenuRadioGroup>
-        <MenuSeparator />
-        <MenuItem
-          icon={<Icon icon={ArchiveIcon} />}
-          onClick={() => void navigate({ to: "/archived" })}
-        >
-          <span className="flex flex-1 items-center">
-            Archived threads
-            <span className="ml-auto pl-4 text-xs text-subtle-foreground">{archived}</span>
-          </span>
-        </MenuItem>
-        <AddProjectItem />
-        {registered && <ManageProjectItems projectId={project} name={label} />}
+        {directory.projects.length > 0 && (
+          <>
+            <MenuSeparator />
+            <AddProjectItem />
+          </>
+        )}
       </MenuContent>
     </Menu>
   );
 }
 
 /** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
-function ProjectItem(props: { value: string; label: string; count: number }) {
-  return (
-    <MenuRadioItem value={props.value} aria-label={props.label}>
+function ProjectItem(props: { value: string; label: string; count: number; registered?: boolean }) {
+  const item = (
+    <MenuRadioItem value={props.value} aria-label={props.label} className="flex-1">
       <span className="flex items-center gap-[9px]">
         <span
           className="flex text-muted-foreground"
@@ -146,5 +122,26 @@ function ProjectItem(props: { value: string; label: string; count: number }) {
         <span className="ml-auto pl-4 text-xs text-subtle-foreground">{props.count}</span>
       </span>
     </MenuRadioItem>
+  );
+  if (!props.registered) return item;
+  const actions = <ManageProjectItems projectId={props.value} name={props.label} />;
+  return (
+    <div className="flex items-center">
+      <ContextMenu>
+        <ContextMenuTrigger render={<div className="flex-1" />}>{item}</ContextMenuTrigger>
+        <ContextMenuContent aria-label={`Actions for ${props.label}`}>{actions}</ContextMenuContent>
+      </ContextMenu>
+      <MenuSub>
+        <Tip label={`Actions for ${props.label}`}>
+          <MenuSubTrigger
+            aria-label={`Actions for ${props.label}`}
+            className="w-auto px-2 [&>svg:last-child]:hidden"
+          >
+            <DotsThreeIcon aria-hidden size={16} />
+          </MenuSubTrigger>
+        </Tip>
+        <MenuContent aria-label={`Actions for ${props.label}`}>{actions}</MenuContent>
+      </MenuSub>
+    </div>
   );
 }
