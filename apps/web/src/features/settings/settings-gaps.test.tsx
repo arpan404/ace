@@ -153,6 +153,11 @@ test("provider configuration changes visibility, stars and custom model choices 
   });
   await userEvent.click(within(models).getByRole("button", { name: "Hide Opus 4" }));
   await within(models).findByRole("button", { name: "Show Opus 4" });
+  await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "relative-cli");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText(/^Enter the full path to the executable/)).toBeTruthy();
+  expect(configuration(app)[0]?.binaryPath).toBeUndefined();
+  await userEvent.clear(screen.getByRole("textbox", { name: "CLI path" }));
   await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "/tmp/fake-claude");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(configuration(app)[0]?.binaryPath).toBe("/tmp/fake-claude"));
@@ -176,6 +181,9 @@ test("provider configuration changes visibility, stars and custom model choices 
   expect(screen.getByRole("textbox", { name: "CLI path" }).getAttribute("value")).toBe(
     "/tmp/fake-claude",
   );
+  await userEvent.clear(screen.getByRole("textbox", { name: "CLI path" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(configuration(app)[0]?.binaryPath).toBeUndefined());
 });
 
 test("allowed project folders round-trip and removing one stops browsing it", async () => {

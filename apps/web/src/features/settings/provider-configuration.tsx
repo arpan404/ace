@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@ace/protocol";
+import { ProviderConfiguration, type ProviderKind } from "@ace/protocol";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -34,7 +34,7 @@ export function ProviderPreferences(props: { provider: ProviderKind }) {
             className="flex min-w-0 items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              if (binary && !/^(?:\/|[A-Za-z]:[\\/])/.test(binary)) {
+              if (binary && !ProviderConfiguration.shape.binaryPath.safeParse(binary).success) {
                 setError(true);
                 return;
               }
