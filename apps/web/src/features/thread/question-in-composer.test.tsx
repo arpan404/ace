@@ -97,9 +97,7 @@ test("typing in the message while a question is open answers it with Enter, inst
 
   // Typing picks "Something else" on the card, so what is checked is what is sent.
   await waitFor(() =>
-    expect(
-      (within(card).getByRole("radio", { name: "Something else" }) as HTMLInputElement).checked,
-    ).toBe(true),
+    expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy(),
   );
   expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBeNull();
   await userEvent.keyboard("{Enter}");

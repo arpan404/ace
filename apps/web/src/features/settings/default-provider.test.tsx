@@ -14,6 +14,7 @@ test("Settings offers an installed Codex CLI with unverified login as sign-in un
   const app = harness();
   const { services } = app.daemon;
   services.accounts = services.accounts.filter((account) => account.provider !== "codex");
+  services.models = services.models.filter((model) => model.provider !== "codex");
   const codex = services.providerStatuses.find((status) => status.provider === "codex");
   if (codex) codex.auth = "unknown";
   await app.open("/settings/general");
@@ -59,7 +60,7 @@ test("a CLI whose ace accounts are all signed out is offered as not signed in", 
     "Claude Code (signed out)",
     "Codex",
     "OpenCode",
-    "Cursor",
+    "Cursor (needs attention)",
     "Pi",
     "Gemini CLI",
   ]);
@@ -80,7 +81,7 @@ test("a CLI discovery didn't find isn't offered, but the stored choice of it sta
     "Claude Code (not installed)",
     "Codex",
     "OpenCode",
-    "Cursor",
+    "Cursor (needs attention)",
     "Pi",
     "Gemini CLI",
   ]);

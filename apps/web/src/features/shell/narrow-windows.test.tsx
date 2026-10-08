@@ -81,11 +81,11 @@ test("on a narrow window the sidebar is a sheet from the header, closing once a 
   await userEvent.click(await page.findByRole("link", { name: /Nightly dependency audit/ }));
   await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
 
-  // It covers the header's toggle, so it carries its own. It keeps the threads, not the view's list.
+  // The sheet carries its own toggle and opens the current view's list.
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const again = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(again).getByRole("complementary", { name: "Threads" })).toBeTruthy();
-  expect(within(again).queryByRole("complementary", { name: "Automations" })).toBeNull();
+  expect(within(again).getByRole("complementary", { name: "Automations" })).toBeTruthy();
+  expect(within(again).queryByRole("complementary", { name: "Threads" })).toBeNull();
   await userEvent.click(within(again).getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });

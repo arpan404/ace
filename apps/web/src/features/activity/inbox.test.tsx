@@ -298,12 +298,12 @@ test("Shift-clicking feed rows picks them, and the picked ones are marked read t
   expect(within(rowOf(feed, "Checks failed on #74")).queryByText("Unread")).toBeNull();
 });
 
-test("the first run says it once: one line in the list, one state in the main column", async () => {
+test("the first run explains its empty state once in the main column", async () => {
   const app = harness();
   await app.open("/activity");
   const sidebar = await screen.findByRole("complementary", { name: "Activity" });
-  expect(await within(sidebar).findByText("No activity yet")).toBeTruthy();
   expect(await main().findByText("You're all caught up")).toBeTruthy();
+  expect(within(sidebar).queryByText("No activity yet")).toBeNull();
   expect(within(sidebar).queryByText("You're all caught up")).toBeNull();
 });
 

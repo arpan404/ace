@@ -69,7 +69,8 @@ test("on a settled thread, the palette brings it back to the list", async () => 
   await userEvent.type(search, "unsettle this");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByText("Back in the list · Bump Codex app-server to 0.48")).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  expect(await screen.findByRole("link", { name: /^Bump Codex app-server to 0.48/ })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
 });
 
 test("the palette offers no Settle for a thread that is still working", async () => {

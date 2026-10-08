@@ -40,6 +40,7 @@ test("support export excludes conversations by default and downloads the chosen 
 });
 test("Setup explains how to install the connected computer's missing device tools", async () => {
   await harness().open("/setup");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const tools = await screen.findByRole("region", { name: "Computer tools" });
   expect(await within(tools).findByText(/Install Xcode from the App Store/)).toBeTruthy();
   expect(within(tools).getByText(/Install Android Studio/)).toBeTruthy();
