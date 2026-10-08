@@ -65,6 +65,11 @@ export function entryStatus(entry: ProviderEntry): {
       text: view.summary,
       problem: view.tone === "problem" ? view.detail : undefined,
     };
+  if (install.kind !== "acp")
+    return {
+      tone: "idle",
+      text: install.state === "not_installed" ? "Not installed" : "Checking…",
+    };
   if (install.added) return { tone: "idle", text: "Added by command" };
   const listed = install.registry?.agent;
   if (install.registry && listed && compareVersions(listed.version, install.registry.version) > 0)

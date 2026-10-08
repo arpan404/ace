@@ -66,7 +66,7 @@ export function ProviderUsage(props: { provider: string; acpAgentId?: string | u
           </dd>
           <dd className="text-xs text-subtle-foreground">
             {usage.daily.data && cost.apiPrice === null
-              ? "No API prices for these models."
+              ? "No complete API-price estimate for this usage."
               : cost.unpricedTokens
                 ? `Estimate. Leaves out ${formatTokens(cost.unpricedTokens)} tokens without a price.`
                 : "Estimate. What these tokens would cost on an API key."}

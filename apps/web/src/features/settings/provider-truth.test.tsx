@@ -174,11 +174,11 @@ test("Gemini's usage excludes token history belonging to another ACP agent", asy
   expect(meter(list, "Daily")).toBe("71");
 });
 
-test("API-price estimates say when part of the provider's usage has no price", async () => {
+test("missing model prices never produce a complete API-price estimate", async () => {
   const app = harness();
   await app.open("/settings/providers/opencode");
   const usage = await screen.findByRole("region", { name: "Usage" });
   expect(
-    await within(usage).findByText(/Estimate. Leaves out .* tokens without a price/),
+    await within(usage).findByText("No complete API-price estimate for this usage."),
   ).toBeTruthy();
 });

@@ -17,7 +17,7 @@ export interface AccountStatusView {
 /** Authentication and live limits in the same words on every account surface. */
 export function accountStatus(account: AccountView, now: number): AccountStatusView {
   if (account.runtimeStatus && !account.runtimeStatus.canRun) return account.runtimeStatus;
-  if (account.quota.auth === "unknown" && account.runtimeStatus?.canRun) {
+  if (account.quota.auth !== "logged_in" && account.runtimeStatus?.canRun) {
     const limits = availability({ ...account.quota, auth: "logged_in" }, now);
     if (limits === "exhausted") return { tone: "problem", text: "Limit reached", canRun: false };
     if (limits === "near_limit") return { tone: "action", text: "Near its limit", canRun: true };
@@ -86,7 +86,10 @@ export function providerAccountModel(input: {
       quota,
       signedIn: quota.auth === "logged_in",
       runtimeStatus:
-        (quota.auth === "unknown" || base?.state === "attention") && base
+        (quota.auth === "unknown" ||
+          base?.state === "attention" ||
+          (quota.auth === "logged_out" && base?.ready && base.upstreams)) &&
+        base
           ? { tone: base.tone, text: base.ready ? "Ready" : base.label, canRun: base.ready }
           : undefined,
       availability: availability(quota, input.now),
@@ -105,7 +108,7 @@ export function providerAccountModel(input: {
   if (runnable || (base?.ready && !accounts.length)) {
     const label = runnable ? accountStatus(runnable, input.now).text : (base?.label ?? "Ready");
     const summary =
-      runnable?.implicit && input.row?.accountLabel
+      runnable?.implicit && runnable.quota.auth === "logged_in" && input.row?.accountLabel
         ? `Signed in as ${input.row.accountLabel}`
         : runnable
           ? label

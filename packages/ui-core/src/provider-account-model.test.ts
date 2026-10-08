@@ -122,3 +122,17 @@ test("model evidence never bypasses a live limit on an unreported login", () => 
   expect(model.view?.ready).toBe(false);
   expect(model.view?.primary).toBeUndefined();
 });
+
+test("OpenCode can offer credential-free models while its normal profile is signed out", () => {
+  const normal = { ...account("normal", "logged_out", 0, true), provider: "opencode" as const };
+  const model = providerAccountModel({
+    provider: "opencode",
+    now: 10,
+    accounts: [normal],
+    row: { ...row, provider: "opencode", modelsAvailable: true },
+  });
+  expect(model.view?.ready).toBe(true);
+  expect(model.view?.summary).toBe("Ready");
+  expect(model.view?.primary).toBeUndefined();
+  expect(accountStatus(model.accounts[0] ?? normal, 10).canRun).toBe(true);
+});
