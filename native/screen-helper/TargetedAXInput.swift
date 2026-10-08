@@ -10,14 +10,14 @@ import ScreenCaptureKit
     guard AXUIElementCopyElementAtPosition(AXUIElementCreateApplication(pid), Float(point.x), Float(point.y), &hit) == .success, let hit else { return false }
     var actualPid: pid_t = 0
     guard AXUIElementGetPid(hit, &actualPid) == .success, actualPid == pid else { return false }
-    let expected = try currentWindowBounds(window)
+    _ = try currentWindowBounds(window)
     let containing: AXUIElement
     if (axAttribute(hit, kAXRoleAttribute) as? String) == kAXWindowRole { containing = hit }
     else {
         guard let value = axAttribute(hit, kAXWindowAttribute), CFGetTypeID(value) == AXUIElementGetTypeID() else { return false }
         containing = value as! AXUIElement
     }
-    guard axBounds(containing).rect == expected else { return false }
+    guard try WindowResolver().identity(containing, pid: pid) == window.windowID else { return false }
     var element = hit
     for _ in 0..<8 {
         let actions = axActionNames(element)

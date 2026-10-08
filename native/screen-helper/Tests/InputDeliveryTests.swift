@@ -15,6 +15,17 @@ final class InputDeliveryTests: XCTestCase {
         XCTAssertEqual(window, 42)
         XCTAssertEqual(text, "é")
     }
+    func testForegroundKeysStopBeforePostingWhenTheHumanChangesAppOrWindow() throws {
+        var posted: [String] = []
+        func send(_ name: String, pid: pid_t?, window: UInt32?) throws {
+            try verifyKeyboardDestination(expectedPID: 42, expectedWindow: 7, actualPID: pid, actualWindow: window)
+            posted.append(name)
+        }
+        try send("down", pid: 42, window: 7)
+        XCTAssertThrowsError(try send("up", pid: 43, window: 7))
+        XCTAssertThrowsError(try send("next", pid: 42, window: 8))
+        XCTAssertEqual(posted, ["down"])
+    }
     func testBackgroundUnicodeIsDeliveredOnlyToTheSelectedProcess() throws {
         let event = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
         let units = Array("こんにちは 👋".utf16)
@@ -41,7 +52,7 @@ final class InputDeliveryTests: XCTestCase {
     @MainActor func testBackgroundLaunchPreservesTheHumanApplication() async throws {
         let original = FocusState(pid: 42, cursor: .zero)
         var desktop = original
-        let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }, restore: { before, _ in desktop = before }))
+        let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }))
         let launched = try await backgroundLaunch(at: URL(fileURLWithPath: "/unused"), guardState: guardState, wait: {}, open: { _, configuration in
             if configuration.activates { desktop = FocusState(pid: 99, cursor: .zero) }
             return configuration.hides ? "hidden" : "visible"

@@ -6,12 +6,19 @@ pub type Result<T> = std::result::Result<T, Fault>;
 pub struct Fault {
     pub code: &'static str,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<&'static str>,
 }
 impl Fault {
+    pub fn phase(mut self, phase: &'static str) -> Self {
+        self.phase = Some(phase);
+        self
+    }
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into().chars().take(512).collect(),
+            phase: None,
         }
     }
 }
@@ -60,6 +67,9 @@ pub struct Request {
     pub to_y: Option<f64>,
     pub button: Option<String>,
     pub key: Option<String>,
+    pub url: Option<String>,
+    pub path: Option<Vec<String>>,
+    pub bundle_id: Option<String>,
     #[serde(default)]
     pub modifiers: Vec<String>,
     pub text: Option<String>,

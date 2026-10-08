@@ -3,8 +3,10 @@ import AppKit
 
 @MainActor final class Accessibility {
     struct Entry { let element: AXUIElement; let target: Target; let pid: pid_t; let observerEpoch: UInt64 }
+    var dispatched = false
+    let resolver: WindowResolver
     private let clock: () -> UInt64
-    init(clock: @escaping () -> UInt64) { self.clock = clock }
+    init(clock: @escaping () -> UInt64, resolver: WindowResolver? = nil) { self.clock = clock; self.resolver = resolver ?? WindowResolver() }
     private var entries: [String: Entry] = [:]
     private var buckets: [CFHashCode: [String]] = [:]
     private var serial: UInt64 = 0
@@ -29,22 +31,17 @@ import AppKit
         guard let target = request.target, let bundle = target.bundleId, ["app", "window"].contains(target.kind), target.bundleIds == nil, bundle.utf8.count <= 256, let allowlist = request.allowlist, allowlist.count <= 64, allowlist.contains(bundle) else { throw HelperError("Application approval required", code: "permission_denied") }
         if active == target, let cachedApp = NSRunningApplication(processIdentifier: pid), cachedApp.bundleIdentifier == bundle, !cachedApp.isTerminated, let root {
             guard axAttribute(root, kAXRoleAttribute) != nil else { throw HelperError("Accessible target is gone", code: "target_gone") }
+            if let id = target.windowId { return try resolver.resolve(id: id, pid: pid) }
             return root
         }
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first, !app.isTerminated else { throw HelperError("Target application is gone", code: "target_gone") }
+        let app = try targetApplication(target)
         if active == target, pid == app.processIdentifier, let root { return root }
         reset(); active = target; pid = app.processIdentifier
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, 0.05)
         if target.kind == "window" {
-            // Resolve public AX bounds against the approved CG window id; no private AX APIs.
-            guard let id = target.windowId, let windows = CGWindowListCopyWindowInfo([.optionIncludingWindow], id) as? [[String: Any]], let info = windows.first,
-                  let rawBounds = info[kCGWindowBounds as String] as? [String: Double], let x = rawBounds["X"], let y = rawBounds["Y"], let w = rawBounds["Width"], let h = rawBounds["Height"],
-                  (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid else { throw HelperError("Target window is gone", code: "target_gone") }
-            let expected = CGRect(x: x, y: y, width: w, height: h)
-            let matches = axWindows(application).filter { let actual = axBounds($0).rect; return abs(actual.minX - expected.minX) < 1 && abs(actual.minY - expected.minY) < 1 && abs(actual.width - expected.width) < 1 && abs(actual.height - expected.height) < 1 }
-            guard matches.count == 1 else { throw HelperError("Cannot resolve an unambiguous accessible window", code: "not_supported") }
-            root = matches.first
+            guard let id = target.windowId else { throw HelperError("Window ID required", code: "bounds") }
+            root = try resolver.resolve(id: id, pid: pid)
         } else { root = application }
         var created: AXObserver?
         let callback: AXObserverCallback = { _, element, notification, context in
@@ -63,6 +60,7 @@ import AppKit
         return root
     }
     private func changed(_ element: AXUIElement, notification: CFString) {
+        if [kAXWindowCreatedNotification, kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification, kAXFocusedUIElementChangedNotification, "AXLayoutChanged", "AXSelectedChildrenChanged"].contains(notification as String) { resolver.invalidate() }
         if notification as String == kAXUIElementDestroyedNotification {
             let hash = CFHash(element)
             for ref in buckets[hash] ?? [] { if let entry = entries[ref], CFEqual(entry.element, element) { entries.removeValue(forKey: ref) } }
@@ -102,7 +100,7 @@ import AppKit
             let ref = try reference(element)
             guard visited.insert(ref).inserted else { return nil }
             let snapshot = axSnapshot(element, ref: ref)
-            var node = snapshot.node; node.actions = axActions(element, secure: snapshot.secure); node.secondaryActions = axActionNames(element)
+            var node = snapshot.node; node.secondaryActions = axActionNames(element); node.actions = axActions(element, secure: snapshot.secure, native: node.secondaryActions)
             truncated = truncated || snapshot.truncated
             let size = try JSONEncoder().encode(node).count
             guard size <= bytes else { truncated = true; return nil }
@@ -144,7 +142,7 @@ import AppKit
             var node = snapshot.node; truncated = truncated || snapshot.truncated
             func contains(_ candidate: String, _ term: String?) -> Bool { term.map { candidate.localizedCaseInsensitiveContains($0) } ?? true }
             if contains(node.role, query.role), contains(node.name, query.name), contains([node.name, node.value ?? "", node.description ?? ""].joined(separator: " "), query.text) {
-                node.actions = axActions(element, secure: snapshot.secure); node.secondaryActions = axActionNames(element)
+                node.secondaryActions = axActionNames(element); node.actions = axActions(element, secure: snapshot.secure, native: node.secondaryActions)
                 let size = try JSONEncoder().encode(node).count
                 guard size <= bytes else { truncated = true; break }
                 bytes -= size; nodes.append(node); if nodes.count == limit { truncated = true; break }
@@ -178,6 +176,7 @@ import AppKit
         }
         if action == "focus", request.mode != "foreground", NSWorkspace.shared.frontmostApplication?.processIdentifier == entry.pid { throw HelperError("Background focus cannot change the human's focused field", code: "foreground_required") }
         let result: AXError
+        dispatched = true
         switch action {
         case "performSecondaryAction":
             guard let name = request.name, axActionNames(entry.element).contains(name) else { throw HelperError("Action is not advertised by this element", code: "not_supported") }
