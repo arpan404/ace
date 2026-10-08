@@ -215,17 +215,31 @@ export class DeckStore {
     try {
       const { runs, next } = await this.conductor.list({ limit: listLimit });
       if (epoch !== this.epoch) return;
+      // History is paged by the person; every live run must be discoverable immediately.
+      const visible = new Map(runs.map((run) => [run.id, run]));
+      let after: string | undefined;
+      do {
+        const page = await this.conductor.list({
+          active: true,
+          limit: listLimit,
+          ...(after ? { after } : {}),
+        });
+        if (epoch !== this.epoch) return;
+        for (const run of page.runs) visible.set(run.id, run);
+        after = page.next;
+      } while (after);
+      const summaries = [...visible.values()];
       const known = new Map(this.state.entries.map((entry) => [entry.summary.id, entry]));
       this.next = next;
       this.emit({
         ready: true,
         error: undefined,
         more: !!next,
-        entries: runs.map((summary) => ({ summary, view: known.get(summary.id)?.view })),
+        entries: summaries.map((summary) => ({ summary, view: known.get(summary.id)?.view })),
       });
       this.balance();
       await Promise.all(
-        runs.map((summary) =>
+        summaries.map((summary) =>
           this.watches.has(summary.id) ? undefined : this.read(summary.id, epoch),
         ),
       );

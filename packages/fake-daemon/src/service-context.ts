@@ -12,6 +12,7 @@ export interface FakeServiceContext {
   apply?(id: string, facts: readonly import("@ace/core").Fact[]): void;
   thread(id: string): ThreadView | undefined;
   threads(): Thread[];
+  deckWorkspace?(id: string, deck: import("@ace/protocol").DeckOwnership, retired: boolean): string;
   update(id: string, payload: EventPayload): void;
   /** Runs after `interaction.resolve` closes an interaction: its thread and adapter key. */
   onResolved?(

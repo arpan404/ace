@@ -65,10 +65,23 @@ export function fakeDelegations(
         const workerId = workerThread(run, card);
         const threadId = role === "worker" ? workerId : `${workerId}.review`;
         const provider = card.lane?.[role].provider ?? "codex";
+        const deck = {
+          deckId: run.id,
+          runId: run.id,
+          workspaceId: WorkspaceId.parse(run.workspaceId),
+          role,
+          laneId: `${card.id}.${role}`,
+        };
+        const workspaceId =
+          host?.deckWorkspace?.(
+            `${threadId}.workspace`,
+            deck,
+            ["cancelled", "merged"].includes(run.phase),
+          ) ?? run.workspaceId;
         if (host && !host.thread(threadId)) {
           host.createThread?.({
             id: threadId,
-            workspaceId: run.workspaceId,
+            workspaceId,
             title: `Deck ${role}: ${card.id}`,
             provider,
           });
@@ -84,13 +97,6 @@ export function fakeDelegations(
             },
           ]);
         }
-        const deck = {
-          deckId: run.id,
-          runId: run.id,
-          workspaceId: WorkspaceId.parse(run.workspaceId),
-          role,
-          laneId: `${card.id}.${role}`,
-        };
         if (host && JSON.stringify(host.thread(threadId)?.thread.deck) !== JSON.stringify(deck))
           host.update(threadId, { type: "thread.client.updated", changes: { deck } });
         const settled =

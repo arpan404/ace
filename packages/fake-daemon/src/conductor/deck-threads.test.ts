@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { Client, ConductorClient } from "@ace/client";
-import { DeviceId, InteractionId, ThreadId } from "@ace/protocol";
+import { DeviceId, InteractionId, ThreadId, type InteractionResolution } from "@ace/protocol";
 import { FakeDaemon, fakeTransport, workbenchServices } from "../index.ts";
 
 async function connected() {
@@ -29,11 +29,11 @@ async function connected() {
   return { daemon, client, decks: new ConductorClient(client, () => `watch-${++sequence}`) };
 }
 
-const resolve = (client: Client, interactionId: string, resolution: object) =>
+const resolve = (client: Client, interactionId: string, resolution: InteractionResolution) =>
   client.command({
     type: "interaction.resolve",
     interactionId: InteractionId.parse(interactionId),
-    resolution: resolution as never,
+    resolution,
   });
 
 test("a worker's question is a provider gate answered through its own thread", async () => {
@@ -65,6 +65,43 @@ test("a worker's question is a provider gate answered through its own thread", a
 
     const after = await decks.get("mobile-cold-start");
     expect(after.needsUser.map((entry) => entry.kind)).toEqual(["escalation"]);
+  } finally {
+    await client.close();
+  }
+});
+
+test("fake lane workspaces expose ownership and retire on cancellation while thread history stays readable", async () => {
+  const { daemon, client, decks } = await connected();
+  try {
+    const view = await decks.get("relay-streams");
+    const list = async () => {
+      const reply = await client.request({
+        type: "workspace.request",
+        operation: { op: "workspaces.list", limit: 100 },
+      });
+      if (reply.type !== "workspace.result" || reply.result.kind !== "workspaces")
+        throw new Error("Workspace list missing");
+      return reply.result.workspaces;
+    };
+    const owned = (await list()).filter((workspace) => workspace.deck?.runId === view.id);
+    expect(owned.length).toBeGreaterThan(0);
+    expect(owned.every((workspace) => workspace.deck?.workspaceId === view.workspaceId)).toBe(true);
+    expect(await client.command({ type: "conductor.cancel", runId: view.id })).toMatchObject({
+      ok: true,
+    });
+    expect((await list()).filter((workspace) => workspace.deck?.runId === view.id)).toEqual([]);
+    const cancelled = await decks.get(view.id);
+    expect(cancelled.branch).toBe(view.branch);
+    expect(cancelled.delegations.map((edge) => edge.threadId)).toEqual(
+      view.delegations.map((edge) => edge.threadId),
+    );
+    for (const edge of cancelled.delegations) {
+      const thread = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(edge.threadId) });
+      expect(thread && "thread" in thread ? thread.thread : undefined).toMatchObject({
+        status: { state: "done" },
+        deck: { runId: view.id },
+      });
+    }
   } finally {
     await client.close();
   }

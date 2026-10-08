@@ -80,6 +80,7 @@ export class FakeProjects {
   }
   private seed(): void {
     for (const thread of this.context.threads()) {
+      if (thread.deck && thread.workspaceId !== thread.deck.workspaceId) continue;
       const id = thread.workspaceId;
       if (this.projects.has(id) || this.removed.has(id)) continue;
       const project = Project.parse(

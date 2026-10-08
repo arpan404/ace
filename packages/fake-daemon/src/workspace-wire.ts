@@ -17,6 +17,15 @@ import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
 export class FakeWorkspaceWire {
+  private deckWorkspaces = new Map<
+    string,
+    { id: string; name: string; path: string; deck: import("@ace/protocol").DeckOwnership }
+  >();
+  deckWorkspace(id: string, deck: import("@ace/protocol").DeckOwnership, retired: boolean): string {
+    if (retired) this.deckWorkspaces.delete(id);
+    else this.deckWorkspaces.set(id, { id, name: `deck/${id}`, path: `/fake/deck/${id}`, deck });
+    return id;
+  }
   readonly projects: FakeProjects;
   readonly terminals = new FakeTerminals();
   private context: FakeServiceContext;
@@ -67,12 +76,23 @@ export class FakeWorkspaceWire {
   }
   read(request: WorkspaceActionRequest) {
     const op = request.operation;
-    if (op.op === "workspaces.list")
+    if (op.op === "workspaces.list") {
+      const workspaces = [
+        ...this.projects.list("", 10000).workspaces,
+        ...this.deckWorkspaces.values(),
+      ]
+        .filter((workspace) => workspace.id > (op.after ?? ""))
+        .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: this.projects.list(op.after, op.limit),
+        result: {
+          kind: "workspaces",
+          workspaces: workspaces.slice(0, op.limit),
+          ...(workspaces.length > op.limit ? { next: workspaces[op.limit - 1]?.id } : {}),
+        },
       });
+    }
     if (op.op === "runs.list") {
       const all = Object.values(this.context.thread(op.threadId)?.runs ?? {}).filter(
         (run) => run.ordinal !== undefined,

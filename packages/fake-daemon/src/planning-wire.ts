@@ -8,6 +8,7 @@ import {
   type ConductorCommandPayload,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+import { compareRuns, cursorPosition, runCursor } from "@ace/conductor/pagination";
 import {
   fakeDeckAnswer,
   fakeDeckRoot,
@@ -106,15 +107,26 @@ export class FakePlanningWire {
     if (message.type === "conductor.request") {
       const op = message.operation;
       const base = { type: "conductor.result", requestId: message.requestId, ok: true };
-      if (op.op === "list")
+      if (op.op === "list") {
+        const ordered = this.conductor
+          .runs()
+          .filter((run) => !op.active || !["merged", "cancelled"].includes(run.phase))
+          .map((run) => Object.assign({}, run, { startedAt: run.createdAt }))
+          .toSorted(compareRuns);
+        const cursor = op.after
+          ? (cursorPosition(op.after) ?? ordered.find((run) => run.id === op.after))
+          : undefined;
+        if (op.after && !cursor) throw new Error("invalid_cursor");
+        const page = ordered
+          .filter((run) => !cursor || compareRuns(run, cursor) > 0)
+          .slice(0, op.limit + 1);
+        const last = page[op.limit - 1];
         return ServerMessage.parse({
           ...base,
-          runs: this.conductor
-            .runs()
-            .filter((run) => run.id > (op.after ?? ""))
-            .slice(0, op.limit)
-            .map((run) => this.view(run.id)),
+          runs: page.slice(0, op.limit).map((run) => this.view(run.id)),
+          ...(page.length > op.limit && last ? { next: runCursor(last) } : {}),
         });
+      }
       if (op.op === "unsubscribe") {
         subscriptions.get(op.subscriptionId)?.();
         subscriptions.delete(op.subscriptionId);

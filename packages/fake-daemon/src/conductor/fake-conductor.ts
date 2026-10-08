@@ -36,7 +36,6 @@ export class FakeConductor {
   }
   command(payload: ConductorCommandPayload): FakeConductorResult {
     if (payload.type === "conductor.start") {
-      if (this.list.length >= 64) return { ok: false, error: "run_limit" };
       if (this.find(payload.runId)) return { ok: false, error: "already_exists" };
       this.list = [draft(payload.runId, payload.spec, this.clock()), ...this.list];
       this.emit();
@@ -73,8 +72,14 @@ export class FakeConductor {
         return { ok: true };
       case "conductor.resume": {
         if (run.executionError) {
-          const { executionError: _, ...rest } = run;
-          this.replace(logged(rest, now, "You resumed the deck."));
+          if (run.retryAt !== undefined && now < run.retryAt) return { ok: true };
+          const {
+            executionError: _,
+            retryAt: _retryAt,
+            retryFailures: _retryFailures,
+            ...rest
+          } = run;
+          this.replace(schedule(logged(rest, now, "You resumed the deck."), now));
           return { ok: true };
         }
         const phase = this.paused.get(run.id);
@@ -102,7 +107,37 @@ export class FakeConductor {
   /** The conductor couldn't run the deck's next step; it stays stopped until resumed. */
   fail(runId: string, code: string): void {
     const run = this.find(runId);
-    if (run) this.replace({ ...run, executionError: code, updatedAt: this.clock() });
+    if (run)
+      this.replace({
+        ...run,
+        executionError: code,
+        updatedAt: this.clock(),
+        ...(["deck_capacity_wait", "deck_ci_pending", "deck_migration_pending"].includes(code)
+          ? {
+              retryAt:
+                this.clock() + Math.min(30_000, 1000 * 2 ** Math.min(run.retryFailures ?? 0, 5)),
+              retryFailures: Math.min((run.retryFailures ?? 0) + 1, 30),
+            }
+          : {}),
+      });
+  }
+  /** Host capacity is a retryable wait, independent of account count or elapsed lifetime. */
+  capacity(runId: string, available: number): void {
+    const run = this.find(runId);
+    if (!run) return;
+    if (!Number.isSafeInteger(available) || available < 0 || available > 64)
+      throw new Error("invalid_capacity");
+    if (!available) {
+      this.replace({ ...run, hostCapacity: available });
+      if (run.executionError !== "deck_capacity_wait") this.fail(runId, "deck_capacity_wait");
+      return;
+    }
+    if (run.retryAt !== undefined && this.clock() < run.retryAt) {
+      this.replace({ ...run, hostCapacity: available });
+      return;
+    }
+    const { executionError: _, retryAt: _retryAt, retryFailures: _retryFailures, ...rest } = run;
+    this.replace(schedule({ ...rest, hostCapacity: available }, this.clock()));
   }
   /** The person answered a worker's question: its card carries on. */
   answer(runId: string, cardId: string): void {
@@ -157,14 +192,20 @@ function schedule(run: FakeDeckRun, now: number): FakeDeckRun {
         );
   const merged = new Set(run.cards.filter((c) => c.state === "merged").map((c) => c.id));
   let spent = run.spent;
+  let live = run.cards.filter((card) =>
+    ["working", "fixing", "in_review", "escalated"].includes(card.state),
+  ).length;
+  const capacity = Math.min(run.maxParallel ?? 64, run.hostCapacity ?? 64);
   let blocked = false;
   const cards = run.cards.map((c) => {
     if (c.state !== "planned" || !c.dependencies.every((dep) => merged.has(dep))) return c;
+    if (live >= capacity) return c;
     if (spent + 1 > run.budget) {
       blocked = true;
       return c;
     }
     spent++;
+    live++;
     return {
       ...c,
       state: "working" as const,
@@ -377,6 +418,8 @@ function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
     deadline: spec.constraints.deadline,
     createdAt: now,
     updatedAt: now,
+    maxParallel: spec.constraints.maxParallel,
+    hostCapacity: 4,
   };
   // Not even the planner fits: the deck waits on its budget before any plan exists.
   if (spec.constraints.budget < 1)

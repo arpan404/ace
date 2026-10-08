@@ -111,6 +111,10 @@ export interface FakeDeckRun {
   deadline?: number | null;
   createdAt: number;
   updatedAt: number;
+  maxParallel?: number;
+  hostCapacity?: number;
+  retryAt?: number;
+  retryFailures?: number;
   /** Why the conductor couldn't run the deck's next step; cleared when it resumes. */
   executionError?: string;
 }
