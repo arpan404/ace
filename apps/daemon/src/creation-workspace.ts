@@ -1,3 +1,5 @@
+import type { CreationProgress } from "./creation-progress.ts";
+import { listScripts } from "./workspace-scripts.ts";
 import { GitError } from "@ace/git";
 import { cleanupOwnedWorktree } from "./owned-worktree.ts";
 import { CreationWorkspaceJournal, type CreationResource } from "./creation-workspace-journal.ts";
@@ -36,7 +38,10 @@ export class WorkspaceCreations {
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
   }
-  async prepare(command: Command): Promise<CreationWorkspace | undefined> {
+  async prepare(
+    command: Command,
+    progress?: CreationProgress,
+  ): Promise<CreationWorkspace | undefined> {
     const p = command.payload;
     if ((p.type !== "thread.create" && p.type !== "thread.prepare") || p.mode !== "worktree")
       return;
@@ -47,7 +52,7 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, requestedBase(p));
+    const task = this.create(id, project, requestedBase(p), progress);
     this.pending.set(id, task);
     try {
       return await task;
@@ -60,6 +65,7 @@ export class WorkspaceCreations {
     id: ThreadId,
     root: string,
     requested: RequestedBase,
+    progress?: CreationProgress,
   ): Promise<CreationWorkspace> {
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
@@ -77,11 +83,14 @@ export class WorkspaceCreations {
       if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
     }
     // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
+    progress?.controller.signal.throwIfAborted();
+    if (requested.kind === "branch" && requested.remote) progress?.update("fetching");
     const { head, record } = await resolveWorktreeBase(
       this.git,
       project,
       requested,
       this.fetchTimeoutMs,
+      progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {},
     );
     const resource: CreationResource = {
       id,
@@ -93,11 +102,36 @@ export class WorkspaceCreations {
       uncertain: 1,
     };
     this.journal.acquire(resource);
+    let ranSetup = false;
     try {
-      await this.git.createWorktree({ repo: project, path, branch, baseRef: head });
+      await this.git.createWorktree({
+        repo: project,
+        path,
+        branch,
+        baseRef: head,
+        ...(progress
+          ? {
+              signal: progress.controller.signal,
+              stderr: progress.stderr,
+              onProgress: (value) => progress.update(value.step, value.percent),
+            }
+          : {}),
+      });
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;
+      const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
+      for (const script of scripts) {
+        progress?.controller.signal.throwIfAborted();
+        progress?.update("setup");
+        ranSetup = true;
+        await this.git.setupWorktree({
+          worktree: path,
+          command: script.command,
+          ...(progress ? { stderr: progress.stderr } : {}),
+        });
+      }
+      progress?.controller.signal.throwIfAborted();
     } catch (error) {
       if (
         error instanceof GitError &&
@@ -108,7 +142,11 @@ export class WorkspaceCreations {
         this.journal.failedBeforeCreation(id);
         resource.uncertain = 0;
       }
-      await this.cleanup(resource);
+      try {
+        await this.cleanup(resource, ranSetup ? { force: true } : {});
+      } catch {
+        throw new Error("workspace_cleanup_required");
+      }
       throw error;
     }
     // The new branch starts at the commit, not the base's ref, so it gets no upstream: its
@@ -126,16 +164,22 @@ export class WorkspaceCreations {
       await lease.release();
       throw new Error("workspace_closed");
     }
+    progress?.update("done");
     return lease;
   }
-  private cleanup(resource: CreationResource): Promise<void> {
+  private cleanup(resource: CreationResource, options: { force?: boolean } = {}): Promise<void> {
     const existing = this.cleanups.get(resource.id);
     if (existing) return existing;
-    const task = this.cleanupResource(resource).finally(() => this.cleanups.delete(resource.id));
+    const task = this.cleanupResource(resource, options).finally(() =>
+      this.cleanups.delete(resource.id),
+    );
     this.cleanups.set(resource.id, task);
     return task;
   }
-  private async cleanupResource(resource: CreationResource): Promise<void> {
+  private async cleanupResource(
+    resource: CreationResource,
+    options: { force?: boolean },
+  ): Promise<void> {
     if (this.store.getThread(resource.id)?.details?.worktree !== resource.path) {
       await cleanupOwnedWorktree(
         this.git,
@@ -151,6 +195,7 @@ export class WorkspaceCreations {
           this.journal.head(resource.id, head);
           resource.cleanup_head = head;
         },
+        options,
       );
     }
     this.journal.release(resource.id);
@@ -160,6 +205,11 @@ export class WorkspaceCreations {
     const resources = this.journal.list();
     if (resources.length > 16) throw new Error("workspace_busy");
     await Promise.all(resources.map((resource) => this.cleanup(resource)));
+  }
+  async ready(id?: ThreadId): Promise<void> {
+    await this.recovery;
+    if (id && this.journal.list().some((resource) => resource.id === id))
+      throw new Error("workspace_cleanup_required");
   }
   async close(): Promise<void> {
     this.closing = true;

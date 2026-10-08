@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorktreeCreationRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "get",
+        "cancel",
+        "local",
+        "retry"
+      ],
+      "type": "string"
+    },
+    "commandId": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "worktree.creation.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "commandId",
+    "action"
+  ],
+  "type": "object"
+}

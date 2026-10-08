@@ -1,3 +1,4 @@
+import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
@@ -46,6 +47,7 @@ export interface WorkspaceRuntimeOptions {
   machine?: { host: string; name: string };
 }
 export class WorkspaceRuntime {
+  readonly creationDrafts: CreationDrafts;
   readonly git: WorkspaceGit;
   readonly forge: WorkspaceForge;
   readonly commands: AsyncCommands;
@@ -66,6 +68,7 @@ export class WorkspaceRuntime {
     options: WorkspaceRuntimeOptions = {},
   ) {
     this.store = store;
+    this.creationDrafts = new CreationDrafts(store, now);
     initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
@@ -97,8 +100,11 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
-  prepareCreation(command: Command) {
-    return this.roots.prepareCreation(command);
+  prepareCreation(command: Command, progress?: CreationProgress) {
+    return this.roots.prepareCreation(command, progress);
+  }
+  localCreation(command: Command) {
+    return this.roots.localCreation(command);
   }
   details(id: ThreadId): Promise<ThreadDetails> {
     return this.roots.details(id);

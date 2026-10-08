@@ -191,6 +191,9 @@
     "worktree": {
       "maxLength": 4096,
       "type": "string"
+    },
+    "worktreeCreation": {
+      "$ref": "https://ace.local/protocol/v1/WorktreeCreationProgress.json"
     }
   },
   "type": "object"

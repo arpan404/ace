@@ -12,6 +12,14 @@ export interface CreateWorktreeOptions {
   baseRef: string;
   branch: string;
   reuseBranch?: boolean;
+  /** Cancellation is cooperative between checkout batches; in-flight writers keep their lease. */
+  signal?: AbortSignal;
+  onProgress?: (progress: WorktreeProgress) => void;
+  stderr?: (chunk: Buffer) => void;
+}
+export interface WorktreeProgress {
+  step: "creating" | "checking_out";
+  percent?: number;
 }
 
 export async function createWorktree(
@@ -21,6 +29,7 @@ export async function createWorktree(
   const root = await repository.root(options.repo);
   return repository.serial(root, async () => {
     const { cli } = repository;
+    checkCancellation(options.signal);
     const valid = await cli.call(root, ["check-ref-format", `refs/heads/${options.branch}`], {
       allowFailure: true,
     });
@@ -38,19 +47,25 @@ export async function createWorktree(
     }
     const path = resolve(options.path);
     const branchArgs = exists.exitCode === 0 ? [] : ["-b", options.branch];
+    const staged = options.onProgress !== undefined || options.signal !== undefined;
+    options.onProgress?.({ step: "creating" });
     try {
+      checkCancellation(options.signal);
       await cli.call(
         root,
         [
           "worktree",
           "add",
+          ...(staged ? ["--no-checkout"] : []),
           ...branchArgs,
           "--",
           path,
           exists.exitCode === 0 ? options.branch : sha,
         ],
-        { write: true },
+        { write: true, ...(options.stderr ? { stderr: options.stderr } : {}) },
       );
+      if (staged) await checkoutFiles(repository, path, options);
+      checkCancellation(options.signal);
       const canonical = await realpath(path);
       const trees = await repository.worktrees(root);
       const tree = trees.find(
@@ -71,7 +86,7 @@ export async function createWorktree(
             resolve(tree.path) === path && tree.branch === options.branch && tree.head === sha,
         );
         if (owned)
-          await cli.call(root, ["worktree", "remove", "--", path], {
+          await cli.call(root, ["worktree", "remove", ...(staged ? ["--force"] : []), "--", path], {
             write: true,
             allowFailure: true,
           });
@@ -139,4 +154,47 @@ export async function removeWorktree(
       { write: true },
     );
   });
+}
+
+function checkCancellation(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new GitError("git_cancelled", "Worktree creation cancelled");
+}
+
+async function checkoutFiles(repository: Repository, path: string, options: CreateWorktreeOptions) {
+  const { cli } = repository;
+  checkCancellation(options.signal);
+  options.onProgress?.({ step: "checking_out", percent: 0 });
+  await cli.call(path, ["read-tree", "HEAD"], { write: true });
+  const listing = await cli.call(path, ["ls-files", "-z"]);
+  // Retain bytes: Git paths need not be valid UTF-8. The CLI bounds this listing at 64 MiB.
+  let total = 0;
+  for (let index = 0; index < listing.stdout.length; index++)
+    if (listing.stdout[index] === 0) total++;
+  let offset = 0;
+  let completed = 0;
+  let reported = 0;
+  while (completed < total) {
+    checkCancellation(options.signal);
+    const start = offset;
+    const batchEnd = Math.min(completed + 128, total);
+    while (completed < batchEnd) {
+      const end = listing.stdout.indexOf(0, offset);
+      if (end <= offset) throw new GitError("malformed_output", "Invalid checkout path listing");
+      offset = end + 1;
+      completed++;
+    }
+    await cli.call(path, ["checkout-index", "--force", "--stdin", "-z"], {
+      write: true,
+      input: listing.stdout.subarray(start, offset),
+      ...(options.stderr ? { stderr: options.stderr } : {}),
+    });
+    const percent = Math.floor((completed * 100) / total);
+    if (percent > reported) {
+      reported = percent;
+      options.onProgress?.({ step: "checking_out", percent });
+    }
+  }
+  if (offset !== listing.stdout.length)
+    throw new GitError("malformed_output", "Invalid checkout path listing");
+  if (!total) options.onProgress?.({ step: "checking_out", percent: 100 });
 }

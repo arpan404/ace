@@ -44,6 +44,7 @@ export async function resolveWorktreeBase(
   project: string,
   requested: RequestedBase,
   fetchTimeoutMs: number,
+  io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void } = {},
 ): Promise<{ head: string; record?: WorktreeBaseRecord }> {
   if (requested.kind === "revision")
     return { head: await git.resolveCommit({ worktree: project, ref: requested.revision }) };
@@ -55,7 +56,7 @@ export async function resolveWorktreeBase(
   }
   let fetch: "fetched" | "unreachable" = "fetched";
   try {
-    await git.fetchBranch({ repo: project, remote, branch: ref, timeoutMs: fetchTimeoutMs });
+    await git.fetchBranch({ repo: project, remote, branch: ref, timeoutMs: fetchTimeoutMs, ...io });
   } catch (error) {
     if (!(error instanceof GitError)) throw error;
     if (missing.has(error.code)) throw notFound(requested);

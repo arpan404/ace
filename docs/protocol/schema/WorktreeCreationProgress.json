@@ -1,0 +1,129 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorktreeCreationProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actions": {
+      "items": {
+        "enum": [
+          "cancel",
+          "local",
+          "retry"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "attempt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cleanupComplete": {
+      "type": "boolean"
+    },
+    "commandId": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "details": {
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "elapsedMs": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "message": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "percent": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "running",
+        "cancelling",
+        "cancelled",
+        "failed",
+        "done",
+        "local"
+      ],
+      "type": "string"
+    },
+    "step": {
+      "enum": [
+        "preparing",
+        "fetching",
+        "creating",
+        "checking_out",
+        "setup",
+        "done"
+      ],
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "properties": {
+          "elapsedMs": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "startedAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step": {
+            "enum": [
+              "preparing",
+              "fetching",
+              "creating",
+              "checking_out",
+              "setup",
+              "done"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "startedAt",
+          "elapsedMs"
+        ],
+        "type": "object"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "commandId",
+    "attempt",
+    "state",
+    "step",
+    "startedAt",
+    "elapsedMs",
+    "steps",
+    "details",
+    "cleanupComplete",
+    "actions"
+  ],
+  "type": "object"
+}

@@ -108,3 +108,4 @@ export * from "./provider-login.ts";
 
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";
+export * from "./worktree-creation.ts";
