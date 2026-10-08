@@ -102,7 +102,13 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 };
               if (error instanceof Error && "code" in error) {
                 const code = PublicToolCode.safeParse(error.code);
-                if (code.success) throw new PublicToolError(code.data);
+                if (code.success)
+                  throw new PublicToolError(
+                    code.data,
+                    undefined,
+                    "phase" in error ? error.phase : undefined,
+                    "candidates" in error ? error.candidates : undefined,
+                  );
               }
               throw error;
             }

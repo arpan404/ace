@@ -2,6 +2,52 @@
   "$id": "https://ace.local/protocol/v1/ScreenError.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "candidates": {
+      "items": {
+        "properties": {
+          "bounds": {
+            "properties": {
+              "h": {
+                "type": "number"
+              },
+              "w": {
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "w",
+              "h"
+            ],
+            "type": "object"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "windowId": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "windowId",
+          "title",
+          "bounds"
+        ],
+        "type": "object"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
     "code": {
       "enum": [
         "forbidden",
@@ -22,12 +68,25 @@
         "window_minimized",
         "window_offscreen",
         "secure_input_required",
-        "clipboard_changed"
+        "clipboard_changed",
+        "window_ambiguous",
+        "key_unsupported",
+        "modifier_unsupported",
+        "no_key_window",
+        "delivery_unconfirmed"
       ],
       "type": "string"
     },
     "message": {
       "maxLength": 1024,
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "rejected-before-dispatch",
+        "dispatched",
+        "partial"
+      ],
       "type": "string"
     }
   },

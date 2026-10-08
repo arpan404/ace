@@ -30,8 +30,29 @@ export const ScreenError = z.object({
     "window_offscreen",
     "secure_input_required",
     "clipboard_changed",
+    "window_ambiguous",
+    "key_unsupported",
+    "modifier_unsupported",
+    "no_key_window",
+    "delivery_unconfirmed",
   ]),
   message: z.string().max(1024),
+  phase: z.enum(["rejected-before-dispatch", "dispatched", "partial"]).optional(),
+  candidates: z
+    .array(
+      z.object({
+        windowId: z.number().int().nonnegative(),
+        title: z.string().max(256),
+        bounds: z.object({
+          x: z.number().finite(),
+          y: z.number().finite(),
+          w: z.number().finite(),
+          h: z.number().finite(),
+        }),
+      }),
+    )
+    .max(128)
+    .optional(),
 });
 export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
@@ -202,6 +223,8 @@ export const ScreenUIActResult = z.object({
   fallback: z.boolean(),
   mode: z.enum(["background", "foreground"]).optional(),
   snapshot: ScreenUITreeResult.optional(),
+  warnings: z.array(z.string().max(1024)).max(8).optional(),
+  phase: z.enum(["rejected-before-dispatch", "dispatched", "partial"]).optional(),
   method: z.string().max(64).optional(),
   boundsCentre: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
 });
@@ -266,6 +289,18 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
   Envelope.extend({ op: z.literal("permissions") }),
   Envelope.extend({ op: z.literal("targets") }),
+  Envelope.extend({
+    op: z.literal("open.url"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+    url: z.string().min(1).max(8192),
+  }),
+  Envelope.extend({
+    op: z.literal("menu.press"),
+    path: z.array(z.string().min(1).max(256)).min(1).max(8),
+    target: ScreenTarget.optional(),
+    allowlist: z.array(ScreenBundle).max(64).optional(),
+  }),
   Envelope.extend({ op: z.literal("stop") }),
   Envelope.extend({
     op: z.literal("start"),

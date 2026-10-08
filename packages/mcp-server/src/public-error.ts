@@ -12,6 +12,11 @@ export const PublicToolCode = z.enum([
   "window_offscreen",
   "secure_input_required",
   "clipboard_changed",
+  "window_ambiguous",
+  "key_unsupported",
+  "modifier_unsupported",
+  "no_key_window",
+  "delivery_unconfirmed",
   "invalid_arguments",
   "invalid_data",
   "execution_failed",
@@ -58,6 +63,10 @@ export const PublicToolCode = z.enum([
   "limit",
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
+const candidateIds = z
+  .array(z.object({ windowId: z.number().int().min(0).max(0xffffffff) }))
+  .max(128);
+const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   screen_disabled: {
     message: "Computer use is disabled",
@@ -80,8 +89,28 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Ask the human to restore the window.",
   },
   window_offscreen: {
-    message: "Target window is outside display bounds",
-    hint: "Ask the human to reposition the window.",
+    message: "Foreground pointer input cannot reach this off-display window",
+    hint: "Use background semantic input or capture for this target.",
+  },
+  window_ambiguous: {
+    message: "The helper cannot uniquely identify the selected window",
+    hint: "Refresh window candidates and select an exact window ID.",
+  },
+  key_unsupported: {
+    message: "Unsupported key name",
+    hint: "Pass a single key separately from modifiers. Letters, digits, punctuation, F1-F20, ArrowLeft/Right/Up/Down and Esc are accepted on macOS.",
+  },
+  modifier_unsupported: {
+    message: "Unsupported keyboard modifier",
+    hint: "Use command, shift, option, control, alt, meta or super.",
+  },
+  no_key_window: {
+    message: "The selected window has no verified keyboard destination",
+    hint: "Use ui.act on a field, or the helper's menu.press/open.url operations. Do not replay input into a different window.",
+  },
+  delivery_unconfirmed: {
+    message: "Input was dispatched but its effect is unconfirmed",
+    hint: "Inspect the destination before continuing. Do not retry automatically or assume foreground input is required.",
   },
   secure_input_required: {
     message: "Secure text needs session consent",
@@ -269,10 +298,22 @@ export class PublicToolError extends Error {
   readonly code: PublicToolCode;
   readonly hint: string;
   readonly permission: DeviceFailure["permission"];
-  constructor(code: PublicToolCode, permission?: DeviceFailure["permission"]) {
+  readonly phase: z.infer<typeof dispatchPhase> | undefined;
+  readonly candidates: z.infer<typeof candidateIds> | undefined;
+  constructor(
+    code: PublicToolCode,
+    permission?: DeviceFailure["permission"],
+    phase?: unknown,
+    candidates?: unknown,
+  ) {
     const detail = catalog[code];
     super(detail.message);
     this.code = code;
+    const parsedCandidates = candidateIds.safeParse(candidates);
+    this.candidates =
+      code === "window_ambiguous" && parsedCandidates.success ? parsedCandidates.data : undefined;
+    const parsedPhase = dispatchPhase.safeParse(phase);
+    this.phase = parsedPhase.success ? parsedPhase.data : undefined;
     const parsed = DeviceFailure.shape.permission.safeParse(permission);
     this.permission = code === "permission_denied" && parsed.success ? parsed.data : undefined;
     this.hint =
