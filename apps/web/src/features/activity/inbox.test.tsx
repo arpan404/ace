@@ -387,6 +387,7 @@ test("All opens the first run when nothing needs you, and empty tabs clear that 
   const app = harness();
   app.daemon.seedServices({ ...workbenchServices(Date.now()), decks: [] });
   await app.open("/activity");
+  await screen.findByRole("main");
   expect(await main().findByRole("article", { name: "Review pull requests on open" })).toBeTruthy();
   const sidebar = within(screen.getByRole("complementary", { name: "Activity" }));
   await userEvent.click(sidebar.getByRole("tab", { name: "Mentions" }));
