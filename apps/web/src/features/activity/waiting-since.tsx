@@ -3,7 +3,6 @@ import { useThread } from "@ace/client-react";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useThreadIdsWhere } from "@/features/shell/index.ts";
-import { useDeckEvents } from "./escalations.ts";
 
 /** When a thread's oldest open request was made: the moment it started waiting on you. */
 function oldestPending(reader: ThreadReader): number | undefined {
@@ -29,9 +28,7 @@ const Context = createContext<ReadonlyMap<string, number>>(new Map());
  * listed oldest first the same way in the sidebar and the main column.
  */
 export function WaitingSinceProvider(props: { children: ReactNode }) {
-  // A deck's own threads wait as the deck's decision, which has its own time.
-  const owned = useDeckEvents().threads;
-  const ids = useThreadIdsWhere(needsYou).filter((id) => !owned.has(id));
+  const ids = useThreadIdsWhere(needsYou);
   const [since, setSince] = useState<ReadonlyMap<string, number>>(() => new Map());
   const report = useCallback(
     (threadId: string, at: number) =>

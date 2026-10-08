@@ -4,7 +4,7 @@ import { ViewFrame } from "@/features/shell/index.ts";
 
 export const Route = createFileRoute("/settings")({
   component: () => (
-    <ViewFrame label="Settings" sidebar={<SettingsNav />}>
+    <ViewFrame label="Settings" sidebar={<SettingsNav />} place="sidebar">
       <Outlet />
     </ViewFrame>
   ),

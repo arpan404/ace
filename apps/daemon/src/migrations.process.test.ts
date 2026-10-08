@@ -167,9 +167,9 @@ test("an interrupted numbered upgrade rolls back and can retry without losing ac
     store = new Store(path);
     expect(store.getThread(oldThread.id)).toMatchObject(oldThread);
     expect(store.headSeq()).toBe(1);
-    expect(db.prepare("SELECT version FROM schema_version WHERE id=1").get()).toMatchObject({
-      version: 13,
-    });
+    expect(
+      db.prepare("SELECT version FROM schema_version WHERE id=1").get()?.version,
+    ).toBeGreaterThan(12);
     // Once committed, a future open must not try the numbered step again.
     db.exec(`CREATE TRIGGER no_repeat BEFORE UPDATE OF version ON schema_version
       BEGIN SELECT RAISE(ABORT,'committed upgrade repeated'); END;`);

@@ -30,6 +30,7 @@ import {
   DeferredTurnKeys,
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
+import { JumpedItem } from "../items/jumped-item.ts";
 import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
 import { useLocalSendsView } from "../composer/send-store.ts";
 import { readingColumn } from "../lib/column.ts";
@@ -516,46 +517,48 @@ export function Feed(props: FeedProps) {
               className="relative w-full"
               style={{ height: total }}
             >
-              {items.map((item) => {
-                const row = rows[item.index];
-                if (!row) return null;
-                const lit = flash?.key === row.key;
-                return (
-                  <div
-                    key={item.key}
-                    ref={virtualizer.measureElement}
-                    data-index={item.index}
-                    role="article"
-                    aria-posinset={item.index + 1}
-                    aria-setsize={hasOlder ? -1 : rows.length}
-                    {...(lit && flash?.hit ? { "data-hit": "" } : {})}
-                    className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
-                    style={{ transform: `translateY(${item.start - margin}px)` }}
-                  >
+              <JumpedItem value={focus?.itemId}>
+                {items.map((item) => {
+                  const row = rows[item.index];
+                  if (!row) return null;
+                  const lit = flash?.key === row.key;
+                  return (
                     <div
-                      className={entering.has(row.key) ? "fx-rise-in" : undefined}
-                      style={lit ? highlight : undefined}
+                      key={item.key}
+                      ref={virtualizer.measureElement}
+                      data-index={item.index}
+                      role="article"
+                      aria-posinset={item.index + 1}
+                      aria-setsize={hasOlder ? -1 : rows.length}
+                      {...(lit && flash?.hit ? { "data-hit": "" } : {})}
+                      className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
+                      style={{ transform: `translateY(${item.start - margin}px)` }}
                     >
-                      {dividerRow === row.key && <NewActivity />}
-                      <RowView
-                        threadId={threadId}
-                        row={row}
-                        live={row.key === liveBlock}
-                        onOpen={(ordinal) =>
-                          setOpened((previous) => new Set(previous).add(ordinal))
-                        }
-                        onFold={(ordinal) =>
-                          setOpened((previous) => {
-                            const next = new Set(previous);
-                            next.delete(ordinal);
-                            return next;
-                          })
-                        }
-                      />
+                      <div
+                        className={entering.has(row.key) ? "fx-rise-in" : undefined}
+                        style={lit ? highlight : undefined}
+                      >
+                        {dividerRow === row.key && <NewActivity />}
+                        <RowView
+                          threadId={threadId}
+                          row={row}
+                          live={row.key === liveBlock}
+                          onOpen={(ordinal) =>
+                            setOpened((previous) => new Set(previous).add(ordinal))
+                          }
+                          onFold={(ordinal) =>
+                            setOpened((previous) => {
+                              const next = new Set(previous);
+                              next.delete(ordinal);
+                              return next;
+                            })
+                          }
+                        />
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </JumpedItem>
             </div>
             {detached ? (
               <Suspense fallback={null}>

@@ -20,7 +20,10 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          globalSetup: ["./scripts/test-home-global-setup.ts"],
+          globalSetup: [
+            "./scripts/test-home-global-setup.ts",
+            "./tools/web-perf/src/browser-test-setup.ts",
+          ],
           setupFiles: ["./scripts/test-home-setup.ts"],
           include: [
             "packages/*/src/**/*.test.ts",

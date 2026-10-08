@@ -35,7 +35,6 @@
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/commands": "workspace:*",
-        "@ace/conductor": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/devices": "workspace:*",
@@ -148,7 +147,11 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-claude": "workspace:*",
+        "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
+        "@ace/adapter-testkit": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
@@ -390,14 +393,6 @@
         "zod": "^4.6.5",
       },
     },
-    "packages/conductor": {
-      "name": "@ace/conductor",
-      "dependencies": {
-        "@ace/protocol": "workspace:*",
-        "@ace/provider-kit": "workspace:*",
-        "zod": "^4.6.5",
-      },
-    },
     "packages/context": {
       "name": "@ace/context",
       "dependencies": {
@@ -474,7 +469,6 @@
       },
       "devDependencies": {
         "@ace/adapter-opencode": "workspace:*",
-        "@ace/conductor": "workspace:*",
       },
     },
     "packages/files": {
@@ -711,6 +705,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/screen": "workspace:*",
         "zod": "^4.6.5",
@@ -859,8 +854,6 @@
     "@ace/client-worker": ["@ace/client-worker@workspace:packages/client-worker"],
 
     "@ace/commands": ["@ace/commands@workspace:packages/commands"],
-
-    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
 
     "@ace/context": ["@ace/context@workspace:packages/context"],
 

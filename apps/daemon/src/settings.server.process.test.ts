@@ -157,7 +157,7 @@ test("wire settings reject secret values and unknown scopes with typed diagnosti
   f.client.send({
     type: "settings.set",
     requestId: "invalid",
-    key: "conductor.maxFixRounds",
+    key: "automations.maxConcurrent",
     value: -1,
     layer: { kind: "global" },
   });
@@ -179,7 +179,7 @@ test("thread wire scopes inherit their daemon-owned workspace and reject mismatc
   f.client.send({
     type: "settings.set",
     requestId: "workspace",
-    key: "conductor.maxFixRounds",
+    key: "automations.maxConcurrent",
     value: 8,
     layer: { kind: "workspace", workspaceId },
   });
@@ -190,7 +190,7 @@ test("thread wire scopes inherit their daemon-owned workspace and reject mismatc
   f.client.send({
     type: "settings.get",
     requestId: "thread",
-    key: "conductor.maxFixRounds",
+    key: "automations.maxConcurrent",
     scope: { threadId: thread.id },
   });
   expect(await f.client.next()).toMatchObject({
@@ -200,7 +200,7 @@ test("thread wire scopes inherit their daemon-owned workspace and reject mismatc
   f.client.send({
     type: "settings.set",
     requestId: "override",
-    key: "conductor.maxFixRounds",
+    key: "automations.maxConcurrent",
     value: 9,
     layer: { kind: "thread", threadId: thread.id },
   });
@@ -211,7 +211,7 @@ test("thread wire scopes inherit their daemon-owned workspace and reject mismatc
   f.client.send({
     type: "settings.get",
     requestId: "mismatch",
-    key: "conductor.maxFixRounds",
+    key: "automations.maxConcurrent",
     scope: { threadId: thread.id, workspaceId: f.workspace },
   });
   expect(await f.client.next()).toMatchObject({ ok: false, diagnostics: [{ code: "validation" }] });

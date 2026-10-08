@@ -1,6 +1,12 @@
-import { ArrowSquareOutIcon, DevicesIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import {
+  ArrowSquareOutIcon,
+  CopyIcon,
+  DetectiveIcon,
+  DotsThreeIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
 import { openExternal, revealer } from "@/boot/open-external.ts";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
   MenuContent,
@@ -8,17 +14,19 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuGroup,
+  MenuLabel,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { useLocal } from "../store.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { DownloadsButton } from "./downloads.tsx";
-import { SiteAccess } from "./site-access.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
-import { bindPage } from "./loading.ts";
 import { viewportById, viewports } from "./viewports.ts";
+
+const icon = (glyph: typeof PlusIcon) => <Icon icon={glyph} />;
 
 export function BrowserActions(props: {
   source: PreviewSource;
@@ -34,6 +42,9 @@ export function BrowserActions(props: {
   onFind(): void;
   downloads: NonNullable<BrowserView["downloads"]>;
   privately: boolean;
+  onNewTab(): void;
+  /** Make private, when the page can be made private from here. */
+  onPrivate?: (() => void) | undefined;
 }) {
   const toast = useToast();
   const { shownUrl, external, viewport, browser } = props;
@@ -67,47 +78,17 @@ export function BrowserActions(props: {
         : {}),
     });
   };
+  const openOutside = () =>
+    external &&
+    void openExternal(external).catch((error: unknown) =>
+      toast.add({
+        title: "Couldn't open the page",
+        description: error instanceof Error ? error.message : undefined,
+      }),
+    );
   return (
     <>
       <DownloadsButton downloads={props.downloads} />
-      <SiteAccess threadId={props.threadId} browser={browser} />
-      <Menu>
-        <Tip label={`Page size · ${viewport.label}`}>
-          <MenuTrigger
-            aria-label="Page size"
-            className="grid size-7 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-ring aria-expanded:bg-accent aria-expanded:text-foreground"
-          >
-            <DevicesIcon aria-hidden size={16} weight={viewport.emulation ? "fill" : "regular"} />
-          </MenuTrigger>
-        </Tip>
-        <MenuContent align="end">
-          <MenuRadioGroup
-            value={viewport.id}
-            onValueChange={(value) => props.onViewport(String(value))}
-          >
-            {viewports.map((each) => (
-              <MenuRadioItem closeOnClick key={each.id} value={each.id}>
-                {each.label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
-      <IconButton
-        icon={ArrowSquareOutIcon}
-        label={external ? "Open in your browser" : "Open in your browser · open a web page first"}
-        disabled={!external}
-        className="size-7 rounded-sm"
-        onClick={() =>
-          external &&
-          void openExternal(external).catch((error: unknown) =>
-            toast.add({
-              title: "Couldn't open the page",
-              description: error instanceof Error ? error.message : undefined,
-            }),
-          )
-        }
-      />
       <Menu>
         <MenuTrigger
           aria-label="Browser options"
@@ -116,10 +97,21 @@ export function BrowserActions(props: {
           <DotsThreeIcon aria-hidden size={16} weight="bold" />
         </MenuTrigger>
         <MenuContent align="end">
-          <MenuItem disabled={!props.live || !props.online} onClick={props.onFind}>
+          <MenuItem icon={icon(PlusIcon)} keys="mod+t" resolve={false} onClick={props.onNewTab}>
+            New browser tab
+          </MenuItem>
+          <MenuSeparator />
+          <MenuItem
+            icon={icon(MagnifyingGlassIcon)}
+            keys="mod+f"
+            resolve={false}
+            disabled={!props.live || !props.online}
+            onClick={props.onFind}
+          >
             Find in page
           </MenuItem>
           <MenuItem
+            icon={icon(CopyIcon)}
             disabled={!shownUrl}
             onClick={() =>
               shownUrl &&
@@ -131,17 +123,29 @@ export function BrowserActions(props: {
           >
             Copy address
           </MenuItem>
-          <MenuItem
-            danger
-            disabled={!props.live || !props.online}
-            reason={props.live ? undefined : "No page is open"}
-            onClick={() => {
-              bindPage(props.threadId, undefined);
-              void props.source.close(props.threadId).catch(() => undefined);
-            }}
-          >
-            Close the thread's page
+          <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
+            Open in your browser
           </MenuItem>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuLabel>Page size</MenuLabel>
+            <MenuRadioGroup
+              value={viewport.id}
+              onValueChange={(value) => props.onViewport(String(value))}
+            >
+              {viewports.map((each) => (
+                <MenuRadioItem closeOnClick key={each.id} value={each.id}>
+                  {each.label}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuGroup>
+          <MenuSeparator />
+          {props.onPrivate && (
+            <MenuItem icon={icon(DetectiveIcon)} onClick={props.onPrivate}>
+              Make private
+            </MenuItem>
+          )}
           <MenuItem
             disabled={!props.live || !props.online || (props.privately && !recording)}
             reason={
@@ -154,6 +158,14 @@ export function BrowserActions(props: {
             onClick={() => void toggleRecording()}
           >
             {recording ? "Stop recording" : "Record the page"}
+          </MenuItem>
+          <MenuItem
+            danger
+            disabled={!props.live || !props.online}
+            reason={props.live ? undefined : "No page is open"}
+            onClick={() => void props.source.close(props.threadId).catch(() => undefined)}
+          >
+            Close the thread's page
           </MenuItem>
           <MenuSeparator />
           <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">

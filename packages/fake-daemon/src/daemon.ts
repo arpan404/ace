@@ -458,6 +458,12 @@ export class FakeDaemon implements Host {
     while (followups.length || inputIndex < payloads.length) {
       const payload = followups.shift() ?? payloads[inputIndex++];
       if (!payload) continue;
+      const step =
+        payload.type === "agent.status" &&
+        payload.status.state === "working" &&
+        payload.status.itemId !== undefined
+          ? host.view.items[payload.status.itemId]
+          : undefined;
       const metadata = liveMetadata(
         host.view.thread,
         payload,
@@ -467,6 +473,9 @@ export class FakeDaemon implements Host {
           : payload.type === "background_task.updated"
             ? host.view.backgroundTasks[payload.taskId]
             : undefined,
+        step?.type === "tool_call" && step.call.detail.kind === "shell"
+          ? step.call.detail.command
+          : undefined,
       );
       if (metadata) followups.push(metadata);
       // The daemon turns a provider's context sample into the agent's replaceable meter.
@@ -575,13 +584,6 @@ export class FakeDaemon implements Host {
   /** Never answer these requests, so the page stays on its loading state. */
   holdRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "hold");
-  }
-  /**
-   * The conductor couldn't run a deck's next step (`executionError`), as after a restart that
-   * lost its project: the deck reports it until it is resumed.
-   */
-  failDeck(runId: string, code: string): void {
-    this.servicesWire.failDeck(runId, code);
   }
   /** Refuse every command of these types with `error`, as a daemon that won't run them would. */
   refuseCommands(error: string, ...types: Command["payload"]["type"][]): void {

@@ -22,9 +22,7 @@ test("running an action, a terminal and Commit work on a real daemon's checkout"
 }) => {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: new RegExp(workspaceTitle) }).click();
   await expect(page.getByRole("heading", { level: 1, name: workspaceTitle })).toBeVisible();
@@ -85,9 +83,7 @@ test("Open in hands the daemon's validated editor launch to this machine", async
   });
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: new RegExp(seededTitle) }).click();
   await expect(page.getByRole("heading", { level: 1, name: seededTitle })).toBeVisible();
@@ -109,9 +105,7 @@ test("Preview points at the Browser, and offers no port preview when the daemon 
 }) => {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: new RegExp(previewTitle) }).click();
   await expect(page.getByRole("heading", { level: 1, name: previewTitle })).toBeVisible();
@@ -135,9 +129,7 @@ test("Preview points at the Browser, and offers no port preview when the daemon 
 test("⌘P finds a file in a real checkout and opens its source", async ({ page }) => {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: new RegExp(previewTitle) }).click();
   await expect(page.getByRole("heading", { level: 1, name: previewTitle })).toBeVisible();

@@ -34,7 +34,6 @@ export interface ServerOptions {
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;
   previewClient?: import("./preview-client.ts").PreviewClient;
-  conductor?: import("./conductor-runtime.ts").ConductorRuntime;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;

@@ -105,7 +105,6 @@ export const DeepLink = z.discriminatedUnion("kind", [
     threadId: z.string().min(1),
     itemId: z.string().optional(),
   }),
-  z.object({ kind: z.literal("deck"), runId: z.string().optional() }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
@@ -117,8 +116,6 @@ export function deepLinkRoute(link: DeepLink): string {
   switch (link.kind) {
     case "thread":
       return `/t/${encodeURIComponent(link.threadId)}`;
-    case "deck":
-      return link.runId ? `/deck/${encodeURIComponent(link.runId)}` : "/deck";
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":
@@ -134,7 +131,6 @@ export const NotificationCategory = z.enum([
   "finished",
   "failed",
   "limited",
-  "deck",
   "automation",
   "ci",
 ]);
@@ -214,7 +210,14 @@ export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(25
 export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
 /** A toolbar shortcut from the thread's native page. */
 export const BrowserShortcut = BrowserWantsControl.extend({
-  accelerator: z.enum(["CmdOrCtrl+L", "CmdOrCtrl+F", "CmdOrCtrl+R", "CmdOrCtrl+[", "CmdOrCtrl+]"]),
+  accelerator: z.enum([
+    "CmdOrCtrl+T",
+    "CmdOrCtrl+L",
+    "CmdOrCtrl+F",
+    "CmdOrCtrl+R",
+    "CmdOrCtrl+[",
+    "CmdOrCtrl+]",
+  ]),
 });
 export type BrowserShortcut = z.infer<typeof BrowserShortcut>;
 /** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */

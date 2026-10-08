@@ -299,7 +299,6 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
 
 test.each([
   { owner: "orchestration", payload: { type: "orchestration.cancel", orchestrationId: "other" } },
-  { owner: "conductor", payload: { type: "conductor.cancel", runId: "other" } },
 ])(
   "commands owned by $owner are declined without provider work or thread capacity",
   async ({ payload }) => {

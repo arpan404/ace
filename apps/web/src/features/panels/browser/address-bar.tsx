@@ -5,7 +5,7 @@ import {
   suggestAddresses,
   type AddressSuggestion,
 } from "@ace/ui-core";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -35,6 +35,12 @@ export function AddressBar(props: {
   autoFocus?: boolean;
   /** Opens what was entered; a read-only address has none. */
   onGo?: (url: string) => void;
+  /** At the field's start in place of the globe (the site's security and access). */
+  lead?: ReactNode;
+  /** At the field's end (Make private). */
+  trail?: ReactNode;
+  /** A private page's field is tinted. */
+  tone?: "private" | undefined;
   className?: string;
 }) {
   const shown = displayAddress(props.url ?? "");
@@ -72,18 +78,21 @@ export function AddressBar(props: {
     <div className={cn("relative min-w-0", props.className)}>
       <div
         className={cn(
-          "flex h-8 min-w-0 items-center gap-2 rounded-full px-3 transition-[background-color,box-shadow] duration-(--dur-1)",
-          "bg-foreground/5 hover:bg-foreground/8",
-          // Focus lightens the capsule, never an accent ring.
-          "focus-within:bg-foreground/10",
+          "flex h-8 min-w-0 items-center rounded-full transition-[background-color,box-shadow] duration-(--dur-1)",
+          props.lead ? "gap-1 px-1" : "gap-2 px-3",
+          props.tone === "private"
+            ? "bg-status-needs-you/9"
+            : // Focus lightens the capsule, never an accent ring.
+              "bg-foreground/5 hover:bg-foreground/8 focus-within:bg-foreground/10",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >
-        {props.loading ? (
-          <Spinner />
-        ) : (
-          <Icon icon={GlobeSimpleIcon} size={14} className="text-subtle-foreground" />
-        )}
+        {props.lead ??
+          (props.loading ? (
+            <Spinner />
+          ) : (
+            <Icon icon={GlobeSimpleIcon} size={14} className="text-subtle-foreground" />
+          ))}
         <span className="relative flex h-full min-w-0 flex-1 items-center">
           <input
             ref={field}
@@ -154,6 +163,7 @@ export function AddressBar(props: {
             </span>
           )}
         </span>
+        {props.trail}
       </div>
       <span id={hintId} className="sr-only">
         {props.disabled ?? props.hint}

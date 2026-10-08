@@ -25,7 +25,7 @@ const seeds: Record<string, Seed> = {
   "thread-sheet-rotate": { branch: "fix/sheet-rotate", remote: true },
   "thread-refund-tax": { branch: "fix/refund-tax", pr: 77, diff: [31, 18, 2] },
   "thread-dedupe": { branch: "fix/replay-dedupe", pr: 214, worktree: true, diff: [30, 7, 4] },
-  "thread-resumable-streams": { branch: "deck/resumable-streams", worktree: true },
+  "thread-resumable-streams": { branch: "relay/resumable-streams", worktree: true },
   "thread-install-page": { branch: "docs/install-daemon", diff: [120, 88, 1] },
   "thread-worktree-cleanup": { branch: "fix/worktree-cleanup", pr: 209, remote: true },
   "thread-pdf-locale": { branch: "fix/pdf-locale", pr: 74, diff: [22, 5, 2] },

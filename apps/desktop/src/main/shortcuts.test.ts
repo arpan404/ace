@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appChord, replayChord, type KeyInput } from "./shortcuts.ts";
+import { appChord, browserChord, replayChord, type KeyInput } from "./shortcuts.ts";
 
 /** A key press inside an embedded browser page, as Electron's `before-input-event` reports it. */
 function press(key: string, code: string, held: Partial<KeyInput> = {}): KeyInput {
@@ -61,10 +61,17 @@ describe("app shortcuts while an embedded page has focus", () => {
       press("[", "BracketLeft", { meta: true }),
       press("]", "BracketRight", { meta: true }),
       press("f", "KeyF", { meta: true }),
-      // ⌘⇧K is not an app shortcut.
-      press("K", "KeyK", { meta: true, shift: true }),
+      // ⌘⇧J is not an app shortcut.
+      press("J", "KeyJ", { meta: true, shift: true }),
     ])
       expect(forwarded(input, "darwin"), `${input.code}`).toEqual([]);
+  });
+
+  it("⌘T in a page opens another browser tab in the app instead of reaching the page", () => {
+    expect(browserChord(press("t", "KeyT", { meta: true }), "darwin")).toBe("CmdOrCtrl+T");
+    expect(browserChord(press("t", "KeyT", { control: true }), "linux")).toBe("CmdOrCtrl+T");
+    // Plain typing stays the page's.
+    expect(browserChord(press("t", "KeyT"), "darwin")).toBeUndefined();
   });
 
   it("follows the layout's letters rather than the physical key", () => {

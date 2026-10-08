@@ -50,7 +50,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
       close();
       action();
     };
-    const threads = [...order.pinned, ...order.active, ...order.settled].flatMap(
+    const threads = [...order.pinned, ...order.active, ...order.recent, ...order.settled].flatMap(
       (id): PaletteCommand[] => {
         const entry = byId.get(id);
         if (!entry) return [];

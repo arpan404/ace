@@ -228,9 +228,6 @@
       "$ref": "https://ace.local/protocol/v1/PreviewRequest.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/ConductorRequest.json"
-    },
-    {
       "properties": {
         "automation": {
           "$ref": "https://ace.local/protocol/v1/Automation.json"

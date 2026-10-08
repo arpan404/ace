@@ -28,7 +28,6 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/adapter-opencode": "workspace:*",
-    "@ace/conductor": "workspace:*"
+    "@ace/adapter-opencode": "workspace:*"
   }
 }

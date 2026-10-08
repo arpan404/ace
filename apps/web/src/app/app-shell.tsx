@@ -2,19 +2,20 @@ import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
-import { MoreMenuItems } from "@/features/more/index.ts";
 import { MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
+import { ThreadsSidebar } from "@/features/home/index.ts";
+import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
-import { AppSidebar, GlobalHotkeys, Rail, SidebarFrame } from "@/features/shell/index.ts";
+import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * Wallpaper, the rail of views, the sidebar and the selected view (its list there, its column).
+ * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
  * `data-connection` carries the daemon connection's state: while it isn't ready, live spinners
  * pause and dim, since nothing they stand for can arrive (no layout changes).
  */
@@ -44,10 +45,11 @@ export function AppShell() {
           >
             Skip to content
           </a>
-          <SidebarFrame rail={<ViewRail />} sidebar={<ShellSidebar />}>
+          <SidebarFrame sidebar={<ShellSidebar />}>
             <Outlet />
           </SidebarFrame>
           <CommandPalette />
+          <SearchHost />
           <MoveToProjectHost />
           <ShellHotkeys />
           <ActivityNotifier />
@@ -57,19 +59,21 @@ export function AppShell() {
   );
 }
 
-/** The rail with what other slices own: More's menu. */
-function ViewRail() {
-  return <Rail moreMenu={<MoreMenuItems />} status={<ComputerUseIndicator />} />;
-}
+/** The thread list in the sidebar's body, made once: the sidebar re-renders on its own count. */
+const threads = <ThreadsSidebar />;
+const status = <ComputerUseIndicator />;
 
 /**
- * The sidebar with what other slices own: Activity's count on its bell (the number Activity's
- * header shows; a change re-renders only the sidebar) and Add project for an empty world.
+ * The sidebar with what other slices own: the thread list, Activity's count on its bell (the
+ * number Activity's header shows; a change re-renders only the sidebar), Add project for an
+ * empty world, and the sign of computer use at its foot.
  */
 function ShellSidebar() {
   const projects = useProjectDialogs();
   return (
     <AppSidebar
+      threads={threads}
+      status={status}
       needsYou={useNeedsYouCount()}
       onAddProject={() => projects.open({ kind: "add", tab: "open" })}
     />

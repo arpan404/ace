@@ -10,7 +10,6 @@ export const tokenGroups = [
       "--background",
       "--reading-rgb",
       "--sidebar-rgb",
-      "--rail-rgb",
       "--popover",
       "--card",
       "--secondary",
@@ -98,8 +97,7 @@ export const tokenNames: readonly TokenName[] = tokenGroups.flatMap((group) => g
 
 export const tokenHints: Partial<Record<TokenName, string>> = {
   "--reading-rgb": "r g b of the main column; alpha comes from Glass intensity",
-  "--sidebar-rgb": "r g b of the second sidebar",
-  "--rail-rgb": "r g b of the rail",
+  "--sidebar-rgb": "r g b of the sidebar",
   "--glass-rgb": "r g b of floating glass",
   "--glass-a": "0..1 opacity of glass at full intensity",
   "--card": "cards and files summary",
@@ -116,7 +114,6 @@ export type TokenKind = "color" | "rgbTriple" | "alpha" | "length" | "shadow";
 const tokenKinds: Partial<Record<TokenName, TokenKind>> = {
   "--reading-rgb": "rgbTriple",
   "--sidebar-rgb": "rgbTriple",
-  "--rail-rgb": "rgbTriple",
   "--glass-rgb": "rgbTriple",
   "--glass-a": "alpha",
   "--glass-blur": "length",

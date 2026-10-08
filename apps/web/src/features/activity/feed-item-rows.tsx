@@ -25,7 +25,6 @@ import { FeedRow } from "./feed-row.tsx";
 import { useFeedSource, type FeedEvent, type FeedKind } from "./feed-source.ts";
 
 const eventIcons: Record<FeedKind, PhosphorIcon> = {
-  escalation: WarningIcon,
   mention: AtIcon,
   ci: XIcon,
   pr: GitMergeIcon,
@@ -85,7 +84,7 @@ function ItemMenu(props: {
 
 /**
  * A mention, CI or pull-request event: selecting it shows it on its own in the main column
- * and marks it read. A deck's decision focuses its card in Needs you instead.
+ * and marks it read.
  */
 export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
   const { event } = props;
@@ -94,9 +93,7 @@ export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
   const now = useNow();
   const projectName = useProjectName();
   const key = eventKey(event.id);
-  const needsYou = event.kind === "escalation";
   const select = () => {
-    if (needsYou) return state.setFocused(key);
     source.markRead([event.id]);
     state.selectItem(key);
   };
@@ -106,16 +103,14 @@ export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
       title={event.title}
       description={`${projectName(event.project)} · ${event.context}`}
       age={formatAge(event.at, now)}
-      mark={needsYou ? "needs-you" : props.read ? undefined : "unread"}
-      selected={needsYou ? state.focused === key && !state.item : state.item === key}
+      mark={props.read ? undefined : "unread"}
+      selected={state.item === key}
       onSelect={select}
       picked={state.picked.has(key)}
       onPick={() => state.togglePicked(key)}
-      {...(needsYou ? {} : { readId: event.id })}
+      readId={event.id}
       menu={
-        needsYou ? undefined : (
-          <ItemMenu itemKey={key} readId={event.id} read={props.read} threadId={event.threadId} />
-        )
+        <ItemMenu itemKey={key} readId={event.id} read={props.read} threadId={event.threadId} />
       }
     />
   );

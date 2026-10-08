@@ -69,7 +69,7 @@ test("on a settled thread, the palette brings it back to the list", async () => 
   await userEvent.type(search, "unsettle this");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByText("Back in the list · Bump Codex app-server to 0.48")).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
 });
 
 test("the palette offers no Settle for a thread that is still working", async () => {
@@ -96,8 +96,14 @@ test("a query nothing matches falls through to searching every thread", async ()
   await userEvent.type(search, "qqqzzz");
   await waitFor(() => expect(options()).toEqual(["Search all threads for “qqqzzz”"]));
   await userEvent.keyboard("{Enter}");
-  expect(await screen.findByRole("heading", { level: 1, name: "Search" })).toBeTruthy();
-  expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
+  // The search dialog takes the palette's place, with the words typed so far.
+  const dialog = await screen.findByRole("dialog", { name: "Search" });
+  expect(
+    within(dialog).getByRole<HTMLInputElement>("combobox", { name: "Search every thread" }).value,
+  ).toBe("qqqzzz");
+  await waitFor(() =>
+    expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
+  );
 });
 
 test("threads opened lately come first with an empty query, the open one aside", async () => {

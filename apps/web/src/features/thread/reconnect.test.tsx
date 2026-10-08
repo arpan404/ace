@@ -32,10 +32,11 @@ test("after a dropped connection the transcript catches up by replay, without du
     "bun run test --watch checkout",
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
-  // ask, plan, subagents line, search, finding, watcher, approval call
-  expect(within(feed).getAllByRole("article")).toHaveLength(7);
+  // The ask, the turn's one log (the plan, the search, the finding and the approval call, in
+  // order), the subagents line and the watcher.
+  expect(within(feed).getAllByRole("article")).toHaveLength(4);
   expect(
     screen.getAllByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
   ).toHaveLength(1);
-  expect(screen.getByRole("button", { name: "Account and connection" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /, account$/ })).toBeTruthy();
 });

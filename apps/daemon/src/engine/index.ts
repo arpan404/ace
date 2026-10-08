@@ -16,7 +16,6 @@ import {
   limitPermissionMode as resolveChildMode,
 } from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
-import { z } from "zod";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
@@ -359,7 +358,7 @@ export class Engine {
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
   }
-  /** Trusted spawn boundary for Deck and delegation. Receipt identity is caller-owned. */
+  /** Trusted spawn boundary for delegation. Receipt identity is caller-owned. */
   spawn(
     command: Command,
     scope: { permissionMode?: PermissionMode; parentThreadId?: ThreadId } = {},
@@ -621,31 +620,8 @@ export class Engine {
   ): void {
     this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
   }
-  openHostGate(threadId: ThreadId, key: string, message: string) {
-    return this.openHostApproval(
-      threadId,
-      key,
-      { kind: "plan_review", title: "Deck needs your decision", markdown: message },
-      [{ type: "ace.conductor.gate", data: { key } }],
-    );
-  }
   closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
     this.resolveHostApproval(threadId, key, { state });
-  }
-  activeExecutionSelections() {
-    const row = z.object({
-      thread_id: ThreadId,
-      provider: ProviderKind,
-      instance_id: z.string().nullable(),
-    });
-    return this.repo.store
-      .atomic((db) =>
-        db
-          .prepare(`SELECT s.thread_id,t.provider,s.instance_id FROM threads t JOIN engine_sessions s ON s.thread_id=t.id
-      WHERE s.native_session_id IS NOT NULL AND json_extract(t.status,'$.state') NOT IN ('new','done','failed') LIMIT 65`)
-          .all(),
-      )
-      .map((value) => row.parse(value));
   }
   /** Permanent subtree cancellation discards resumable work. */
   discardRecovery(id: ThreadId): void {

@@ -185,7 +185,7 @@ test("the filter tabs are one Tab stop that the arrow keys move along", async ()
 test("filtering by project counts that project and shows a chip that clears it", async () => {
   const { sidebar } = await openActivity();
   const header = within(screen.getByRole("banner"));
-  expect(header.getByText("6 need you")).toBeTruthy();
+  expect(header.getByText("3 need you")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Filter" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "billing-api" }));
@@ -197,7 +197,7 @@ test("filtering by project counts that project and shows a chip that clears it",
   ).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Clear the billing-api filter" }));
-  expect(await header.findByText("6 need you")).toBeTruthy();
+  expect(await header.findByText("3 need you")).toBeTruthy();
 });
 
 const requests = ["Allow a force push", "How should the sheet", "Install @fontsource"];
@@ -210,7 +210,7 @@ test("what needs you is listed oldest first, the same in the sidebar and the car
   // Read both columns again until they show all requests in the fixture's time order.
   await waitFor(() => {
     const cards = main().getAllByRole("article");
-    expect(cards).toHaveLength(6);
+    expect(cards).toHaveLength(3);
     const titles = cards.map((card) => card.getAttribute("aria-label") ?? "");
     const rows = feed.getAllByRole("button").map((row) => row.textContent ?? "");
     const expected = requests.map((request) => request.slice(0, 12));
@@ -360,15 +360,4 @@ test("a rebound Next key moves between cards", async () => {
     await userEvent.keyboard("n");
     expect(main().getAllByRole("article")[1]?.getAttribute("aria-current")).toBe("true");
   });
-});
-
-test("a deck worker's question still shows after Activity is left and opened again", async () => {
-  await openActivity();
-  const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
-  expect(await main().findByRole("article", { name })).toBeTruthy();
-  const rail = within(screen.getByRole("navigation", { name: "Views" }));
-  await userEvent.click(rail.getByRole("link", { name: /^Home/ }));
-  const app = within(await screen.findByRole("navigation", { name: "App" }));
-  await userEvent.click(app.getByRole("link", { name: /^Activity/ }));
-  expect(await main().findByRole("article", { name })).toBeTruthy();
 });

@@ -13,6 +13,26 @@ import {
   type Tone,
 } from "./status.ts";
 import { formatAge } from "./time.ts";
+import { describeLive, liveStatusText, threadLiveFact, type LiveStatus } from "./live-status.ts";
+
+const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
+  working: "working",
+  "needs-you": "needs-you",
+  waiting: "waiting",
+  failed: "failed",
+  done: "done",
+  idle: "waiting",
+};
+
+/** The pill for what a thread is doing beyond its state: "Watching `bun run dev:relay`". */
+function livePill(status: LiveStatus): TaskPill {
+  return {
+    label: status.label,
+    code: status.code,
+    tone: status.tone,
+    icon: pillIcons[status.tone],
+  };
+}
 
 /** Git and machine facts a card shows, from the daemon's `details` projection. */
 export interface CardDetails {
@@ -127,7 +147,7 @@ export const branchLabelLength = 24;
 
 /**
  * `text` cut to at most `max` characters by taking out its middle, so both the prefix and the
- * distinctive end stay: "deck/re…treams".
+ * distinctive end stay: "work/re…treams".
  */
 export function middleTruncateText(text: string, max: number): string {
   const chars = Array.from(text);
@@ -145,7 +165,12 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
   const subagents = runningSubagents(entry.status);
-  const { label, tone } = threadStatusLabel(entry.status);
+  // What it is doing, when the daemon's live hints say more than its state.
+  const fact = threadLiveFact(entry);
+  const live = fact && describeLive(fact, now, input.locale);
+  const { label, tone } = live
+    ? { label: liveStatusText(live), tone: live.tone }
+    : threadStatusLabel(entry.status);
   return {
     id: entry.id,
     title: entry.title,
@@ -155,7 +180,11 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     flags,
     emphasis: needsYou || unread,
     dimmed: input.settled || (entry.status.state === "done" && !unread),
-    pill: input.settled ? undefined : taskPill(entry.status, { unread, since: activityOf(entry) }),
+    pill: input.settled
+      ? undefined
+      : live
+        ? livePill(live)
+        : taskPill(entry.status, { unread, since: activityOf(entry) }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff

@@ -35,7 +35,7 @@ const checks: readonly { token: TokenName; against: TokenName; minimum: number; 
   ];
 
 /**
- * Text that must read at AA wherever it is drawn: on the page, popovers, the rail, sidebar and
+ * Text that must read at AA wherever it is drawn: on the page, popovers, the sidebar and
  * reading column, floating glass at both intensity extremes, and selected rows (`themeSurfaces`).
  * A project badge draws its letters in its tint.
  */

@@ -104,6 +104,7 @@ function createBlockReader(agentId?: string): (reader: ThreadReader) => Watched<
           run && {
             state: run.state,
             trigger: run.trigger,
+            startedAt: run.startedAt,
             endedAt: run.endedAt,
             failedOn: failedOn(run),
           }

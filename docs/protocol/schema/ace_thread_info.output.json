@@ -403,45 +403,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "deck": {
-          "additionalProperties": false,
-          "properties": {
-            "deckId": {
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
-              "type": "string"
-            },
-            "laneId": {
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
-              "type": "string"
-            },
-            "role": {
-              "enum": [
-                "root",
-                "planner",
-                "worker",
-                "reviewer",
-                "integrator",
-                "delegate"
-              ],
-              "type": "string"
-            },
-            "runId": {
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
-              "type": "string"
-            },
-            "workspaceId": {
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "deckId",
-            "runId",
-            "workspaceId",
-            "role"
-          ],
-          "type": "object"
-        },
         "deletedAt": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -1226,6 +1187,28 @@
               "maxLength": 256,
               "type": "string"
             },
+            "asking": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "maxLength": 64,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
             "backgroundTaskCount": {
               "maximum": 9007199254740991,
               "minimum": 0,
@@ -1305,10 +1288,43 @@
               ],
               "type": "string"
             },
+            "step": {
+              "enum": [
+                "tests"
+              ],
+              "type": "string"
+            },
             "subagentCount": {
               "maximum": 9007199254740991,
               "minimum": 0,
               "type": "integer"
+            },
+            "waitingOn": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "watching": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 256,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "type": "array"
             }
           },
           "type": "object"

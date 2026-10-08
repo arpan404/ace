@@ -7,11 +7,12 @@ import { SettingsService } from "@ace/settings";
 
 const settings = new SettingsService({ dataDir: "/home/me/.ace-next" });
 const scope = { workspace: "/home/me/project", thread: "thread-123" };
-await settings.set("conductor.maxFixRounds", 5, { kind: "global" });
-const result = await settings.get("conductor.maxFixRounds", scope);
-// { key: "conductor.maxFixRounds", value: 5, provenance: "global" }
-const stop = await settings.subscribe({ keys: ["conductor.maxFixRounds"], scope }, (notification) =>
-  console.log(notification),
+await settings.set("automations.maxConcurrent", 5, { kind: "global" });
+const result = await settings.get("automations.maxConcurrent", scope);
+// { key: "automations.maxConcurrent", value: 5, provenance: "global" }
+const stop = await settings.subscribe(
+  { keys: ["automations.maxConcurrent"], scope },
+  (notification) => console.log(notification),
 );
 stop();
 await settings.close();
@@ -29,7 +30,7 @@ Use `refresh(layer)` to reconcile an already observed external change and `settl
   "settings": {
     // Preferences can be committed with the workspace.
     "providers.coder.model": "default",
-    "conductor.planApproval": "required",
+    "automations.enabled": false,
     "clients.theme": { "appearance": "dark" },
   },
 }

@@ -4,9 +4,9 @@ import { providerDisplayName, providerNames } from "./providers.ts";
 
 /*
  * Which brand mark stands for a provider, an ACP agent or a model family. The marks are LobeHub
- * Icons (MIT, see NOTICE), turned into path data by `scripts/provider-icons.ts`; a provider or
- * agent LobeHub has no mark for gets `brand: undefined` and the renderer draws ace's neutral
- * agent glyph. Never draw a lookalike of someone's logo.
+ * Icons (MIT, see NOTICE), and the OpenAI Blossom from OpenAI's own brand kit, turned into path
+ * data by `scripts/provider-icons.ts`; a provider or agent with no mark gets `brand: undefined`
+ * and the renderer draws ace's neutral agent glyph. Never draw a lookalike of someone's logo.
  *
  * Reached only through `@ace/ui-core/provider-icons`, never the package index, so the web app can
  * load these tables lazily and keep them off the first paint.
@@ -19,7 +19,8 @@ export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 /** The mark each built-in provider shows. ACP agents are looked up by registry id instead. */
 export const providerBrands: Record<ProviderKind, Brand | undefined> = {
   claude: "claude",
-  codex: "codex",
+  // Codex is OpenAI's, now under the ChatGPT name: it carries the OpenAI Blossom.
+  codex: "openai",
   opencode: "opencode",
   cursor: "cursor",
   antigravity: "antigravity",
@@ -38,7 +39,7 @@ export const acpAgentBrands: Record<string, { name: string; brand: Brand | undef
   "claude-acp": { name: "Claude Agent", brand: "claude" },
   cline: { name: "Cline", brand: "cline" },
   "codebuddy-code": { name: "Codebuddy Code", brand: "codebuddy" },
-  "codex-acp": { name: "Codex", brand: "codex" },
+  "codex-acp": { name: "Codex", brand: "openai" },
   "cortex-code": { name: "Cortex Code", brand: "snowflake" },
   cursor: { name: "Cursor", brand: "cursor" },
   deepagents: { name: "DeepAgents", brand: "langchain" },
@@ -142,16 +143,4 @@ export function providerIcon(input: ProviderIconInput): ProviderIconChoice {
     };
   }
   return { brand: providerBrands[input.provider], label: providerNames[input.provider] };
-}
-
-/**
- * Marks whose detail (a cutout, a glyph inside a shape) blurs into a blob at row sizes (under
- * 16px), and the simpler mark of the same maker drawn there instead: Codex's cloud with its
- * prompt becomes the OpenAI blossom.
- */
-const smallBrands: Partial<Record<Brand, Brand>> = { codex: "openai" };
-
-/** The brand to draw at `size` pixels: the mark itself, or its simpler stand-in when tiny. */
-export function brandAtSize(brand: Brand, size: number): Brand {
-  return size < 16 ? (smallBrands[brand] ?? brand) : brand;
 }

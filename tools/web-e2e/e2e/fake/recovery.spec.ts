@@ -38,7 +38,7 @@ test("a limited thread moves to another account and carries on", async ({ page }
 });
 
 test("Usage & accounts moves every thread stopped at an account's limit", async ({ page }) => {
-  await page.goto("/more/accounts");
+  await page.goto("/accounts");
   const team = page.getByRole("article", { name: "Codex Team" });
   await expect(team).toContainText("3 threads are paused until the window resets");
 
@@ -47,10 +47,7 @@ test("Usage & accounts moves every thread stopped at an account's limit", async 
   await expect(page.getByText("Moved 3 threads to Codex · Personal")).toBeVisible();
   await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);
   const threads = page.getByRole("navigation", { name: "Threads" });
-  await page
-    .getByRole("navigation", { name: "Views" })
-    .getByRole("link", { name: /^Home/ })
-    .click();
+  // The thread list stays in the sidebar beside Usage & accounts.
   await expect(threads.getByRole("link", { name: /Split the CI matrix/ })).not.toContainText(
     "Limited",
   );

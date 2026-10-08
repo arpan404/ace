@@ -252,7 +252,7 @@ export function resultLead(result: string, max = 180): string {
 }
 
 export interface TaskPrompt {
-  /** "Task from", "Deck card", "Handoff from", "Automation". */
+  /** "Task from", "Handoff from", "Automation". */
   label: string;
   role?: string | undefined;
   task: string;

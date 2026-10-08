@@ -3,7 +3,7 @@ import { type Tone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * A status in words: the thread rows, the header's usage limit, Deck lanes, downloads and
+ * A status in words: the thread rows, the header's usage limit, downloads and
  * computer use. Coloured text and a small mark, never a fill or a border, so a column of them
  * stays quiet. The colour is the tone's (`data-tone`, see index.css) as `--tone-text`, its hue
  * made AA on every surface of the theme. The mark defaults to the tone's dot; a row passes its

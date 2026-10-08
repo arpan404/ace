@@ -173,7 +173,7 @@ test("a click on the agent's page takes control, and the page takes input once i
   expect(last()?.owner).toBeUndefined();
   const count = placed.length;
   act(() => wantsControl?.({ threadId: "thread-cold-start" }));
-  await within(panel).findByText("in control", { exact: false });
+  await within(panel).findByText("You're browsing", { exact: false });
   // The connection the daemon's take-control reply named, which the desktop checks the lease
   // against before any input reaches the page.
   await waitFor(() => expect(last()?.owner).toBe("fake-browser-1"));
@@ -201,7 +201,7 @@ test("while another device holds the page, this one claims nothing and a click t
     await browser.takeover("thread-cold-start", "phone-connection");
   });
   await waitFor(() => expect(last()?.owner).toBeUndefined());
-  await within(panel).findByText("Another device has control", { exact: false });
+  await within(panel).findByText("Another device has the page", { exact: false });
   await waitFor(() => expect(last()?.visible).toBe(true));
   expect(last()?.owner).toBeUndefined();
   act(() => wantsControl?.({ threadId: "thread-cold-start" }));

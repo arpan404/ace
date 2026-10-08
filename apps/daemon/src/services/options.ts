@@ -23,7 +23,6 @@ export type DaemonOptions = {
   providerStatus?: import("../provider-status.ts").ProviderStatusOptions;
   /** Local metadata process boundary, never accepted from socket clients. */
   modelDiscovery?: import("@ace/models").DiscoveryOptions;
-  conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
   projects?: import("../projects.ts").ProjectsOptions;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */

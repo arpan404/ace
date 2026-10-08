@@ -151,14 +151,14 @@ rule. Runtime, process-effects and benchmark measurements need run at merge.
 ### Amendment: implicit accounts and existing execution admission
 
 Adding an implicit account is a catalog operation. Its unknown sign-in status
-must not disable the existing normal CLI execution path or the conductor's
+must not disable the existing normal CLI execution path or the orchestrator's
 `local.<provider>` account identity. Without an explicit selection or provider
 default, native execution keeps that path when there are no registered isolated
 accounts. Where registered accounts exist, preserve their quota-aware selection;
 an implicit home with no quota observations cannot displace them. An explicit
 provider default or pinned session still takes precedence. Cursor SDK continues
 to use its separate registered home and cannot use the implicit CLI login.
-Delegation and conductor admission therefore distinguish registered accounts
+Delegation admission therefore distinguish registered accounts
 from implicit records instead of treating every listed home as a scheduler candidate.
 
 A metadata discovery guard that rejects a changed home also revokes that account's

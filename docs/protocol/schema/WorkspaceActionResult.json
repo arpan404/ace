@@ -214,9 +214,6 @@
             "workspaces": {
               "items": {
                 "properties": {
-                  "deck": {
-                    "$ref": "https://ace.local/protocol/v1/DeckOwnership.json"
-                  },
                   "id": {
                     "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
                   },

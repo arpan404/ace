@@ -29,7 +29,6 @@ interface ThemeSeed {
   /** "r g b" triples; alpha comes from glass intensity. */
   reading: string;
   sidebar: string;
-  rail: string;
   glass: string;
   code: string;
   wall: string;
@@ -52,7 +51,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#3269D4",
     reading: "255 255 255",
     sidebar: "243 243 247",
-    rail: "238 238 243",
     glass: "255 255 255",
     code: "rgb(28 28 34 / 0.04)",
     wall: "#EBEBEF",
@@ -77,7 +75,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#7AA2F7",
     reading: "17 17 17",
     sidebar: "24 24 24",
-    rail: "16 16 16",
     glass: "30 30 30",
     code: "rgb(0 0 0 / 0.3)",
     wall: "#0A0A0A",
@@ -102,7 +99,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#8C9EFF",
     reading: "14 16 23",
     sidebar: "20 23 33",
-    rail: "12 14 21",
     glass: "27 31 43",
     code: "rgb(0 0 0 / 0.3)",
     wall: "#060810",
@@ -127,7 +123,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#5EBFC6",
     reading: "28 27 25",
     sidebar: "36 34 31",
-    rail: "24 23 21",
     glass: "40 38 35",
     code: "rgb(0 0 0 / 0.25)",
     wall: "#141311",
@@ -152,7 +147,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#17766E",
     reading: "253 251 246",
     sidebar: "243 239 230",
-    rail: "236 232 222",
     glass: "255 253 248",
     code: "rgb(60 50 30 / 0.05)",
     wall: "#EDE9DF",
@@ -177,7 +171,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#88B4E8",
     reading: "36 41 48",
     sidebar: "40 46 54",
-    rail: "30 35 42",
     glass: "40 46 54",
     code: "rgb(0 0 0 / 0.2)",
     wall: "#1B2027",
@@ -209,7 +202,6 @@ const seeds: readonly ThemeSeed[] = [
     accent: "#7CC0FF",
     reading: "0 0 0",
     sidebar: "10 10 10",
-    rail: "0 0 0",
     glass: "10 10 10",
     code: "rgb(255 255 255 / 0.08)",
     wall: "#000000",
@@ -330,7 +322,6 @@ function expand(seed: ThemeSeed): Theme {
     "--background": seed.background,
     "--reading-rgb": seed.reading,
     "--sidebar-rgb": seed.sidebar,
-    "--rail-rgb": seed.rail,
     "--popover": seed.popover,
     "--card": dark ? ink(0.045) : "rgb(255 255 255 / 0.7)",
     "--secondary": ink(dark ? 0.07 : 0.06),

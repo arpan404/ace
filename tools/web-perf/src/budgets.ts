@@ -32,7 +32,7 @@ export const budgets = {
     minutes: 2,
     /** From navigation until the transcript shows and the composer is there. 1.4 s measured. */
     readyMs: 3_000,
-    /** DOM nodes, live and detached, at any point: the transcript is virtualized. 840 peak. */
+    /** Attached DOM nodes at any sample: the transcript is virtualized. */
     domNodes: 1_500,
     /**
      * Retained page heap growth while streaming at 5,000 events/s, or while paging back through
@@ -55,7 +55,7 @@ export const budgets = {
     interactionP95Ms: 100,
     longestTaskMs: 200,
     longTaskShare: 0.1,
-    /** DOM nodes at any sample: windows and the timeline are virtual. */
+    /** Attached DOM nodes at any sample: windows and the timeline are virtual. */
     domNodes: 1_500,
     /** Retained page heap growth from the first round to the last. */
     pageGrowthMb: 4,

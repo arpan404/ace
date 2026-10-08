@@ -17,23 +17,28 @@ async function setup() {
 test("each key resolves from the highest present layer and reports its provenance", async () => {
   const f = await setup();
   const scope = { workspace: f.workspace, thread: "thread-1" };
-  expect(await f.service.get("conductor.maxFixRounds", scope)).toEqual({
-    key: "conductor.maxFixRounds",
-    value: 3,
+  expect(await f.service.get("automations.maxConcurrent", scope)).toEqual({
+    key: "automations.maxConcurrent",
+    value: 1,
     provenance: "defaults",
   });
-  await f.service.set("conductor.maxFixRounds", 4, { kind: "global" });
-  await f.service.set("conductor.maxFixRounds", 5, { kind: "workspace", workspace: f.workspace });
-  await f.service.set("conductor.maxFixRounds", 6, { kind: "thread", thread: "thread-1" });
-  expect(await f.service.get("conductor.maxFixRounds", {})).toMatchObject({
+  await f.service.set("automations.maxConcurrent", 4, { kind: "global" });
+  await f.service.set("automations.maxConcurrent", 5, {
+    kind: "workspace",
+    workspace: f.workspace,
+  });
+  await f.service.set("automations.maxConcurrent", 6, { kind: "thread", thread: "thread-1" });
+  expect(await f.service.get("automations.maxConcurrent", {})).toMatchObject({
     value: 4,
     provenance: "global",
   });
-  expect(await f.service.get("conductor.maxFixRounds", { workspace: f.workspace })).toMatchObject({
+  expect(
+    await f.service.get("automations.maxConcurrent", { workspace: f.workspace }),
+  ).toMatchObject({
     value: 5,
     provenance: "workspace",
   });
-  expect(await f.service.get("conductor.maxFixRounds", scope)).toMatchObject({
+  expect(await f.service.get("automations.maxConcurrent", scope)).toMatchObject({
     value: 6,
     provenance: "thread",
   });
@@ -44,7 +49,7 @@ test("each key resolves from the highest present layer and reports its provenanc
   await f.service.close();
   const restarted = new SettingsService({ dataDir: f.dataDir, io: f.edges.io });
   cleanups.push(() => restarted.close());
-  expect(await restarted.get("conductor.maxFixRounds", scope)).toMatchObject({
+  expect(await restarted.get("automations.maxConcurrent", scope)).toMatchObject({
     value: 6,
     provenance: "thread",
   });
@@ -212,7 +217,7 @@ test("oversized blobs, invalid values and future documents do not replace valid 
   await expect(
     f.service.set("clients.theme", "x".repeat(65536), { kind: "global" }),
   ).rejects.toThrow("64 KiB");
-  await expect(f.service.set("conductor.maxFixRounds", -1, { kind: "global" })).rejects.toThrow(
+  await expect(f.service.set("automations.maxConcurrent", -1, { kind: "global" })).rejects.toThrow(
     "Invalid value",
   );
   await f.service.set("notifications.sound", true, { kind: "global" });
@@ -231,7 +236,7 @@ test("an external document change emits only the selected changed keys in one no
   const f = await setup();
   const notices: Notification[] = [];
   await f.service.subscribe(
-    { keys: ["notifications.sound", "remote.enabled", "conductor.maxFixRounds"], scope: {} },
+    { keys: ["notifications.sound", "remote.enabled", "automations.maxConcurrent"], scope: {} },
     (n) => notices.push(n),
   );
   await f.write(f.globalPath, {

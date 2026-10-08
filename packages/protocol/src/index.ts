@@ -21,7 +21,6 @@ export * from "./screen.ts";
 export * from "./diagnostics.ts";
 export * from "./context.ts";
 export * from "./search.ts";
-export * from "./conductor.ts";
 export * from "./automations.ts";
 export * from "./activity.ts";
 export * from "./models.ts";
@@ -63,8 +62,6 @@ export * from "./worktree-base.ts";
 export * from "./forge.ts";
 export * from "./terminal-client.ts";
 
-export * from "./conductor-client.ts";
-
 export * from "./preview-client.ts";
 export { PreviewPort, PreviewDescriptor } from "./preview.ts";
 
@@ -92,7 +89,6 @@ export * from "./pi.ts";
 export * from "./permissions.ts";
 export * from "./permission-client.ts";
 
-export * from "./deck-ownership.ts";
 export * from "./machines.ts";
 
 export * from "./history.ts";

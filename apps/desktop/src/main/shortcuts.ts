@@ -16,9 +16,9 @@ export interface Shortcut {
 
 export const shortcuts: readonly Shortcut[] = [
   { keymapId: "newThread", label: "New Thread", accelerator: "CmdOrCtrl+N" },
-  { keymapId: "newDeck", label: "New Deck", accelerator: "CmdOrCtrl+Shift+N" },
   { keymapId: "addProject", label: "Add Project…", accelerator: "CmdOrCtrl+Shift+O" },
   { keymapId: "palette", label: "Command Palette…", accelerator: "CmdOrCtrl+K" },
+  { keymapId: "search", label: "Search…", accelerator: "CmdOrCtrl+Shift+K" },
   { keymapId: "findInThread", label: "Find", accelerator: "CmdOrCtrl+F", pageOwned: true },
   { keymapId: "back", label: "Back", accelerator: "CmdOrCtrl+[", pageOwned: true },
   { keymapId: "forward", label: "Forward", accelerator: "CmdOrCtrl+]", pageOwned: true },
@@ -150,5 +150,5 @@ export function browserChord(input: KeyInput, platform: NodeJS.Platform): string
   )
     return;
   const key = pressedKey(input);
-  return key && ["L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
+  return key && ["T", "L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
 }

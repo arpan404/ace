@@ -1,87 +1,105 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import { RowFoot, RowHead, RowTitle, threadDetails } from "./row-parts.tsx";
+import {
+  ProjectMark,
+  RowDetail,
+  RowMeta,
+  detailLine,
+  threadDetails,
+  titleTone,
+} from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-const card =
-  "flex w-full flex-col gap-[3px] rounded-lg px-2.5 pt-[7px] pb-2 text-left outline-none transition-colors duration-(--dur-1)";
+const row =
+  "flex min-h-8 w-full flex-col justify-center gap-0.5 rounded-md px-2 py-1.5 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
 /**
- * One Home task: its project and status, its title, then where the work happens and what it
- * changed. Its status is coloured words on the first line, never a tint behind the row; the open
- * row has a filled background.
- * Pin, Settle and Snooze appear on hover; right-click opens the full menu. A picked row (for a
- * bulk action) wears the focus colour. On a touch screen a pinned row carries a drag handle: a
- * finger on the row scrolls the list, a finger on the handle moves the row (the list owns both).
+ * One thread in the Home list, on one line: the project's two letters, the title, and at the
+ * end its marks (a snooze, the pull request, the status as a dot or spinner, the time). A working
+ * thread adds a quiet second line with its branch, changes and provider. No card, no border: the
+ * open row has a soft fill, a picked one (for a bulk action) a tint of the focus colour, and a
+ * settled one is dimmed. Quick actions take the marks' place on hover; right-click opens the
+ * full menu. On a touch screen a pinned row carries a drag handle: a finger on the row scrolls
+ * the list, a finger on the handle moves the row (the list owns both).
  */
-export function ThreadRow(props: { threadId: string }) {
-  const row = useThreadCard(props.threadId, false);
+export function ThreadRow(props: { threadId: string; settled: boolean }) {
+  const { settled } = props;
+  const data = useThreadCard(props.threadId, settled);
   const [editing, setRenaming] = useState(false);
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing || refused !== undefined;
   const started = useStartedTitle(props.threadId);
   const selected = useSelected(props.threadId);
-  if (!row) return null;
-  const { entry } = row;
+  if (!data) return null;
+  const { entry } = data;
   // A thread this window started reads its provisional title until the daemon titles it.
-  const view =
-    started && row.card.title === "New thread" ? { ...row.card, title: started } : row.card;
-  const handle = view.flags.pinned && !renaming;
-  const body = (title: ReactNode) => (
-    <>
-      <span aria-hidden className="contents">
-        <RowHead card={view} />
-      </span>
-      <RowTitle card={view}>
-        {title}
-        {view.announceUnread && <span className="sr-only">, unread</span>}
-        {selected && <span className="sr-only">, selected</span>}
-        <span className="sr-only">. {threadDetails(view).join(", ")}</span>
-      </RowTitle>
-      <span aria-hidden className="contents">
-        <RowFoot card={view} />
-      </span>
-    </>
-  );
+  const card =
+    started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
+  const handle = card.flags.pinned && !renaming;
+  const detail = !settled && detailLine(card);
+  const details = threadDetails(card);
   return (
-    <ThreadMenu entry={entry} state={view.flags} onRename={() => setRenaming(true)}>
-      <div className="group/row relative" data-thread-row={entry.id}>
+    <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
+      <div
+        className="group/row relative"
+        // Settled rows stay out of picking and dragging, as they always have.
+        {...(settled ? {} : { "data-thread-row": entry.id })}
+      >
         {renaming ? (
-          <div className={cn(card, "bg-sidebar-accent")}>
-            {body(
-              <RenameField
-                entry={entry}
-                title={refused ?? view.title}
-                onDone={() => setRenaming(false)}
-              />,
-            )}
+          <div className={cn(row, "flex-row items-center gap-2 bg-sidebar-accent")}>
+            <ProjectMark badge={card.badge} />
+            <RenameField
+              entry={entry}
+              title={refused ?? card.title}
+              onDone={() => setRenaming(false)}
+            />
           </div>
         ) : (
-          // The marks give way to Settle and Snooze; the tooltip still says what they meant.
-          <Tip label={threadDetails(view).join(" · ")} side="right">
+          <Tip label={details.join(" · ")} side="right">
             <Link
               to="/t/$threadId"
               params={{ threadId: entry.id }}
               data-row-focus=""
               className={cn(
-                card,
-                "group/link focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
-                "group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
-                "data-[status=active]:bg-foreground/8",
-                selected && "bg-ring/10 shadow-[inset_0_0_0_1px_var(--ring)]",
+                row,
+                "group/link focus-ring-inset group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
+                selected && "bg-ring/10",
                 handle && "pointer-coarse:pr-11",
               )}
             >
-              {body(view.title)}
+              <span className="flex h-5 items-center gap-2">
+                <ProjectMark badge={card.badge} />
+                {/* The actions cover the title's end on hover: fade it rather than cut a letter. */}
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate group-focus-within/row:fade-under-actions group-hover/row:fade-under-actions group-data-[status=active]/link:text-foreground",
+                    settled ? "[--under:1.25rem]" : "[--under:2.75rem]",
+                    titleTone(card),
+                  )}
+                >
+                  {card.title}
+                  {card.announceUnread && <span className="sr-only">, unread</span>}
+                  {selected && <span className="sr-only">, selected</span>}
+                  <span className="sr-only">. {details.join(", ")}</span>
+                </span>
+                <span aria-hidden className="contents">
+                  <RowMeta card={card} detail={detail} />
+                </span>
+              </span>
+              {detail && (
+                <span aria-hidden className="contents">
+                  <RowDetail card={card} />
+                </span>
+              )}
             </Link>
           </Tip>
         )}
@@ -91,7 +109,7 @@ export function ThreadRow(props: { threadId: string }) {
           <button
             type="button"
             data-drag-handle=""
-            aria-label={`Move ${view.title}`}
+            aria-label={`Move ${card.title}`}
             className="absolute top-1/2 right-0.5 hidden size-11 -translate-y-1/2 touch-none place-items-center rounded-md text-subtle-foreground select-none focus-ring pointer-coarse:grid"
           >
             <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
@@ -100,10 +118,9 @@ export function ThreadRow(props: { threadId: string }) {
         {!renaming && (
           <RowActions
             entry={entry}
-            settled={false}
-            pinned={view.flags.pinned}
-            snoozed={view.flags.snoozed}
-            className="top-[5px] right-1.5"
+            settled={settled}
+            pinned={card.flags.pinned}
+            snoozed={card.flags.snoozed}
           />
         )}
       </div>

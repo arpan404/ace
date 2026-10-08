@@ -11,11 +11,11 @@ test("a focused or hovered row keeps saying its status, and its tooltip what the
   const threads = page.getByRole("navigation", { name: "Threads" });
   const row = threads.getByRole("link", { name: /^Partial refunds double-count tax/ });
   await row.focus();
-  await expect(row).toHaveAccessibleName(/Needs you.*Pull request #77/);
+  await expect(row).toHaveAccessibleName(/Waiting for your approval.*Pull request #77/);
   await expect(page.getByRole("tooltip")).toContainText("Pull request #77");
 
   await page.getByRole("combobox", { name: "Message" }).focus();
   await row.hover();
-  await expect(row).toHaveAccessibleName(/Needs you.*Pull request #77/);
-  await expect(page.getByRole("tooltip")).toContainText("Needs you");
+  await expect(row).toHaveAccessibleName(/Waiting for your approval.*Pull request #77/);
+  await expect(page.getByRole("tooltip")).toContainText("Waiting for your approval");
 });

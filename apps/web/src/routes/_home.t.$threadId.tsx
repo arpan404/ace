@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 // Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
 import * as z from "zod/mini";
-import { deckLaneParts } from "@/features/deck/index.ts";
-import { ThreadPartsProvider } from "@/features/panels/index.ts";
 import { ThreadView } from "@/features/thread/index.ts";
 
 /**
@@ -22,18 +20,15 @@ export const Route = createFileRoute("/_home/t/$threadId")({
 function ThreadRoute() {
   const { threadId } = Route.useParams();
   const { seq, q } = Route.useSearch();
-  // Deck's lane views for the thread's workspace tabs; their code loads when a lane first shows.
   return (
-    <ThreadPartsProvider value={deckLaneParts}>
-      <ThreadView
-        key={threadId}
-        threadId={threadId}
-        target={
-          seq !== undefined && Number.isSafeInteger(seq) && seq >= 0
-            ? { seq, query: q?.slice(0, 512) }
-            : undefined
-        }
-      />
-    </ThreadPartsProvider>
+    <ThreadView
+      key={threadId}
+      threadId={threadId}
+      target={
+        seq !== undefined && Number.isSafeInteger(seq) && seq >= 0
+          ? { seq, query: q?.slice(0, 512) }
+          : undefined
+      }
+    />
   );
 }

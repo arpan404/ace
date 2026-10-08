@@ -1,6 +1,5 @@
 import {
   BrowserIcon,
-  CardsIcon,
   ChatsCircleIcon,
   CursorClickIcon,
   DeviceMobileIcon,
@@ -14,8 +13,9 @@ import {
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
-import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
+import { closePage, nextBrowserId, setLoading } from "./browser/loading.ts";
 import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
@@ -26,8 +26,12 @@ import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
 
 export { logsKind, shellKind, terminalKind };
 
+/** A true flag of a tab's data, read defensively. */
+const flag = (data: unknown, name: "agent") =>
+  typeof data === "object" && data !== null && Reflect.get(data, name) === true;
+
 /** A string field of a tab's data, read defensively: tab data comes from storage. */
-function field(data: unknown, name: "path" | "url"): string | undefined {
+function field(data: unknown, name: "path" | "url" | "page"): string | undefined {
   if (typeof data !== "object" || data === null || !(name in data)) return undefined;
   const value: unknown = Reflect.get(data, name);
   return typeof value === "string" ? value : undefined;
@@ -56,8 +60,8 @@ export const changesKind = defineTabKind({
 });
 
 /**
- * Files of the thread's checkout: one tab per file (the empty one is "Open file"), each with the
- * tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ * Files of the thread's checkout: the pinned Files tab (the tree, no file yet) and one tab per
+ * file, each with the tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
  */
 export const filesKind = defineTabKind({
   kind: "files",
@@ -66,7 +70,7 @@ export const filesKind = defineTabKind({
   launcher: 30,
   title: (tab) => {
     const path = field(tab.data, "path");
-    return path ? (path.split("/").at(-1) ?? path) : "Open file";
+    return path ? (path.split("/").at(-1) ?? path) : "Files";
   },
   Skeleton: FilesSkeleton,
   load: () => import("./files/file-tab.tsx"),
@@ -87,13 +91,25 @@ export const sideChatKind = defineTabKind({
 });
 
 /**
- * A page in the thread's browser: one tab per page, each with its own address and history over
- * the thread's single live page. Addresses from the launcher open here.
+ * A page in the thread's browser: one tab per page of the thread's browser session, each with
+ * its own address and history. Addresses from the launcher open here; pages an agent opens get
+ * a tab of their own, marked as the agent's.
  */
 export const browserKind = defineTabKind({
   kind: "browser",
   label: "Browser",
   icon: GlobeSimpleIcon,
+  TabIcon: (props) => (
+    <span className={cn("relative inline-grid", props.className)}>
+      <GlobeSimpleIcon aria-hidden size={14} />
+      {flag(props.tab.data, "agent") && (
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-status-working"
+        />
+      )}
+    </span>
+  ),
   launcher: 45,
   title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
   Badge: LoadingBadge,
@@ -105,8 +121,9 @@ export const browserKind = defineTabKind({
   }),
   onClose: (scope, tab) => {
     setLoading(scope, tab.key, false);
-    // The page stays open for the thread's agents; it just has no tab driving it now.
-    if (pageOwners.get().get(scope) === tab.key) bindPage(scope, undefined);
+    // Its page closes with it, unless it is the thread's last (that one stays for its agents).
+    const page = field(tab.data, "page");
+    if (page) closePage(scope, page);
   },
 });
 
@@ -178,14 +195,6 @@ export const agentKind = defineTabKind({
   load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
 });
 
-/** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
-export const deckLaneKind = defineTabKind({
-  kind: "deck-lane",
-  label: "Deck lane",
-  icon: CardsIcon,
-  load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
-});
-
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -208,7 +217,6 @@ export const threadKinds: readonly TabKind[] = [
   agentsKind,
   logsKind,
   agentKind,
-  deckLaneKind,
   shellKind,
   launcherKind,
 ];

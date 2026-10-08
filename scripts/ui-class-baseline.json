@@ -57,9 +57,6 @@
   "apps/web/src/features/accounts/scheduling-policy.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/activity/escalation-card.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/activity/interaction-card.tsx": {
     "text-size": 1
   },
@@ -80,8 +77,7 @@
     "bare-outline": 1
   },
   "apps/web/src/features/home/row-parts.tsx": {
-    "text-size": 3,
-    "radius": 1
+    "text-size": 2
   },
   "apps/web/src/features/home/thread-list.tsx": {
     "bare-outline": 1
@@ -117,7 +113,7 @@
   "apps/web/src/features/projects/manage-dialogs.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/search/search-page.tsx": {
+  "apps/web/src/features/search/search-dialog.tsx": {
     "radius": 1
   },
   "apps/web/src/features/settings/add-acp-agent.tsx": {

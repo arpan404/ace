@@ -1,26 +1,16 @@
-import {
-  CheckCircleIcon,
-  ClockIcon,
-  GitBranchIcon,
-  GitPullRequestIcon,
-  MoonIcon,
-  PushPinIcon,
-  WarningCircleIcon,
-} from "@phosphor-icons/react";
-import { formatSpan, type ProjectBadge, type TaskPill, type ThreadCard } from "@ace/ui-core";
-import type { CSSProperties, ReactNode } from "react";
+import { GitBranchIcon, GitPullRequestIcon, MoonIcon } from "@phosphor-icons/react";
+import { formatSpan, type ProjectBadge, type ThreadCard } from "@ace/ui-core";
+import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 
 /*
- * Pure pieces of a Home task row. They render a `ThreadCard` view model and know nothing about
+ * Pure pieces of a Home thread row. They render a `ThreadCard` view model and know nothing about
  * the client, the organizer or routing. Everything they draw is decoration: the words for it are
- * in the row's name (`threadDetails`), which nothing hides.
+ * in the row's name (`threadDetails`), which nothing hides, and in its tooltip.
  */
 
 /**
@@ -44,36 +34,37 @@ export function threadDetails(card: ThreadCard): string[] {
 }
 
 /**
- * Two letters in the project's tint (`--project-<n>`, AA on every surface) on a wash of it. The
- * tint is per project, so only the variable is inline; the rule is shared.
+ * The project's two letters on a quiet tile. The open row's tile takes the project's tint
+ * (`--project-<n>`, AA on every surface); only the variable is inline, the rule is shared.
  */
-export function ProjectMark(props: { badge: ProjectBadge; className?: string }) {
+export function ProjectMark(props: { badge: ProjectBadge }) {
   return (
     <span
       aria-hidden
       style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
-      className={cn(
-        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] bg-(--tint)/16 px-[3px] text-[9px] leading-none font-semibold tracking-[0.02em] text-(--tint)",
-        props.className,
-      )}
+      className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-foreground/6 text-[9px] leading-none font-semibold tracking-[0.02em] text-subtle-foreground group-data-[status=active]/link:bg-(--tint)/16 group-data-[status=active]/link:text-(--tint)"
     >
       {props.badge.initials}
     </span>
   );
 }
 
-function PillIcon(props: { pill: TaskPill }) {
-  switch (props.pill.icon) {
+/**
+ * The status as one small mark in its tone: a spinner while working, a dot when it needs you or
+ * failed, a hollow ring while it waits on something other than the person. Nothing at rest.
+ */
+function StatusMark(props: { card: ThreadCard }) {
+  const { card } = props;
+  switch (card.status.mark) {
     case "working":
-      return <Spinner className="text-current" />;
+      return <Spinner />;
     case "needs-you":
-      return <Dot tone="needs-you" />;
-    case "waiting":
-      return <Icon icon={ClockIcon} size={13} />;
-    case "done":
-      return <Icon icon={CheckCircleIcon} size={13} />;
     case "failed":
-      return <Icon icon={WarningCircleIcon} size={13} />;
+    case "unresponsive":
+    case "limited":
+      return <Dot tone={card.status.mark} />;
+    case "none":
+      return card.status.tone === "waiting" ? <Dot tone="limited" /> : null;
   }
 }
 
@@ -83,74 +74,58 @@ function Elapsed(props: { since: number }) {
   return <span className="tabular-nums">{formatSpan(props.since, now)}</span>;
 }
 
-/** The status in a few coloured words and a mark; a working thread counts the time it has been at it. */
-function RowStatus(props: { pill: TaskPill }) {
-  const { pill } = props;
+/** The pull request, as its glyph and number. */
+function PullRequest(props: { number: number }) {
   return (
-    <StatusLabel
-      tone={pill.tone}
-      label={pill.label}
-      mark={<PillIcon pill={pill} />}
-      className="gap-1"
-    >
-      {pill.since !== undefined && <Elapsed since={pill.since} />}
-    </StatusLabel>
+    <span className="inline-flex items-center gap-0.5">
+      <Icon icon={GitPullRequestIcon} size={12} />
+      {props.number}
+    </span>
+  );
+}
+
+/** A working row's second line shows the work; only the others name the pull request here. */
+export function detailLine(card: ThreadCard): boolean {
+  return (
+    card.status.mark === "working" && (card.branch !== undefined || card.machine !== undefined)
   );
 }
 
 /**
- * The row's first line: the project's badge and name, then on the right a pin and a snooze,
- * and the status in words or, for a thread at rest, how long ago it last moved. The right side
- * gives way to Settle and Snooze on hover and focus.
+ * The row's right end: a snooze, the pull request, the status mark, then how long it has worked
+ * or how long ago it last moved. Quick actions take its place on hover and focus.
  */
-export function RowHead(props: { card: ThreadCard }) {
+export function RowMeta(props: { card: ThreadCard; detail: boolean }) {
   const { card } = props;
+  const pr = props.detail ? undefined : card.branch?.pr;
   return (
-    <span className="flex h-[18px] items-center gap-1.5">
-      <ProjectMark badge={card.badge} />
-      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{card.project}</span>
-      <span className="flex shrink-0 items-center gap-1.5 text-subtle-foreground group-focus-within/row:invisible group-hover/row:invisible">
-        {card.flags.pinned && <Icon icon={PushPinIcon} size={12} />}
-        {card.wake && <Icon icon={MoonIcon} size={12} />}
-        {card.pill ? (
-          <RowStatus pill={card.pill} />
-        ) : (
-          <span className="text-xs tabular-nums">{card.age}</span>
-        )}
-      </span>
+    <span className="flex shrink-0 items-center gap-1.5 text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
+      {card.wake && <Icon icon={MoonIcon} size={12} />}
+      {pr !== undefined && <PullRequest number={pr} />}
+      <StatusMark card={card} />
+      {card.pill?.since !== undefined ? (
+        <Elapsed since={card.pill.since} />
+      ) : (
+        <span className="tabular-nums">{card.age}</span>
+      )}
     </span>
   );
 }
 
-/** The title: medium and bright when it needs you or has news, quiet once the work is behind you. */
-export function RowTitle(props: { card: ThreadCard; children: ReactNode }) {
-  const { card } = props;
-  return (
-    <span
-      className={cn(
-        "block truncate text-base tracking-[-0.005em]",
-        card.emphasis
-          ? "font-medium text-foreground"
-          : card.dimmed
-            ? "text-muted-foreground"
-            : "text-sidebar-foreground",
-        "group-data-[status=active]/link:text-foreground",
-      )}
-    >
-      {props.children}
-    </span>
-  );
+/**
+ * The title: medium and bright when it needs you or has news, quiet once the work is behind you,
+ * quieter still once settled.
+ */
+export function titleTone(card: ThreadCard): string {
+  if (card.emphasis) return "font-medium text-foreground";
+  if (card.flags.settled) return "text-subtle-foreground";
+  return card.dimmed ? "text-muted-foreground" : "text-sidebar-foreground";
 }
 
 /** The diff as +added −removed in the only colours a row carries, or the pull request. */
 function ChangeMark(props: { card: ThreadCard }) {
   const { branch, diff } = props.card;
-  if (branch?.pr !== undefined)
-    return (
-      <span className="inline-flex items-center gap-0.5 text-muted-foreground">
-        <Icon icon={GitPullRequestIcon} size={12} />#{branch.pr}
-      </span>
-    );
+  if (branch?.pr !== undefined) return <PullRequest number={branch.pr} />;
   if (!diff) return null;
   return (
     <span className="inline-flex items-center gap-1 tabular-nums">
@@ -164,10 +139,10 @@ function ChangeMark(props: { card: ThreadCard }) {
 function ProviderMark(props: { card: ThreadCard }) {
   const { card } = props;
   return (
-    <span className="relative inline-flex text-muted-foreground">
+    <span className="relative inline-flex">
       <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={12} decorative />
       {card.subagents > 0 && (
-        <span className="absolute -right-1.5 -bottom-1 min-w-3 rounded-full bg-sidebar px-[2px] text-center text-[8.5px] leading-3 font-semibold text-foreground shadow-[0_0_0_1px_var(--sidebar-border)]">
+        <span className="absolute -right-1.5 -bottom-1 min-w-3 rounded-full bg-sidebar px-0.5 text-center text-[8.5px] leading-3 font-semibold text-foreground shadow-[0_0_0_1px_var(--sidebar-border)]">
           {card.subagents}
         </span>
       )}
@@ -175,42 +150,26 @@ function ProviderMark(props: { card: ThreadCard }) {
   );
 }
 
-/** The row's last line: where the work happens (branch or worktree, another machine), then what changed and who does it. */
-export function RowFoot(props: { card: ThreadCard }) {
+/**
+ * A working row's second line, under its title: where the work happens (branch or worktree,
+ * another machine), then what it has changed so far and who does it.
+ */
+export function RowDetail(props: { card: ThreadCard }) {
   const { card } = props;
   const branch = card.branch;
   return (
-    <span className="flex h-4 items-center gap-1.5 text-xs text-subtle-foreground">
+    <span className="flex h-4 items-center gap-1.5 pl-7 text-xs text-subtle-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1">
-        {branch?.worktree && <Icon icon={GitBranchIcon} size={12} className="opacity-80" />}
+        {branch?.worktree && <Icon icon={GitBranchIcon} size={12} />}
         <span className="truncate">
           {/* Cut in the middle so the distinctive end stays; the whole name is in the tooltip. */}
           {branch && <span title={branch.name}>{branch.label}</span>}
-          {card.machine && <span> · {card.machine}</span>}
+          {branch && card.machine && " · "}
+          {card.machine}
         </span>
       </span>
       <ChangeMark card={card} />
       <ProviderMark card={card} />
     </span>
-  );
-}
-
-/** A settled row's line: badge, title and age. */
-export function SettledLine(props: { card: ThreadCard }) {
-  return (
-    <>
-      <ProjectMark badge={props.card.badge} className="opacity-70" />
-      {/* Unsettle covers the title's end on hover; fade it rather than cut it. */}
-      <span className="min-w-0 flex-1 truncate [--under:2.25rem] group-focus-within/row:fade-under-actions group-hover/row:fade-under-actions">
-        {props.card.title}
-        <span className="sr-only">. {threadDetails(props.card).join(", ")}</span>
-      </span>
-      <span
-        aria-hidden
-        className="text-[11px] group-focus-within/row:invisible group-hover/row:invisible"
-      >
-        {props.card.age}
-      </span>
-    </>
   );
 }

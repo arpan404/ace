@@ -6,7 +6,7 @@ import { CommandId, Thread } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
-import { git } from "./conductor/test-git.ts";
+import { git } from "./test-git.ts";
 
 test("quarantine blocks workspace preparation and provider input until cleanup recovers", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-git-quarantine-"));

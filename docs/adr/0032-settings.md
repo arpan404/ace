@@ -8,7 +8,7 @@ The supplied competitor inventories describe t3code scopes, themes and keybindin
 
 ## Decision
 
-`@ace/settings` owns resolution and file I/O. `@ace/protocol` owns schemas only. Settings are flat dotted keys inside `{ "version": 2, "settings": { ... } }`. Keys describe provider/model/tier/effort for coder, reviewer and planner, approvals, notifications, remote preferences, conductor policies, automation defaults, plugins and opaque theme/keybindings blobs. Values replace a whole key; blobs do not deep-merge.
+`@ace/settings` owns resolution and file I/O. `@ace/protocol` owns schemas only. Settings are flat dotted keys inside `{ "version": 2, "settings": { ... } }`. Keys describe provider/model/tier/effort for coder, reviewer and planner, approvals, notifications, remote preferences, automation defaults, plugins and opaque theme/keybindings blobs. Values replace a whole key; blobs do not deep-merge.
 
 Resolve each key from defaults, global `<dataDir>/settings.json`, workspace `<repo>/.ace/settings.json`, then thread `<dataDir>/threads/<id>/settings.json`. Return both value and layer. Thread files survive restarts. Scopes use daemon-owned workspace/thread IDs on the wire. The service accepts paths only at its trusted integration boundary.
 

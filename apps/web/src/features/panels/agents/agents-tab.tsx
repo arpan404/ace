@@ -35,7 +35,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
-import { AgentCounts, ThreadDeck } from "./tree-extras.tsx";
+import { AgentCounts } from "./tree-extras.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
 
@@ -109,15 +109,34 @@ function treeKeys(tree: TreeState) {
   };
 }
 
+/** Background work still running (helpers that never hold the thread open left out). */
+const readRunning = (reader: ThreadReader) =>
+  reader.taskIds().filter((id) => {
+    const task = reader.task(id);
+    return task?.status === "running" && !task.ambient;
+  });
+
+/**
+ * The thread's background work still running, oldest first. Finished work is not kept here:
+ * its transcript row ("Finished `bun run build`") opens its output.
+ */
+function useRunningTasks(threadId: string): readonly string[] {
+  const ids = useTaskIds(threadId) ?? none;
+  const keys = useMemo<ThreadKey[]>(
+    () => ["tasks", ...ids.map((id): ThreadKey => `task:${id}`)],
+    [ids],
+  );
+  return useThread(threadId, keys, readRunning, arrayEqual) ?? none;
+}
+
 /**
  * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
- * that agent as its own tab), the thread's background work with Stop, queued input, the deck
- * the thread works for with its lanes, and a plain answer to "why isn't this done?". Every row
- * subscribes to its own entity.
+ * that agent as its own tab), the background work still running with Stop, queued input,
+ * and a plain answer to "why isn't this done?". Every row subscribes to its own entity.
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
-  const tasks = useTaskIds(props.threadId) ?? [];
+  const tasks = useRunningTasks(props.threadId);
   const thread = useThreadMeta(props.threadId);
   const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
@@ -130,9 +149,6 @@ export function AgentsTab(props: { threadId: string }) {
           description="The thread's agent and any subagents it starts appear here."
           className="h-auto flex-none pt-16 pb-4"
         />
-        <div className="px-2.5 pb-5">
-          <ThreadDeck threadId={props.threadId} />
-        </div>
       </div>
     );
   return (
@@ -153,7 +169,6 @@ export function AgentsTab(props: { threadId: string }) {
             </ul>
           </section>
         )}
-        <ThreadDeck threadId={props.threadId} />
         <h3 className={heading}>Status</h3>
         <Why threadId={props.threadId} queued={queuedCount} />
       </div>
@@ -357,15 +372,15 @@ function AgentRow(props: {
   );
 }
 
+/** One background task still running: its command, how long it has run, and Stop. */
 function TaskRow(props: { threadId: string; taskId: string }) {
   const task = useTask(props.threadId, props.taskId);
   const arrival = useArrival();
   const now = useNow();
   const stop = useIntentSender();
-  if (!task || task.ambient) return null;
-  const running = task.status === "running";
+  if (!task || task.ambient || task.status !== "running") return null;
   const stopping = stop.intent?.state === "pending";
-  const end = task.endedAt ?? (running ? Math.max(now, task.startedAt) : task.startedAt);
+  const end = Math.max(now, task.startedAt);
   return (
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
@@ -383,7 +398,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {formatSpan(task.startedAt, end)} · {taskState(task)}
       </span>
-      {running && task.stoppable && (
+      {task.stoppable && (
         <Button
           size="sm"
           variant="ghost"

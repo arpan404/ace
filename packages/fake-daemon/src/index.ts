@@ -33,6 +33,14 @@ export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
+export {
+  askingQuestion,
+  oneTurnWork,
+  runningTests,
+  turnStatuses,
+  waitingOnSubagents,
+  watchingRelay,
+} from "./scenarios/turn-statuses.ts";
 export { seedPanels } from "./scenarios/panels.ts";
 export { devWorld } from "./scenarios/dev-world.ts";
 export { accountLimit, teamAtLimit } from "./scenarios/account-limit.ts";
@@ -47,10 +55,6 @@ export { FakeBrowser } from "./browser.ts";
 export type { BrowserView, ScreenFrame, PreviewServer, ForwardedInput } from "./browser.ts";
 export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
-export { FakeConductor } from "./conductor/fake-conductor.ts";
-export type { FakeConductorResult } from "./conductor/fake-conductor.ts";
-export { deckRuns } from "./conductor/decks.ts";
-export type * from "./conductor/types.ts";
 export { workbenchServices } from "./scenarios/services.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";

@@ -130,7 +130,7 @@ test("a long branch is cut in the middle for the row and kept whole for the tool
 
 test("middle truncation keeps short text and both ends of long text", () => {
   expect(middleTruncateText("fix/retry", 16)).toBe("fix/retry");
-  expect(middleTruncateText("deck/resumable-streams", 16)).toBe("deck/res…streams");
+  expect(middleTruncateText("work/resumable-streams", 16)).toBe("work/res…streams");
   expect(middleTruncateText("abcdef", 2)).toBe("ab");
   // Characters, not UTF-16 units: an emoji in a branch name is never split in half.
   expect(middleTruncateText("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");
@@ -198,4 +198,40 @@ test("diff stats show only when the checkout changed", () => {
     }),
   );
   expect(clean.diff).toBeUndefined();
+});
+
+test("a row says what its thread is doing when the daemon's live hints know more than its state", () => {
+  const card = (status: Parameters<typeof entry>[1], live: Record<string, unknown>) =>
+    threadCard(
+      input({ entry: entry("t", status, now, { live: { provider: "claude", ...live } }) }),
+    );
+
+  const watching = card(
+    { state: "waiting", on: "background_task" },
+    { watching: [{ id: "relay", title: "bun run dev:relay" }] },
+  );
+  expect(watching.pill).toMatchObject({ label: "Watching", code: "bun run dev:relay" });
+  expect(watching.status.label).toBe("Watching bun run dev:relay");
+
+  const subagents = card({ state: "working", agents: 3 }, { waitingOn: 2 });
+  expect(subagents.pill).toMatchObject({ label: "Waiting on 2 subagents", tone: "working" });
+  expect(subagents.pill?.since).toBeUndefined();
+
+  const asking = card(
+    { state: "needs_you", interactions: 1 },
+    {
+      asking: [{ id: "ask", kind: "question" }],
+    },
+  );
+  expect(asking.pill).toMatchObject({ label: "Waiting for your answer", tone: "needs-you" });
+
+  const testing = card({ state: "working", agents: 1 }, { step: "tests" });
+  expect(testing.status.label).toBe("Running tests…");
+
+  const limited = card({ state: "limited", until: now + 20 * 60_000 }, {});
+  expect(limited.pill?.label).toBe("Limited until 03:20 PM");
+
+  // Without hints a working thread reads Working, with the time it has been at it.
+  const plain = card({ state: "working", agents: 1 }, {});
+  expect(plain.pill).toMatchObject({ label: "Working", since: now });
 });

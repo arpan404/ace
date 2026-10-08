@@ -67,58 +67,56 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
               ? Replies<"pi.result">
               : Q["type"] extends "preview.request"
                 ? Replies<"preview.result">
-                : Q["type"] extends "conductor.request"
-                  ? Replies<"conductor.result">
-                  : Q["type"] extends `automation.${string}`
-                    ? Replies<"automation.result">
-                    : Q["type"] extends "terminal.request"
-                      ? Replies<"terminal.result">
-                      : Q["type"] extends "workspace.request"
-                        ? Replies<"workspace.result">
-                        : Q["type"] extends "context.request"
-                          ? Replies<"context.result">
-                          : Q["type"] extends `models.${string}`
-                            ? Replies<"models.result">
-                            : Q["type"] extends `settings.${string}`
-                              ? Replies<"settings.result">
-                              : Q["type"] extends "usage.session_totals"
-                                ? Replies<"usage.session_totals.result">
-                                : Q["type"] extends `usage.${string}`
-                                  ? Replies<"usage.result">
-                                  : Q["type"] extends "search.query"
-                                    ? Replies<"search.results" | "search.error">
-                                    : Q["type"] extends "search.status"
-                                      ? Replies<"search.progress" | "search.error">
-                                      : Q["type"] extends `accounts.${string}`
-                                        ? Extract<Reply, { type: Q["type"] }>
-                                        : Q["type"] extends "files.request"
-                                          ? Replies<
-                                              | "files.result"
-                                              | "files.ready"
-                                              | "files.error"
-                                              | "files.upload"
-                                            >
-                                          : Q["type"] extends "commands.list"
-                                            ? Replies<"commands.list.result">
-                                            : Q["type"] extends "commands.resolve"
-                                              ? Replies<"commands.resolve.result">
-                                              : Q["type"] extends `registry.${string}`
-                                                ? Replies<"registry.result">
-                                                : Q["type"] extends `mcp.${string}`
-                                                  ? Replies<"mcp.result">
-                                                  : Q["type"] extends "pluginRequest"
-                                                    ? Replies<"pluginResult">
-                                                    : Q["type"] extends `browser.${string}`
-                                                      ? Replies<"browser.result">
-                                                      : Q["type"] extends "screen.request"
-                                                        ? Replies<"screen.result">
-                                                        : Q["type"] extends "diagnostics.health"
-                                                          ? Replies<"diagnostics.health.result">
-                                                          : Q["type"] extends "items.page"
-                                                            ? Replies<"items.page">
-                                                            : Q["type"] extends "output.read"
-                                                              ? Replies<"output.data">
-                                                              : Reply;
+                : Q["type"] extends `automation.${string}`
+                  ? Replies<"automation.result">
+                  : Q["type"] extends "terminal.request"
+                    ? Replies<"terminal.result">
+                    : Q["type"] extends "workspace.request"
+                      ? Replies<"workspace.result">
+                      : Q["type"] extends "context.request"
+                        ? Replies<"context.result">
+                        : Q["type"] extends `models.${string}`
+                          ? Replies<"models.result">
+                          : Q["type"] extends `settings.${string}`
+                            ? Replies<"settings.result">
+                            : Q["type"] extends "usage.session_totals"
+                              ? Replies<"usage.session_totals.result">
+                              : Q["type"] extends `usage.${string}`
+                                ? Replies<"usage.result">
+                                : Q["type"] extends "search.query"
+                                  ? Replies<"search.results" | "search.error">
+                                  : Q["type"] extends "search.status"
+                                    ? Replies<"search.progress" | "search.error">
+                                    : Q["type"] extends `accounts.${string}`
+                                      ? Extract<Reply, { type: Q["type"] }>
+                                      : Q["type"] extends "files.request"
+                                        ? Replies<
+                                            | "files.result"
+                                            | "files.ready"
+                                            | "files.error"
+                                            | "files.upload"
+                                          >
+                                        : Q["type"] extends "commands.list"
+                                          ? Replies<"commands.list.result">
+                                          : Q["type"] extends "commands.resolve"
+                                            ? Replies<"commands.resolve.result">
+                                            : Q["type"] extends `registry.${string}`
+                                              ? Replies<"registry.result">
+                                              : Q["type"] extends `mcp.${string}`
+                                                ? Replies<"mcp.result">
+                                                : Q["type"] extends "pluginRequest"
+                                                  ? Replies<"pluginResult">
+                                                  : Q["type"] extends `browser.${string}`
+                                                    ? Replies<"browser.result">
+                                                    : Q["type"] extends "screen.request"
+                                                      ? Replies<"screen.result">
+                                                      : Q["type"] extends "diagnostics.health"
+                                                        ? Replies<"diagnostics.health.result">
+                                                        : Q["type"] extends "items.page"
+                                                          ? Replies<"items.page">
+                                                          : Q["type"] extends "output.read"
+                                                            ? Replies<"output.data">
+                                                            : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "host.identity": ["host.identity.result"],
@@ -138,7 +136,6 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "history.continue": ["history.continue"],
   "devices.request": ["devices.result"],
   "preview.request": ["preview.result"],
-  "conductor.request": ["conductor.result"],
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],

@@ -24,8 +24,11 @@ export type OpenTab = OpenRequest;
 
 /** Everything a feature or the shell does to one scope's side panel. */
 export interface WorkspaceActions {
-  /** Open (or show, if already open) a resource. */
-  open(request: OpenTab): void;
+  /**
+   * Open (or show, if already open) a resource. `reveal: false` adds it without showing it or
+   * the panel (a page an agent opened in the background).
+   */
+  open(request: OpenTab, options?: { reveal?: boolean }): void;
   /** A tool's shortcut: show it, or hide the panel if it is already showing. */
   toggleKind(kind: string): void;
   /** A tool's shortcut as the tool defines it (`onShortcut`), else `toggleKind`. */
@@ -150,7 +153,8 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     return current.load().then(attempt, () => false);
   };
   const actions: WorkspaceActions = {
-    open: (open) => withKinds(() => change((workspace) => openTab(workspace, request(open)))),
+    open: (open, options) =>
+      withKinds(() => change((workspace) => openTab(workspace, request(open), options))),
     toggleKind: (kind) =>
       withKinds(() =>
         change((workspace) => {

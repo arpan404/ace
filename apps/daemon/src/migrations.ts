@@ -118,6 +118,7 @@ const migrations = [
   // The Store owns threads.status, guaranteed by migration 1. Engine metadata has its own version.
   `CREATE INDEX IF NOT EXISTS engine_live_threads ON threads(id)
     WHERE json_extract(status,'$.state') NOT IN ('new','done','failed');`,
+  removeOffshiftOwnership,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
@@ -162,4 +163,18 @@ function ensureThreadMetadataColumns(db: DatabaseSync): void {
     if (!db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name=?").get(name))
       db.exec(`ALTER TABLE threads ADD COLUMN ${name} JSON`);
   }
+}
+
+/** Keep historical events and ordinary threads; discard only the removed display metadata. */
+function removeOffshiftOwnership(db: DatabaseSync): void {
+  db.exec(`DROP TABLE IF EXISTS conductor_command_attempts;
+    DROP TABLE IF EXISTS conductor_gate_interactions;
+    DROP TABLE IF EXISTS conductor_execution_lanes;
+    DROP TABLE IF EXISTS conductor_execution_roots;
+    DROP TABLE IF EXISTS workspace_deck_ownership;`);
+  if (db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name='client'").get())
+    db.exec(
+      "UPDATE threads SET client=json_remove(client,'$.deck') WHERE json_type(client,'$.deck') IS NOT NULL",
+    );
+  db.exec("CREATE TABLE IF NOT EXISTS upgrade_cleanup (id TEXT PRIMARY KEY)");
 }

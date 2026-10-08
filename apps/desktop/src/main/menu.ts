@@ -60,7 +60,6 @@ export function applicationMenu(options: {
       label: "File",
       submenu: [
         item("newThread"),
-        item("newDeck"),
         { type: "separator" },
         item("addProject"),
         { type: "separator" },
@@ -72,6 +71,7 @@ export function applicationMenu(options: {
       label: "View",
       submenu: [
         item("palette"),
+        item("search"),
         item("findInThread"),
         { type: "separator" },
         item("toggleSidebar"),

@@ -29,7 +29,7 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 | `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
 
 Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
-summaries, relative time, the Deck model) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
+summaries, relative time) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
 app shares it. Put a pure rule there, with its tests, rather than in a slice.
 
 ## Motion and states
@@ -61,29 +61,31 @@ transform and opacity only.
 The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
 in line with Tailwind's `sm` and `md`. Below 640px the header folds its actions and ⋯ menu into
 one and panels open as a sheet over the content. Below 768px, and on short touch screens (a phone
-held sideways), the rail and sidebar are one sheet opened from the header (it closes once a place
-is chosen, a link in it is followed, or the palette or a dialog opens from it). From 897px to
-1100px the sidebar steps aside while a right panel is open, so the panel docks beside the column
-(the rail stays); at 896px and below panels float over the content and the sidebar stays as the
-person left it.
+held sideways), the sidebar is a sheet opened from the header (it closes once a place is chosen,
+a link in it is followed, or the search dialog or a dialog opens from it), and a view's index page
+shows its own list (`ViewListPage`). From 897px to 1100px the sidebar steps aside while a right
+panel is open, so the panel docks beside the column; at 896px and below panels float over the
+content and the sidebar stays as the person left it.
 
-## Rail and sidebar
+## Sidebar
 
-As in desktop chat apps: a narrow rail of views and, beside it, a sidebar with the current view's
-own list (composed in `app/app-shell.tsx`).
+As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
 
-- **Rail** (`features/shell/rail.tsx`, 40px): icons only, each named by a tooltip with its
-  shortcut on hover and keyboard focus. Home (`g h`; a dot while a thread has news, kept as
-  counts by `AttentionTally` from the changed entries only, and judged against the same first
-  launch as Home's list, `firstLaunch` in `@ace/ui-core`), Deck (`g d`),
-  Automations (`g u`), Skills (`g s`), More (a menu of usage and accounts, files and search);
-  Settings (⌘,) and the account (the person and the app: Settings, Appearance, shortcuts,
-  usage) with the connection dot at the foot.
-- **Sidebar** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
-  pairing, connection settings), the Activity bell (`g a`, with the needs-you count; Activity's
-  only way in outside the palette) and Search and commands (⌘K), New thread (⌘N; Add project
-  while there is none), then the current view's list, the only part that scrolls. A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the
-  sidebar's body through a portal, so it keeps the route's providers.
+- **Top** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
+  pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
+  palette's "Search all threads for …" opens it too) and the Activity bell (`g a`, with the
+  needs-you count). Then New thread (⌘N; Add project while there is none), Automations (`g u`) and Skills (`g s`), listed in `features/shell/views.ts`.
+- **Body**: the thread list (`ThreadsSidebar`), the only part that scrolls. A view's list is the
+  `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
+  keep the thread list), `sidebar` (Settings' pages take the body, through a portal, so they keep
+  the route's providers) or `pane` (Automations, Skills and Activity draw their list at
+  the start of their own column).
+- **Foot**: the profile, full width (initials, name, the connection dot; its menu holds
+  Appearance, Keyboard shortcuts and Usage & accounts, the only way to `/accounts`), the sign of
+  computer use while agents hold an app, and the Settings gear (⌘,).
+- Old addresses still land (route redirects and `lib/legacy-paths.ts`): `/deck…`, `/offsets…` and `/offshifts…` → Home, `/more` and
+  `/more/accounts` → `/accounts`, `/more/files` → Home (Files is a pinned tab of each thread's
+  side panel), `/more/search?q=` → the search dialog over Home.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the
   collapsible Settled section. `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build
@@ -97,13 +99,13 @@ own list (composed in `app/app-shell.tsx`).
   over the first line on hover; ↑↓ (or j and k) move between rows. The Threads heading carries
   the project filter and Add project (⇧⌘O) on hover.
 - `SidebarFrame` owns where they sit and stays mounted for the app's life. `⌘\` is bound there:
-  it hides or shows the sidebar (the rail stays; persisted as `sidebarOpen` in `ace.layout`), and
+  it hides or shows the sidebar (persisted as `sidebarOpen` in `ace.layout`), and
   on a narrow window opens and closes the sheet without touching that choice.
-- The More and account menus are there from the start; their contents load just after the first
-  paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. More's pages
-  are defined once, in `features/more/pages.ts`; the app layer hands the rail More's menu.
+- The daemon and profile menus are there from the start; their contents load just after the first
+  paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. The thread list
+  loads beside the first route (`ThreadsSidebar`), keeping its rows and dialogs out of it too.
 - New thread (the row and ⌘N) starts in the project Home is narrowed to, else the last one used.
-- The desktop app styles the `rail`, `sidebar-top` and `header-nav` slots and `data-sidebar`
+- The desktop app styles the `sidebar-top` and `header-nav` slots and `data-sidebar`
   (`shown`, `hidden`, `sheet`) so the macOS traffic lights never cover a control.
 
 ## Module boundaries
@@ -124,22 +126,22 @@ presentational components that render it (see `home/use-thread-card.ts` and `hom
 
 Each slice owns `src/features/<slice>/` and the route files for its screens:
 
-| Slice                                                                              | Folder                                                                       | Routes                                                          |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Home (thread list, New thread)                                                     | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
-| Thread (transcript, composer, header actions)                                      | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
-| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
-| Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`                                                           | none; loaded with the panel tabs                                |
-| Activity                                                                           | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
-| Deck (`@ace/conductor`)                                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
-| Automations                                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
-| Skills                                                                             | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
-| Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
-| Projects (Add project: open, create, clone; rename, remove; first-run empty state) | `features/projects`                                                          | none; `/new?folder=` renders its `OpenFolderScreen`             |
-| Model catalog (pickers)                                                            | `features/models`                                                            | none; used by thread and Home                                   |
-| More: accounts, files, search                                                      | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
-| Settings                                                                           | `features/settings`                                                          | `settings.*.tsx`                                                |
-| Palette                                                                            | `features/palette`                                                           | none; register commands in `commands.ts`                        |
+| Slice                                                                              | Folder                 | Routes                                                        |
+| ---------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------- |
+| Home (thread list, New thread)                                                     | `features/home`        | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx` |
+| Thread (transcript, composer, header actions)                                      | `features/thread`      | `_home.t.$threadId.tsx`                                       |
+| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`      | tab kinds of the thread screen (`threadWorkspace`)            |
+| Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`     | none; loaded with the panel tabs                              |
+| Activity                                                                           | `features/activity`    | `activity.tsx`, `activity.index.tsx`                          |
+| Automations                                                                        | `features/automations` | `automations.tsx`, `automations.index.tsx`                    |
+| Skills                                                                             | `features/skills`      | `skills.tsx`, `skills.index.tsx`                              |
+| Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`    | none; used by Home, the thread ⋯ menu and the palette         |
+| Projects (Add project: open, create, clone; rename, remove; first-run empty state) | `features/projects`    | none; `/new?folder=` renders its `OpenFolderScreen`           |
+| Model catalog (pickers)                                                            | `features/models`      | none; used by thread and Home                                 |
+| Usage & accounts                                                                   | `features/accounts`    | `accounts.tsx`                                                |
+| Search (a dialog over any screen)                                                  | `features/search`      | none; `more.tsx` sends old search links to it                 |
+| Settings                                                                           | `features/settings`    | `settings.*.tsx`                                              |
+| Palette                                                                            | `features/palette`     | none; register commands in `commands.ts`                      |
 
 Rules:
 
@@ -150,7 +152,8 @@ Rules:
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.
 - Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
   `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
-  `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
+  `@ace/ui-core/provider-icons`; the marks are LobeHub Icons plus the official OpenAI Blossom in
+  `scripts/brand-marks/`, regenerated with `bun run icons:providers`.
   They draw in brand colour (gradients included); black-and-white brands draw in the text colour
   at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
 - Colour has jobs, never decoration:
@@ -230,11 +233,10 @@ export const fileKind = defineTabKind({
   `useWorkspaceActions(scope).update(tab.key, { title })`.
 - A tool the daemon can't serve yet still registers, with a view that says exactly what is
   missing (`features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
-- A view that needs another slice's components (an agent tab draws the transcript's blocks, a
-  deck-lane tab draws Deck's lane) reads them from `useThreadParts()`: the thread screen and the
-  thread route hand them down through `ThreadPartsProvider`, since those slices import the panels
+- A view that needs another slice's components (an agent tab draws the transcript's blocks)
+  reads them from `useThreadParts()`: the thread screen hands them down through `ThreadPartsProvider`, since those slices import the panels
   and the panels can't import them back. Hand down lazy components so the route stays light.
-- Resource tabs so far: `agent` (one per agent of the tree), `deck-lane` (`run/card`), `device`
+- Resource tabs so far: `agent` (one per agent of the tree), `device`
   (one per simulator or emulator, from the Devices catalog) and `port` (one per dev server,
   from Preview).
 
@@ -388,9 +390,9 @@ server queue with its recovery and limit controls (`queue.get`, `queue.*`, `thre
 `workspace.editor.open`, `git.commit`, `git.push` and `forge.pr.create` commands), terminals
 (`terminal.request`, credit-paced `terminal.output`), the browser relay (`browser.*`, ACKed
 frames), dev servers (`preview.request`), shell output (`output.read`) and More › Files (each
-thread's `items.page`), Deck runs (`conductor.request` and `conductor.*` commands), automations
+thread's `items.page`), automations
 (`automation.*`), skills and plugins (`pluginRequest`), and the Activity feed (forge `pr.status`
-and Deck escalations). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+and thread requests). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
 Beside the socket, the connection carries its `endpoint` (`boot/connection.tsx`): the daemon's HTTP

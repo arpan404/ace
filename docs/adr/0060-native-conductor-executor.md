@@ -1,6 +1,8 @@
 # 0060: Native conductor executor
 
-Date: 2026-10-03. Status: accepted for implementation.
+Date: 2026-10-03. Status: Superseded/removed 2026-10-07 — feature removed; use agent orchestration.
+
+Upgrade behavior is documented in [Offshift removal](../daemon/offshift-removal.md).
 
 ## Context
 

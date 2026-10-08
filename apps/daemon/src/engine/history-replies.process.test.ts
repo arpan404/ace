@@ -37,7 +37,7 @@ test("a new prompt and replay retain one persisted assistant reply in its origin
     expect(after[0]).toMatchObject({
       id: before[0]?.id,
       runId: before[0]?.runId,
-      parts: [{ type: "text", text: "Offshift summary" }],
+      parts: [{ type: "text", text: "Delegation summary" }],
     });
     expect(h.errors).toEqual([]);
   } finally {

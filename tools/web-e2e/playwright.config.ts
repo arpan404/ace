@@ -8,7 +8,6 @@ const web = new URL("../../apps/web", import.meta.url).pathname;
  * End-to-end journeys through the real web app in Chromium.
  * - `fake`: the app against the in-page fake daemon (`vite --mode fake`).
  * - `real-daemon`: the app against apps/daemon with scripted providers (src/real-daemon.ts).
- * - `real-daemon-deck`: a deck on that daemon, after the other real-daemon journeys.
  * - `screens`: renders every screen in Dark and Light to /tmp/aceshots-web (run on demand).
  * - `walkthrough`: records the core journeys to /tmp/aceshots-web/walkthrough.webm (on demand).
  */
@@ -35,16 +34,7 @@ export default defineConfig({
     },
     {
       name: "real-daemon",
-      testMatch: /real-daemon(?!-deck)[^/]*\.spec\.ts/,
-      use: { baseURL: `http://127.0.0.1:${realPort}` },
-    },
-    {
-      // A deck adds a root thread and a thread per lane to the shared daemon, and its lanes'
-      // worktrees as projects; it runs after the other real-daemon journeys so their thread
-      // lists and default project stay as seeded.
-      name: "real-daemon-deck",
-      testMatch: /real-daemon-deck\.spec\.ts/,
-      dependencies: ["real-daemon"],
+      testMatch: /real-daemon[^/]*\.spec\.ts/,
       use: { baseURL: `http://127.0.0.1:${realPort}` },
     },
     {

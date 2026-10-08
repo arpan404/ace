@@ -172,14 +172,27 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("textbox", { name: "Find text" }).fill("needle");
       await expect.poll(() => p.getByRole("search").innerText()).toMatch(/matches/);
       await p.getByRole("button", { name: "Close find" }).click();
-      await p.getByRole("button", { name: "New page tab" }).click();
+      // One page per browser tab: a new browser tab's address opens a page of its own, and
+      // closing that tab closes its page.
+      const panel = p.getByRole("region", { name: "Thread panel" });
+      const browserTabs = () =>
+        panel.getByRole("tab", { name: new URL(s.url).host, exact: true }).count();
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitem", { name: "New browser tab" }).click();
+      await panel.getByRole("tab", { name: "New page", selected: true }).waitFor();
+      await address.fill(new URL("/second", s.url).href);
+      await address.press("Enter");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await p.getByRole("tab", { name: "Fixture", exact: true }).click();
-      await p.getByRole("button", { name: "Close New tab", exact: true }).click();
+      await expect.poll(browserTabs).toBe(2);
+      await p.keyboard.press("ControlOrMeta+Alt+w");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
+      await expect.poll(browserTabs).toBe(1);
+      // A page's window.open opens in a browser tab of its own, which the panel shows.
       await click("button[onclick*='window.open']");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await p.getByRole("button", { name: "Close Popup", exact: true }).click();
+      await expect.poll(browserTabs).toBe(2);
+      await expect.poll(() => address.inputValue()).toContain("/popup");
+      await p.keyboard.press("ControlOrMeta+Alt+w");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
       await click("button[onclick*=alert]");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
@@ -267,25 +280,27 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByText("Site access in this thread", { exact: true }).waitFor();
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Escape");
-      await p.getByRole("button", { name: "Page size", exact: true }).click();
-      await p.getByRole("menuitemradio", { name: /iPhone 16 Pro/ }).click();
+      const pageSize = async (name: string | RegExp) => {
+        await p.getByRole("button", { name: "Browser options" }).click();
+        await p.getByRole("menuitemradio", { name }).click();
+      };
+      await pageSize(/iPhone 16 Pro/);
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
       await p.getByRole("menu").waitFor({ state: "hidden" });
       const emulated = (await geometry()).native?.bounds;
       if (!emulated) throw new Error("Native emulation missing");
       expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
-      await p.getByRole("button", { name: "Page size", exact: true }).click();
-      await p.getByRole("menuitemradio", { name: /Laptop/ }).click();
+      await pageSize(/Laptop/);
       await expect.poll(() => nativeRead("innerWidth")).toBe(1280);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(1);
-      await p.getByRole("button", { name: "Page size", exact: true }).click();
-      await p.getByRole("menuitemradio", { name: "Fit the panel", exact: true }).click();
+      await pageSize("Fit the panel");
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Copy address", exact: true }).click();
       await expect.poll(() => s.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(s.url);
-      await p.getByRole("button", { name: "Open in your browser", exact: true }).click();
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitem", { name: "Open in your browser", exact: true }).click();
       expect(await s.app.evaluate(() => Reflect.get(globalThis, "testOpened"))).toContain(s.url);
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Record the page", exact: true }).click();

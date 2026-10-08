@@ -20,7 +20,6 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
-import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
 import type { HomeList } from "./use-home-threads.ts";
@@ -37,12 +36,13 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
-  "pinned-header": 34,
-  pinned: 69,
-  "pinned-end": 17,
-  thread: 69,
-  "settled-header": 40,
-  settled: 31,
+  "pinned-header": 33,
+  pinned: 33,
+  "pinned-end": 9,
+  thread: 33,
+  "recent-header": 37,
+  "settled-header": 37,
+  settled: 33,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -54,11 +54,25 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-3 mb-0.5 flex w-full items-center gap-2 rounded-sm px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
+
+/** A section's quiet heading: its name, how many, a thin rule, and whatever closes the line. */
+function HeadingText(props: { label: string; count?: number | undefined }) {
+  return (
+    <>
+      {props.label}
+      {/* A flex gap draws the space; the text keeps it for the heading's name. */}
+      {props.count !== undefined && " "}
+      {props.count !== undefined && <span className="font-normal tabular-nums">{props.count}</span>}
+      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
+    </>
+  );
+}
 
 /**
- * The Home list, virtualized: the Pinned group in the person's own order, then one task row per
- * thread across projects, then the collapsible Settled section (when threads settle is a
+ * The Home list, virtualized: the Pinned group in the person's own order, then one row per
+ * thread across projects (the work in hand, then Recent: threads at rest), then the collapsible
+ * Settled section (when threads settle is a
  * setting, in Settings › General). Only visible rows mount. Up and Down (or j and k) move
  * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
  * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
@@ -70,14 +84,15 @@ const header =
  * group, being theirs to order, never holds.
  */
 export function ThreadList(props: { list: HomeList }) {
-  const { pinned, active, settled } = props.list;
+  const { pinned, active, recent, settled } = props.list;
   const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   const home = useHomeMachine();
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = useMemo(
-    () => homeRows({ pinned, active, settled }, { settledOpen, pinZone: moving !== undefined }),
-    [pinned, active, settled, settledOpen, moving],
+    () =>
+      homeRows({ pinned, active, recent, settled }, { settledOpen, pinZone: moving !== undefined }),
+    [pinned, active, recent, settled, settledOpen, moving],
   );
   const hold = useListHold();
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
@@ -311,7 +326,7 @@ export function ThreadList(props: { list: HomeList }) {
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  "absolute inset-x-0 top-0 pb-0.5",
+                  "absolute inset-x-0 top-0 pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-[rgb(var(--sidebar-rgb))]",
@@ -324,13 +339,24 @@ export function ThreadList(props: { list: HomeList }) {
               >
                 <div className={rowMotion(entry.phase)}>
                   {(row.kind === "thread" || row.kind === "pinned") && (
-                    <ThreadRow threadId={row.id} />
+                    <ThreadRow threadId={row.id} settled={false} />
                   )}
-                  {row.kind === "settled" && <SettledRow threadId={row.id} />}
-                  {row.kind === "pinned-end" && <div className="mx-2 my-2 h-px bg-border" />}
+                  {row.kind === "settled" && <ThreadRow threadId={row.id} settled />}
+                  {row.kind === "pinned-end" && (
+                    <div className="mx-2 my-1 h-px bg-sidebar-border" />
+                  )}
                   {row.kind === "pinned-header" && (
-                    <div data-pin-zone="" className={cn(header, "mt-1")}>
-                      {row.count ? `Pinned (${row.count})` : "Drop here to pin"}
+                    <div data-pin-zone="" className={cn(header, "mt-0")}>
+                      {row.count ? (
+                        <HeadingText label="Pinned" count={row.count} />
+                      ) : (
+                        <HeadingText label="Drop here to pin" />
+                      )}
+                    </div>
+                  )}
+                  {row.kind === "recent-header" && (
+                    <div className={header}>
+                      <HeadingText label="Recent" />
                     </div>
                   )}
                   {row.kind === "settled-header" && (
@@ -341,10 +367,10 @@ export function ThreadList(props: { list: HomeList }) {
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
                       className={cn(header, "hover:text-muted-foreground")}
                     >
-                      Settled ({row.count})
+                      <HeadingText label="Settled" count={row.count} />
                       <CaretDownIcon
                         aria-hidden
-                        size={14}
+                        size={12}
                         className={cn(
                           "transition-transform duration-(--dur-2) ease-spring",
                           !settledOpen && "-rotate-90",

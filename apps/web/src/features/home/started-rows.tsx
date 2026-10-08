@@ -65,13 +65,13 @@ function StartedRow(props: { send: PendingSend }) {
         to="/t/$threadId"
         params={{ threadId: realId(send) ?? `pending:${send.commandId}` }}
         className={cn(
-          // The task rows' card shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex w-full items-center gap-2 rounded-lg px-2.5 pt-[7px] pb-2 text-base text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) hover:bg-sidebar-accent focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]",
+          // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
+          "flex h-8 w-full items-center gap-2 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
           "data-[status=active]:bg-foreground/8",
           !accepted && "opacity-60",
         )}
       >
-        <span className="min-w-0 flex-1 truncate tracking-[-0.005em]">
+        <span className="min-w-0 flex-1 truncate">
           {titleOf(send)}
           <span className="sr-only">. {accepted ? "Starting" : "Sending to the daemon"}</span>
         </span>

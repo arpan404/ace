@@ -8,16 +8,15 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { Page, PageTitle } from "@/features/shell/index.ts";
 import { useActivityState } from "./activity-state.tsx";
-import { EscalationCard } from "./escalation-card.tsx";
 import { InteractionCard } from "./interaction-card.tsx";
 import { LimitedThreads, useLimitedThreads } from "./limited-threads.tsx";
 import { useNeedsYou } from "./use-needs-you.ts";
 
 /**
  * Everything waiting on a person, as answerable cards, oldest first: approvals, questions and
- * plans from every thread (live from the daemon) and Deck decisions, then threads paused at a
+ * plans from every thread (live from the daemon), then threads paused at a
  * usage limit. J/K (or ↓/↑) move focus between cards; the focused card takes A, D, 1–3, O, H
- * and X.
+ * and H.
  */
 export function NeedsYouPage() {
   const needs = useNeedsYou();
@@ -53,23 +52,19 @@ export function NeedsYouPage() {
       <EmptyState
         icon={BellIcon}
         title="You're all caught up"
-        description="Approvals, questions and Deck decisions from every thread land here, with mentions, CI failures and automation results."
+        description="Approvals, questions and plans from every thread land here, with mentions, CI failures and automation results."
       />
     );
   return (
     <Page>
       <PageTitle
         title="Needs you"
-        lede="Approvals, questions and Deck decisions from every thread, oldest first. Answer here, or open the thread for context."
+        lede="Approvals, questions and plans from every thread, oldest first. Answer here, or open the thread for context."
       />
       <div ref={watch} className="mt-5 flex flex-col gap-3">
-        {needs.entries.map((entry) =>
-          entry.kind === "thread" ? (
-            <ThreadCards key={entry.threadId} threadId={entry.threadId} />
-          ) : (
-            <EscalationCard key={entry.event.id} event={entry.event} />
-          ),
-        )}
+        {needs.entries.map((entry) => (
+          <ThreadCards key={entry.threadId} threadId={entry.threadId} />
+        ))}
       </div>
       {!empty && <KeyLegend />}
       <LimitedThreads threads={limited} />

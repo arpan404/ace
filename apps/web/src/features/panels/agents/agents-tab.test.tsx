@@ -78,9 +78,10 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
     name: "bun run relay:soak --clients 2: running",
   });
   await userEvent.click(within(shell).getByRole("button", { name: "Stop" }));
-  await within(panel).findByRole("listitem", { name: "bun run relay:soak --clients 2: stopped" });
-  expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
+  // Once stopped it leaves the panel, which lists only what is still running.
   const done = await within(panel).findByRole("region", { name: "Done" });
+  expect(within(panel).queryByRole("listitem", { name: /^bun run relay:soak/ })).toBeNull();
+  expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
   expect(done.textContent).toContain("Every agent has finished");
 });
 

@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { ProviderKind } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { brandArt, brandAtSize, providerIcon } from "./provider-icons.ts";
+import { brandArt, providerIcon } from "./provider-icons.ts";
 
 test("each built-in provider shows its own mark, named as people know the product", async () => {
   for (const provider of ProviderKind.options.filter((kind) => kind !== "acp")) {
@@ -66,12 +67,37 @@ test("a model of an unknown family keeps the provider's mark", () => {
     brand: "opencode",
     label: "OpenCode",
   });
-  expect(providerIcon({ provider: "codex", model: "photon" }).brand).toBe("codex");
+  expect(providerIcon({ provider: "codex", model: "photon" }).brand).toBe("openai");
 });
 
-test("a mark with a cutout gives way to its maker's simpler mark at row sizes", () => {
-  expect(brandAtSize("codex", 12)).toBe("openai");
-  expect(brandAtSize("codex", 14)).toBe("openai");
-  expect(brandAtSize("codex", 16)).toBe("codex");
-  expect(brandAtSize("claude", 12)).toBe("claude");
+test("Codex, its ACP agent and GPT models all show the OpenAI Blossom, under their own names", () => {
+  expect(providerIcon({ provider: "codex" })).toEqual({ brand: "openai", label: "Codex" });
+  expect(providerIcon({ provider: "acp", acpAgentId: "official:codex-acp" })).toEqual({
+    brand: "openai",
+    label: "Codex",
+  });
+  expect(providerIcon({ provider: "codex", model: "gpt-5.3-codex" })).toEqual({
+    brand: "openai",
+    label: "OpenAI",
+  });
+});
+
+test("the OpenAI mark is the Blossom from OpenAI's brand kit, cropped to fill its box", async () => {
+  const kit = readFileSync(
+    new URL("../../../scripts/brand-marks/openai-blossom.svg", import.meta.url),
+    "utf8",
+  );
+  const art = await brandArt.openai();
+  expect(art.mono.map((path) => path.d)).toEqual([/ d="([^"]+)"/.exec(kit)?.[1]]);
+  // Drawn in the text colour: no fill of its own, and no colour variant.
+  expect(art.mono[0]?.fill).toBeUndefined();
+  expect(art.color).toBeUndefined();
+  // The outline spans 180.5 to 535.17 on both axes of the kit's 716 square.
+  const [x, y, width, height] = art.viewBox.split(" ").map(Number);
+  expect([x, y, width, height]).toEqual([
+    expect.closeTo(180.5, 1),
+    expect.closeTo(180.5, 1),
+    expect.closeTo(354.67, 1),
+    expect.closeTo(354.67, 1),
+  ]);
 });

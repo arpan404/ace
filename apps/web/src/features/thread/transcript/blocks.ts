@@ -1,15 +1,24 @@
 import { executionOrder } from "./execution-order.ts";
 import type { Item, Run } from "@ace/protocol";
-import { isBareErrorCode, reviewedInteraction, type InlineQuestion } from "@ace/ui-core";
+import {
+  carriesOnStretch,
+  isBareErrorCode,
+  reviewedInteraction,
+  type InlineQuestion,
+} from "@ace/ui-core";
 
 export { isInlineInteraction } from "@ace/ui-core";
 
 /**
- * The transcript reads like a document: between two messages, all tool work collapses into one
- * "Worked for" line and all spawns into one "Started N subagents" line (subagents' own work
- * interleaves with the parent's, so these are per stretch, not per run of adjacent items). Once
- * a turn's whole tree has settled, one changed-files card follows its last answer, and a turn
- * that failed, was stopped or was paused by a usage limit says so after its last block. Blocks
+ * The transcript reads like a document: a turn's tool work collapses into one "Worked for" line
+ * and its spawns into one "Started N subagents" line (subagents' own work interleaves with the
+ * parent's, so these are per turn, not per run of adjacent items). What the agent says between
+ * steps sits inside that log, in order; what it says after its last step is the answer, shown
+ * below it. Background tasks, questions and notices show where they happened without opening a
+ * second log, and a run the agent starts by itself when its background work finishes carries
+ * the same log on. Once a turn's whole tree has settled, one changed-files card follows its
+ * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
+ * its last block. Blocks
  * depend on item order, kinds and links, background calls, inline questions and how turns
  * ended, never on a streamed delta, so streaming never regroups the transcript.
  *
@@ -20,10 +29,21 @@ export type Block =
   | { kind: "user"; key: string; itemId: string }
   | { kind: "message"; key: string; itemId: string }
   /**
-   * A stretch's tool work. `until` is the moment the stretch closed (the agent spoke, the person
-   * wrote, the turn ended): its "Worked for" never runs past it, whatever settles later.
+   * A turn's tool work, with what the agent said between its steps, in order. `until` is the
+   * moment the stretch closed (the agent answered, the person wrote, the turn ended): its
+   * "Worked for" never runs past it, whatever settles later.
    */
-  | { kind: "work"; key: string; itemIds: string[]; until?: number | undefined }
+  | {
+      kind: "work";
+      key: string;
+      itemIds: string[];
+      until?: number | undefined;
+      /**
+       * Time the agent sat idle inside the log, between a turn's end and the run it started by
+       * itself when its background work or subagent finished: not counted as work.
+       */
+      idle?: number | undefined;
+    }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | { kind: "background"; key: string; itemId: string; taskId: string }
   | { kind: "files"; key: string; itemIds: string[] }
@@ -66,6 +86,7 @@ export type Block =
 
 /** What the blocks need of a run. */
 export type RunFacts = Pick<Run, "state" | "trigger" | "endedAt"> & {
+  startedAt?: number | undefined;
   /** The run's failure, once the daemon reports it on the run (C-A). */
   failedOn?: string | undefined;
 };
@@ -160,14 +181,80 @@ type WorkBlock = Extract<Block, { kind: "work" }>;
 const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
 
 /**
+ * Whether turn `next` carries on the stretch before it: the agent started it by itself once its
+ * background work or a subagent finished (no one asked), so it opens no second log.
+ */
+function continues(source: BlockSource, next: string): boolean {
+  return carriesOnStretch(source.run?.(next)?.trigger);
+}
+
+/** Whether an item goes into a work log (when it is not shown as a question instead). */
+function joinsWork(item: Item, source: BlockSource): boolean {
+  switch (item.type) {
+    case "tool_call":
+      return !source.background.has(item.id) && item.call.kind !== "agent.spawn";
+    case "reasoning":
+      return true;
+    case "notice": {
+      // Output or a review of a step joins that step's log (as `buildBlocks` places it).
+      if (item.measurement || item.toolCallId) return true;
+      const reviewed = reviewedInteraction(item);
+      return !!reviewed && !!source.reviewedCall?.(reviewed);
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * For each stretch (a turn's output between two of the person's messages), the position of its
+ * last item that goes into a work log. The agent's words before it are said between steps and
+ * join the log; the words after it are the answer. One pass, as `buildBlocks` walks.
+ */
+function lastWorkOf(
+  order: readonly string[],
+  source: BlockSource,
+  anchors: ReadonlyMap<string, readonly string[]>,
+): { stretchAt: Int32Array; lastWork: Map<number, number> } {
+  const stretchAt = new Int32Array(order.length);
+  const lastWork = new Map<number, number>();
+  let stretch = 0;
+  let turn: string | undefined;
+  let ask: string | undefined;
+  for (const [index, id] of order.entries()) {
+    const item = source.item(id);
+    if (!item) continue;
+    if (isPerson(item)) {
+      ask = id;
+      turn = undefined;
+      stretch++;
+    } else {
+      const next = source.turnOf?.(id) ?? turn ?? (ask === undefined ? "" : `ask:${ask}`);
+      if (next !== turn) {
+        if (turn !== undefined && !continues(source, next)) stretch++;
+        turn = next;
+      }
+    }
+    stretchAt[index] = stretch;
+    const question =
+      anchors.has(id) && item.type === "tool_call" && item.call.detail.kind === "ask_user";
+    if (!question && joinsWork(item, source)) lastWork.set(stretch, index);
+  }
+  return { stretchAt, lastWork };
+}
+
+/**
  * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
- * line) runs until the agent speaks, the person writes or the agent asks them something, and
- * never across turns; notices, injected messages and other events show inline without ending
- * it. A turn's files card and ending wait until its whole tree has settled (ADR 0062).
+ * line) is a turn's output until its answer or the person's next message, never across turns:
+ * the agent's words between steps join the log in order, and notices, background tasks,
+ * questions, injected messages and other events show inline without ending it. A turn's files
+ * card and ending wait until its whole tree has settled (ADR 0062).
  */
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   const anchors = anchorQuestions(source);
+  const order = executionOrder(source);
+  const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
   let stretch: { work?: { block: WorkBlock; at: number }; subagents?: { itemIds: string[] } } = {};
@@ -242,7 +329,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
-  for (const id of executionOrder(source)) {
+  for (const [index, id] of order.entries()) {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);
@@ -255,7 +342,16 @@ export function buildBlocks(source: BlockSource): Block[] {
     } else {
       const next = known ?? turnId ?? (askId === undefined ? "" : `ask:${askId}`);
       if (next !== turnId) {
-        if (turnId !== undefined) close(item.createdAt);
+        if (turnId === undefined || !continues(source, next)) {
+          if (turnId !== undefined) close(item.createdAt);
+        } else if (stretch.work) {
+          // The log carries on into the run the agent started by itself; the wait between the
+          // two runs was no work.
+          const ended = source.run?.(turnId)?.endedAt;
+          const started = source.run?.(next)?.startedAt;
+          if (ended !== undefined && started !== undefined && started > ended)
+            stretch.work.block.idle = (stretch.work.block.idle ?? 0) + started - ended;
+        }
         turnId = next;
         mark = markOf(next, askId);
       }
@@ -271,8 +367,12 @@ export function buildBlocks(source: BlockSource): Block[] {
           if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
           else if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
           else {
-            push({ kind: "message", key: id, itemId: id }, item.createdAt, true);
-            // The agent answered after the error: that error was not how the turn ended.
+            // Said between steps: it reads inside the log, in order. After the last step: the
+            // answer, below the log.
+            const between = (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
+            if (between) group("work", id);
+            else push({ kind: "message", key: id, itemId: id }, item.createdAt, true);
+            // The agent spoke after the error: that error was not how the turn ended.
             if (mark) mark.failure = undefined;
           }
           break;
@@ -329,6 +429,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       // the newest turn's, so the one before it is history.
       markOf(`ask:${id}`, id).lastBlock = blocks.length - 1;
     }
+    // A question sits where it was asked; the turn's work goes on in the same log after it.
     for (const interactionId of asked ?? [])
       push(
         {
@@ -338,7 +439,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           itemId: interactionId === asked?.[0] ? replaced : undefined,
           anchorId: id,
         },
-        item.createdAt,
+        false,
       );
   }
   if (turnId !== undefined) close(undefined);

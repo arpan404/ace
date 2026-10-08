@@ -4,13 +4,12 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 
 /**
- * The rail and the sidebar on a narrow window: a sheet over the content, opened from the
- * header. It covers the header's toggle, so it carries its own at the end of the top row.
+ * The sidebar on a narrow window: a sheet over the content, opened from the header. It covers
+ * the header's toggle, so it carries its own at the end of the top row.
  */
 export function SidebarSheet(props: {
   open: boolean;
   onOpenChange(open: boolean): void;
-  rail: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -18,7 +17,7 @@ export function SidebarSheet(props: {
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="w-[min(344px,92vw)] flex-row gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
+        className="w-[min(320px,88vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
         // Following any link in it is a choice of where to go, even the page already open.
         onClickCapture={(event) => {
           const link = (event.target as Element).closest("a[href]");
@@ -27,8 +26,7 @@ export function SidebarSheet(props: {
         }}
       >
         <SheetTitle className="sr-only">Sidebar</SheetTitle>
-        {props.rail}
-        <div className="flex min-w-0 flex-1 flex-col">{props.children}</div>
+        {props.children}
         <IconButton
           icon={SidebarSimpleIcon}
           label="Hide sidebar"

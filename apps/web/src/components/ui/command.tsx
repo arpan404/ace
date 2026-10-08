@@ -83,28 +83,21 @@ function Command<Item>(props: {
 }
 
 /**
- * The search field. Its esc chip is the close control (so Tab lands on something visible); on
- * touch, where there's no Esc key, a "Close" button takes its place.
+ * The sheet's top row: a magnifier, the field (`commandField`), anything beside it (a spinner)
+ * and the esc chip, which is the close control (so Tab lands on something visible). On touch,
+ * where there's no Esc key, a "Close" button takes the chip's place. The field is always focused
+ * while the sheet is open, so the caret is its focus mark.
  */
-function CommandInput({
-  className,
-  closeLabel = "Close command palette",
-  ...props
-}: Autocomplete.Input.Props & { closeLabel?: string }) {
+const commandField =
+  "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
+function CommandSearchRow(props: { closeLabel: string; children: React.ReactNode }) {
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
       <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
-      <Autocomplete.Input
-        data-slot="command-input"
-        className={cn(
-          "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground",
-          className,
-        )}
-        {...props}
-      />
+      {props.children}
       <Dialog.Close
-        aria-label={closeLabel}
-        className="relative grid shrink-0 place-items-center rounded-sm text-sm font-medium text-muted-foreground focus-ring touch-hit touch-hit-lg"
+        aria-label={props.closeLabel}
+        className="focus-ring relative grid shrink-0 place-items-center rounded-sm text-sm font-medium text-muted-foreground touch-hit touch-hit-lg"
       >
         {/* The chip hides itself on touch, where "Close" shows instead. */}
         <Kbd>esc</Kbd>
@@ -113,6 +106,23 @@ function CommandInput({
         </span>
       </Dialog.Close>
     </div>
+  );
+}
+
+/** The palette's search field, in the sheet's top row. */
+function CommandInput({
+  className,
+  closeLabel = "Close command palette",
+  ...props
+}: Autocomplete.Input.Props & { closeLabel?: string }) {
+  return (
+    <CommandSearchRow closeLabel={closeLabel}>
+      <Autocomplete.Input
+        data-slot="command-input"
+        className={cn(commandField, className)}
+        {...props}
+      />
+    </CommandSearchRow>
   );
 }
 
@@ -193,7 +203,9 @@ function CommandFooter() {
 export {
   CommandDialog,
   Command,
+  commandField,
   CommandInput,
+  CommandSearchRow,
   CommandList,
   CommandEmpty,
   CommandGroup,

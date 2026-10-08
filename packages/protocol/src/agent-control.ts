@@ -1,5 +1,4 @@
 import { PermissionMode } from "./permissions.ts";
-import { DeckOwnership } from "./deck-ownership.ts";
 import { z } from "zod";
 import { WorktreeBase } from "./worktree-base.ts";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
@@ -183,7 +182,6 @@ export const AgentControlResult = z.object({
 export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
-  deck: DeckOwnership.optional(),
   type: z.literal("thread.prepare"),
   handoffFrom: ThreadId.optional(),
   mode: z.enum(["local", "worktree"]).optional(),

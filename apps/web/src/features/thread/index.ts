@@ -21,8 +21,3 @@ export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
 export { ForkDialog } from "./transitions/fork-dialog.tsx";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
-/**
- * An agent's open request, answered in place (Deck shows its agents' questions with it). Its
- * code loads on first render (suspends until then), so importing it costs a caller nothing.
- */
-export { DeferredThreadInteraction } from "./interactions/deferred-card.ts";

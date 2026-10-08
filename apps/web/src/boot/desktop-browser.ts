@@ -29,6 +29,7 @@ export interface NativeViewPlacement {
 }
 
 export type BrowserAccelerator =
+  | "CmdOrCtrl+T"
   | "CmdOrCtrl+L"
   | "CmdOrCtrl+F"
   | "CmdOrCtrl+R"
@@ -84,6 +85,7 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
             return;
           const accelerator = event.accelerator;
           if (
+            accelerator === "CmdOrCtrl+T" ||
             accelerator === "CmdOrCtrl+L" ||
             accelerator === "CmdOrCtrl+F" ||
             accelerator === "CmdOrCtrl+R" ||

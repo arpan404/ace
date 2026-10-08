@@ -142,7 +142,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   ).toBeVisible();
   await beat(2000);
 
-  // The palette, Activity, Deck and Settings, then Light.
+  // The palette, Activity and Settings, then Light.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("replay", { delay: 40 });
@@ -150,7 +150,6 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.keyboard.press("Escape");
   for (const [path, name] of [
     ["/activity", "Activity"],
-    ["/deck", "Resumable relay streams"],
     ["/settings/appearance", "Settings"],
   ] as const) {
     await page.goto(path);

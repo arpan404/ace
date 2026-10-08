@@ -92,7 +92,7 @@ export function AppearanceSettings() {
       <SettingSection label="Material" card scope="device">
         <SettingRow
           {...settingRow("appearance.glass")}
-          description="How much of your desktop shows through the rail, sidebar and floating panels. Follows Reduce transparency in your OS."
+          description="How much of your desktop shows through the sidebar and floating panels. Follows Reduce transparency in your OS."
         >
           <span className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Solid</span>

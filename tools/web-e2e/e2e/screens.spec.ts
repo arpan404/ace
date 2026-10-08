@@ -51,7 +51,7 @@ const terminalTab = shortcutTab("/t/thread-cold-start", "ControlOrMeta+j", "zsh"
 const logsTab = shortcutTab("/t/thread-cold-start", "Control+Shift+l", "Logs");
 /**
  * Home lands on a thread (the last opened, else the top row). The design's hero was the last
- * one opened here; the top rows are a running deck's lanes.
+ * one opened here.
  */
 const home: Setup = async (page) => {
   await page.addInitScript(() => {
@@ -400,71 +400,6 @@ const screens: Record<string, Setup> = {
     await page.getByRole("main").waitFor();
   },
   "automation-new": visit("/automations/new", /New automation/),
-  deck: visit("/deck", "Resumable relay streams"),
-  "deck-lanes": async (page) => {
-    await visit("/deck", "Resumable relay streams")(page);
-    await page.getByRole("button", { name: "Lanes" }).click();
-  },
-  "deck-new": visit("/deck/new", "New deck"),
-  "deck-escalation": visit("/deck/mobile-cold-start", "Mobile cold start under 1s"),
-  "deck-question": async (page) => {
-    await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
-    await page
-      .getByRole("region", { name: "Escalated: Defer the first relay sync" })
-      .getByRole("button", { name: "Retry card" })
-      .click();
-    await page
-      .getByRole("region", { name: "Precompile Hermes bytecode needs your answer" })
-      .getByRole("radio")
-      .first()
-      .waitFor();
-  },
-  "deck-running": async (page) => {
-    await screens["deck-question"]!(page);
-    const asking = page.getByRole("region", {
-      name: "Precompile Hermes bytecode needs your answer",
-    });
-    await asking.getByRole("radio", { name: "Ship it in the APK" }).click();
-    await asking.getByRole("button", { name: "Answer" }).click();
-    await asking.waitFor({ state: "detached" });
-    await page.getByRole("button", { name: /^Lazy-load fonts and icons/ }).click();
-  },
-  "deck-done": visit("/deck/codex-app-server-048", "Codex app-server 0.48"),
-  "deck-cancelled": async (page) => {
-    await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
-    await page.getByRole("button", { name: "More actions" }).first().click();
-    await page.getByRole("menuitem", { name: "Cancel deck…" }).click();
-    await page
-      .getByRole("dialog", { name: "Cancel this deck?" })
-      .getByRole("button", { name: "Cancel deck" })
-      .click();
-    await page.getByText("This deck was cancelled.").waitFor();
-  },
-  "deck-stopped": staged(
-    'daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");',
-    async (page) => {
-      await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
-      await page.getByText("The deck can't take its next step.").waitFor();
-    },
-  ),
-  // Decks the design's world doesn't hold, staged on the fake conductor.
-  "deck-budget": staged(
-    'daemon.servicesWire.planning.conductor.stage("budget");',
-    visit("/deck/settings-sync", "Sync settings across devices"),
-  ),
-  "deck-unresponsive": staged(
-    'daemon.servicesWire.planning.conductor.stage("unresponsive");',
-    visit("/deck/export-threads", "Export threads as Markdown"),
-  ),
-  "deck-plan-review": staged(
-    'daemon.servicesWire.planning.conductor.stage("planning");',
-    async (page) => {
-      await visit("/deck/search-ranking", "Rank search results by recency")(page);
-      await page.getByRole("button", { name: "Review plan" }).click();
-      await page.getByRole("dialog", { name: "The deck's plan" }).waitFor();
-    },
-  ),
-  // Skills opens on the first catalog entry.
   skills: async (page) => {
     await page.goto("/skills");
     await page.waitForURL(/\/skills\/.+/);
@@ -475,9 +410,23 @@ const screens: Record<string, Setup> = {
     await page.getByRole("complementary").locator('a[href^="/skills/"]').nth(2).click();
     await page.getByRole("main").waitFor();
   },
-  accounts: visit("/more", "Usage & accounts"),
-  files: visit("/more/files", "Files"),
-  search: visit("/more/search?q=replay", "Search"),
+  accounts: visit("/accounts", "Usage & accounts"),
+  // A thread's Files tab: the checkout tree pinned in its side panel.
+  files: rightTab("/t/thread-cold-start", "Files"),
+  search: async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page
+      .getByRole("navigation", { name: "App" })
+      .getByRole("button", { name: "Search" })
+      .click();
+    await page.getByRole("combobox", { name: "Search every thread" }).fill("replay");
+    await page.getByRole("listbox", { name: "Results" }).waitFor();
+  },
+  "profile-menu": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.getByRole("button", { name: /, account$/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
   "settings-general": visit("/settings/general", "Settings"),
   "settings-appearance": visit("/settings/appearance", "Settings"),
   "settings-providers": visit("/settings/providers", "Settings"),
@@ -530,11 +479,11 @@ const screens: Record<string, Setup> = {
       .waitFor();
   }),
   "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
-    await visit("/more", "Usage & accounts")(page);
+    await visit("/accounts", "Usage & accounts")(page);
     await page.getByRole("status", { name: /Loading accounts/ }).waitFor();
   }),
   "state-accounts-error": staged('daemon.failRequests("accounts.list");', async (page) => {
-    await visit("/more", "Usage & accounts")(page);
+    await visit("/accounts", "Usage & accounts")(page);
     await page.getByText("Accounts unavailable").waitFor();
   }),
   "state-automations-loading": staged('daemon.holdRequests("automation.list");', async (page) => {
@@ -544,17 +493,6 @@ const screens: Record<string, Setup> = {
   "state-automations-error": staged('daemon.failRequests("automation.list");', async (page) => {
     await page.goto("/automations");
     await page.getByRole("main").getByText("Automations unavailable").waitFor();
-  }),
-  "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
-    await page.goto("/deck");
-    await page
-      .getByRole("status", { name: /^Loading/ })
-      .first()
-      .waitFor();
-  }),
-  "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
-    await page.goto("/deck");
-    await page.getByText("Decks unavailable").waitFor();
   }),
   "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
     // The thread's first page downloads the browser: the Browser tab shows its progress.
@@ -582,8 +520,8 @@ for (const theme of ["dark", "light"] as const)
     });
 
 /*
- * Narrow windows, the rail's tooltips, project folders, keyboard focus and reduced motion. At
- * 390px the rail and sidebar are a sheet opened from the header; below 1152px the panels float
+ * Narrow windows, the sidebar's tooltips, project folders, keyboard focus and reduced motion. At
+ * 390px the sidebar is a sheet opened from the header; below 1152px the panels float
  * over the transcript instead of squeezing it.
  */
 const sized: Record<string, { width: number; height: number; setup: Setup }> = {
@@ -605,15 +543,15 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
   "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
   "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
   "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
-  // A rail icon's tooltip: its name and shortcut.
-  "rail-tooltip": {
+  // A sidebar icon's tooltip: its name and shortcut.
+  "sidebar-tooltip": {
     width: 1440,
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
       await page
-        .getByRole("navigation", { name: "Views" })
-        .getByRole("link", { name: "Deck" })
+        .getByRole("navigation", { name: "App" })
+        .getByRole("button", { name: "Search" })
         .hover();
       await page.getByRole("tooltip").waitFor();
     },
@@ -630,13 +568,13 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
       await expect(threadList(page).getByRole("link", { name: /^Retry budget/ })).toHaveCount(0);
     },
   },
-  // Keyboard only: Tab through the rail, the list, the composer and the panel tabs.
-  "focus-rail": {
+  // Keyboard only: Tab through the sidebar, the list, the composer and the panel tabs.
+  "focus-sidebar": {
     width: 1440,
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
-      await page.getByRole("navigation", { name: "Views" }).getByRole("link").first().focus();
+      await page.getByRole("navigation", { name: "App" }).getByRole("link").first().focus();
       await page.keyboard.press("Tab");
     },
   },

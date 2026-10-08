@@ -6,14 +6,12 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * A search box: glass, a magnifier, the input and a Clear button once there's text. Esc clears
- * the text, then leaves the field. `size="lg"` is a page's own search (Search); the default
- * sits in a sidebar or a page header.
+ * the text, then leaves the field. It sits in a sidebar, a pane or a page header.
  */
 export function SearchField({
   label,
   value,
   onValueChange,
-  size = "default",
   trailing,
   className,
   onKeyDown,
@@ -22,7 +20,6 @@ export function SearchField({
   label: string;
   value: string;
   onValueChange(value: string): void;
-  size?: "default" | "lg";
   /** Beside Clear: a spinner while results update. */
   trailing?: ReactNode;
 }) {
@@ -30,8 +27,7 @@ export function SearchField({
   return (
     <label
       className={cn(
-        "flex w-full items-center gap-2 rounded-md bg-secondary pr-1 pl-2.5 text-ui text-subtle-foreground has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
-        size === "lg" ? "h-11 gap-2.5 rounded-lg pr-2 pl-3.5 text-base" : "h-8",
+        "flex h-8 w-full items-center gap-2 rounded-md bg-secondary pr-1 pl-2.5 text-ui text-subtle-foreground has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
         className,
       )}
     >

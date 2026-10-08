@@ -16,6 +16,13 @@ export function recoverEngine(
     repo.transitions.pruneGuards();
     for (const state of repo.states()) {
       if (repo.cleaning(state.threadId)) continue;
+      const removedGates = Object.entries(state.interactions).flatMap(([key, interaction]) =>
+        interaction.state === "pending" &&
+        interaction.raw.some((raw) => raw.type === "ace.conductor.gate")
+          ? [{ type: "interaction.closed" as const, interaction: key, state: "cancelled" as const }]
+          : [],
+      );
+      if (removedGates.length) repo.apply(state.threadId, removedGates, clock.now());
       const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
         record.retry?.on === "rate_limit" && !record.limited
           ? [{ type: "retry" as const, agent, ...record.retry }]

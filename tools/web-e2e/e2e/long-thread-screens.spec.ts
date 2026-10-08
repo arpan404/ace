@@ -42,7 +42,7 @@ const triage = `
   const day = 24 * 60 * 60 * 1000;
   daemon.createThread({ id, workspaceId: "ace", title: "Release triage: a week of nightly checks", provider: "codex" }, 6 * day);
   daemon.apply(id, [{ type: "agent.seen", agent: "root", origin: "root", fidelity: "full", native: { provider: "codex", nativeId: "root" }, cwd: "/Users/dev/ace" }], 6 * day);
-  const packages = ["relay", "client", "projection", "daemon", "web", "conductor"];
+  const packages = ["relay", "client", "projection", "daemon", "web"];
   for (let n = 1; n <= 12; n++) {
     const pkg = packages[n % packages.length];
     const failed = n % 4 === 0;

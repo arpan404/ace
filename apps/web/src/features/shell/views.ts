@@ -1,53 +1,24 @@
-import { BellIcon, CardsIcon, ClockIcon, CubeIcon, HouseIcon } from "@phosphor-icons/react";
+import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "activity" | "deck" | "automations" | "skills" | "more";
+  id: "home" | "activity" | "automations" | "skills";
   label: string;
-  to: "/" | "/activity" | "/deck" | "/automations" | "/skills" | "/more";
+  to: "/" | "/activity" | "/automations" | "/skills";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
 }
 
-/** A view with an icon of its own on the rail. */
-export interface RailView extends View {
+/** A view listed in the sidebar's group under New thread, with its icon. */
+export interface NavView extends View {
   icon: IconGlyph;
 }
 
-/**
- * Activity: reached from the sidebar's bell (with its needs-you count), `g a` and the palette,
- * not the rail, so each place has one way in.
- */
-export const activityView: RailView = {
-  id: "activity",
-  label: "Activity",
-  icon: BellIcon,
-  to: "/activity",
-  matches: ["/activity"],
-  shortcut: "goActivity",
-};
-
-/** The rail's views, top to bottom; More (a menu) follows them. */
-export const railViews: readonly RailView[] = [
-  {
-    id: "home",
-    label: "Home",
-    icon: HouseIcon,
-    to: "/",
-    matches: ["/t/", "/new"],
-    shortcut: "goHome",
-  },
-  {
-    id: "deck",
-    label: "Deck",
-    icon: CardsIcon,
-    to: "/deck",
-    matches: ["/deck"],
-    shortcut: "goDeck",
-  },
+/** The sidebar's places under New thread, top to bottom. */
+export const navViews: readonly NavView[] = [
   {
     id: "automations",
     label: "Automations",
@@ -66,15 +37,20 @@ export const railViews: readonly RailView[] = [
   },
 ];
 
-/** The less used places, a menu on the rail. */
-const more: View = { id: "more", label: "More", to: "/more", matches: ["/more"] };
-
-/** Every view, in the palette's order. */
+/**
+ * Every view, in the palette's order. Home is the thread list the sidebar always shows; Activity
+ * is the sidebar's bell, with its needs-you count.
+ */
 export const views: readonly View[] = [
-  ...railViews.slice(0, 1),
-  activityView,
-  ...railViews.slice(1),
-  more,
+  { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
+  {
+    id: "activity",
+    label: "Activity",
+    to: "/activity",
+    matches: ["/activity"],
+    shortcut: "goActivity",
+  },
+  ...navViews,
 ];
 
 export function activeView(pathname: string): View["id"] | "settings" | undefined {

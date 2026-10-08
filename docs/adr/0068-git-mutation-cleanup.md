@@ -100,11 +100,7 @@ before a provider session opens, including roots already prepared at creation.
 It never repeats preparation of an already-ready root. Before-send checkpoint
 preparation rejects quarantine
 after recording its unavailable state, so it cannot deliver another turn into an
-uncertain workspace. Ordinary checkpoint failures retain their existing behaviour. Deck exposes the same execution error, retains its pending
-integration/preparation effect and stays nonterminal. Restart retries that
-existing effect; it encounters the durable fence rather than admitting another
-writer. Native Deck worktree operations use the host's injected Git supervisor
-and process boundary from `workspaceActions.git`.
+uncertain workspace. Ordinary checkpoint failures retain their existing behaviour.
 
 A host calls `GitService.recoverCleanup(path)` with its trusted
 `processRuntime.cleanupSupervisor`. The supervisor reconciles lease identities
@@ -133,6 +129,6 @@ reconciliation recover access. Partial child proof must retain the parent fence.
 
 Existing real Git tests guard normal checkout ownership, POSIX/Windows request
 strategies, first stream-error preservation, indexes and filters. Daemon process
-tests guard visible quarantine, retained Deck effects and restart. Tests run
+tests guard visible quarantine, restart recovery. Tests run
 serially under this task's explicit authorization. No provider CLI or recorder
 session is involved.
