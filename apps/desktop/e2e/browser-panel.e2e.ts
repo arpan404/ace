@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { expect, it } from "vitest";
 import { browserSandbox } from "./fixtures/browser-sandbox.ts";
+import { nativePage } from "./fixtures/native-page.ts";
 
 it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
   "native browser follows panel geometry, exposes controls and isolates profiles",
@@ -26,38 +27,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect
         .poll(() => s.daemon.browser.state(s.thread.id)?.backend, { timeout: 30000 })
         .toBe("embedded");
-      const geometry = async () => {
-        const box = await p.locator("[data-browser-page]").evaluateAll((elements) => {
-          const element = elements[0];
-          if (!element) return null;
-          const r = element.getBoundingClientRect();
-          return { x: r.x, y: r.y, width: r.width, height: r.height };
-        });
-        const native = await s.app.evaluate(({ BrowserWindow, webContents }, url) => {
-          const contents = webContents.getAllWebContents().find((entry) => entry.getURL() === url);
-          const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
-            (v) => "webContents" in v && v.webContents === contents,
-          );
-          return view ? { bounds: view.getBounds(), visible: view.getVisible() } : undefined;
-        }, s.url);
-        return { box, native };
-      };
-      await expect
-        .poll(
-          async () => {
-            const { box, native } = await geometry();
-            return (
-              !!box &&
-              native?.visible &&
-              Math.abs(native.bounds.x - box.x) < 2 &&
-              Math.abs(native.bounds.y - box.y) < 2 &&
-              Math.abs(native.bounds.width - box.width) < 2 &&
-              Math.abs(native.bounds.height - box.height) < 2
-            );
-          },
-          { timeout: 30000 },
-        )
-        .toBe(true);
+      const pageView = nativePage(s.app, p, s.url);
+      const geometry = pageView.geometry;
+      await expect.poll(pageView.placed, { timeout: 30000 }).toBe(true);
       await address.fill("127.0.0.1");
       const suggestions = p.getByRole("listbox", { name: "Suggested addresses" });
       await suggestions.waitFor();
@@ -81,15 +53,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           return !!box && Math.abs((native?.bounds.x ?? 0) - box.x) < 2;
         })
         .toBe(true);
-      const nativeRead = (expression: string) =>
-        s.app.evaluate(
-          ({ webContents }, args) => {
-            const c = webContents.getAllWebContents().find((entry) => entry.getURL() === args.url);
-            if (!c) throw new Error("Fixture native page missing");
-            return c.executeJavaScript(args.expression);
-          },
-          { url: s.url, expression },
-        );
+      const nativeRead = pageView.read;
       expect(await nativeRead("typeof window.__aceDialog")).toBe("function");
       expect(
         await nativeRead("typeof document.querySelector('iframe').contentWindow.__aceDialog"),
@@ -103,36 +67,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         // Leave renderer tooltips and wait for the native surface before native input.
         await p.mouse.move(0, 0);
         await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
-        const point = z
-          .object({ x: z.number(), y: z.number() })
-          .parse(
-            await nativeRead(
-              `(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`,
-            ),
-          );
-        await s.app.evaluate(
-          ({ webContents }, args) => {
-            const c = webContents.getAllWebContents().find((entry) => entry.getURL() === args.url);
-            if (!c) throw new Error("Native fixture missing");
-            c.focus();
-            setTimeout(() => {
-              for (const type of ["mouseDown", "mouseUp"] as const)
-                c.sendInputEvent({ type, ...args.point, button: "left", clickCount: 1 });
-            }, 0);
-          },
-          { url: s.url, point },
-        );
+        await pageView.personClicks(selector);
       };
-      const exact = async () => {
-        const { box, native } = await geometry();
-        return (
-          !!box &&
-          native?.visible &&
-          ["x", "y", "width", "height"].every(
-            (key) => Math.abs(Reflect.get(native.bounds, key) - Reflect.get(box, key)) < 2,
-          )
-        );
-      };
+      const exact = pageView.placed;
       await p.getByRole("button", { name: "Full view", exact: true }).click();
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Exit full view", exact: true }).click();
@@ -142,6 +79,11 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => (await geometry()).native?.visible ?? false).toBe(false);
       await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await expect.poll(exact).toBe(true);
+      // The page left the person's view with the panel, which ends a shared hold: the agent
+      // drives again until the person takes over.
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("human");
       const resize = p.getByRole("separator", { name: "Resize thread panel" });
       const grip = await resize.boundingBox();
       if (!grip) throw new Error("Splitter missing");
@@ -355,7 +297,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByText("Recording saved to this thread", { exact: true }).waitFor();
       await p.getByRole("button", { name: "Hand back", exact: true }).click();
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take control", exact: true }).click();
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -393,6 +335,94 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       console.error("Browser panel scenario failed", error);
       await s.page.screenshot({ path: "/tmp/ace-panel-ui.png" });
       console.log("[panel-fixture]", await s.page.locator("body").innerText());
+      throw error;
+    } finally {
+      await s.close();
+    }
+  },
+  240000,
+);
+
+it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
+  "the agent drives the same native page the person sees, and taking over is instant",
+  async () => {
+    const s = await browserSandbox();
+    try {
+      const p = s.page;
+      const threadId = s.thread.id;
+      const agent = { kind: "agent" } as const;
+      await p.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 30000 });
+      // The agent's MCP tools open the thread's browser for agent work.
+      const opened = await s.daemon.browser.open({
+        threadId,
+        workspaceId: s.thread.workspaceId,
+        background: true,
+      });
+      expect(opened.backend).toBe("embedded");
+      await s.daemon.browser.execute(threadId, { action: "navigate", url: s.url }, agent);
+      const native = nativePage(s.app, p, s.url);
+      // Nobody shows the page yet: it renders unseen, so the agent's screenshot still arrives.
+      const shot = await s.daemon.browser.screenshot(threadId);
+      expect(shot.byteLength).toBeGreaterThan(1000);
+      const address = p.getByRole("combobox", { name: "Address" });
+      await expect
+        .poll(
+          async () => {
+            if (await address.isVisible()) return true;
+            await p.keyboard.press("Control+Shift+B");
+            return false;
+          },
+          { timeout: 30000, interval: 1000 },
+        )
+        .toBe(true);
+      // The panel shows the agent's own page natively: no screencast in between.
+      await expect.poll(native.placed, { timeout: 30000 }).toBe(true);
+      const page = await native.contentsId();
+      const snapshot = z
+        .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
+        .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent));
+      const marker = snapshot.nodes.find((node) => node.name === "Click marker")?.ref;
+      if (!marker) throw new Error("Click marker ref missing");
+      await s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent);
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 1");
+      expect(await native.placed()).toBe(true);
+
+      const started = performance.now();
+      await p.getByRole("button", { name: "Take over", exact: true }).click();
+      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
+      const takeoverMs = performance.now() - started;
+      console.log(`[native-takeover] control changed hands in ${takeoverMs.toFixed(0)} ms`);
+      // The same live page, never reloaded: the agent's click is still on it.
+      expect(await native.contentsId()).toBe(page);
+      expect(await native.read("document.querySelector('#click').textContent")).toBe("Clicked 1");
+      // Leave the button's tooltip, which covers (and so hides) the native view.
+      await p.mouse.move(0, 0);
+      await expect.poll(native.placed).toBe(true);
+      await native.personClicks("#click");
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 2");
+      await expect(
+        s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent),
+      ).rejects.toThrow(/controlled by human/);
+
+      await p.getByRole("button", { name: "Hand back", exact: true }).first().click();
+      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("agent");
+      const again = z
+        .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
+        .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent))
+        .nodes.find((node) => node.name.startsWith("Clicked"))?.ref;
+      if (!again) throw new Error("Clicked marker ref missing");
+      await s.daemon.browser.execute(threadId, { action: "click", ref: again }, agent);
+      await expect
+        .poll(() => native.read("document.querySelector('#click').textContent"))
+        .toBe("Clicked 3");
+      expect(await native.contentsId()).toBe(page);
+    } catch (error) {
+      console.error("Agent native scenario failed", error);
+      await s.page.screenshot({ path: "/tmp/ace-agent-native-ui.png" });
       throw error;
     } finally {
       await s.close();

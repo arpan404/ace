@@ -33,6 +33,8 @@ export interface ViewPage {
   resize(width: number, height: number): Promise<void>;
   /** Whether the person's own pointer and keyboard reach the page. */
   setNativeInput(enabled: boolean): void;
+  /** Whether the daemon's lease gives the page to an agent (an unseen view then renders). */
+  setAgentControl?(agent: boolean): void;
   snapshot?(): { activeTabId: string; tabs: { tabId: string; url: string; title: string }[] };
   url(): string;
   /** Destroy the view, detach CDP and drop ephemeral partition data. */
@@ -46,6 +48,8 @@ export interface ViewHost {
     options: BrowserOpen;
     viewport: { width: number; height: number };
   }): Promise<ViewPage>;
+  /** A deleted thread's persistent partition: drop all its data. */
+  purge?(request: { threadId: string; workspaceId: string }): Promise<void>;
 }
 
 /**
@@ -176,6 +180,13 @@ export class BrowserBackend {
     operation: BrowserBackendOperation,
   ): Promise<unknown> {
     if (operation.kind === "open") return this.open(link, sessionId, operation);
+    if (operation.kind === "purge") {
+      const open = this.byThread(operation.threadId);
+      if (open) await this.dispose(open);
+      if (!this.host.purge) throw new Error("Browser partition purge unavailable");
+      await this.host.purge({ threadId: operation.threadId, workspaceId: operation.workspaceId });
+      return {};
+    }
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error("Unknown browser session");
     switch (operation.kind) {
@@ -252,6 +263,7 @@ export class BrowserBackend {
     if (claim) this.claims.set(session.threadId, claim);
     else this.claims.delete(session.threadId);
     this.updateInput(session);
+    session.page.setAgentControl?.(lease.controller === "agent");
     this.options.onController?.(this.controllerState(session));
   }
 

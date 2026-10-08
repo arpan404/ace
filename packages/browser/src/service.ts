@@ -16,6 +16,7 @@ import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol";
 import { sessionPolicies } from "./session-policies.ts";
+import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
 import type { FrameSink } from "./fanout.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
@@ -44,6 +45,8 @@ export class BrowserService {
   private headless: BrowserBackend;
   private acquisition: ReturnType<typeof ownedHeadless>;
   private recoveries = new Map<string, Promise<void>>();
+  /** Sessions paused by desktop loss, and how to move each into headless for agent work. */
+  private resumable = new Map<string, () => Promise<void>>();
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
   }
@@ -73,8 +76,10 @@ export class BrowserService {
     const options = BrowserOpen.parse(raw);
     const existing = this.sessions.get(options.threadId);
     if (existing && !existing.state.closed) {
-      if (!options.background || existing.state.backend !== "embedded") return existing.state;
-      await existing.closeBy({ kind: "agent" });
+      // Every client and the agent share the thread's one page, on whichever backend it runs.
+      const resume = this.resumable.get(options.threadId);
+      if (options.background && resume && agentResumes(existing.state)) await resume();
+      return existing.state;
     }
     if (existing) await existing.close();
     const pending = this.opening.get(options.threadId);
@@ -92,16 +97,21 @@ export class BrowserService {
       if (!this.sessions.has(options.threadId)) this.policyScopes.delete(options.threadId);
     }
   }
-  private async launch(options: BrowserOpen, scope: AbortController): Promise<BrowserSession> {
+  private async launch(requested: BrowserOpen, scope: AbortController): Promise<BrowserSession> {
     const signal = AbortSignal.any([scope.signal, this.lifetime.signal]);
     setMaxListeners(33, signal);
-    const preference = options.background
-      ? "headless"
-      : ((await this.options.backendPreference?.(options)) ?? "auto");
+    const options: BrowserOpen = {
+      ...requested,
+      profile:
+        requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "ephemeral",
+    };
+    const preference = (await this.options.backendPreference?.(options)) ?? "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
-    const backend = preference !== "headless" && this.embedded ? this.embedded : this.headless;
-    if (preference === "embedded" && backend.kind !== "embedded")
-      throw new Error("Desktop browser backend unavailable");
+    const embedded = this.embedded;
+    const candidates = backendCandidates(preference, embedded !== undefined).map((kind) =>
+      kind === "embedded" && embedded ? embedded : this.headless,
+    );
+    let backend = candidates[0] ?? this.headless;
     signal.throwIfAborted();
     const profileLease = await this.profiles.acquire(options);
     const { root, profile, dir, downloadDir } = profileLease;
@@ -110,6 +120,7 @@ export class BrowserService {
     let session: BrowserSession | undefined;
     let released = false;
     let backendLost = false;
+    let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
@@ -120,7 +131,36 @@ export class BrowserService {
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
       await profileLease.release();
+      if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
       if (recoveryProfile) await rm(recoveryProfile, { recursive: true, force: true });
+    };
+    /** Reopen the last URL headlessly; single-flight, and owned by this session. */
+    const resume = (): Promise<void> => {
+      const owned = session;
+      const running = this.recoveries.get(options.threadId);
+      if (running) return running;
+      if (!owned || !opening) return Promise.resolve();
+      this.resumable.delete(options.threadId);
+      const recovery = recoverHeadless({
+        request: opening,
+        backend: this.headless,
+        session: owned,
+        root,
+        url: owned.state.url,
+        profileCreated: (path) => {
+          recoveryProfile = path;
+        },
+      })
+        .catch((error) => {
+          if (!signal.aborted)
+            owned.recoveryFailed(
+              error instanceof Error ? error.message : "Browser recovery failed",
+            );
+          this.options.onError?.(error);
+        })
+        .finally(() => this.recoveries.delete(options.threadId));
+      this.recoveries.set(options.threadId, recovery);
+      return recovery;
     };
     try {
       const policies = sessionPolicies(
@@ -183,31 +223,23 @@ export class BrowserService {
             this.options.onError?.(error);
           }
           this.subscriptions.backendLost(event);
-          if (lossPolicy === "headless") {
-            const owned = session;
-            const recovery = recoverHeadless({
-              request,
-              backend: this.headless,
-              session: owned,
-              root,
-              url: event.url,
-              profileCreated: (path) => {
-                recoveryProfile = path;
-              },
-            })
-              .catch((error) => {
-                if (!signal.aborted)
-                  owned.recoveryFailed(
-                    error instanceof Error ? error.message : "Browser recovery failed",
-                  );
-                this.options.onError?.(error);
-              })
-              .finally(() => this.recoveries.delete(options.threadId));
-            this.recoveries.set(options.threadId, recovery);
-          }
+          if (lossPolicy === "headless") void resume();
+          else this.resumable.set(options.threadId, resume);
         },
       };
-      context = await backend.open(request);
+      opening = request;
+      for (const [index, candidate] of candidates.entries()) {
+        backend = candidate;
+        try {
+          context = await candidate.open(request);
+          break;
+        } catch (error) {
+          // The desktop could not host the view: auto continues with ace's own Chromium.
+          if (signal.aborted || index === candidates.length - 1) throw error;
+          this.options.onError?.(error);
+        }
+      }
+      if (!context) throw new Error("No browser backend opened");
       signal.throwIfAborted();
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
       session = new BrowserSession({
@@ -258,7 +290,21 @@ export class BrowserService {
       this.navigationClock,
     );
     this.embedded = backend;
+    // After this returns the caller sends the registration reply; requests follow it.
+    queueMicrotask(() => this.options.onEmbeddedRegistered?.());
     return backend;
+  }
+  /**
+   * The thread was deleted: close its browser and drop its persistent profile here and, when a
+   * desktop is registered, its native partition. `desktop` says whether the desktop purged.
+   */
+  async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
+    await this.closeThread(threadId);
+    await this.profiles.forget(workspaceId, threadId);
+    const embedded = this.embedded;
+    if (!embedded) return { desktop: false };
+    await embedded.purge(threadId, workspaceId);
+    return { desktop: true };
   }
   private get(threadId: string): BrowserSession {
     const session = this.sessions.get(threadId);

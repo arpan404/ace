@@ -11,12 +11,11 @@ import { open, withPerfApp } from "./perf-app.ts";
  * from first paint; interaction latency is input to next paint per interaction.
  */
 
-const port = 5_197;
 const seconds = Number(process.env.PERF_SECONDS ?? 12);
 const rate = budgets.browser.eventsPerSecond;
 
 async function measureBrowser(): Promise<void> {
-  await withPerfApp(port, async ({ browser, origin }) => {
+  await withPerfApp(async ({ browser, origin }) => {
     {
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
       await page.addInitScript(observe);

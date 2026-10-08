@@ -26,6 +26,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/perf-kit": "workspace:*"
+    "@ace/perf-kit": "workspace:*",
+    "vite": "^8.3.2"
   }
 }

@@ -14,7 +14,7 @@ async function openBrowser() {
   await app.open(`/t/${threadId}`);
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is using this page", { exact: false }, { timeout: 10000 });
+  await within(panel).findByText("is browsing", { exact: false }, { timeout: 10000 });
   return { app, panel, browser: app.daemon.browser };
 }
 
@@ -94,7 +94,7 @@ test("downloads list what the page saved and flag executables; nothing offers to
 test("a private takeover hides the page from agents, refuses recording, and hands back to the agent", async () => {
   const { panel, browser } = await openBrowser();
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over privately" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
 
   await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
   expect(
@@ -108,6 +108,43 @@ test("a private takeover hides the page from agents, refuses recording, and hand
   await userEvent.click(within(panel).getByRole("button", { name: "Hand back" }));
   await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
   expect(browser.view(threadId)?.takeoverMode).not.toBe("private");
+});
+
+test("making a page you hold private keeps your control, and Hand back ends private mode", async () => {
+  const { panel, browser } = await openBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
+  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("human"));
+  await within(panel).findByText("in control", { exact: false });
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
+  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
+  expect(browser.view(threadId)?.controller).toBe("human");
+  // Private already: there is nothing more to make private, only Hand back.
+  await waitFor(() =>
+    expect(within(panel).queryByRole("button", { name: "Make private" })).toBeNull(),
+  );
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Hand back" }));
+  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  expect(browser.view(threadId)?.takeoverMode).toBe("shared");
+  expect(await within(panel).findByRole("button", { name: "Take over" })).toBeTruthy();
+});
+
+test("a private page whose holder dropped stays paused for agents until it is taken back privately", async () => {
+  const { panel, browser } = await openBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
+  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
+  const owner = browser.view(threadId)?.owner ?? "";
+  act(() => browser.disconnect(owner));
+
+  expect(await within(panel).findByText("Private · paused")).toBeTruthy();
+  expect(within(panel).queryByRole("button", { name: "Take over" })).toBeNull();
+  await userEvent.click(within(panel).getByRole("button", { name: "Take back privately" }));
+  await waitFor(() =>
+    expect(browser.view(threadId)).toMatchObject({ controller: "human", takeoverMode: "private" }),
+  );
+  await userEvent.click(await within(panel).findByRole("button", { name: "Hand back" }));
+  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
 });
 
 test("revoking a site's read-only scripts removes the daemon's grant", async () => {
@@ -132,14 +169,14 @@ test("revoking a site's read-only scripts removes the daemon's grant", async () 
 
 test("closing the browser tab keeps a private page private: agents stay locked out until Hand back", async () => {
   const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over privately" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
   await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
   const before = browser.frame(threadId)?.src;
 
   // Leave the page: the browser's workspace tab closes and its view unmounts.
   await userEvent.click(within(panel).getByRole("button", { name: /^Close localhost/ }));
   await waitFor(() =>
-    expect(within(panel).queryByRole("button", { name: "Take over privately" })).toBeNull(),
+    expect(within(panel).queryByRole("button", { name: "Make private" })).toBeNull(),
   );
   await new Promise((resolve) => setTimeout(resolve, 50));
 

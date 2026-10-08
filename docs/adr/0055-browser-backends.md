@@ -3,7 +3,8 @@
 Date: 2026-10-02. Status: proposed. Amends ADR 0009.
 
 The background backend default, tabs, files and private-control behavior is amended by
-[ADR 0067](0067-browser-parity.md).
+[ADR 0067](0067-browser-parity.md). Agent backend choice, unseen-view rendering, profiles and
+thread deletion are amended by [ADR 0069](0069-shared-native-browser.md).
 
 ## Decision
 

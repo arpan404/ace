@@ -47,6 +47,7 @@ const pending = new Map<string, (response: z.infer<typeof Response>) => void>();
 
 const views = new EmbeddedViews({
   window: () => BrowserWindow.getAllWindows()[0],
+  partitionsDir: `${app.getPath("userData")}/Partitions`,
   platform: process.platform,
   log: () => {},
 });
