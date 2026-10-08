@@ -1,3 +1,4 @@
+import { withoutEmptySources } from "@ace/ui-core";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CatalogModel, ModelFilter, ModelInstanceStatus } from "@ace/protocol";
@@ -50,7 +51,8 @@ async function readCatalog(
     for (const status of reply.result.instances) instances.set(scopeOf(status), status);
     offset = reply.result.nextOffset;
   }
-  return { models, instances: [...instances.values()] };
+  const statuses = [...instances.values()];
+  return { models: withoutEmptySources(models, statuses), instances: statuses };
 }
 
 /** `rows` with one account's rows replaced by `next`, where the old ones stood. */

@@ -9,12 +9,15 @@ import {
   PauseIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
-import { limitContext, queueNotice, type QueueNotice as Notice } from "@ace/ui-core";
+import { limitContext, modelName, queueNotice, type QueueNotice as Notice } from "@ace/ui-core";
+import { Dot } from "@/components/ui/dot.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useThreadAccount } from "../lib/thread-account.ts";
 import type { QueueControls } from "./use-queue.ts";
+
+import { useThreadModelAvailability } from "../lib/model-availability.ts";
 
 const icons: Record<Notice["kind"], typeof PauseIcon> = {
   limited: HourglassMediumIcon,
@@ -23,6 +26,8 @@ const icons: Record<Notice["kind"], typeof PauseIcon> = {
   restart: ArrowClockwiseIcon,
   uncertain: WarningIcon,
   paused: PauseIcon,
+  model: WarningIcon,
+  not_sent: WarningIcon,
 };
 
 const holdOf = (reader: ThreadReader) => reader.queue;
@@ -36,25 +41,43 @@ export function QueueNotice(props: {
   threadId: string;
   status: ThreadStatus | undefined;
   queue: QueueControls;
+  onChooseModel(): void;
 }) {
   const live = useThread(props.threadId, ["queue"], holdOf);
   const now = useNow();
   // What accounts.list says about the account it ran out on: its reset, and where Move goes.
   const { account, accounts } = useThreadAccount(props.threadId);
   const context = account && accounts ? limitContext(accounts, account.id, now) : undefined;
-  const notice = queueNotice(props.status, live ?? props.queue.page, now, undefined, context);
+  const { unavailable } = useThreadModelAvailability(props.threadId);
+  const notice = queueNotice(
+    props.status,
+    live ?? props.queue.page,
+    now,
+    undefined,
+    context,
+    unavailable,
+  );
   if (!notice) return null;
+  const replacement = unavailable?.replacement;
+  const detail =
+    notice.kind === "model"
+      ? `${replacement ? `Try ${modelName(replacement.provider, replacement.displayName, replacement.id)}. ` : ""}Queued messages send after you pick a model.`
+      : notice.detail;
   const [primary, ...rest] = notice.actions;
   return (
     <section
       aria-label={notice.title}
       className="fx-rise-in mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-1 text-ui"
     >
-      <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
+      {notice.kind === "model" || notice.kind === "not_sent" ? (
+        <Dot tone="needs-you" />
+      ) : (
+        <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
+      )}
       {/* The words keep a readable width; the actions wrap under them when they can't fit. */}
       <div className="min-w-65 flex-1">
         <p className="font-medium text-foreground">{notice.title}</p>
-        <p className="text-sm text-muted-foreground">{notice.detail}</p>
+        {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1">
         {notice.kind === "limited" && account && (
@@ -74,9 +97,11 @@ export function QueueNotice(props: {
         {primary && (
           <Button
             size="sm"
-            variant="primary"
+            variant="ghost"
             disabled={props.queue.acting}
-            onClick={() => props.queue.act(primary)}
+            onClick={() =>
+              primary.id === "choose_model" ? props.onChooseModel() : props.queue.act(primary)
+            }
           >
             {primary.label}
           </Button>

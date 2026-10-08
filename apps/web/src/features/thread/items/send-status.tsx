@@ -1,5 +1,5 @@
 import type { PendingSend } from "@ace/client";
-import { useConnectionState, useItem } from "@ace/client-react";
+import { useConnectionState, useItem, useThread } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { ClockIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
@@ -50,6 +50,11 @@ export function SendStatus(props: {
 }) {
   const online = useConnectionState() === "ready";
   const notice = useItem(leasable(props.threadId), props.noticeId ?? "");
+  const item = useItem(leasable(props.threadId), props.itemId);
+  const runId = item?.runId;
+  const run = useThread(leasable(props.threadId), [`run:${runId ?? ""}`], (reader) =>
+    runId ? reader.run(runId) : undefined,
+  );
   const { send, staged } = props;
   // A new thread's worktree speaks for its message under the bubble: its card says how the
   // making goes, and offers Retry and the local checkout if it stops.
@@ -68,6 +73,8 @@ export function SendStatus(props: {
       </Line>
     );
   const refused = send?.state === "failed";
+  // Admission can inherit an older active run. Only a later run supersedes this failure.
+  if (notice?.type === "notice" && run && run.startedAt > notice.createdAt) return props.otherwise;
   if (refused || notice?.type === "notice") {
     const reason = refused
       ? sendFailure(send?.error, send?.payload)

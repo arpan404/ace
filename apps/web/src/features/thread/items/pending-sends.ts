@@ -158,7 +158,11 @@ export function withLocalSends(
   for (const block of blocks) for (const id of itemsOf(block)) shown.add(id);
   const failureNotices = new Set<string>();
   for (const [commandId, noticeId] of local.failures)
-    if (shown.has(inputItemId(commandId)) || local.dismissed.has(commandId))
+    if (
+      shown.has(inputItemId(commandId)) ||
+      local.dismissed.has(commandId) ||
+      local.queued.has(commandId)
+    )
       failureNotices.add(noticeId);
   const hidden = (block: Block) => {
     if (block.kind === "item") return failureNotices.has(block.itemId);

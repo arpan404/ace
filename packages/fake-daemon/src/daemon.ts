@@ -352,6 +352,26 @@ export class FakeDaemon implements Host {
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }
+  /** Simulate a pre-delivery failure without contacting any provider. Queued input is retained. */
+  sessionOpenFailed(threadId: string, reason: "model_unavailable" | "not_sent"): void {
+    const host = this.thread(threadId);
+    const now = this.options.clock();
+    this.append(host, host.fold({ type: "process.exited", deliberate: false }, now), now);
+    this.holdQueue(threadId, reason);
+  }
+
+  /** Stage a persisted queue hold as a restarted daemon would publish it. */
+  holdQueue(
+    threadId: string,
+    reason: NonNullable<import("@ace/protocol").QueueSnapshot["reason"]>,
+  ): void {
+    const host = this.thread(threadId);
+    host.queue.paused = true;
+    host.queue.reason = reason;
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
+
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -538,6 +558,14 @@ export class FakeDaemon implements Host {
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);
+    if (
+      follow.some(
+        (event) => event.type === "thread.updated" && event.switch?.state === "applied",
+      ) &&
+      host.queued.length &&
+      !host.queue.paused
+    )
+      this.apply(host.id, []);
     this.settle(host, now);
   }
   private append(host: ThreadHost, payloads: EventPayload[], now: number): void {

@@ -32,10 +32,9 @@ const group = (list: HTMLElement, name: string) => within(list).getByRole("group
 const groupNames = (list: HTMLElement) =>
   within(list)
     .getAllByRole("group")
-    .filter((element) => element.parentElement === list)
     .map((element) => element.getAttribute("aria-label"));
 
-test("models read by name with their snapshot as a quiet detail, each account apart, and the default chosen", async () => {
+test("models read by human names with snapshot IDs hidden, each account apart, and the default chosen", async () => {
   const { popover, list } = await openPicker();
   expect(within(popover).getByRole("tab", { name: "Claude Code" }).ariaSelected).toBe("true");
   expect(groupNames(list)).toEqual(["Personal", "Work"]);
@@ -43,7 +42,7 @@ test("models read by name with their snapshot as a quiet detail, each account ap
   expect(names(personal)).toEqual([
     "Opus 5.5, recommended, Claude Code",
     "Sonnet 5.5, Claude Code",
-    "Haiku 4.5, 20251001, Claude Code",
+    "Haiku 4.5, Claude Code",
     "Legacy models, 6",
   ]);
   // The concrete default is chosen; there is no stand-in "default" entry and no raw id.
@@ -54,7 +53,7 @@ test("models read by name with their snapshot as a quiet detail, each account ap
   const shown = names(list).join("\n");
   expect(shown).not.toMatch(/^Default|Claude Code · Default/im);
   expect(list.textContent).not.toMatch(/claude-|Haiku 4\.5\.20251001/);
-  expect(within(personal).getByText("20251001")).toBeTruthy();
+  expect(within(personal).queryByText("20251001")).toBeNull();
 });
 
 test("Legacy models open in place; an older model picked there stays checked when the picker opens again", async () => {
@@ -316,7 +315,7 @@ test("a starred model is kept under Favorites, also the next time the picker ope
 
   const again = await openModelPicker(await openModelControl(/^Model: Opus 5\.5/));
   await userEvent.click(screen.getByRole("tab", { name: "Favorites" }));
-  expect(names(again)).toEqual(["Haiku 4.5, 20251001, Claude Code", "GPT-6 Luna, Codex"]);
+  expect(names(again)).toEqual(["Haiku 4.5, Claude Code", "GPT-6 Luna, Codex"]);
   await userEvent.click(
     within(again).getByRole("button", { name: "Remove Haiku 4.5 from favorites" }),
   );
@@ -548,4 +547,26 @@ test("connected Copilot with no enabled models shows its hint and remains refres
   expect(
     within(popover).getByRole("button", { name: "Refresh models" }).hasAttribute("disabled"),
   ).toBe(false);
+});
+
+test("a dated route is named as a snapshot only inside Legacy when an undated route also exists", async () => {
+  const app = harness();
+  const dated = app.daemon.services.models.find(
+    (model) => model.provider === "claude" && model.id === "claude-haiku-4-5-20251001",
+  );
+  if (!dated) throw new Error("Missing snapshot fixture");
+  app.daemon.services.models.push({
+    ...dated,
+    id: "claude-haiku-4-5",
+    nativeModelId: "claude-haiku-4-5",
+    detail: undefined,
+  });
+  const { list } = await openPicker(app);
+  const personal = group(list, "Personal");
+  expect(within(personal).queryByRole("option", { name: /Oct 2025 snapshot/ })).toBeNull();
+  expect(within(personal).getByRole("option", { name: "Haiku 4.5, Claude Code" })).toBeTruthy();
+  await userEvent.click(within(personal).getByRole("option", { name: /^Legacy models/ }));
+  expect(
+    within(personal).getByRole("option", { name: "Haiku 4.5, Oct 2025 snapshot, Claude Code" }),
+  ).toBeTruthy();
 });

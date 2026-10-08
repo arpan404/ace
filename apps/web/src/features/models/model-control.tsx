@@ -34,11 +34,17 @@ export function ModelControl(props: {
 }) {
   const { view } = props;
   const [open, setOpen] = useState(false);
+  const [dismissedRequest, dismissRequest] = useState(0);
+  const requested = (view.pickerRequest ?? 0) > dismissedRequest;
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    if (!next) dismissRequest(view.pickerRequest ?? 0);
+  };
   const trigger = useRef<HTMLButtonElement>(null);
   const switching = view.switching;
   const tip = [view.offline ?? view.tip, switching?.description].filter(Boolean).join(" · ");
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open || requested} onOpenChange={changeOpen}>
       <Tip label={tip} side="top">
         <PopoverTrigger
           ref={trigger}
@@ -56,6 +62,9 @@ export function ModelControl(props: {
             </span>
           )}
           <span className="min-w-0 truncate text-foreground">{view.label ?? view.placeholder}</span>
+          {view.unavailable && (
+            <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
+          )}
           {view.accountLabel && (
             <span className="max-w-24 shrink-0 truncate text-subtle-foreground">
               · {view.accountLabel}
@@ -99,7 +108,7 @@ export function ModelControl(props: {
           <DeferredModelPopover.Component
             view={view}
             actions={props.actions}
-            onClose={() => setOpen(false)}
+            onClose={() => changeOpen(false)}
           />
         </Suspense>
       </PopoverContent>

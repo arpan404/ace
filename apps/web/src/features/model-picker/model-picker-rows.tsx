@@ -51,7 +51,7 @@ export function ModelRow(props: {
   const subtitle = [
     props.mixed ? origin(model) : undefined,
     props.mixed && model.legacy ? "Legacy" : undefined,
-    model.unavailable,
+    props.mixed ? model.unavailable : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -60,6 +60,7 @@ export function ModelRow(props: {
     model.free ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
+    props.mixed ? undefined : model.unavailable,
     subtitle || providerNames[model.provider],
   ]
     .filter(Boolean)
@@ -99,6 +100,9 @@ export function ModelRow(props: {
               >
                 {detail}
               </span>
+            )}
+            {!props.mixed && model.unavailable && (
+              <span className="shrink-0 text-xs text-status-failed">{model.unavailable}</span>
             )}
             {model.isNew && (
               <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-link">

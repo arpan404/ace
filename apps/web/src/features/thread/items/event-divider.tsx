@@ -184,6 +184,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   }
   switch (item.type) {
     case "notice": {
+      if (item.code === "input_queued") return null;
       if (item.raw.some((raw) => raw.type === "permission.reviewed"))
         return <ReviewNote threadId={props.threadId} item={item} />;
       const kind = noticeInput(item);
