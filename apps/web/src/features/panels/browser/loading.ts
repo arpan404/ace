@@ -1,21 +1,77 @@
 import { LocalStore } from "../store.ts";
 
 /*
- * The browser tabs' shared session state, small enough to load with the tab kinds: which tab
- * drives each thread's page, and which tabs are loading.
+ * The browser tabs' shared session state, small enough to load with the tab kinds: the pages'
+ * bookkeeping, how a closed tab's page closes, and which tabs are loading.
  */
 
-/** Which browser tab drives each thread's page (thread id → tab key), for this session. */
-export const pageOwners = new LocalStore<ReadonlyMap<string, string>>(new Map());
+/**
+ * The pages' bookkeeping for one connection to the daemon (page ids are the daemon session's,
+ * so a new connection starts clean). Per thread: the tab waiting for the page it asked the
+ * daemon to open, the pages whose tab the person closed while the page stayed open (the
+ * thread's last page stays for its agents; no tab opens for them again by itself), and the
+ * active page the tabs last followed.
+ */
+export interface PageSession {
+  opening: LocalStore<ReadonlyMap<string, string>>;
+  dismissed: LocalStore<ReadonlyMap<string, ReadonlySet<string>>>;
+  followed: Map<string, string>;
+}
 
-export function bindPage(threadId: string, tabKey: string | undefined) {
-  pageOwners.set((owners) => {
-    if (owners.get(threadId) === tabKey) return owners;
-    const next = new Map(owners);
+const sessions = new WeakMap<object, PageSession>();
+
+export function pageSession(source: object): PageSession {
+  let session = sessions.get(source);
+  if (!session) {
+    session = {
+      opening: new LocalStore(new Map()),
+      dismissed: new LocalStore(new Map()),
+      followed: new Map(),
+    };
+    sessions.set(source, session);
+  }
+  return session;
+}
+
+export function setOpening(session: PageSession, threadId: string, tabKey: string | undefined) {
+  session.opening.set((current) => {
+    if (current.get(threadId) === tabKey) return current;
+    const next = new Map(current);
     if (tabKey) next.set(threadId, tabKey);
     else next.delete(threadId);
     return next;
   });
+}
+
+export function setDismissed(
+  session: PageSession,
+  threadId: string,
+  page: string,
+  dismissed: boolean,
+) {
+  session.dismissed.set((current) => {
+    const pages = current.get(threadId) ?? new Set<string>();
+    if (pages.has(page) === dismissed) return current;
+    const next = new Set(pages);
+    if (dismissed) next.add(page);
+    else next.delete(page);
+    return new Map(current).set(threadId, next);
+  });
+}
+
+/**
+ * How each thread's pages close when their tab does, registered by the browser view (which has
+ * the daemon connection) and kept after it unmounts.
+ */
+const closers = new Map<string, (page: string) => void>();
+
+export function registerPageCloser(threadId: string, close: (page: string) => void) {
+  closers.set(threadId, close);
+}
+
+/** A browser tab showing `page` closed: close the page too, or keep it out of the tabs. */
+export function closePage(threadId: string, page: string) {
+  closers.get(threadId)?.(page);
 }
 
 /** Browser tabs with a navigation in flight (`threadId\0tabKey`), for their strip spinner. */

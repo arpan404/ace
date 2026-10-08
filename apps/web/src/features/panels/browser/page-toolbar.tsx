@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
 const tool = "size-7 rounded-sm";
+/** What a toolbar narrower than 28rem leaves out so the address keeps its room. */
+export const narrowHidden = "@max-[28rem]:hidden";
 /** Navigation, the address taking the room that is left, the tab's actions. */
 const columns = { gridTemplateColumns: "auto minmax(0, 1fr) auto" };
 
@@ -28,21 +30,27 @@ export function PageNav(props: {
   reload: NavControl;
   loading?: boolean;
 }) {
-  const control = (name: string, icon: typeof ArrowLeftIcon, value: NavControl) => (
+  const control = (
+    name: string,
+    icon: typeof ArrowLeftIcon,
+    value: NavControl,
+    className?: string,
+  ) => (
     <IconButton
       icon={icon}
       label={label(name, value)}
       {...(value.keys ? { keys: value.keys } : {})}
       disabled={!value.onClick || !!value.reason}
       focusableWhenDisabled
-      className={tool}
+      className={className ? `${tool} ${className}` : tool}
       onClick={value.onClick}
     />
   );
   return (
     <div className="flex shrink-0 items-center">
       {control("Back", ArrowLeftIcon, props.back)}
-      {control("Forward", ArrowRightIcon, props.forward)}
+      {/* A narrow toolbar keeps the address's room: Forward stays on ⌘]. */}
+      {control("Forward", ArrowRightIcon, props.forward, narrowHidden)}
       {props.loading
         ? control("Stop", XIcon, {
             reason: "the browser relay can't cancel a load yet; it gives up after 30 seconds",
@@ -63,12 +71,23 @@ export function PageToolbar(props: {
   actions?: ReactNode;
   /** What is loading, for the progress bar's name; no bar when undefined. */
   progress?: string | undefined;
+  /** An agent drives the page: the toolbar's edge breathes in the working colour. */
+  agent?: boolean;
 }) {
   return (
-    <div style={columns} className="relative grid h-10 shrink-0 items-center gap-1 border-b px-2">
+    <div
+      style={columns}
+      className="@container relative grid h-10 shrink-0 items-center gap-1 border-b px-2"
+    >
       {props.nav}
       {props.address}
       <div className="flex shrink-0 items-center justify-end gap-0.5">{props.actions}</div>
+      {props.agent && props.progress === undefined && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 -bottom-px h-px animate-pulse bg-status-working"
+        />
+      )}
       {props.progress !== undefined && (
         <span
           role="progressbar"

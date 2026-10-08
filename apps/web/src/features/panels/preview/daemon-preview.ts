@@ -319,6 +319,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       const current = watch;
       return () => {
         if (--current.count > 0) return;
+        // Another view of the thread may take over in the same commit (one browser tab closes
+        // as the next one shows): only a thread nobody watches once that settles is let go.
+        queueMicrotask(() => {
+          if (current.count > 0 || watches.get(threadId) !== current) return;
+          stop();
+        });
+      };
+      function stop() {
         watches.delete(threadId);
         current.cancel?.();
         unwatched.add(threadId);
@@ -335,7 +343,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!privately && held.delete(threadId))
           void call("browser.handback", threadId).catch(() => {});
         if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
-      };
+      }
     },
     view: (threadId) => views.get(threadId),
     frame: (threadId) => frames.get(threadId),

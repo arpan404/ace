@@ -1,11 +1,12 @@
 import type { BrowserEvaluateGrant, BrowserOriginGrant } from "@ace/protocol";
 import { addressHost } from "@ace/ui-core";
-import { ShieldCheckIcon } from "@phosphor-icons/react";
+import { GlobeSimpleIcon, LockSimpleIcon, LockSimpleOpenIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { cn } from "@/lib/cn.ts";
 import { reason, type BrowserFeatures } from "./use-browser-features.ts";
 
 interface Grants {
@@ -13,15 +14,46 @@ interface Grants {
   scripts: readonly BrowserEvaluateGrant[];
 }
 
+/** How the page's connection reads: secure (https), not secure (http elsewhere), or local. */
+export function connection(url: string | undefined): "secure" | "insecure" | "local" {
+  if (!url) return "local";
+  try {
+    const parsed = new URL(/^[a-z]+:\/\//i.test(url) ? url : `http://${url}`);
+    if (parsed.protocol === "https:") return "secure";
+    const host = parsed.hostname;
+    return host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "[::1]" ||
+      host.endsWith(".localhost")
+      ? "local"
+      : "insecure";
+  } catch {
+    return "local";
+  }
+}
+
+const glyphs = {
+  secure: { icon: LockSimpleIcon, label: "Secure connection", tone: "text-subtle-foreground" },
+  insecure: { icon: LockSimpleOpenIcon, label: "Not secure", tone: "text-status-needs-you" },
+  local: { icon: GlobeSimpleIcon, label: "Local page", tone: "text-subtle-foreground" },
+} as const;
+
 /**
- * The sites this thread's agents may open, and where they may run read-only scripts, each with
- * Revoke. Read when opened; revoking also ends any matching request still waiting.
+ * The page's security mark at the address's start, which opens the sites this thread's agents
+ * may open and where they may run read-only scripts, each with Revoke. Read when opened;
+ * revoking also ends any matching request still waiting.
  */
-export function SiteAccess(props: { threadId: string; browser: BrowserFeatures }) {
+export function SiteAccess(props: {
+  threadId: string;
+  browser: BrowserFeatures;
+  url: string | undefined;
+}) {
   const { threadId, browser } = props;
   const [grants, setGrants] = useState<Grants>();
   const [failure, setFailure] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const kind = connection(props.url);
+  const glyph = glyphs[kind];
   const read = () => {
     setFailure(undefined);
     Promise.all([browser.origins.list(threadId), browser.features.evaluateGrants(threadId)]).then(
@@ -37,15 +69,18 @@ export function SiteAccess(props: { threadId: string; browser: BrowserFeatures }
   };
   return (
     <Popover onOpenChange={(open) => open && read()}>
-      <Tip label="Site access">
+      <Tip label={`${glyph.label} · Site access`}>
         <PopoverTrigger
           aria-label="Site access"
-          className="grid size-7 place-items-center rounded-sm text-muted-foreground focus-ring hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+          className={cn(
+            "grid size-6 shrink-0 place-items-center rounded-full focus-ring hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
+            glyph.tone,
+          )}
         >
-          <ShieldCheckIcon aria-hidden size={16} />
+          <glyph.icon aria-hidden size={14} />
         </PopoverTrigger>
       </Tip>
-      <PopoverContent align="end" className="flex w-80 flex-col gap-2">
+      <PopoverContent align="start" className="flex w-80 flex-col gap-2">
         <PopoverTitle className="text-ui font-medium">Site access in this thread</PopoverTitle>
         {failure && <p className="text-sm text-status-failed">{failure}</p>}
         {grants && (

@@ -8,6 +8,7 @@ import {
   type AddressSuggestion,
   type BrowserFailure,
 } from "@ace/ui-core";
+import type { BrowserFeaturesClient } from "@ace/client";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   findTab,
@@ -15,7 +16,6 @@ import {
   useWorkspaceStore,
   type WorkspaceTab,
 } from "@/lib/workspace/index.ts";
-import { useLocal } from "../store.ts";
 import type { PreviewSource } from "../sources.ts";
 import { viewportById } from "./viewports.ts";
 import {
@@ -25,7 +25,8 @@ import {
   useVisitedStore,
   type BrowserTabData,
 } from "./browser-state.ts";
-import { bindPage, pageOwners, setLoading } from "./loading.ts";
+import { pageSession, setDismissed, setLoading, setOpening } from "./loading.ts";
+import { livePages } from "./page-tabs.ts";
 
 /** The thread's page as the browser service reports it, re-read on each change to the thread. */
 function usePage(source: PreviewSource, threadId: string) {
@@ -54,33 +55,37 @@ type Phase =
   | { phase: "failed"; url: string; failure: BrowserFailure };
 
 /**
- * One browser tab: its own address and history over the thread's single live page. Going
- * somewhere opens the page if there is none (downloading Chromium the first time), takes the
- * control lease from an agent, navigates, and records where the page landed. Back and Forward
- * use the backend's document history so forms and scroll position survive traversal.
+ * One browser tab: one of the thread's pages (`page-tabs.ts`), with its own address and
+ * history. Going somewhere opens the thread's browser if there is none (downloading Chromium the
+ * first time) or a page of its own if it has none, takes the control lease from an agent,
+ * navigates, and records where the page landed. Back and Forward use the backend's document
+ * history so forms and scroll position survive traversal. The tab shows its page live while it
+ * is the session's active page; otherwise it waits in the background.
  */
-export function useBrowserTab(source: PreviewSource, threadId: string, tab: WorkspaceTab) {
+export function useBrowserTab(
+  source: PreviewSource,
+  threadId: string,
+  tab: WorkspaceTab,
+  features: Pick<BrowserFeaturesClient, "openTab" | "switchTab">,
+) {
   const page = usePage(source, threadId);
+  const session = pageSession(source);
   const actions = useWorkspaceActions(threadId);
   const store = useWorkspaceStore();
   const workspaceId = useThreadMeta(threadId)?.workspaceId;
   const online = useConnectionState() === "ready";
   const visitedStore = useVisitedStore();
   const visited = useVisited(threadId);
-  const owner = useLocal(
-    pageOwners,
-    useCallback((owners: ReadonlyMap<string, string>) => owners.get(threadId), [threadId]),
-  );
   const [state, setState] = useState<Phase>({ phase: "idle" });
   const data = browserTabData(tab);
   const history = tabHistory(data);
   const live = page.view && !page.view.closed ? page.view : undefined;
-  // This tab shows the live page when it drove it last, or when no tab has and it has no
-  // other address of its own.
-  const bound =
-    live !== undefined &&
-    (owner === tab.key ||
-      (owner === undefined && (data.url === undefined || samePage(data.url, live.url))));
+  const { pages, active } = livePages(live);
+  const own = pages.find((each) => each.tabId === data.page);
+  // This tab shows the live page while its page is the session's active one.
+  const bound = live !== undefined && own !== undefined && own.tabId === active;
+  /** Its page, open in the background while another page is the active one. */
+  const background = own && !bound ? own : undefined;
 
   /** Merge into the tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {
@@ -129,9 +134,6 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     }
   };
   useEffect(() => {
-    if (owner === undefined && liveUrl !== undefined) bindPage(threadId, tab.key);
-  }, [owner, liveUrl, threadId, tab.key]);
-  useEffect(() => {
     if (!liveUrl || liveUrl === "about:blank") return;
     const current = history.entries[history.index];
     if (current !== undefined && samePage(current, liveUrl)) return;
@@ -148,17 +150,42 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     try {
       if (!live) {
         if (!workspaceId) throw new Error("The thread's project isn't known yet.");
+        // The new session's first page is this tab's.
+        setOpening(session, threadId, tab.key);
         await source.open(threadId, workspaceId);
       }
       if (!source.heldAs(threadId)) await source.takeover(threadId);
       const emulation = viewportById(data.viewport).emulation;
       if (!live && emulation) await source.emulate(threadId, emulation);
+      let target = own?.tabId;
+      if (live && target === undefined) {
+        // A page whose tab the person closed is reused before another opens.
+        const spare = pages.find((each) => session.dismissed.get().get(threadId)?.has(each.tabId));
+        if (spare) {
+          setDismissed(session, threadId, spare.tabId, false);
+          target = spare.tabId;
+        } else {
+          setOpening(session, threadId, tab.key);
+          const opened = await features.openTab(threadId);
+          if ("pending_dialog" in opened) throw new Error("Answer the page's question first.");
+          target = opened.activeTabId;
+        }
+        save({ page: target });
+      }
+      if (target !== undefined && target !== source.view(threadId)?.activeTabId) {
+        const switched = await features.switchTab(threadId, target);
+        if ("pending_dialog" in switched) throw new Error("Answer the page's question first.");
+      }
       const reachedUrl = await source.navigate(threadId, url);
-      bindPage(threadId, tab.key);
       const landed = samePage(next.entries[next.index] ?? "", reachedUrl)
         ? next
         : visitPage(next, reachedUrl);
-      save({ url: reachedUrl, history: landed, go: false });
+      save({
+        url: reachedUrl,
+        history: landed,
+        go: false,
+        page: target ?? source.view(threadId)?.activeTabId,
+      });
       visitedStore.remember(threadId, reachedUrl);
       setState({ phase: "idle" });
     } catch (error) {
@@ -168,6 +195,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
       save({ url, history: next, go: false });
     } finally {
       setLoading(threadId, tab.key, false);
+      setOpening(session, threadId, undefined);
     }
   };
 
@@ -220,7 +248,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     ...page,
     live,
     bound,
-    owner,
+    background,
     online,
     data,
     state,
