@@ -4,7 +4,6 @@ import {
   useInteraction,
   useInteractions,
   useIntentSender,
-  useThread,
   useThreadMeta,
 } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
@@ -34,12 +33,14 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { DigestFacts } from "./digest-facts.tsx";
+import { useWatched } from "../transcript/use-watched.ts";
 
 /** Pending requests listed with their answers in the card; the live footer holds the rest. */
 const listedRequests = 3;
+const whyKeys = ["thread", "agents", "tasks"] as const;
 
 function readWhy(reader: ThreadReader) {
-  return {
+  const value = {
     status: reader.thread?.status,
     rootAgentId: reader.thread?.rootAgentId,
     agents: reader.agentIds().flatMap((id) => {
@@ -50,6 +51,13 @@ function readWhy(reader: ThreadReader) {
       const task = reader.task(id);
       return task ? [task] : [];
     }),
+  };
+  return {
+    value,
+    watch: [
+      ...value.agents.map((agent) => `agent:${agent.id}`),
+      ...value.tasks.map((task) => `task:${task.id}`),
+    ],
   };
 }
 
@@ -75,7 +83,7 @@ export function CatchUpCard(props: {
   const client = useClient();
   const toast = useToast();
   const workspace = useWorkspaceActions(props.threadId);
-  const live = useThread(props.threadId, ["thread", "agents", "tasks"], readWhy);
+  const live = useWatched(props.threadId, whyKeys, readWhy, Object.is);
   const currentStatus = live?.status ?? digest.status;
   const status = threadStatusLabel(currentStatus);
   const freshness = useThreadLiveState(props.threadId);

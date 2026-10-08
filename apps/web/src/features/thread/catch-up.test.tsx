@@ -68,7 +68,7 @@ test("returning to a thread shows what happened since this device last read it",
   expect(card.textContent).toContain("Done");
   expect(card.textContent).toContain("Every agent has finished");
   expect(card.textContent).toMatch(/Ran [34] commands/);
-  expect(card.textContent).toContain("Latest: Checkpoint 6 completed.");
+  await waitFor(() => expect(card.textContent).toContain("Latest: Checkpoint 6 completed."));
   expect(within(card).getByRole("button", { name: "Open Changes" })).toBeTruthy();
 
   await userEvent.click(within(card).getByRole("button", { name: "Dismiss" }));
@@ -153,9 +153,30 @@ test("on a phone the card opens folded to its status, keeping the transcript in 
 test("the away summary renders Markdown and follows the same live tree as the thread header", async () => {
   const app = harness();
   app.play(dedupeReconnect()).runThrough("follow-up");
+  app.daemon.apply("thread-dedupe", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "finding",
+      draft: {
+        type: "message",
+        role: "assistant",
+        complete: true,
+        parts: [
+          {
+            type: "text",
+            text: "**reconnect-audit** checked `seq: 0`. See the [retry log](https://example.com/retry).",
+          },
+        ],
+      },
+    },
+  ]);
   app.daemon.markReadThrough("thread-dedupe", "relay", "test-device");
   await app.open("/t/thread-dedupe");
   const card = await screen.findByRole("region", { name: "While you were away" });
+  expect((await within(card).findByRole("link", { name: "retry log" })).getAttribute("href")).toBe(
+    "https://example.com/retry",
+  );
   expect(card.textContent).toContain("0 of 2 subagents finished");
   expect(card.textContent).toContain("reconnect-audit");
   expect(card.textContent).not.toContain("**reconnect-audit**");
@@ -166,4 +187,10 @@ test("the away summary renders Markdown and follows the same live tree as the th
     ]),
   );
   await waitFor(() => expect(card.textContent).toContain("1 of 2 subagents finished"));
+  act(() =>
+    app.daemon.apply("thread-dedupe", [
+      { type: "background.ended", task: "relay", status: "stopped" },
+    ]),
+  );
+  await waitFor(() => expect(card.textContent).not.toContain("background shell is open"));
 });
