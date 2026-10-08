@@ -1,7 +1,7 @@
 import { join, isAbsolute, resolve, sep } from "node:path";
 import { RegistryInstallPlan } from "@ace/protocol";
 import { digest } from "./cache.ts";
-import type { AgentEntry } from "./decode.ts";
+import { supportedArchive, type AgentEntry } from "./decode.ts";
 export class InstallPlanError extends Error {}
 export type InstallPlan = Readonly<{
   preview: RegistryInstallPlan;
@@ -63,7 +63,7 @@ export function buildInstallPlan(options: PlanOptions): InstallPlan {
     const url = new URL(distribution.archive);
     if (url.protocol !== "https:" || url.username || url.password)
       throw new InstallPlanError("Artifact must use HTTPS");
-    if (/\.(dmg|pkg|deb|rpm|msi|appimage|tbz2|bz2)$/i.test(url.pathname))
+    if (!supportedArchive(distribution.archive))
       throw new InstallPlanError("Unsupported archive format");
     archive = distribution.archive;
     sha256 = distribution.sha256?.toLowerCase();

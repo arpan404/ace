@@ -1,4 +1,5 @@
 import { signInSteps, type ReadinessView } from "@ace/ui-core";
+import { compareVersions } from "@ace/ui-core/acp-registry";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -11,6 +12,8 @@ import { SignInButton } from "@/features/sign-in/index.ts";
 import type { ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { RediscoverButton } from "./rediscover-button.tsx";
+import { AddAcpAgent } from "./add-acp-agent.tsx";
+import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 /*
  * The quiet end of a provider's page: the technical facts (version, where it's installed, how
@@ -36,6 +39,11 @@ export function ProviderAbout(props: {
   const { install, row, view } = props;
   const version = row?.version ?? install.version;
   const steps = signInSteps(install.kind);
+  const entry = install.registry?.agent;
+  const update =
+    install.registry && entry && compareVersions(entry.version, install.registry.version) > 0
+      ? entry
+      : undefined;
   return (
     <SettingSection label="About" card>
       <dl className="divide-y">
@@ -45,6 +53,17 @@ export function ProviderAbout(props: {
             {row?.updateAvailable && (
               <span className="ml-2 text-sm text-status-needs-you">Update available</span>
             )}
+            {update && (
+              <span className="ml-2">
+                <AddAcpAgent agentId={update.acpAgentId}>Update to {update.version}</AddAcpAgent>
+              </span>
+            )}
+          </Fact>
+        )}
+        {install.registry && <Fact term="Installed from">ACP registry</Fact>}
+        {entry && (
+          <Fact term="Set up">
+            <SetupSteps name={install.name} loginHint={entry.loginHint} titled={false} />
           </Fact>
         )}
         <Fact term="Runs">

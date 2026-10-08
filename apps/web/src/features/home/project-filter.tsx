@@ -56,7 +56,7 @@ export function ThreadsActions() {
           focusableWhenDisabled
           onClick={() => dialogs.open({ kind: "add", tab: "open" })}
           onPointerEnter={dialogs.preload}
-          className="size-[26px] rounded-sm hover:bg-sidebar-accent data-disabled:pointer-events-auto"
+          className="size-6.5 rounded-sm hover:bg-sidebar-accent data-disabled:pointer-events-auto"
         />
       </NeedsDaemon>
     </span>

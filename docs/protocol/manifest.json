@@ -1613,8 +1613,8 @@
       "sha256": "56549ee3cb5c0441b782e3de8a87e4cfc8504d7310fc9ad34b0d59dba575ea45"
     },
     "schema/RegistryAgent.json": {
-      "bytes": 1979,
-      "sha256": "f0f61ec72f36839641f87aa8fb59de720078bfe38b382f1215c9d71c61f93bbc"
+      "bytes": 3292,
+      "sha256": "b79a95f1f38923dc000e2064df74045ea0beed541d7dbff773770519fa5f8708"
     },
     "schema/RegistryInstallPlan.json": {
       "bytes": 1866,
@@ -2661,10 +2661,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 569927,
-      "sha256": "47c91f79a0994e09cbc800f70c66a87011cf3033542422a969343da7cc00372d"
+      "bytes": 569490,
+      "sha256": "0527b4ccc048f1e140462e2fb0b6525264f1fc0447c41599fea9882ee2f16aed"
     }
   },
-  "input": "a18c3a0470ef56a70f3ad7ac5d39b7923bff8767d3aa1f8e967ee6ec61aabea6",
+  "input": "52280750a85d0036e17e80902fded71147f6774cd11d4b1e18a18c5028bf9691",
   "version": 1
 }

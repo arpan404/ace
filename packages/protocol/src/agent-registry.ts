@@ -20,6 +20,16 @@ export const RegistryAgent = z.object({
   loginHint: z.string().max(512),
   visibility: z.literal("limited"),
   isolation: z.literal("unsupported"),
+  /** The upstream HTTPS icon URL; clients fetch it, the daemon never does. */
+  icon: z.url().max(4096).optional(),
+  /** Install runtimes this entry offers for the daemon's platform, best first. */
+  runtimes: z
+    .array(z.enum(["binary", "npm", "uv"]))
+    .max(3)
+    .optional(),
+  /** The upstream website, else its repository. */
+  homepage: z.url().max(4096).optional(),
+  license: z.string().max(256).optional(),
 });
 export type RegistryAgent = z.infer<typeof RegistryAgent>;
 export const RegistryInstallation = AcpIdentity.extend({
