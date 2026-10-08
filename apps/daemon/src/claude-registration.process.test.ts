@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -160,6 +160,30 @@ test.each(["default", "registered"])(
           expect.objectContaining({ name: "tools" }),
         ]),
       );
+      if (!controls.add) throw new Error("Claude MCP additions unavailable");
+      await controls.add("documentation", {
+        transport: "command",
+        command: "local-docs",
+        args: ["--public"],
+      });
+      expect(await controls.status()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "ace" }),
+          expect.objectContaining({ name: "tools" }),
+          expect.objectContaining({ name: "documentation" }),
+        ]),
+      );
+      const configHome = mode === "registered" ? await realpath(account.homeDir) : home;
+      expect(JSON.parse(await readFile(join(configHome, "added-server.json"), "utf8"))).toEqual([
+        "--scope",
+        "user",
+        "--transport",
+        "stdio",
+        "documentation",
+        "--",
+        "local-docs",
+        "--public",
+      ]);
       await controls.replace({});
       await engine.flush();
       expect(JSON.stringify(store.readEvents({ afterSeq: 0, limit: 256 }))).not.toMatch(

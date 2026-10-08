@@ -1917,6 +1917,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationRegister.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationConfigRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationSettings.json"
     },
     {

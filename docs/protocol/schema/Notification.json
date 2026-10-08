@@ -49,6 +49,10 @@
         }
       ]
     },
+    "message": {
+      "maxLength": 300,
+      "type": "string"
+    },
     "preview": {
       "maxLength": 300,
       "type": "string"

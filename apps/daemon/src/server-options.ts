@@ -31,6 +31,7 @@ import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
+  notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;
@@ -42,7 +43,8 @@ export interface ServerOptions {
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
-  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers"> &
+    Partial<Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "groups">>;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   devices?: DevicesService;
@@ -117,6 +119,6 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }

@@ -68,6 +68,23 @@ describe("notification routing", () => {
     });
   });
 
+  it("shows agent messages under Agent says and respects that category's toggle", () => {
+    const notice = daemonAlert({ status: "agent_says", message: "The preview is ready." });
+    expect(router().router.route(notice)).toMatchObject({
+      kind: "show",
+      notification: {
+        title: "Agent says · Fix flaky checkout test",
+        body: "The preview is ready.",
+        actions: [],
+        link: { threadId: "thread-1" },
+      },
+    });
+    expect(router({ categories: { agentSays: false } }).router.route(notice)).toEqual({
+      kind: "drop",
+      reason: "category",
+    });
+  });
+
   it("drops everything when notifications are turned off", () => {
     expect(router({ enabled: false }).router.route(daemonAlert())).toEqual({
       kind: "drop",

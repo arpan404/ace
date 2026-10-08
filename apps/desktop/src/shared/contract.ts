@@ -147,6 +147,7 @@ export function deepLinkRoute(link: DeepLink): string {
 
 /** Notification categories; kept in step with the web's Settings › Notifications. */
 export const NotificationCategory = z.enum([
+  "agentSays",
   "needsYou",
   "finished",
   "failed",

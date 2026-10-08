@@ -1019,7 +1019,7 @@ Example:
   "name": "example",
   "requestId": "example",
   "threadId": "example",
-  "type": "mcp.enable"
+  "type": "mcp.reconnect"
 }
 ```
 
@@ -2335,6 +2335,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"notification.register"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
 
 Example:
@@ -2344,9 +2345,25 @@ Example:
   "device": {
     "channel": "apns",
     "platform": "phone",
-    "token": "c72daF6CD0DC2dbEBa59Ed26aCB3Bc386392f35C643fb9ec82b9A7075b5DEfD0"
+    "token": "72daF6CD0DC2dbEBa59Ed26aCB3Bc386392f35C643fb9ec82b9A7075b5DEfD07"
   },
   "type": "notification.register"
+}
+```
+
+### notification.config
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.config"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "notification.config"
 }
 ```
 
@@ -2361,7 +2378,9 @@ Example:
 
 ```json
 {
-  "preferences": {},
+  "preferences": {
+    "agentSays": true
+  },
   "type": "notification.preferences"
 }
 ```
@@ -2380,7 +2399,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 7
+  "until": 1
 }
 ```
 
@@ -2401,7 +2420,6 @@ Example:
 
 ```json
 {
-  "channel": "files",
   "deviceId": "example",
   "protocolVersion": 1,
   "token": "example",
@@ -2423,8 +2441,11 @@ Example:
 
 ```json
 {
+  "afterSeq": 8,
+  "paced": true,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2462,15 +2483,25 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "acpAgentId": "example",
-      "installationId": "example",
-      "mode": "worktree",
-      "provider": "claude",
+      "input": {
+        "base": "example",
+        "branch": "example",
+        "draft": true,
+        "summary": "example",
+        "template": {
+          "body": "example",
+          "title": "example"
+        },
+        "title": "example"
+      },
+      "repository": {
+        "forge": "gitlab",
+        "host": "Ia",
+        "name": "6SWt",
+        "owner": "R1/ifTasoSyH/BQ.s4ITP7Ws/UG/5LCr5ajCcp8/8mLkE_3B/n/HhN-sPh/Md./jrTPVck7"
+      },
       "threadId": "example",
-      "title": "example",
-      "titleSource": "person",
-      "type": "thread.prepare",
-      "workspaceId": "example"
+      "type": "forge.pr.create"
     }
   },
   "type": "command"
@@ -2491,8 +2522,8 @@ Example:
 
 ```json
 {
-  "limit": 1,
-  "offset": 7,
+  "limit": 4,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2513,8 +2544,8 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "limit": 3,
+  "before": 5,
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2536,9 +2567,9 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "collection": "interactions",
-  "limit": 6,
+  "before": 9,
+  "collection": "backgroundTasks",
+  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"

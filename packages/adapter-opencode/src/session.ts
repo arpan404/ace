@@ -1,6 +1,7 @@
 import { waitForAceTools } from "./mcp-ready.ts";
 import { developerInstructions } from "@ace/mcp-server";
 import { createExtensionCatalog } from "./extension-catalog.ts";
+import { openCodeMcpControls } from "./mcp-controls.ts";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
@@ -56,6 +57,12 @@ export class OpenCodeSession implements ProviderSession {
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
   private recoveryStarted = 0;
+  get mcp() {
+    return openCodeMcpControls(
+      this.client,
+      () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
+    );
+  }
   get nativeSessionId(): string {
     return this.ownership.root;
   }

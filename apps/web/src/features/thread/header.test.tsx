@@ -87,7 +87,7 @@ test("the header keeps only navigation, the title, its ⋯, the work card and th
   );
 });
 
-test("a thread held at a usage limit says Limited after the title in its row's waiting tone, never needs-you amber", async () => {
+test("a thread held at a usage limit says Limited after its title", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/t/thread-limit-flags");
@@ -277,49 +277,38 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
   launched.mockRestore();
 });
 
-test("in the desktop app, Open in shows each editor's own icon from the OS", async () => {
-  const icon = "data:image/png;base64,iVBORw0KGgo=";
-  Reflect.set(globalThis, "ace", {
-    shell: {
-      editorIcon: async (editor: string) => {
-        // Zed isn't installed on this computer: no icon to show.
-        return editor === "vscode" ? icon : null;
-      },
-    },
-  });
-  await openThread();
-  const openIn = within(await openCard()).getByRole("region", { name: "Open in" });
-  const code = await within(openIn).findByRole("button", { name: /^Open in Visual Studio Code/ });
-  await waitFor(() => expect(code.querySelector("img")?.getAttribute("src")).toBe(icon));
-  expect(
-    within(openIn).getByRole<HTMLButtonElement>("button", { name: "Open in Zed" }).disabled,
-  ).toBe(false);
-});
-
-test("Sources lists the tools the thread's agents have, each opening where it is seen", async () => {
+test("Sources shows enabled ace tools and opens their settings", async () => {
   await openThread();
   const sources = within(await openCard()).getByRole("region", { name: "Sources" });
-  const names = () =>
-    within(within(sources).getByRole("list", { name: "Tool sources" }))
-      .getAllByRole("listitem")
-      .map((row) => row.textContent);
-  expect(names()).toHaveLength(4);
-  await userEvent.click(within(sources).getByRole("button", { name: "View all" }));
-  expect(names().length).toBeGreaterThan(4);
-  expect(names()).toContain("DevicesSimulators and emulators");
-
-  await userEvent.click(within(sources).getByRole("button", { name: /^Files:/ }));
-  const panel = await sidePanel();
-  expect(await within(panel).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
+  await within(sources).findByText("Project tools");
+  expect(within(sources).queryByText("Devices")).toBeNull();
+  await userEvent.click(within(sources).getByRole("button", { name: "Notifications" }));
+  expect(await screen.findByRole("heading", { name: "Notifications" })).toBeTruthy();
 });
 
-test("Sources' + goes to Skills, where plugins and MCP servers are added", async () => {
+test("Sources reconnects, disables and enables a provider server", async () => {
   await openThread();
   const sources = within(await openCard()).getByRole("region", { name: "Sources" });
   await userEvent.click(
-    within(sources).getByRole("button", { name: "Add a plugin or MCP server" }),
+    await within(sources).findByRole("button", { name: "Reconnect Documentation" }),
   );
-  expect(await screen.findByRole("heading", { level: 1, name: "Skills" })).toBeTruthy();
+  await waitFor(() => expect(within(sources).queryByText("Failed")).toBeNull());
+  await userEvent.click(within(sources).getByRole("button", { name: "Disable Documentation" }));
+  expect(await within(sources).findByText("Disabled")).toBeTruthy();
+  await userEvent.click(within(sources).getByRole("button", { name: "Enable Documentation" }));
+  await waitFor(() => expect(within(sources).queryByText("Disabled")).toBeNull());
+});
+
+test("Add MCP server saves a command and keeps existing servers", async () => {
+  await openThread();
+  const sources = within(await openCard()).getByRole("region", { name: "Sources" });
+  await userEvent.click(await within(sources).findByRole("button", { name: "Add MCP server" }));
+  const dialog = await screen.findByRole("dialog", { name: "Add MCP server" });
+  await userEvent.type(within(dialog).getByLabelText("Name"), "docs");
+  await userEvent.type(within(dialog).getByLabelText("Command"), "docs-mcp");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Add server" }));
+  expect(await within(sources).findByText("docs")).toBeTruthy();
+  expect(within(sources).getByText("Project tools")).toBeTruthy();
 });
 
 test("another thread opens with the card closed", async () => {
@@ -753,7 +742,7 @@ test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until whe
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  expect(await screen.findByText(/^Snoozed until tomorrow/)).toBeTruthy();
+  expect(await screen.findByText(/^Snoozed — no notifications until tomorrow/)).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(
     view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,

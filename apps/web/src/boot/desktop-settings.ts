@@ -16,7 +16,7 @@ const Minute = z
 export const DesktopQuietHours = z.object({ start: Minute, end: Minute });
 export type DesktopQuietHours = z.infer<typeof DesktopQuietHours>;
 /** The desktop's notification categories this app edits; others round-trip untouched. */
-export type DesktopCategory = "needsYou" | "finished" | "failed";
+export type DesktopCategory = "needsYou" | "finished" | "failed" | "agentSays";
 const Notifications = z.looseObject({
   enabled: z.boolean(),
   categories: z.record(z.string(), z.boolean()),

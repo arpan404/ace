@@ -1,5 +1,6 @@
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
+import { FakeMcpWire } from "./mcp-wire.ts";
 import {
   BrowserClientMessage,
   ServerMessage,
@@ -30,6 +31,7 @@ export interface ServicesSeed extends AutomationSeed {
   >;
   history?: import("@ace/protocol").HistorySession[];
   /** Seed the small PNG fixture for scoped client attachment reads. */
+  notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
@@ -55,6 +57,8 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
 export class FakeServicesWire {
   private readonly catalog = new FakeCatalogWire();
   readonly history: FakeHistory;
+  private notificationPublicKey: string | null = null;
+  readonly mcp = new FakeMcpWire();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -81,6 +85,7 @@ export class FakeServicesWire {
   seed(seed: ServicesSeed): void {
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
     if (seed.history) this.history.seed(seed.history);
+    this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
@@ -146,6 +151,22 @@ export class FakeServicesWire {
             await catalog.handle(message, device);
             return;
           }
+          if (this.mcp.handle(message, emit)) return;
+          if (message.type === "notification.config") {
+            emit({
+              type: "notification.config.result",
+              requestId: message.requestId,
+              publicKey: this.notificationPublicKey,
+              preferences: { includePreview: false, quietHours: null },
+            });
+            return;
+          }
+          if (message.type === "notification.register") {
+            if (message.requestId)
+              emit({ type: "notification.register.result", requestId: message.requestId });
+            return;
+          }
+          if (message.type === "notification.preferences") return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;

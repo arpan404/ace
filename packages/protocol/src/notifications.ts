@@ -8,6 +8,7 @@ export const NotificationStatus = z.enum([
   "failed",
   "unresponsive",
   "background_done",
+  "agent_says",
 ]);
 export const Notification = z.object({
   id: boundedId,
@@ -18,6 +19,7 @@ export const Notification = z.object({
   backgroundCount: z.number().int().nonnegative().max(1_000_000),
   actions: z.array(z.object({ action: z.enum(["approve", "deny"]), optionId: boundedId })).max(2),
   preview: z.string().max(300).optional(),
+  message: z.string().max(300).optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 export const WebPushSubscription = z.object({
@@ -67,6 +69,7 @@ export type QuietHours = z.infer<typeof QuietHours>;
 export const NotificationPreferences = z.object({
   quietHours: QuietHours.nullable().default(null),
   includePreview: z.boolean().default(false),
+  agentSays: z.boolean().optional(),
 });
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
 export const PresenceUpdate = z.object({
@@ -75,9 +78,27 @@ export const PresenceUpdate = z.object({
   inputAgeMs: z.number().int().nonnegative().max(86_400_000),
 });
 export type PresenceUpdate = z.infer<typeof PresenceUpdate>;
+export const NotificationConfigRequest = z.object({
+  type: z.literal("notification.config"),
+  requestId: boundedId,
+});
+export const NotificationConfigResult = z.object({
+  type: z.literal("notification.config.result"),
+  requestId: boundedId,
+  publicKey: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{87}$/)
+    .nullable(),
+  preferences: NotificationPreferences,
+});
 export const NotificationRegister = z.object({
   type: z.literal("notification.register"),
+  requestId: boundedId.optional(),
   device: NotificationAddress,
+});
+export const NotificationRegisterResult = z.object({
+  type: z.literal("notification.register.result"),
+  requestId: boundedId,
 });
 export const NotificationSettings = z.object({
   type: z.literal("notification.preferences"),

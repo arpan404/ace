@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { readPrivateMcpConfig } from "@ace/mcp-server";
 // Synthetic local CLI boundary for daemon registration; never contacts a provider.
 import { createInterface } from "node:readline";
@@ -5,6 +7,12 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 if (process.argv.includes("--version")) {
   console.log("2.1.286");
+  process.exit(0);
+}
+if (process.argv[2] === "mcp" && process.argv[3] === "add") {
+  // Provider-owned persistence double: prove the account's environment and executable are used.
+  const home = z.string().parse(process.env.CLAUDE_CONFIG_DIR ?? process.env.HOME);
+  await writeFile(join(home, "added-server.json"), JSON.stringify(process.argv.slice(4)));
   process.exit(0);
 }
 const object = z.record(z.string(), z.unknown());

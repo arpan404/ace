@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import { facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -95,7 +96,7 @@ test("threads already waiting when the app connects don't raise toasts", async (
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new");
   await inList("Retry budget for app-server restarts");
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await app.client.request({ type: "notification.config" });
   expect(within(toasts()).queryByText(/needs you/)).toBeNull();
 });
 
@@ -120,24 +121,20 @@ test("a thread that fails raises a toast that opens it", async () => {
   );
 });
 
-test("turning a toast off in Activity's notification settings silences it", async () => {
+test("turning a toast off in Settings silences it", async () => {
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
   await app.open("/activity");
   await screen.findByRole("heading", { level: 1, name: "Activity" });
 
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Notification settings…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Notifications on this device" });
-  const needsYou = within(dialog).getByRole("switch", { name: "Needs you" });
+  await userEvent.click(screen.getByRole("link", { name: "Settings" }));
+  await userEvent.click(await screen.findByRole("link", { name: "Notifications" }));
+  const needsYou = await screen.findByRole("switch", { name: "Needs you" });
   expect(needsYou.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(needsYou);
   expect(needsYou.getAttribute("aria-checked")).toBe("false");
-  await userEvent.keyboard("{Escape}");
 
-  await userEvent.click(screen.getByRole("link", { name: "Settings" }));
-  await screen.findByRole("heading", { level: 1, name: "Settings" });
   checkout.runThrough("approval-requested");
 
   const views = screen.getByRole("navigation", { name: "App" });
@@ -146,4 +143,33 @@ test("turning a toast off in Activity's notification settings silences it", asyn
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,
   });
+});
+
+test("an agent message raises Agent says, opens its thread and respects the category toggle", async () => {
+  const app = harness();
+  app.play(flakyCheckout()).runThrough("watcher-started");
+  await app.open("/settings/notifications");
+  const toggle = await screen.findByRole("switch", { name: "Agent says" });
+  const say = (id: string, message: string) =>
+    app.daemon.notify({
+      id,
+      threadId: ThreadId.parse("thread-checkout"),
+      title: "Fix flaky checkout test",
+      status: "agent_says",
+      message,
+      backgroundCount: 0,
+      actions: [],
+    });
+  say("ready", "Your preview is ready.");
+  expect(await within(toasts()).findByText("Agent says · Fix flaky checkout test")).toBeTruthy();
+  await within(toasts()).findByText("Your preview is ready.");
+  say("ready", "Your preview is ready.");
+  expect(within(toasts()).getAllByText("Your preview is ready.")).toHaveLength(1);
+  await userEvent.click(toggle);
+  say("quiet", "Keep this quiet.");
+  await app.client.request({ type: "notification.config" });
+  expect(within(toasts()).queryByText("Keep this quiet.")).toBeNull();
+  await userEvent.click(within(toasts()).getByRole("button", { name: "Open" }));
+  await screen.findByRole("feed", { name: "Transcript" });
+  expect(screen.getByRole("heading", { level: 1, name: /Fix flaky checkout test/ })).toBeTruthy();
 });

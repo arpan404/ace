@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { codexCapabilities } from "./capabilities.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
+import { codexMcpControls } from "./mcp-controls.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
@@ -410,6 +411,7 @@ export async function openCodexSession(
       selectedOptions = executionOptions;
     },
     close: lifetime.close,
+    mcp: codexMcpControls(request, nativeSessionId, ctx.signal),
     ...createSessionCommands({
       nativeSessionId,
       getLaunchOptions: async (_threadId) => {

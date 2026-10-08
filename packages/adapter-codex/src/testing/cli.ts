@@ -40,6 +40,8 @@ const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let delegationTurn = 0;
 let pendingKind = "";
+const mcpServers = new Map<string, string>([["docs", "failed"]]);
+const mcpWrites = new Map<string, unknown>();
 let queued = 0;
 let policyTurn = 0;
 let discoveryFailed = false;
@@ -78,6 +80,25 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformFamily: "unix",
         platformOs: "macos",
       });
+  } else if (method === "mcpServerStatus/list") {
+    respond({
+      data: [...mcpServers].map(([name, runtimeStatus]) => ({ name, runtimeStatus })),
+      nextCursor: null,
+    });
+  } else if (method === "config/value/write") {
+    const key = str(p["keyPath"]);
+    if (!key.startsWith("mcp_servers.") || p["mergeStrategy"] !== "upsert")
+      throw new Error("Invalid MCP configuration write");
+    mcpWrites.set(key, p["value"]);
+    respond({});
+  } else if (method === "config/mcpServer/reload") {
+    for (const [key, value] of mcpWrites) {
+      const name = key.slice("mcp_servers.".length).replace(/\.enabled$/, "");
+      mcpServers.set(name, value === false ? "disabled" : "connected");
+    }
+    for (const [name, status] of mcpServers)
+      if (status === "failed") mcpServers.set(name, "connected");
+    respond({});
   } else if (method === "thread/fork") {
     if (p["threadId"] !== "source-native" || p["lastTurnId"] !== "source-turn") {
       write({ id, error: { message: "Incorrect fork source or boundary" } });

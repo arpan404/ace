@@ -653,8 +653,8 @@ export class Store {
       this.appendEvents(parsed.threadId, events, at);
     });
   }
-  readMcpIntents(limit = 100) {
-    return this.mcp.read(limit);
+  readMcpIntents(limit = 100, type?: "mcp.notify") {
+    return this.mcp.read(limit, type);
   }
   acknowledgeMcpIntent(id: string): boolean {
     return this.transaction(() => this.mcp.acknowledge(id));

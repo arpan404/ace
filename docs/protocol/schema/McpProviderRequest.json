@@ -31,6 +31,60 @@
           "minLength": 1,
           "type": "string"
         },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "mcp.sources",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "type": "string",
+          "x-ace-constraint": "The service-owned name ace is reserved."
+        },
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "server": {
+          "$ref": "https://ace.local/protocol/v1/McpServerInput.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "mcp.add",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "name",
+        "server"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "servers": {
           "additionalProperties": {},
           "maxProperties": 256,

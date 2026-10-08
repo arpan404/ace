@@ -142,7 +142,10 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const drop = useFileDrop(composer);
   const card = useWorkCard(id);
   const thread = useMemo<ThreadRef | undefined>(
-    () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
+    () =>
+      meta && title !== undefined
+        ? { id, workspaceId: meta.workspaceId, title, provider: meta.provider }
+        : undefined,
     [id, meta, title],
   );
   return (

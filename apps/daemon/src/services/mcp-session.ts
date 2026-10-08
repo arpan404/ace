@@ -32,11 +32,13 @@ export async function bindMcpSession(
           context.signal,
         );
   if (!context.mcp && !context.aceMcp && !lease) throw new Error("Provider MCP scope unavailable");
+  let unbind: (() => void) | undefined;
   let ended = false;
   const end = () => {
     if (ended) return;
     ended = true;
     lifetime.removeEventListener("abort", end);
+    unbind?.();
     lease?.end();
     context.mcp?.end();
     context.aceMcp?.end?.();
@@ -69,6 +71,8 @@ export async function bindMcpSession(
         context.onExit(exit);
       },
     });
+    if (session.mcp && adapter.provider !== "claude" && options.mcp)
+      unbind = options.mcp.providers.bind(context.threadId, session.mcp, lifetime);
     const configure = session.configure?.bind(session);
     const setModel = session.setModel?.bind(session);
     const setMode = session.setMode?.bind(session);

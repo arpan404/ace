@@ -32,33 +32,41 @@ export function createStatusRegistry(
         threadId: caller.threadId,
         agentId: caller.agentId,
         permissionMode: state.permissionMode,
-        groups: [
-          { name: "thread", enabled: true },
-          ...McpCapability.options.map((name) => {
-            const reason =
-              state.disabled?.[name] ??
-              (state.permissionMode === "read-only" && (name === "screen" || name === "devices")
-                ? "Read-only mode refuses this tool group."
-                : undefined) ??
-              (!registered.has(name)
-                ? "No backend is configured for this tool group."
-                : undefined) ??
-              (!capabilities.includes(name)
-                ? "This provider session has no permission for this tool group."
-                : undefined);
-            return reason === undefined
-              ? { name, enabled: true }
-              : { name, enabled: false, reason };
-          }),
-          {
-            name: "files",
-            enabled: false,
-            reason:
-              "Files are available through the provider's workspace tools and ace's file client; there is no standalone ace MCP files group.",
-          },
-        ],
+        groups: mcpStatusGroups(registered, capabilities, state.disabled, state.permissionMode),
       };
     },
   });
   return status;
+}
+
+/** Shared discovery policy for MCP clients and the person's Sources list. */
+export function mcpStatusGroups(
+  registered: ReadonlySet<McpCapability>,
+  capabilities: readonly McpCapability[],
+  disabled?: Partial<Record<McpCapability, string>>,
+  permissionMode?: McpStatus["permissionMode"],
+): McpStatus["groups"] {
+  return [
+    { name: "thread", enabled: true },
+    ...McpCapability.options.map((name) => {
+      const reason =
+        disabled?.[name] ??
+        (permissionMode === "read-only" && (name === "screen" || name === "devices")
+          ? "Read-only mode refuses this tool group."
+          : undefined) ??
+        (!registered.has(name)
+          ? "No backend is configured for this tool group. Ask the person to configure this feature in ace."
+          : undefined) ??
+        (!capabilities.includes(name)
+          ? "This provider session has no permission for this tool group. Ask the person to start a session with this group enabled."
+          : undefined);
+      return reason === undefined ? { name, enabled: true } : { name, enabled: false, reason };
+    }),
+    {
+      name: "files",
+      enabled: false,
+      reason:
+        "Files are available through the provider's workspace tools and ace's file client; there is no standalone ace MCP files group.",
+    },
+  ];
 }

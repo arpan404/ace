@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpSources.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "appliesNextTurn": {
+      "default": false,
+      "type": "boolean"
+    },
+    "canAdd": {
+      "type": "boolean"
+    },
+    "groups": {
+      "items": {
+        "maxLength": 64,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "live": {
+      "type": "boolean"
+    },
+    "servers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/McpSourceServer.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    }
+  },
+  "required": [
+    "groups",
+    "servers",
+    "live",
+    "canAdd"
+  ],
+  "type": "object"
+}

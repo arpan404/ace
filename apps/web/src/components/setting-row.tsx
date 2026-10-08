@@ -31,10 +31,13 @@ export function SettingRow(props: {
   htmlFor?: string;
   /** Keep the control beside the text at every width (a switch, a short button). */
   inline?: boolean;
+  /** A single 36px row; its description is shown on hover or focus. */
+  density?: "default" | "compact";
   /** The row's anchor, from the settings index (`settingsIndex`). */
   id?: string;
 }) {
   const inCard = use(InCard);
+  const compact = props.compact || props.density === "compact";
   const Title = props.htmlFor ? "label" : "div";
   const row = useRef<HTMLDivElement>(null);
   const flashing = useHashFlash(props.id, row);
@@ -50,29 +53,32 @@ export function SettingRow(props: {
     >
       <div
         className={cn(
-          props.compact ? "flex min-h-8 gap-4" : "flex gap-4",
-          props.compact ? "py-0.5" : "py-3.5 compact:py-2.5",
-          props.inline
+          compact ? "flex min-h-9 items-center gap-4 py-1" : "flex gap-4 py-3.5 compact:py-2.5",
+          props.inline || compact
             ? "items-center"
             : "flex-col items-stretch gap-2.5 @[30rem]:flex-row @[30rem]:items-center @[30rem]:gap-4",
         )}
       >
-        <div
-          className={cn("min-w-0 flex-1", props.compact && "flex flex-wrap items-center gap-x-3")}
-        >
-          <Title
-            {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-            className="block text-ui font-medium"
-          >
-            {props.title}
-          </Title>
-          {props.description && (
-            <p
-              className={cn(
-                "text-sm leading-[1.4] text-muted-foreground",
-                !props.compact && "mt-0.5",
-              )}
+        <div className="min-w-0 flex-1">
+          {compact && props.description ? (
+            <Tip label={props.description}>
+              <Title
+                {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
+                className="block text-ui font-medium"
+              >
+                {props.title}
+              </Title>
+            </Tip>
+          ) : (
+            <Title
+              {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
+              className="block text-ui font-medium"
             >
+              {props.title}
+            </Title>
+          )}
+          {props.description && !compact && (
+            <p className="mt-0.5 text-sm leading-[1.4] text-muted-foreground">
               {props.description}
             </p>
           )}
@@ -81,7 +87,9 @@ export function SettingRow(props: {
           <div
             className={cn(
               "flex shrink-0 items-center gap-2",
-              props.inline ? "ml-auto" : "*:flex-1 @[30rem]:ml-auto @[30rem]:*:flex-none",
+              props.inline || compact
+                ? "ml-auto"
+                : "*:flex-1 @[30rem]:ml-auto @[30rem]:*:flex-none",
             )}
           >
             {props.children}
@@ -134,7 +142,7 @@ export type SettingScope = "daemon" | "device" | "computer";
 const scopes: Record<SettingScope, { label: string; tip: string }> = {
   daemon: {
     label: "All devices",
-    tip: "Applies to every paired device",
+    tip: "Stored by ace; every paired device follows it",
   },
   device: { label: "This device", tip: "Kept in this browser or app only" },
   computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
