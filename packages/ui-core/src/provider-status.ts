@@ -146,13 +146,13 @@ export function providerStatuses(
   return [...native, ...acp];
 }
 
-/** "Codex", "Codex (not signed in)" or "Codex (not installed)", as a provider picker lists it. */
+/** "Codex", "Codex (signed out)" or "Codex (not installed)", as a provider picker lists it. */
 export function providerChoiceLabel(status: Pick<ProviderStatus, "name" | "state">): string {
   if (status.state === "limited") return `${status.name} (limit reached)`;
   if (status.state === "attention") return `${status.name} (needs attention)`;
-  if (status.state === "signed_out") return `${status.name} (not signed in)`;
+  if (status.state === "signed_out") return `${status.name} (signed out)`;
   if (status.state === "not_installed") return `${status.name} (not installed)`;
-  if (status.state === "unknown") return `${status.name} (sign-in unknown)`;
+  if (status.state === "unknown") return `${status.name} (sign-in not reported)`;
   return status.name;
 }
 

@@ -1,6 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
 import { serviceInfo, type ReadinessTone } from "@ace/ui-core";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -60,14 +60,11 @@ const dotTones = {
   action: "needs-you",
   problem: "failed",
   idle: "idle",
-} as const satisfies Record<ReadinessTone, Parameters<typeof Dot>[0]["tone"]>;
+} as const;
 
 /** "● Signed in as ada@example.com": a status in its tone, on one line. */
 export function StatusLine(props: { tone: ReadinessTone; text: string; className?: string }) {
   return (
-    <span className={cn("flex min-w-0 items-center gap-1.5", props.className)}>
-      <Dot tone={dotTones[props.tone]} />
-      <span className="truncate">{props.text}</span>
-    </span>
+    <StatusLabel tone={dotTones[props.tone]} label={props.text} className={props.className ?? ""} />
   );
 }

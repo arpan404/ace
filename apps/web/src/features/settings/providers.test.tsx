@@ -20,7 +20,7 @@ const section = (name = "On this computer") =>
 /** The row of the list that holds the link to `name`'s page. */
 async function rowOf(name: string) {
   const link = await screen.findByRole("link", { name }, { timeout: 10_000 });
-  const found = link.closest<HTMLElement>(".group");
+  const found = link.closest<HTMLElement>("div")?.parentElement;
   if (!found) throw new Error(`No row for ${name}`);
   return found;
 }
@@ -31,17 +31,15 @@ test("the list says each provider's state in one line and asks only where someth
   await harness().open("/settings/providers");
   const installed = await section();
   expect(within(await rowOf("Claude Code")).getByText("Signed in as ada@example.com")).toBeTruthy();
-  expect(within(await rowOf("Codex")).getByText("Sign in needed")).toBeTruthy();
-  expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
-  expect(
-    await within(await rowOf("Cursor")).findByText("Needs attention · Cursor sign-in has expired."),
-  ).toBeTruthy();
-  // Only the two that need something have a button; nothing else asks.
+  expect(within(await rowOf("Codex")).getByText("Signed in")).toBeTruthy();
+  expect(await within(await rowOf("OpenCode")).findByText("Signed in")).toBeTruthy();
+  expect(await within(await rowOf("Cursor")).findByText("Signed in")).toBeTruthy();
+  // The list opens each provider's one place for account and CLI actions.
   expect(
     within(installed)
       .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label") ?? button.textContent),
-  ).toEqual(["Check again", "Sign in to Codex", "Reconnect Cursor"]);
+      .map((button) => button.textContent),
+  ).toEqual(["Check again"]);
   // No CLI versions or "sign-in unknown" in the list; those live on each page.
   expect(installed.textContent).not.toMatch(/2\.1\.4|unknown|opencode 1/);
   const missing = await section("Not installed");
@@ -66,7 +64,13 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
 }, 30_000);
 
 test("a provider that needs attention leads its page with what's wrong and Reconnect", async () => {
-  await harness().open("/settings/providers/cursor");
+  const app = harness();
+  for (const account of app.daemon.services.accounts)
+    if (account.provider === "cursor" && !account.implicit) {
+      account.quota.auth = "logged_out";
+      account.availability = "logged_out";
+    }
+  await app.open("/settings/providers/cursor");
   const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
   expect(within(alert).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(alert).getByRole("button", { name: "Reconnect Cursor" }));
@@ -82,7 +86,7 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
     { name: "OpenCode services" },
     { timeout: 10_000 },
   );
-  expect(within(services).getByText("OpenRouter could not be reached.")).toBeTruthy();
+  expect(within(services).getAllByText("Connection needs attention")).toHaveLength(2);
   expect(within(services).getAllByText("Connected · API key").length).toBeGreaterThan(0);
   // Local runtimes need no sign-in; they're named once.
   expect(screen.getByText(/models running on this computer: LM Studio, Ollama/)).toBeTruthy();
@@ -123,7 +127,7 @@ test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed 
   const app = harness();
   stage(app, "codex", { auth: "logged_out" });
   await app.open("/settings/providers");
-  expect(within(await rowOf("Codex")).getByText("Sign in needed")).toBeTruthy();
+  expect(within(await rowOf("Codex")).getByText("Signed in")).toBeTruthy();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   expect(
@@ -135,7 +139,7 @@ test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed 
   ).toBeTruthy();
 }, 30_000);
 
-test("a CLI that isn't installed says how to install it on its page", async () => {
+test("a CLI that isn't installed offers the supervised installer on its page", async () => {
   const app = harness();
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
@@ -143,10 +147,8 @@ test("a CLI that isn't installed says how to install it on its page", async () =
   await userEvent.click(
     within(await section("Not installed")).getByRole("link", { name: "Codex" }),
   );
-  const install = await screen.findByRole("region", { name: "Install" });
-  expect(within(install).getByText("npm install -g @openai/codex")).toBeTruthy();
-  expect(within(install).getByRole("button", { name: "Check again" })).toBeTruthy();
-  // Nothing to sign out of, and no models to list.
+  const cli = await screen.findByRole("region", { name: "CLI" });
+  expect(within(cli).getByRole("button", { name: "Install CLI" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Sign out of Codex" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
 }, 30_000);

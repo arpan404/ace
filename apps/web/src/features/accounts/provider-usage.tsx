@@ -13,7 +13,7 @@ const days = 14;
  * tokens would cost at API prices (an estimate, said so), and each account's share. Plan limits
  * sit with each account; the full report is in Usage & accounts.
  */
-export function ProviderUsage(props: { provider: string }) {
+export function ProviderUsage(props: { provider: string; acpAgentId?: string | undefined }) {
   const now = useNow();
   const zone = useUsageTimeZone();
   const range: UsageRange = {
@@ -22,18 +22,36 @@ export function ProviderUsage(props: { provider: string }) {
     timeZone: zone.timeZone,
     ready: zone.ready,
   };
-  const usage = useProviderUsage(range, props.provider);
   const accounts = useAccountViews();
+  const ids =
+    props.provider === "acp"
+      ? accounts.data
+          ?.filter(
+            (account) => account.provider === "acp" && account.acpAgentId === props.acpAgentId,
+          )
+          .map((account) => account.id)
+          .toSorted()
+      : undefined;
+  const usage = useProviderUsage(
+    { ...range, ready: range.ready && (props.provider !== "acp" || accounts.data !== undefined) },
+    props.provider,
+    ids,
+  );
+  const emptyAgent = props.provider === "acp" && ids?.length === 0;
   if (usage.daily.isError)
-    return <p className="px-4 py-3 text-muted-foreground">Usage couldn't be read.</p>;
+    return <p className="py-3 text-muted-foreground">Usage couldn't be read.</p>;
   const rows = usage.daily.data?.rows ?? [];
   const cost = usageCost(rows);
   const labels = new Map(accounts.data?.map((account) => [account.id, account.label]));
   const shares = (usage.accounts.data?.rows ?? []).filter((row) => row.dimensions.account);
-  if (usage.daily.data && cost.tokens === 0)
-    return <p className="px-4 py-3.5 text-muted-foreground">No usage in the last {days} days.</p>;
+  if (emptyAgent || (usage.daily.data && cost.tokens === 0))
+    return (
+      <p className="py-3 text-muted-foreground">
+        No token activity recorded in the last {days} days. Plan usage is shown with each account.
+      </p>
+    );
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-4 py-3">
       <dl className="grid grid-cols-2 gap-4">
         <div>
           <dt className="text-sm text-muted-foreground">Tokens, last {days} days</dt>
@@ -49,7 +67,9 @@ export function ProviderUsage(props: { provider: string }) {
           <dd className="text-xs text-subtle-foreground">
             {usage.daily.data && cost.apiPrice === null
               ? "No API prices for these models."
-              : "Estimate. What these tokens would cost on an API key."}
+              : cost.unpricedTokens
+                ? `Estimate. Leaves out ${formatTokens(cost.unpricedTokens)} tokens without a price.`
+                : "Estimate. What these tokens would cost on an API key."}
           </dd>
         </div>
       </dl>
@@ -61,7 +81,7 @@ export function ProviderUsage(props: { provider: string }) {
             const id = row.dimensions.account ?? "";
             return (
               <li key={id} className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate">{labels.get(id) ?? id}</span>
+                <span className="min-w-0 flex-1 truncate">{labels.get(id) ?? "Other account"}</span>
                 <span className="text-muted-foreground tabular-nums">
                   {formatTokens(share.tokens)} · {formatApiPrice(share.apiPrice)}
                 </span>

@@ -5,7 +5,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 export function ProviderPermissions(props: { provider: ProviderKind }) {
   const [modes, setModes] = useDaemonSetting("permissions.providerModes");
   return (
-    <SettingSection label="Permissions" card scope="daemon">
+    <SettingSection label="Permissions" scope="daemon">
       <SettingRow
         title="New threads"
         description="The provider handles approvals using its own permissions."

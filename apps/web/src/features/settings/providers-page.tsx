@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { ReadinessAction } from "@/features/sign-in/index.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
 import {
@@ -26,7 +25,7 @@ export function ProviderSettings() {
   if (query.isError || !entries)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
-        Couldn't list providers. {query.error?.message}
+        Couldn't list providers. Reconnect and check again.
       </p>
     );
   const builtIn = entries.filter((entry) => entry.install.kind !== "acp");
@@ -35,7 +34,7 @@ export function ProviderSettings() {
   const agents = entries.filter((entry) => entry.install.kind === "acp");
   return (
     <>
-      <SettingSection label="On this computer" card actions={<RediscoverButton />}>
+      <SettingSection label="On this computer" actions={<RediscoverButton />}>
         {installed.length ? (
           installed.map((entry) => <ProviderRow key={entry.id} entry={entry} />)
         ) : (
@@ -45,36 +44,19 @@ export function ProviderSettings() {
         )}
       </SettingSection>
       {missing.length > 0 && (
-        <SettingSection label="Not installed" card>
+        <SettingSection label="Not installed">
           {missing.map((entry) => (
             <ProviderRow key={entry.id} entry={entry} />
           ))}
         </SettingSection>
       )}
-      <SettingSection label="ACP agents" card>
+      <SettingSection label="ACP agents" actions={<AddAcpAgent />}>
         {agents.map((entry) => (
           <ProviderRow key={entry.id} entry={entry} />
         ))}
-        <Row
-          tile={
-            <span
-              aria-hidden
-              className="grid size-10 shrink-0 place-items-center rounded-md border border-dashed text-lg text-subtle-foreground"
-            >
-              +
-            </span>
-          }
-          title={<span className="font-medium">Add an agent</span>}
-          status={
-            <span className="text-muted-foreground">
-              Search the ACP registry, or add one by command
-            </span>
-          }
-          action={<AddAcpAgent />}
-        />
       </SettingSection>
       <p className="mt-6 text-sm text-muted-foreground">
-        Quota, limits and scheduling are in{" "}
+        All accounts and scheduling are in{" "}
         <Link to="/accounts" className="font-medium text-foreground hover:underline">
           Usage &amp; accounts ›
         </Link>
@@ -83,12 +65,22 @@ export function ProviderSettings() {
   );
 }
 
-/** One row of a providers card: a tile, a name over a line of status, an action. */
-function Row(props: { tile: ReactNode; title: ReactNode; status: ReactNode; action?: ReactNode }) {
+/** One provider row: its mark, name, status and navigation. */
+function Row(props: {
+  label: string;
+  tile: ReactNode;
+  title: ReactNode;
+  status: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div className="group relative flex min-h-16 items-center gap-3.5 px-4 py-3 transition-colors duration-(--dur-1) hover:bg-accent">
+    <div
+      role="group"
+      aria-label={props.label}
+      className="group relative flex min-h-9 items-center gap-2 py-1 transition-colors duration-(--dur-1) hover:bg-accent"
+    >
       {props.tile}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-ui">
+      <div className="flex min-w-0 flex-1 items-center gap-2 text-ui">
         {props.title}
         <span className="text-sm text-muted-foreground">{props.status}</span>
       </div>
@@ -108,10 +100,13 @@ function ProviderRow(props: { entry: ProviderEntry }) {
   const status = <StatusLine tone={tone} text={problem ? `${text} · ${problem}` : text} />;
   return (
     <Row
+      label={name}
       tile={
         <ProviderTile
           provider={install.kind}
           acpAgentId={install.acpAgentId}
+          size="sm"
+          className="bg-transparent shadow-none"
           muted={view?.state === "not_installed" || view?.state === "off"}
         />
       }
@@ -127,9 +122,6 @@ function ProviderRow(props: { entry: ProviderEntry }) {
       status={status}
       action={
         <>
-          {view && (
-            <ReadinessAction provider={install.kind} name={name} view={view} className="mr-1" />
-          )}
           <CaretRightIcon
             aria-hidden
             size={14}

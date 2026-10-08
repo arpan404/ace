@@ -87,25 +87,30 @@ export function useAccountUsage(range: UsageRange, enabled: boolean) {
  * One provider's usage over the range: tokens per day (`usage.series`) and per account
  * (`usage.summary`), both with what the tokens would cost at API prices.
  */
-export function useProviderUsage(range: UsageRange, provider: string) {
+export function useProviderUsage(
+  range: UsageRange,
+  provider: string,
+  accountIds?: readonly string[],
+) {
+  const enabled = range.ready && (accountIds === undefined || accountIds.length > 0);
   const query = (groupBy: UsageDimension[]) =>
     UsageQuery.parse({
       from: range.from,
       to: range.to,
       groupBy,
-      filters: { provider: [provider] },
+      filters: { provider: [provider], ...(accountIds ? { account: accountIds } : {}) },
       equivalentApiCost: true,
       limit: 100,
     });
   const daily = useDaemonQuery({
-    queryKey: [...key(range, "day"), provider],
-    enabled: range.ready,
+    queryKey: [...key(range, "day"), provider, accountIds],
+    enabled,
     read: async (client, signal): Promise<UsageResult> =>
       (await client.request({ type: "usage.series", query: query(["day"]) }, { signal })).result,
   });
   const accounts = useDaemonQuery({
-    queryKey: [...key(range, "account"), provider],
-    enabled: range.ready,
+    queryKey: [...key(range, "account"), provider, accountIds],
+    enabled,
     read: async (client, signal): Promise<UsageResult> =>
       (await client.request({ type: "usage.summary", query: query(["account"]) }, { signal }))
         .result,

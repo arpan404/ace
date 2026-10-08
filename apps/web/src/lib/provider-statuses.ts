@@ -28,7 +28,9 @@ export async function readProviderStatuses(
   const installed = new Set(
     rows.filter((row) => row.installed === true).map((row) => row.provider),
   );
-  return providerStatuses(installed, accounts.accounts.map(accountView), rows);
+  const views = accounts.accounts.map(accountView);
+  const now = Date.now();
+  return providerStatuses(installed, views, rows, now);
 }
 
 export const providerStatusesKey = ["providers", "statuses"] as const;

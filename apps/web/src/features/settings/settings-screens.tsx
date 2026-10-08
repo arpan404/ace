@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 import { AdvancedSettings } from "./advanced-page.tsx";
 import { AppearanceSettings } from "./appearance-page.tsx";
-import { GeneralSettings } from "./general-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { Navigate } from "@tanstack/react-router";
@@ -15,10 +14,17 @@ import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
+// Provider preferences belong to General; keep them off every other settings route.
+const GeneralSettings = lazy(() =>
+  import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
+);
+
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <GeneralSettings />
+      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={4} />}>
+        <GeneralSettings />
+      </Suspense>
     </SettingsBody>
   );
 }
