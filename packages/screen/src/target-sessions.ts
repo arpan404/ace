@@ -20,7 +20,7 @@ type LifecyclePorts = {
   host: HelperHost;
   sessions: Map<string, Session>;
   policy: ScreenPolicy;
-  authorize(target: ScreenTarget, scope?: ScreenAgentScope): void;
+  authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView?: boolean): void;
   emit(session: Session): void;
   nextGeneration(): number;
 };
@@ -68,13 +68,22 @@ export class TargetSessions {
     this.starts.add(task);
     return task.finally(() => this.starts.delete(task));
   }
+  startHumanView(input: ScreenTarget, fps = 10): Promise<ScreenState> {
+    const target = ScreenTarget.parse(input);
+    if (target.kind !== "window" || target.bundleId !== "com.apple.iphonesimulator")
+      throw new Error("Human device viewing requires a Simulator window");
+    const task = this.startTarget(target, fps, undefined, true);
+    this.starts.add(task);
+    return task.finally(() => this.starts.delete(task));
+  }
   private async startTarget(
     input: ScreenTarget,
     fps: number,
     scope?: ScreenAgentScope,
+    humanView = false,
   ): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
-    this.authorize(target, scope);
+    this.authorize(target, scope, humanView);
     if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     const selectedBundles = bundles(target);
     for (const bundle of selectedBundles) {
@@ -132,11 +141,12 @@ export class TargetSessions {
         this.nextGeneration,
       );
       session.approvalScope = scope;
+      session.humanView = humanView;
       this.sessions.set(id, session);
       session.state.permissions = await helper.permissions();
       if (!session.state.permissions.screenRecording)
         throw new HelperCommandError("permission_denied", "Screen Recording permission denied");
-      this.authorize(target, scope);
+      this.authorize(target, scope, humanView);
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
       session.state = { ...session.state, indicator: helper.capabilities?.platform !== "macos" };
       this.emit(session);
@@ -153,7 +163,7 @@ export class TargetSessions {
       const startingSession = session,
         startingHelper = helper;
       const validateStart = () => {
-        this.authorize(target, scope);
+        this.authorize(target, scope, humanView);
         if (epoch !== this.policy.epoch || startingSession.state.lifecycle !== "starting")
           throw new Error("Screen start cancelled");
       };
@@ -178,7 +188,7 @@ export class TargetSessions {
           }
         }
       });
-      this.authorize(target, scope);
+      this.authorize(target, scope, humanView);
       if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
       session.state = {

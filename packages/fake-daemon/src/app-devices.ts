@@ -371,13 +371,19 @@ export class FakeAppDevices {
         this.publish(session);
         return { completed: true };
       case "start":
-        if (session.device.platform === "ios" && this.screenHost && !this.screenHost.access.enabled)
+        if (
+          session.threadId &&
+          session.device.platform === "ios" &&
+          this.screenHost &&
+          !this.screenHost.access.enabled
+        )
           throw new Refusal(
             "permission_denied",
             "Computer use is off",
             "Turn it on in Computer use, then try again.",
           );
         if (
+          session.threadId &&
           session.device.platform === "ios" &&
           this.screenHost &&
           !this.screenHost.access.allows(

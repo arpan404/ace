@@ -10,7 +10,7 @@ import { readTree, findElements } from "./semantic.ts";
 type ObservationPorts = {
   host: HelperHost;
   live(id: string): Session;
-  authorize(target: ScreenTarget, scope?: ScreenAgentScope): void;
+  authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView?: boolean): void;
   releaseUnused(session: Session): void;
   options: ScreenOptions;
 };
@@ -61,7 +61,7 @@ export class SessionObservations {
   }
   screenshot(id: string): Frame {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target, session.approvalScope, session.humanView);
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
   }
@@ -71,7 +71,7 @@ export class SessionObservations {
   ): Promise<{ codec: "jpeg" | "h264" }> {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target, session.approvalScope, session.humanView);
     if (
       session.helper.capabilities?.platform !== "macos" ||
       !session.helper.capabilities.codecs.includes("h264")
@@ -83,13 +83,13 @@ export class SessionObservations {
   }
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target, session.approvalScope, session.humanView);
     if (session.helper.capabilities?.platform === "macos")
       await session.helper.request({ op: "stream.keyframe" });
   }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target, session.approvalScope, session.humanView);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
     const lease = session.pixels.acquire();

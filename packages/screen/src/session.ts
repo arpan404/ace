@@ -16,6 +16,7 @@ export type Session = {
   state: ScreenState;
   helper: HelperPort;
   approvalScope: ScreenAgentScope | undefined;
+  humanView: boolean;
   nativeStarted: boolean;
   hub: FrameHub;
   latest: Frame | undefined;
@@ -48,6 +49,7 @@ export function createSession(
 ): Session {
   const session: Session = {
     approvalScope: undefined,
+    humanView: false,
     nativeStarted: false,
     helper,
     modelCoordinates: undefined,
