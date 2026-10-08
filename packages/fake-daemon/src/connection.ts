@@ -31,7 +31,7 @@ export interface Host {
     limit: number,
   ): { bytes: Uint8Array; nextOffset: number; eof: boolean } | undefined;
   command(command: Command): CommandResult;
-  commandAsync?(command: Command): Promise<CommandResult>;
+  commandAsync?(command: Command, send?: (message: ServerMessage) => void): Promise<CommandResult>;
   /**
    * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
    * "hold" never answers it (a read that hangs), undefined serves it normally.
@@ -172,9 +172,15 @@ export class Connection {
           });
           return;
         }
-        if (message.command.payload.type === "workspace.clone" && this.host.commandAsync) {
+        if (
+          (message.command.payload.type === "workspace.clone" ||
+            ((message.command.payload.type === "thread.create" ||
+              message.command.payload.type === "thread.prepare") &&
+              message.command.payload.mode === "worktree")) &&
+          this.host.commandAsync
+        ) {
           void this.host
-            .commandAsync(message.command)
+            .commandAsync(message.command, this.push)
             .then((result) => this.send({ type: "commandResult", ...result }));
         } else {
           const result = this.host.command(message.command);
