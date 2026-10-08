@@ -55,7 +55,7 @@ test("tabs narrow the feed to mentions or to automation results", async () => {
   expect(within(feed).queryByText("Allow a force push to fix/restart-retry?")).toBeNull();
 
   await userEvent.click(tab("Runs"));
-  expect(await within(feed).findByText("Failed: npm registry timeout, retried once")).toBeTruthy();
+  expect(await within(feed).findByTitle("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(
     within(feed).queryByText("mira: @you Which port does the daemon default to in docker?"),
   ).toBeNull();
@@ -65,12 +65,15 @@ test("tabs narrow the feed to mentions or to automation results", async () => {
   expect(within(feed).queryByText("PR #212 merged")).toBeNull();
 });
 
-test("an approval is answerable from its feed row without opening the card", async () => {
+test("an approval is selected in the feed and answered only in the detail", async () => {
   const { app, feed } = await openActivity();
   const row = within(feed).getByText("Install @fontsource/noto-sans-jp?").closest("li");
   if (!row) throw new Error("row not found");
 
-  await userEvent.click(within(row).getByRole("button", { name: "Deny" }));
+  expect(within(feed).queryByRole("button", { name: /^(Approve|Deny)$/ })).toBeNull();
+  await userEvent.click(within(row).getByRole("button"));
+  const detail = await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
+  await userEvent.click(within(detail).getByRole("button", { name: "Deny" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution("thread-refund-tax", "approve-font")).toEqual({

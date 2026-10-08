@@ -120,13 +120,16 @@ test("a run reads when it started, how long it took and what started it", async 
   expect(line.getAttribute("title")).toMatch(/\d{4}/);
 });
 
-test("a recent run that left a thread opens it", async () => {
+test("a recent run shows its output and opens the thread it produced", async () => {
   await open("/automations/auto-pr-review");
   await heading("Review pull requests on open");
   const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
   await userEvent.click(
-    runs.getByRole("link", { name: "Open the thread for #212 · approved with 1 note" }),
+    runs.getByRole("link", { name: "Open the run #212 · approved with 1 note" }),
   );
+  const detail = await screen.findByRole("article", { name: "Review pull requests on open" });
+  expect(within(detail).getByText("#212 · approved with 1 note")).toBeTruthy();
+  await userEvent.click(within(detail).getByRole("link", { name: "Open thread" }));
   expect(
     await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
   ).toBeTruthy();
@@ -137,11 +140,14 @@ test("a recent run without a thread opens what started it and what it found", as
   await heading("Flaky test triage");
   const flaky = within(await screen.findByRole("list", { name: "Recent runs" }));
   await userEvent.click(
-    flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
+    flaky.getByRole("link", { name: "Open the run Nothing flaky across 3 runs" }),
   );
-  const details = await screen.findByRole("dialog", { name: "Flaky test triage" });
+  const details = await screen.findByRole("article", { name: "Flaky test triage" });
   expect(within(details).getByText("On its schedule")).toBeTruthy();
   expect(within(details).getByText("4 min")).toBeTruthy();
+  expect(within(details).getByText("Nothing flaky across 3 runs")).toBeTruthy();
+  expect(within(details).queryByRole("link", { name: "Open thread" })).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 test("pausing stops the schedule and resuming from the menu restarts it", async () => {
@@ -566,3 +572,15 @@ test("saving an old automation repairs its catalog row model identity", async ()
   await heading("Review pull requests on open repaired");
   expect((await stored(app, "auto-pr-review"))?.model).toBe("gpt-5-codex");
 }, 20_000);
+
+test("a failed run opens its error and offers a way to retry the automation", async () => {
+  await open("/automations/auto-dependency-audit");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  await userEvent.click(
+    runs.getByRole("link", { name: "Open the run Failed: npm registry timeout, retried once" }),
+  );
+  const detail = await screen.findByRole("article", { name: "Nightly dependency audit" });
+  expect(within(detail).getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
+  await userEvent.click(within(detail).getByRole("link", { name: "Open automation" }));
+  expect(await screen.findByRole("button", { name: "Run now" })).toBeTruthy();
+});

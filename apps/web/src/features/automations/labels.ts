@@ -50,3 +50,21 @@ export function runNeedsAttention(run: AutomationRun): boolean {
     /\b(requested changes|changes requested)\b/i.test(run.result ?? "")
   );
 }
+
+/** Shared run status colours for history, Activity rows and the detail. */
+const runTones = {
+  running: "working",
+  failed: "failed",
+  skipped: "idle",
+  succeeded: "done",
+} as const;
+export function runTone(run: AutomationRun) {
+  return runTones[run.status];
+}
+
+/** Finished duration, rounded to minutes; absent while the run is still active. */
+export function runDurationMinutes(run: AutomationRun): number | undefined {
+  return run.finishedAt === undefined
+    ? undefined
+    : Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000));
+}

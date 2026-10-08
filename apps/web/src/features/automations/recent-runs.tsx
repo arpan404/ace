@@ -1,21 +1,14 @@
 import type { AutomationRun } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { SettingSection } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
-import { runSummary } from "./labels.ts";
+import { runKey } from "@/lib/activity-item-keys.ts";
+import { runSummary, runTone, runDurationMinutes } from "./labels.ts";
 import { formatWhen } from "./schedule.ts";
 import { useAutomationRuns } from "./use-automations.ts";
 
@@ -60,8 +53,8 @@ const triggerShort: Record<AutomationRun["trigger"], string> = {
 
 /** How long a finished run took, "4 min"; undefined while it runs. */
 function took(run: AutomationRun): string | undefined {
-  if (run.finishedAt === undefined) return undefined;
-  return `${Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000))} min`;
+  const minutes = runDurationMinutes(run);
+  return minutes === undefined ? undefined : `${minutes} min`;
 }
 
 const fullDate = (at: number) =>
@@ -80,78 +73,21 @@ function RunItem(props: { run: AutomationRun }) {
   const summary = runSummary(run);
   return (
     <li className="flex items-center gap-4 border-t py-3.5 last:border-b">
-      {run.status === "running" ? (
-        <Spinner />
-      ) : (
-        <Dot
-          tone={run.status === "failed" ? "failed" : run.status === "skipped" ? "idle" : "done"}
-          label={run.status}
-        />
-      )}
+      {run.status === "running" ? <Spinner /> : <Dot tone={runTone(run)} label={run.status} />}
       <div className="min-w-0 flex-1">
         <div className="text-ui font-medium">{summary}</div>
         <div title={fullDate(run.startedAt)} className="mt-0.5 text-sm text-muted-foreground">
           {runLine(run, now)}
         </div>
       </div>
-      {run.threadId ? (
-        <Link
-          to="/t/$threadId"
-          params={{ threadId: run.threadId }}
-          aria-label={`Open the thread for ${summary}`}
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          Open
-        </Link>
-      ) : (
-        <RunDetails run={run} summary={summary} />
-      )}
-    </li>
-  );
-}
-
-const triggerWords: Record<AutomationRun["trigger"], string> = {
-  schedule: "On its schedule",
-  github: "A pull request event",
-  file: "A file change",
-  manual: "Run by hand",
-};
-
-/** A run that left no thread: what started it, when, and what it found. */
-function RunDetails(props: { run: AutomationRun; summary: string }) {
-  const { run } = props;
-  const [open, setOpen] = useState(false);
-  const now = useNow();
-  const duration = took(run);
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Open the run ${props.summary}`}
-        onClick={() => setOpen(true)}
+      <Link
+        to="/activity"
+        search={{ item: runKey(run.id) }}
+        aria-label={`Open the run ${summary}`}
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
       >
         Open
-      </Button>
-      <DialogContent size="sm">
-        <DialogHeader>
-          <DialogTitle>{run.title}</DialogTitle>
-          <DialogDescription>{props.summary}</DialogDescription>
-        </DialogHeader>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-ui">
-          <dt className="text-muted-foreground">Started</dt>
-          <dd title={fullDate(run.startedAt)}>{formatWhen(run.startedAt, now)}</dd>
-          <dt className="text-muted-foreground">Took</dt>
-          <dd>{duration ?? "Still running"}</dd>
-          <dt className="text-muted-foreground">Trigger</dt>
-          <dd>{triggerWords[run.trigger]}</dd>
-        </dl>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </Link>
+    </li>
   );
 }

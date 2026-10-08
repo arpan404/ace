@@ -4,7 +4,6 @@ import {
   useThreadError,
   useThreadMeta,
 } from "@ace/client-react";
-import type { AutomationRun } from "@ace/protocol";
 import { CheckCircleIcon, TrayIcon, XCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
@@ -12,7 +11,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { automationRunSummary, useAutomationRuns } from "@/features/automations/index.ts";
+import { AutomationRunDetail, useAutomationRuns } from "@/features/automations/index.ts";
 import { Page } from "@/features/shell/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -22,7 +21,7 @@ import { useActivityState } from "./activity-state.tsx";
 import { ButtonKey, CardActions } from "./card-frame.tsx";
 import { EscalationCard } from "./escalation-card.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
-import { runAt, useFeed } from "./feed-source.ts";
+import { useFeed } from "./feed-source.ts";
 import { InteractionCard } from "./interaction-card.tsx";
 
 // The comment renderer (marked) loads only when a mention is opened.
@@ -92,7 +91,12 @@ function FeedDetailPage(props: { itemKey: string }) {
   if (itemKey.startsWith("run:")) {
     const id = itemKey.slice("run:".length);
     const run = feed.runs?.find((candidate) => candidate.id === id);
-    if (run) return <RunDetail run={run} />;
+    if (run)
+      return (
+        <Page>
+          <AutomationRunDetail run={run} />
+        </Page>
+      );
     if (runs.isError) return <Unavailable onRetry={() => void runs.refetch()} />;
     if (feed.runs !== undefined) return <Gone title="This run is no longer listed" />;
     return ready ? <DetailLoading /> : <Unavailable />;
@@ -132,9 +136,7 @@ function Unavailable(props: { onRetry?: () => void }) {
       icon={TrayIcon}
       title="Couldn't load this item"
       description={
-        props.onRetry
-          ? "The daemon didn't answer."
-          : "Not connected to the daemon. It loads once the connection is back."
+        props.onRetry ? "Your computer didn't answer. Try again." : "Reconnect to load this item."
       }
       action={
         props.onRetry ? (
@@ -295,59 +297,4 @@ function EventDetail(props: { event: FeedEvent }) {
         </DetailFrame>
       );
   }
-}
-
-const triggerWords: Record<AutomationRun["trigger"], string> = {
-  schedule: "On its schedule",
-  github: "A GitHub event",
-  file: "A file change",
-  manual: "Run by hand",
-};
-
-function RunDetail(props: { run: AutomationRun }) {
-  const { run } = props;
-  const navigate = useNavigate();
-  const minutes =
-    run.finishedAt === undefined
-      ? undefined
-      : Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000));
-  const openAutomation = () =>
-    void navigate({
-      to: "/automations/$automationId",
-      params: { automationId: run.automationId },
-    });
-  useHotkey("o", openAutomation, { enabled: run.threadId === undefined });
-  return (
-    <DetailFrame context="Automation run" at={runAt(run)} title={run.title}>
-      <p className="mt-3 text-ui">{automationRunSummary(run)}</p>
-      <dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-ui">
-        <dt className="text-muted-foreground">Started</dt>
-        <dd>
-          {new Date(run.startedAt).toLocaleString("en-US", {
-            dateStyle: "medium",
-            timeStyle: "short",
-          })}
-        </dd>
-        <dt className="text-muted-foreground">Took</dt>
-        <dd>{minutes === undefined ? "Still running" : `${minutes} min`}</dd>
-        <dt className="text-muted-foreground">Trigger</dt>
-        <dd>{triggerWords[run.trigger]}</dd>
-      </dl>
-      <CardActions>
-        {run.threadId ? (
-          <>
-            <Button variant="ghost" onClick={openAutomation}>
-              Open automation
-            </Button>
-            <OpenThread threadId={run.threadId} />
-          </>
-        ) : (
-          <Button variant="primary" onClick={openAutomation}>
-            Open automation
-            <ButtonKey primary>O</ButtonKey>
-          </Button>
-        )}
-      </CardActions>
-    </DetailFrame>
-  );
 }
