@@ -27,13 +27,15 @@ export class CliInstallController {
   private starting = false;
   private early: ProviderInstallProgress | undefined;
   private disposed = false;
+  private planning: AbortController | undefined;
+  private cancelStarting = false;
   private client: ClientApi;
   private remember: (session: string | undefined) => void;
-  private target: { provider: ProviderKind; agent?: InstallAgent };
+  private target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string };
 
   constructor(
     client: ClientApi,
-    target: { provider: ProviderKind; agent?: InstallAgent },
+    target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string },
     recovery: {
       session?: string | undefined;
       remember(session: string | undefined): void;
@@ -72,14 +74,33 @@ export class CliInstallController {
     };
   };
   getView = () => this.view;
+  async install(action: InstallAction): Promise<void> {
+    await this.plan(action);
+    if (this.disposed) return;
+    const view = this.view;
+    if (
+      view.kind === "plan" &&
+      view.plan.status === "ready" &&
+      !view.plan.needsAdmin &&
+      view.plan.method
+    )
+      await this.run(action, view.plan.method);
+  }
   async plan(action: InstallAction): Promise<void> {
+    this.planning?.abort();
+    const controller = new AbortController();
+    this.planning = controller;
     this.set({ kind: "loading" });
     try {
-      const reply = await this.client.request({
-        type: "provider.install.plan",
-        ...this.target,
-        action,
-      });
+      const reply = await this.client.request(
+        {
+          type: "provider.install.plan",
+          ...this.target,
+          action,
+        },
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
       this.set(
         reply.result.ok && "plan" in reply.result
           ? { kind: "plan", plan: reply.result.plan }
@@ -89,11 +110,14 @@ export class CliInstallController {
             },
       );
     } catch {
-      this.fail();
+      if (!controller.signal.aborted) this.fail();
+    } finally {
+      if (this.planning === controller) this.planning = undefined;
     }
   }
   async run(action: InstallAction, method: InstallMethod): Promise<void> {
     this.starting = true;
+    this.cancelStarting = false;
     this.early = undefined;
     this.session = undefined;
     this.set({ kind: "loading" });
@@ -115,6 +139,7 @@ export class CliInstallController {
       this.remember(this.session);
       this.accept(reply.result.progress);
       if (this.early) this.accept(this.early);
+      if (this.cancelStarting) await this.cancel();
     } catch {
       this.fail();
     } finally {
@@ -123,7 +148,12 @@ export class CliInstallController {
     }
   }
   async cancel(): Promise<void> {
-    if (!this.session) return;
+    if (!this.session) {
+      this.planning?.abort();
+      this.cancelStarting = this.starting;
+      this.set({ kind: "idle" });
+      return;
+    }
     try {
       const reply = await this.client.request({
         type: "provider.install.cancel",
@@ -141,6 +171,7 @@ export class CliInstallController {
   }
   dispose(): void {
     this.disposed = true;
+    this.planning?.abort();
     for (const stop of this.stops) stop();
     this.listeners.clear();
   }
@@ -165,7 +196,12 @@ export class CliInstallController {
     }
   }
   private accept(progress: ProviderInstallProgress): void {
-    if (progress.provider !== this.target.provider || progress.agent !== this.target.agent) return;
+    if (
+      progress.provider !== this.target.provider ||
+      progress.agent !== this.target.agent ||
+      progress.acpAgentId !== this.target.acpAgentId
+    )
+      return;
     if (!this.session) {
       if (this.starting && (!this.early || this.early.sequence < progress.sequence))
         this.early = progress;

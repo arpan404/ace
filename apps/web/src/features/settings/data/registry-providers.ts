@@ -26,6 +26,7 @@ function registryProviders(
   const ids = [
     ...new Set(
       registry.installations
+        .filter((entry) => entry.acpAgentId !== "official:antigravity-acp")
         .filter((entry) => !entry.acpAgentId.startsWith("local:"))
         .map((entry) => entry.acpAgentId),
     ),
@@ -44,13 +45,23 @@ function registryProviders(
     );
     if (!fact) return install;
     matched.add(fact.id);
-    return { ...install, registry: { version: fact.installed.version, agent: fact.agent } };
+    return {
+      ...install,
+      name: fact.name,
+      acpAgentId: install.acpAgentId ?? fact.id,
+      instance:
+        install.accounts.find((account) => account.id === fact.installed.instanceId)?.id ??
+        install.accounts[0]?.id ??
+        fact.installed.instanceId,
+      registry: { version: fact.installed.version, agent: fact.agent },
+    };
   });
   const joined = facts
     .filter((fact) => !matched.has(fact.id))
     .map((fact): ProviderInstall => ({
       kind: "acp",
       acpAgentId: fact.id,
+      instance: fact.installed.instanceId,
       name: fact.name,
       binary: fact.name,
       state: "unknown",

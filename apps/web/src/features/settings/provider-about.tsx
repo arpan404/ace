@@ -1,7 +1,3 @@
-import { InstallAgent } from "@ace/protocol";
-import { acpRegistryId } from "@ace/ui-core/provider-icons";
-import { compareVersions } from "@ace/ui-core/acp-registry";
-import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { signInSteps, type ReadinessView } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -41,13 +37,6 @@ export function ProviderAbout(props: {
   const version = row?.version ?? install.version;
   const steps = signInSteps(install.kind);
   const entry = install.registry?.agent;
-  const registryUpdate =
-    entry &&
-    install.registry &&
-    !InstallAgent.safeParse(acpRegistryId(entry.acpAgentId)).success &&
-    compareVersions(entry.version, install.registry.version) > 0
-      ? entry
-      : undefined;
   return (
     <SettingSection label="About">
       <dl className="divide-y">
@@ -57,13 +46,6 @@ export function ProviderAbout(props: {
             {install.kind !== "cursor" && row?.updateAvailable && (
               <span className="ml-2 text-sm text-status-needs-you">Update available</span>
             )}
-          </Fact>
-        )}
-        {registryUpdate && (
-          <Fact term="Update">
-            <AddAcpAgent agentId={registryUpdate.acpAgentId}>
-              Update to {registryUpdate.version}
-            </AddAcpAgent>
           </Fact>
         )}
         {install.registry && <Fact term="Installed from">ACP registry</Fact>}

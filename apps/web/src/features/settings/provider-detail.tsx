@@ -1,3 +1,4 @@
+import { compareVersions } from "@ace/ui-core/acp-registry";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
@@ -8,7 +9,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { ReadinessAction } from "@/features/sign-in/index.ts";
+import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import {
   entryStatus,
   isMissing,
@@ -39,10 +40,6 @@ const DeferredProviderMcpServers = deferredComponent(() =>
 
 const DeferredProviderAccounts = deferredComponent(() =>
   import("./provider-accounts.tsx").then((module) => module.ProviderAccounts),
-);
-
-const DeferredProviderCli = deferredComponent(() =>
-  import("./provider-cli.tsx").then((module) => module.ProviderCli),
 );
 
 const back = (
@@ -105,27 +102,26 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       lede={status}
     >
       <div className="fx-view-in">
-        {view?.primary && row && (
-          <div
-            role={view.tone === "problem" ? "alert" : "status"}
-            className="mt-4 flex flex-wrap items-center gap-2 text-sm"
-          >
-            <span className="min-w-0 flex-1 text-muted-foreground">
-              {view.detail ?? `Sign in to use ${install.name}.`}
-            </span>
-            <ReadinessAction provider={install.kind} name={install.name} view={view} />
-          </div>
-        )}
+        <SettingSection label="Setup">
+          <ProviderSetupRow
+            provider={install.kind}
+            acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
+            instance={install.instance}
+            name={install.name}
+            manage
+            missing={missing}
+            view={view}
+            updateAvailable={
+              row?.updateAvailable ??
+              (!!install.registry?.agent &&
+                compareVersions(install.registry.agent.version, install.registry.version) > 0)
+            }
+          />
+          {view?.detail && !view.ready && !missing && (
+            <p className="py-1 text-sm text-muted-foreground">{view.detail}</p>
+          )}
+        </SettingSection>
         <ProviderPreferences provider={install.kind} missing={missing} />
-        {install.kind !== "cursor" && (
-          <Suspense fallback={null}>
-            <DeferredProviderCli.Component
-              key={props.entry.id}
-              install={install}
-              missing={missing}
-            />
-          </Suspense>
-        )}
         {!missing && (
           <>
             {upstreams && row && (

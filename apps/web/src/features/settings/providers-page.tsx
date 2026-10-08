@@ -1,18 +1,11 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
-import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
+import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { SettingSection } from "@/components/setting-row.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
-import {
-  entryStatus,
-  isMissing,
-  useProviderEntries,
-  type ProviderEntry,
-} from "./provider-entries.ts";
+import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
 
 /**
  * Settings → Providers: every coding agent on this computer as one calm row (its mark, its name,
@@ -66,75 +59,33 @@ export function ProviderSettings() {
   );
 }
 
-/** One provider row: its mark, name, status and navigation. */
-function Row(props: {
-  label: string;
-  tile: ReactNode;
-  title: ReactNode;
-  status: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={props.label}
-      className="group relative flex min-h-9 items-center gap-2 py-1 transition-colors duration-(--dur-1) hover:bg-accent"
-    >
-      {props.tile}
-      <div className="flex min-w-0 flex-1 items-center gap-2 text-ui">
-        {props.title}
-        <span className="text-sm text-muted-foreground">{props.status}</span>
-      </div>
-      {props.action && (
-        <div className="relative z-10 flex shrink-0 items-center">{props.action}</div>
-      )}
-    </div>
-  );
-}
-
-/** A provider: the whole row opens its page; its one action, if any, sits above that link. */
+/** The name opens preferences; the primary action stays on this screen. */
 function ProviderRow(props: { entry: ProviderEntry }) {
-  const { install, view } = props.entry;
-  const name = install.name;
-  const { tone, text, problem } = entryStatus(props.entry);
-  const status = (
-    <Tip label={problem ?? text}>
-      <span>
-        <StatusLine tone={tone} text={text} />
-      </span>
-    </Tip>
-  );
+  const { install, row, view } = props.entry;
   return (
-    <Row
-      label={name}
-      tile={
-        <ProviderTile
-          provider={install.kind}
-          acpAgentId={install.acpAgentId}
-          size="sm"
-          className="bg-transparent shadow-none"
-          muted={view?.state === "not_installed" || view?.state === "off"}
-        />
-      }
-      title={
-        <Link
-          to="/settings/providers/$provider"
-          params={{ provider: props.entry.id }}
-          className="truncate font-medium text-foreground outline-none after:absolute after:inset-0 focus-visible:after:shadow-[inset_0_0_0_2px_var(--ring)]"
-        >
-          {name}
-        </Link>
-      }
-      status={status}
-      action={
-        <>
-          <CaretRightIcon
-            aria-hidden
-            size={14}
-            className="pointer-events-none text-subtle-foreground transition-transform duration-(--dur-1) group-hover:translate-x-0.5 group-hover:text-foreground"
-          />
-        </>
-      }
-    />
+    <div role="group" aria-label={install.name}>
+      <ProviderSetupRow
+        provider={install.kind}
+        acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
+        instance={install.instance}
+        name={install.name}
+        missing={isMissing(props.entry)}
+        view={view}
+        updateAvailable={
+          row?.updateAvailable ??
+          (!!install.registry?.agent &&
+            compareVersions(install.registry.agent.version, install.registry.version) > 0)
+        }
+        title={
+          <Link
+            to="/settings/providers/$provider"
+            params={{ provider: props.entry.id }}
+            className="font-medium hover:underline"
+          >
+            {install.name}
+          </Link>
+        }
+      />
+    </div>
   );
 }

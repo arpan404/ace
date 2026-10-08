@@ -9,7 +9,7 @@ import type { LoginController, LoginView } from "./login-controller.ts";
 import { Done, Problem } from "./login-outcome.tsx";
 import { Actions, refusals, Step, StepTitle, useFocusOnShow, Waiting } from "./login-parts.tsx";
 import { ApiKeyStep } from "./api-key-step.tsx";
-import { ManualSteps } from "./manual-steps.tsx";
+import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
 
 /*
  * The sign-in dialog's body for each step of the daemon's login session
@@ -139,6 +139,14 @@ export function LoginBody(props: {
         </Step>
       );
     case "awaiting_input":
+      if (progress.manual?.terminalId)
+        return (
+          <AgentLoginTerminal
+            id={progress.manual.terminalId}
+            name={name}
+            cancel={() => login.cancel()}
+          />
+        );
       return (
         <Step key={key}>
           {progress.choices?.length ? (
