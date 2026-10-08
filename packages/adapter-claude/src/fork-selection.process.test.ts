@@ -106,7 +106,7 @@ test("Claude preserves selected fork permissions, project MCP and scoped ace ins
     },
     {
       fork: { nativeSessionId: "source-native", point: { type: "end", nativeId: "source-end" } },
-      permissionMode: "auto-review",
+      permissionMode: "auto",
       options: { effort: "high" },
       aceMcp: { url: "http://127.0.0.1:9012/mcp", bearer },
     },
@@ -114,7 +114,7 @@ test("Claude preserves selected fork permissions, project MCP and scoped ace ins
   try {
     const control = await h.wait(subtype("fake_control"));
     const data = object(control.data);
-    expect(data["settings"]).toMatchObject({ permissionMode: "default" });
+    expect(data["settings"]).toMatchObject({ permissionMode: "auto" });
     const argv = z.array(z.string()).parse(data["argv"]);
     expect(argv).toEqual(expect.arrayContaining(["--resume=source-native", "--fork-session"]));
     expect(data["mcpServers"]).toMatchObject({

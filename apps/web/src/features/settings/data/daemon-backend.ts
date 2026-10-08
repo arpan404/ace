@@ -54,7 +54,9 @@ export function daemonSettingsBackend(
       added: true,
       accounts: [],
     }));
-    return [...statuses.map(providerInstall), ...added];
+    // Registry installs load with the list, apart from every other settings page.
+    const { withRegistryInstalls } = await import("./registry-providers.ts");
+    return withRegistryInstalls(client, [...statuses.map(providerInstall), ...added]);
   };
   return {
     values,

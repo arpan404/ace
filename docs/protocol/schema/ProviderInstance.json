@@ -29,6 +29,14 @@
       "minLength": 1,
       "type": "string"
     },
+    "authMethod": {
+      "enum": [
+        "browser",
+        "api_key",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "env": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
@@ -85,6 +93,10 @@
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+    },
+    "signedInAs": {
+      "maxLength": 256,
+      "type": "string"
     }
   },
   "required": [

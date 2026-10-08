@@ -2,11 +2,12 @@ import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { PermissionCapabilities } from "./permissions.ts";
 
-/** Preview the selected provider's guarantees without opening a provider session. */
+/** Preview the selected provider's native selectors without opening a provider session. */
 export const PermissionCapabilitiesRequest = z.object({
   type: z.literal("permissions.capabilities"),
   requestId: z.string().min(1).max(128),
   provider: ProviderKind,
+  instanceId: z.string().min(1).max(256).optional(),
   backend: z.enum(["cli", "acp", "cursor-sdk"]).optional(),
 });
 export const PermissionCapabilitiesResult = z.object({

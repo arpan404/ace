@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/UsageBurn.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "complete": {
+      "default": true,
+      "type": "boolean"
+    },
     "exhaustionAt": {
       "anyOf": [
         {

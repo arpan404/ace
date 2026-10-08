@@ -1,5 +1,5 @@
 import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
-import { approvalByKey, approvalCopy, displayCommand, oneShotNote } from "@ace/ui-core";
+import { approvalByKey, approvalCopy, displayCommand } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
@@ -249,9 +249,6 @@ function ProviderApprovalBody(props: { interaction: Interaction; cardKey: string
         <p role="status" className="mt-2 text-xs text-subtle-foreground">
           This request defaults to no: click Approve to allow it.
         </p>
-      )}
-      {choices.hidden > 0 && mode && (
-        <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
       )}
       <CardError message={failure} />
     </>

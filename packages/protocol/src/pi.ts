@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
-/** Source-inspected Pi profile, separate from generic capabilities. */
+/** Deprecated ace selectors, retained to decode historical Pi profiles. Pi has no native mode enum. */
 export const PiPermissionMode = z.enum([
   "unrestricted",
   "read_only",

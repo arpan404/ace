@@ -32,7 +32,7 @@ export interface AuthenticatedChannel {
 /** One authenticated channel per feature. No input queue, replay or token in a URL. */
 export function authenticatedChannel(
   options: AuthenticatedChannelOptions,
-  kind: "devices" | "files" | "screen",
+  kind: "devices" | "files" | "screen" | "provider_auth",
 ): AuthenticatedChannel {
   let socket: PortableSocket | undefined;
   let relay: PortableRelay | undefined;
@@ -225,8 +225,12 @@ export function authenticatedChannel(
       })().catch(fail);
     },
     async send(message) {
-      if (!ready) throw new Error("Device channel is not authenticated");
-      await sendWire(message);
+      try {
+        if (!ready) throw new Error("Device channel is not authenticated");
+        await sendWire(message);
+      } finally {
+        if (message.type === "provider.login.apiKey") message.apiKey = "";
+      }
     },
     close,
   };

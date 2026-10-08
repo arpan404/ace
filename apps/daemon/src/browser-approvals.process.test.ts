@@ -1,7 +1,8 @@
+import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { originFixture } from "./browser-origin-test-support.ts";
 
-it.each(["ask", "auto-review"] as const)(
+it.each([":workspace", codexReviewerMode("auto_review")])(
   "%s separates evaluate once, site read-only grants, revocation and downloads",
   async (mode) => {
     const f = await originFixture(mode),
@@ -16,8 +17,7 @@ it.each(["ask", "auto-review"] as const)(
       target: { tool: "browser.evaluate" },
       options: [{ id: "allow_once" }, { id: "deny" }],
     });
-    if (mode === "auto-review")
-      expect(f.store.getInteraction(interaction.id)?.review?.decision).toBe("escalate");
+    expect(f.store.getInteraction(interaction.id)?.review).toBeUndefined();
     expect(f.resolve(interaction, "allow_once").ok).toBe(true);
     expect(await once).toBe(true);
     expect(f.browser.evaluateGrantsList(id)).toEqual([]);
@@ -88,22 +88,37 @@ it("evaluate site grants survive restart without granting unrestricted JavaScrip
   expect(restarted.resolve(interaction, "deny").ok).toBe(true);
   expect(await evaluate).toBe(false);
 });
-it("full access evaluates and downloads directly but outside uploads still need a human", async () => {
-  const f = await originFixture("full-access"),
+it("native full access still needs human consent for evaluation, downloads and outside uploads", async () => {
+  const f = await originFixture(":danger-full-access"),
     approvals = f.context.services.browserApprovals;
   if (!approvals) throw new Error("approvals");
-  expect(await approvals.evaluate(f.thread.id, "https://site.example")).toBe(true);
-  expect(await approvals.evaluate(f.thread.id, "about:blank")).toBe(true);
-  expect(await approvals.downloads(f.thread.id, "https://site.example/file")).toBe(true);
-  const opened = f.opened(),
-    upload = approvals.upload(f.thread.id, ["/outside/file"]);
-  const interaction = await opened;
+  f.browser.originsGrant(f.thread.id, "https://site.example");
+  let opened = f.opened();
+  const evaluate = approvals.evaluate(
+    f.thread.id,
+    "https://site.example",
+    undefined,
+    "unrestricted",
+  );
+  let interaction = await opened;
+  expect(f.resolve(interaction, "allow_once").ok).toBe(true);
+  expect(await evaluate).toBe(true);
+  expect(await approvals.evaluate(f.thread.id, "about:blank")).toBe(false);
+  opened = f.opened();
+  const download = approvals.downloads(f.thread.id, "https://site.example/file");
+  interaction = await opened;
+  expect(f.resolve(interaction, "deny").ok).toBe(true);
+  expect(await download).toBe(false);
+  opened = f.opened();
+  const upload = approvals.upload(f.thread.id, ["/outside/file"]);
+  interaction = await opened;
   expect(interaction.request).toMatchObject({
     target: { tool: "browser.upload", input: { paths: ["/outside/file"] } },
   });
   expect(f.resolve(interaction, "deny").ok).toBe(true);
   expect(await upload).toBe(false);
 });
+
 it("shutdown expires pending permissions and refuses late decisions", async () => {
   const f = await originFixture(),
     approvals = f.context.services.browserApprovals;

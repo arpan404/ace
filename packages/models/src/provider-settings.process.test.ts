@@ -404,7 +404,7 @@ test("paged cached models retain row order and update visibility across preferen
   expect(refreshed.nextOffset).toBeUndefined();
 });
 
-test("OpenCode's empty connection status never expands into the global catalog", async () => {
+test("OpenCode without connections discovers only verified free Zen models", async () => {
   const home = await workspace();
   cleanup.push(home.close);
   const script = await fakeCli(home.path);
@@ -415,11 +415,23 @@ test("OpenCode's empty connection status never expands into the global catalog",
     env: { FAKE_PROVIDER: "opencode", FAKE_CONNECTIONS: "[]" },
   };
   const discover = createModelDiscovery({
-    opencode: async () => {
-      throw new Error("Catalog should not run without connections");
-    },
+    opencode: async () => ({
+      location: { directory: home.path },
+      data: [
+        { ...native("opencode"), cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] },
+        {
+          ...native("opencode"),
+          id: "opencode/paid",
+          modelID: "paid",
+          cost: [{ input: 1, output: 2, cache: { read: 0, write: 0 } }],
+        },
+        { ...native("openai"), cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] },
+      ],
+    }),
   });
-  expect(await discover(config, new AbortController().signal)).toEqual([]);
+  const models = await discover(config, new AbortController().signal);
+  expect(models.map((model) => model.id)).toEqual(["opencode/model"]);
+  expect(models[0]?.source).toMatchObject({ requiresAuth: false });
 });
 
 test("a binary change fences an older refresh and retains only metadata from the new executable", async () => {

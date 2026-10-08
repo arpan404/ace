@@ -8,6 +8,7 @@ export interface ExecutionInput {
   title?: string | undefined;
   provider: Automation["provider"];
   model?: string | undefined;
+  permissionMode?: string | undefined;
   workspace: string;
   prompt: string;
   worktree: boolean;

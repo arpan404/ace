@@ -1,5 +1,5 @@
 import { findExecutable } from "./executable.ts";
-export { findExecutable, isPackageRunner } from "./executable.ts";
+export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
 import { z } from "zod";
 import { probeOutput } from "../process.ts";
 import {

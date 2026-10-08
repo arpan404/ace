@@ -101,7 +101,6 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
         adapter,
         {
           threadId: thread.id,
-          permissionMode: provider === "pi" ? "full-access" : "auto-review",
           cwd: directory,
           env: {
             PATH: directory,

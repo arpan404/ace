@@ -391,14 +391,14 @@ test("a different question on the same message never inherits the earlier answer
   ).toContain("is asking");
 }, 15_000);
 
-test("outside full access, approvals don't offer choices the daemon would refuse", async () => {
+test("provider approval options include the session grant and send the chosen option", async () => {
   const scenario: Scenario = {
     thread: {
       id: "thread-one-shot",
       workspaceId: "relay",
       title: "One shot",
       provider: "claude",
-      permissionMode: "auto-review",
+      permissionMode: "auto",
     },
     steps: [
       {
@@ -458,8 +458,12 @@ test("outside full access, approvals don't offer choices the daemon would refuse
   const feed = await open(scenario);
   const card = await screen.findByRole("article", { name: "Run git push origin main" });
   expect(within(card).getByText("git push origin main")).toBeTruthy();
-  expect(within(card).queryByRole("button", { name: /Always allow/ })).toBeNull();
-  expect(within(card).getByText(/Always-allow isn't available in Auto-review/)).toBeTruthy();
+  const always = within(card).getByRole("button", { name: /Always allow/ });
+  expect(always).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(feed.textContent).not.toContain("/bin/zsh");
+  await userEvent.click(always);
+  await waitFor(() =>
+    expect(within(feed).getByText("Approved by you for this thread")).toBeTruthy(),
+  );
 });

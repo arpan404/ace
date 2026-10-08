@@ -32,7 +32,7 @@ test("the list says each provider's state in one line and asks only where someth
   const installed = await section();
   expect(within(await rowOf("Claude Code")).getByText("Signed in as ada@example.com")).toBeTruthy();
   expect(within(await rowOf("Codex")).getByText("Sign in needed")).toBeTruthy();
-  expect(await within(await rowOf("OpenCode")).findByText("4 services connected")).toBeTruthy();
+  expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
   expect(
     await within(await rowOf("Cursor")).findByText("Needs attention · Cursor sign-in has expired."),
   ).toBeTruthy();
@@ -202,13 +202,21 @@ test("an ACP agent added by command joins the list, and its page removes it", as
   await harness().open("/settings/providers");
   const agents = await section("ACP agents");
   await userEvent.click(within(agents).getByRole("button", { name: "Add" }));
-  const form = await screen.findByRole("form", { name: "Add an ACP agent" });
+  const dialog = await screen.findByRole(
+    "dialog",
+    { name: "Add an ACP agent" },
+    { timeout: 10_000 },
+  );
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Add by command" }));
+  const form = await screen.findByRole("form", { name: "Add an ACP agent by command" });
   await userEvent.click(within(form).getByRole("button", { name: "Add agent" }));
   expect(await within(form).findByText("Give the agent a name.")).toBeTruthy();
   await userEvent.type(within(form).getByRole("textbox", { name: "Name" }), "Qwen Code");
   await userEvent.type(within(form).getByRole("textbox", { name: "Command" }), "qwen --acp");
   await userEvent.click(within(form).getByRole("button", { name: "Add agent" }));
-  await waitFor(() => expect(screen.queryByRole("form", { name: "Add an ACP agent" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("form", { name: "Add an ACP agent by command" })).toBeNull(),
+  );
 
   await userEvent.click(await within(agents).findByRole("link", { name: "Qwen Code" }));
   await userEvent.click(await screen.findByRole("button", { name: "Remove Qwen Code" }));

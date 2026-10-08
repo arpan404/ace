@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
-test("delegates cannot widen their parent's permission mode", async () => {
+test("delegates use their own provider's default and may select another advertised mode", async () => {
   const h = setup();
   await h.catalog.refresh();
   const workspace = h.store.createWorkspace(h.home, "workspace");
@@ -12,7 +12,7 @@ test("delegates cannot widen their parent's permission mode", async () => {
     title: "Parent",
     workspaceId: workspace,
     provider: "codex",
-    permissionMode: "ask",
+    permissionMode: ":workspace",
   });
   if (!created.ok || !created.threadId) throw new Error("Missing parent");
   expect(
@@ -26,14 +26,16 @@ test("delegates cannot widen their parent's permission mode", async () => {
   const parent = h.caller(created.threadId);
   const child = h.delegate(parent, "owned-child");
   await h.engine.flush();
-  expect(h.contexts.get(child.childId)?.permissionMode).toBe("ask");
-  expect(h.store.getThread(child.childId)?.permission?.effective).toBe("ask");
+  expect(h.contexts.get(child.childId)?.permissionMode).toBeUndefined();
+  expect(h.store.getThread(child.childId)?.permission?.effective).toBeNull();
   expect(
     h.service.command("widen-child", {
       type: "thread.permission.set",
       threadId: child.childId,
-      permissionMode: "full-access",
+      permissionMode: "bypassPermissions",
     }),
-  ).toMatchObject({ ok: false, error: "permission_exceeds_parent" });
+  ).toMatchObject({ ok: true });
+  expect(h.store.getThread(created.threadId)?.permission?.effective).toBe(":workspace");
+  expect(h.store.getThread(child.childId)?.permission?.override).toBe("bypassPermissions");
   expect(h.errors).toEqual([]);
 });

@@ -1,3 +1,4 @@
+import { NativePermissionSelect } from "@/components/native-permission-select.tsx";
 import { ProviderKind } from "@ace/protocol";
 import { useStore } from "@tanstack/react-form";
 import { useBlocker } from "@tanstack/react-router";
@@ -179,6 +180,7 @@ export function AutomationEditor(props: {
                   value={field.state.value}
                   onChange={(provider, keepsModel) => {
                     field.handleChange(provider);
+                    form.setFieldValue("permissionMode", undefined);
                     if (!keepsModel) form.setFieldValue("model", "");
                   }}
                   currentModel={() => form.getFieldValue("model")}
@@ -202,6 +204,21 @@ export function AutomationEditor(props: {
             )}
           </form.Subscribe>
         </div>
+        <form.Subscribe selector={(state) => state.values.provider}>
+          {(provider) => (
+            <form.Field name="permissionMode">
+              {(field) => (
+                <Row label="Permissions">
+                  <NativePermissionSelect
+                    provider={provider}
+                    value={field.state.value}
+                    onChange={field.handleChange}
+                  />
+                </Row>
+              )}
+            </form.Field>
+          )}
+        </form.Subscribe>
         <form.Field name="trigger">
           {(field) => (
             <Row label="When it runs" className="items-start">

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageLimitsChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+    },
+    "type": {
+      "const": "usage.limits_changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "account"
+  ],
+  "type": "object"
+}

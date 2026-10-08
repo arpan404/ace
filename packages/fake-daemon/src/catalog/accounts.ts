@@ -41,9 +41,9 @@ export function accountList(now: number): FakeAccount[] {
       providerLabel: "Claude Code",
       cliVersion: "2.1.4",
       label: "Work",
-      availability: "available",
+      availability: "near_limit",
       windows: [
-        { id: "five-hour", label: "5-hour", usedPercent: 23, resetsAt: now + 3 * hour },
+        { id: "five-hour", label: "5-hour", usedPercent: 86, resetsAt: now + 3 * hour },
         { id: "weekly", label: "Weekly", usedPercent: 57, resetsAt: now + 2 * day },
       ],
     },

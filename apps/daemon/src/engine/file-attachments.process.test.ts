@@ -178,11 +178,24 @@ test("a held send keeps text, PDF and binary attachments across engine and stora
       }),
     );
     await engine.flush();
-    expect(
-      Object.values(h.store.snapshotThread(id).interactions).find(
-        (entry) => entry.request.kind === "approval" && entry.request.title === "Read attachment",
-      ),
-    ).toMatchObject({ state: "resolved", review: { decision: "approve" } });
+    const readApproval = Object.values(h.store.snapshotThread(id).interactions).find(
+      (entry) => entry.request.kind === "approval" && entry.request.title === "Read attachment",
+    );
+    if (!readApproval) throw new Error("Missing native read approval");
+    expect(readApproval.state).toBe("pending");
+    expect(readApproval.review).toBeUndefined();
+    const answer = Command.parse({
+      id: "allow-attached-read",
+      deviceId: "device",
+      payload: {
+        type: "interaction.resolve",
+        interactionId: readApproval.id,
+        resolution: { kind: "approval", optionId: "once" },
+      },
+    });
+    expect(engine.handler.handle(answer, h.store).ok).toBe(true);
+    await engine.flush();
+    expect(h.store.getInteraction(readApproval.id)?.state).toBe("resolved");
     await execution.onFrame(
       frames.frame({
         type: "interaction.opened",
@@ -205,7 +218,7 @@ test("a held send keeps text, PDF and binary attachments across engine and stora
       Object.values(h.store.snapshotThread(id).interactions).find(
         (entry) => entry.request.kind === "approval" && entry.request.title === "Write attachment",
       ),
-    ).toMatchObject({ state: "pending", review: { decision: "escalate" } });
+    ).toMatchObject({ state: "pending" });
   } finally {
     await engine.close();
     await h.close();

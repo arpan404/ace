@@ -58,6 +58,7 @@ export function sessionUsage(state: NativeState, session: string, data: Data): F
       counterMode: "cumulative",
       counterKey: `session:${session}`,
       ...(model ? { model } : {}),
+      ...(model?.startsWith("openrouter/") ? { billingMode: "api" } : {}),
       ...(cost.success ? { costUsd: cost.data } : {}),
     },
   ];

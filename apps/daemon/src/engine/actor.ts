@@ -16,6 +16,12 @@ const frameSchema = z.object({
   channel: z.string(),
   data: z.unknown(),
   payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
+  usageAccount: z
+    .object({
+      id: z.string().min(1).max(512),
+      billingMode: z.enum(["api", "subscription", "unknown"]),
+    })
+    .optional(),
 });
 const sdkBody = z.object({ kind: z.string(), body: z.unknown() });
 export interface EngineClock {
@@ -373,8 +379,22 @@ export class ThreadActor {
       // The outer mailbox transaction commits provenance, offsets and facts together.
       this.repo.recovery.commit(this.id, decoded);
     }
+    const accountId = decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId;
     return facts.map((fact) =>
-      attachmentEcho(fact, (hash) => this.repo.attachments.get(this.id, hash)),
+      attachmentEcho(
+        fact.type === "usage" && accountId
+          ? {
+              ...fact,
+              accountId,
+              ...(fact.billingMode
+                ? {}
+                : decoded.usageAccount
+                  ? { billingMode: decoded.usageAccount.billingMode }
+                  : {}),
+            }
+          : fact,
+        (hash) => this.repo.attachments.get(this.id, hash),
+      ),
     );
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {

@@ -28,6 +28,19 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "permissionMode": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
     "startedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

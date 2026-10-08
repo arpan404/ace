@@ -3,7 +3,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "effective": {
-      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "override": {
       "anyOf": [

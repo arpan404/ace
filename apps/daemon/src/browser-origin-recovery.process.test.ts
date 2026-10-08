@@ -11,23 +11,22 @@ afterEach(async () => {
   for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true });
 });
 
-it("a permission tightened during an approval wait refuses the approved agent navigation", async () => {
+it("a native permission change during a browser approval wait preserves independent human consent", async () => {
   const f = await originFixture();
   const opened = f.opened();
-  const failure = expect(f.navigation()).rejects.toMatchObject({
-    blocked: { reason: "read_only", origin: "https://youtube.com" },
-  });
+  const navigation = f.navigation();
   const interaction = await opened;
   f.store.appendEvents(f.thread.id, [
     {
       type: "thread.updated",
-      permission: { override: "read-only", effective: "read-only", pending: false },
+      permission: { override: ":read-only", effective: ":read-only", pending: false },
     },
   ]);
   expect(f.resolve(interaction, "allow_once").ok).toBe(true);
-  await failure;
-  expect(f.browser.state(f.thread.id).url).toBe("about:blank");
-  expect(f.browser.originsList(f.thread.id)).toEqual([]);
+  expect(await navigation).toMatchObject({ url: expect.stringContaining("youtube.com") });
+  expect(f.browser.originsList(f.thread.id)).toMatchObject([
+    { origin: "https://youtube.com", scope: "page" },
+  ]);
 });
 
 it("restart expires an unresolved persisted approval and never replays its navigation or grants a late answer", async () => {

@@ -11,6 +11,7 @@ import {
   type ModelResolution,
   type ModelSource,
   type ModelRoleSpec,
+  type NativePermissionMode,
 } from "@ace/protocol";
 
 export const ModelInstance = z
@@ -62,6 +63,7 @@ export type DiscoverModels = (
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
 ) => Promise<readonly CatalogModel[] & { sources?: readonly ModelSourceStatus[] }>;
 export type CacheEntry = {
+  permissionModes?: readonly NativePermissionMode[] | undefined;
   provider: ModelInstance["provider"];
   instance: string;
   revision: string;
@@ -80,6 +82,7 @@ export interface CatalogStorage {
   close(): void | Promise<void>;
 }
 export interface ModelCatalogApi {
+  updatePermissionModes?(instance: string, modes: readonly NativePermissionMode[]): void;
   listen?(listener: (filter: ModelFilter) => void): () => void;
   list(options?: ModelListOptions): ModelListResult;
   resolve(spec: ModelRoleSpec): ModelResolution;

@@ -25,7 +25,7 @@ export function PermissionGuide(props: {
       className={
         props.compact
           ? "flex shrink-0 flex-col gap-2 rounded-lg border bg-secondary/40 px-3 py-2.5"
-          : "grid min-h-[160px] flex-1 place-items-center rounded-xl bg-secondary/40 px-4"
+          : "grid min-h-40 flex-1 place-items-center rounded-xl bg-secondary/40 px-4"
       }
     >
       <div className="flex max-w-sm flex-col gap-2.5">

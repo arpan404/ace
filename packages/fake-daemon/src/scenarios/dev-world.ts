@@ -9,7 +9,6 @@ import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
-import { permissionAudit } from "./permission-audit.ts";
 import { replayCursor } from "./replay-cursor.ts";
 
 /** One thread of the development world and how it is played. */
@@ -42,8 +41,6 @@ export function devWorld(): WorldThread[] {
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
-    // ace's risk policy approving, denying and escalating a release's commands.
-    { scenario: permissionAudit(), agoMs: 6 * minute },
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).

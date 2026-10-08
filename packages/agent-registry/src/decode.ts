@@ -83,11 +83,31 @@ export function platformTarget(platform: string, arch: string): string | undefin
   const cpu = arch === "arm64" ? "aarch64" : arch === "x64" ? "x86_64" : undefined;
   return cpu ? `${os}-${cpu}` : undefined;
 }
+/** Archives ace can unpack: raw files, ZIP and gzip tar; never bzip2 or platform installers. */
+export function supportedArchive(archive: string): boolean {
+  return !/\.(dmg|pkg|deb|rpm|msi|appimage|tbz2|bz2)$/i.test(new URL(archive).pathname);
+}
 export function availability(
   agent: AgentEntry,
   target: string,
 ): "available" | "unsupported_distribution" | "unsupported_target" {
-  if (agent.distribution.npx || agent.distribution.uvx || agent.distribution.binary?.[target])
-    return "available";
-  return agent.distribution.binary ? "unsupported_target" : "unsupported_distribution";
+  if (runtimes(agent, target).length > 0) return "available";
+  return agent.distribution.binary && !agent.distribution.binary[target]
+    ? "unsupported_target"
+    : "unsupported_distribution";
+}
+/** The install runtimes an entry offers on `target`, best first: verified binaries, then npm, then uv. */
+export function runtimes(agent: AgentEntry, target: string): ("binary" | "npm" | "uv")[] {
+  const binary = agent.distribution.binary?.[target];
+  return [
+    ...(binary && supportedArchive(binary.archive) ? (["binary"] as const) : []),
+    ...(agent.distribution.npx ? (["npm"] as const) : []),
+    ...(agent.distribution.uvx ? (["uv"] as const) : []),
+  ];
+}
+/** An upstream link a client may open or load: HTTPS without credentials, else undefined. */
+export function publicUrl(value: string | undefined): string | undefined {
+  if (!value || !URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  return url.protocol === "https:" && !url.username && !url.password ? url.href : undefined;
 }

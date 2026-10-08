@@ -36,7 +36,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork|pty|account-management)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -52,6 +52,11 @@ export async function bundleDaemon(
                 if (source && worker && output && args.path.endsWith(source))
                   contents = contents.replace(JSON.stringify(worker), JSON.stringify(output));
               }
+              if (args.path.endsWith("/adapter-opencode/src/mcp-ready.ts"))
+                contents = contents.replace(
+                  '"./mcp-ready-plugin"',
+                  '"./opencode-mcp-ready-plugin"',
+                );
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -144,6 +149,10 @@ export async function bundleDaemon(
   if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
     stageTerminalGuardian(repo, root, target);
   const helpers = [
+    [
+      "packages/adapter-opencode/src/mcp-ready-plugin/server.ts",
+      "opencode-mcp-ready-plugin/server.mjs",
+    ],
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],

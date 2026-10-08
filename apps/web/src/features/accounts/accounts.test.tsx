@@ -100,7 +100,7 @@ test("Refresh picks up quota the providers reported since the page opened", asyn
   const work = await card("Claude Code Work");
   expect(
     within(work).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
-  ).toBe("23");
+  ).toBe("86");
 
   const reported = app.daemon.services.accounts.find((account) => account.id === "claude-work");
   if (!reported) throw new Error("missing the Work account");
@@ -133,7 +133,7 @@ test("usage shows a bar per day of the chosen range and totals by model", async 
     .slice(1)
     .map((row) => within(row).getAllByRole("cell")[0]?.textContent);
   expect(models[0]).toBe("claude-opus-4-6");
-  expect(models).toHaveLength(4);
+  expect(models).toHaveLength(6);
 });
 
 test("Add account explains how to sign in a second account without giving ace credentials", async () => {

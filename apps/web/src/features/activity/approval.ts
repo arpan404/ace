@@ -34,7 +34,7 @@ export function approvalChoices(options: readonly ApprovalOption[]): ApprovalCho
  */
 export function offeredChoices(
   options: readonly ApprovalOption[],
-  mode: PermissionMode | undefined,
+  mode: PermissionMode | null | undefined,
 ): ApprovalChoices & { hidden: number } {
   const offered = offeredOptions(options, mode);
   return { ...approvalChoices(offered.options), hidden: offered.hidden };

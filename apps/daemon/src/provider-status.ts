@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { providerReadiness, onboardingChecklist } from "@ace/core";
 import { providerStatusRow } from "./provider-status-row.ts";
 import { type ProviderStatus as Status } from "@ace/protocol";
@@ -17,7 +18,16 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     binaryPath?: string | undefined;
   };
   attention?(row: Status): boolean;
+  account?(
+    row: Status,
+  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail">>;
+  authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
+  versions?(
+    row: Status,
+    signal: AbortSignal,
+  ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
   checked?(rows: readonly Status[]): void;
+  modelsAvailable?(provider: Status["provider"]): boolean;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
 export interface ProviderStatusRuntime {
@@ -57,15 +67,22 @@ export class ProviderStatuses {
   }
   list(): Status[] {
     const now = this.runtime.now();
-    return this.rows.map((row) =>
-      providerReadiness({
-        ...row,
+    return this.rows.map((row) => {
+      const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
+      const { state, actionId, ...observation } = row;
+      return providerReadiness({
+        ...observation,
+        ...(available ? { modelsAvailable: true } : { state, actionId }),
+        instanceId:
+          row.runtime === "cursor-sdk" ? "cursor-sdk-default" : `${row.provider}-cli-default`,
+        permissionModes: nativePermissionModes(row.provider),
+        ...this.options.account?.(row),
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: this.options.configuration?.(row.provider).enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
         refreshing: Boolean(this.flight),
-      }),
-    );
+      });
+    });
   }
   readiness(): Status[] {
     return onboardingChecklist(this.list()).providers;
@@ -113,7 +130,16 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        return providerStatusRow(row, status, this.runtime.now());
+        const result = providerStatusRow(row, status, this.runtime.now());
+        const versions =
+          result.installed && this.options.versions
+            ? await this.options.versions(result, this.controller.signal)
+            : {};
+        return {
+          ...result,
+          ...versions,
+          ...(await this.options.authInfo?.(result, this.controller.signal)),
+        };
       } catch {
         return {
           provider: row.provider,
@@ -143,6 +169,10 @@ export class ProviderStatuses {
           }, 300_000);
       });
     return this.flight;
+  }
+  async refreshAfterMutation(): Promise<void> {
+    await this.flight;
+    await this.refresh();
   }
   async close(): Promise<void> {
     this.controller.abort();

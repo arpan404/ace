@@ -233,6 +233,47 @@
               "maxItems": 2,
               "type": "array"
             },
+            "permissionModes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "type": "boolean"
+                  },
+                  "description": {
+                    "maxLength": 2048,
+                    "type": "string"
+                  },
+                  "id": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "risk": {
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "description",
+                  "risk"
+                ],
+                "type": "object"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
             "permissions": {
               "additionalProperties": false,
               "properties": {
@@ -283,12 +324,8 @@
                         "type": "array"
                       },
                       "mode": {
-                        "enum": [
-                          "read-only",
-                          "ask",
-                          "auto-review",
-                          "full-access"
-                        ],
+                        "maxLength": 4096,
+                        "minLength": 1,
                         "type": "string"
                       }
                     },
@@ -305,19 +342,56 @@
                 },
                 "modes": {
                   "items": {
-                    "enum": [
-                      "read-only",
-                      "ask",
-                      "auto-review",
-                      "full-access"
-                    ],
+                    "maxLength": 4096,
+                    "minLength": 1,
                     "type": "string"
                   },
-                  "maxItems": 4,
+                  "maxItems": 256,
                   "type": "array"
                 },
                 "nativeAutoReview": {
                   "type": "boolean"
+                },
+                "permissionModes": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "default": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "maxLength": 2048,
+                        "type": "string"
+                      },
+                      "id": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "risk": {
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "description",
+                      "risk"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 256,
+                  "type": "array"
                 },
                 "toolGate": {
                   "type": "boolean"
@@ -794,6 +868,47 @@
               "maxItems": 2,
               "type": "array"
             },
+            "permissionModes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "type": "boolean"
+                  },
+                  "description": {
+                    "maxLength": 2048,
+                    "type": "string"
+                  },
+                  "id": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "label": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "risk": {
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "description",
+                  "risk"
+                ],
+                "type": "object"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
             "permissions": {
               "additionalProperties": false,
               "properties": {
@@ -844,12 +959,8 @@
                         "type": "array"
                       },
                       "mode": {
-                        "enum": [
-                          "read-only",
-                          "ask",
-                          "auto-review",
-                          "full-access"
-                        ],
+                        "maxLength": 4096,
+                        "minLength": 1,
                         "type": "string"
                       }
                     },
@@ -866,19 +977,56 @@
                 },
                 "modes": {
                   "items": {
-                    "enum": [
-                      "read-only",
-                      "ask",
-                      "auto-review",
-                      "full-access"
-                    ],
+                    "maxLength": 4096,
+                    "minLength": 1,
                     "type": "string"
                   },
-                  "maxItems": 4,
+                  "maxItems": 256,
                   "type": "array"
                 },
                 "nativeAutoReview": {
                   "type": "boolean"
+                },
+                "permissionModes": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "default": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "maxLength": 2048,
+                        "type": "string"
+                      },
+                      "id": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "risk": {
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "description",
+                      "risk"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 256,
+                  "type": "array"
                 },
                 "toolGate": {
                   "type": "boolean"
@@ -1333,23 +1481,22 @@
           "additionalProperties": false,
           "properties": {
             "effective": {
-              "enum": [
-                "read-only",
-                "ask",
-                "auto-review",
-                "full-access"
-              ],
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "override": {
               "anyOf": [
                 {
-                  "enum": [
-                    "read-only",
-                    "ask",
-                    "auto-review",
-                    "full-access"
-                  ],
+                  "maxLength": 4096,
+                  "minLength": 1,
                   "type": "string"
                 },
                 {

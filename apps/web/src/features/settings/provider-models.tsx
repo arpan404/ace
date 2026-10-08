@@ -103,6 +103,7 @@ function ModelGroup(props: {
   const item = (model: PickerModel) => (
     <li key={model.key} className="flex items-baseline gap-2 text-ui">
       <span>{model.label}</span>
+      {model.free && <span className="text-xs text-subtle-foreground">Free</span>}
       {model.detail && (
         <span className="truncate text-xs text-subtle-foreground">{model.detail}</span>
       )}

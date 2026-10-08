@@ -85,3 +85,40 @@ test("custom registry entries remain source-qualified and cannot acquire officia
     await catalog.close();
   }
 });
+test("listed entries name the runtimes this platform can install and only HTTPS links", async () => {
+  const both = {
+    ...sample(),
+    id: "both",
+    icon: "https://cdn.example.org/both.svg",
+    website: "http://insecure.example.org",
+    repository: "https://github.com/example/both",
+    license: "MIT",
+    distribution: { ...sample().distribution, npx: { package: "both@1.0.0", args: [], env: {} } },
+  };
+  const elsewhere = {
+    ...sample(),
+    id: "elsewhere",
+    icon: "javascript:alert(1)",
+    distribution: { binary: { "windows-x86_64": sample().distribution.binary?.["linux-x86_64"] } },
+  };
+  const catalog = await AgentCatalog.open({
+    cache: { load: async () => undefined, save: async () => {} },
+    now: () => 1,
+    target: "linux-x86_64",
+    fetch: async () => new Response(body([both, elsewhere])),
+  });
+  try {
+    await catalog.refresh();
+    const [first, second] = catalog.list().agents;
+    expect(first).toMatchObject({
+      runtimes: ["binary", "npm"],
+      icon: "https://cdn.example.org/both.svg",
+      homepage: "https://github.com/example/both",
+      license: "MIT",
+    });
+    expect(second).toMatchObject({ runtimes: [], availability: "unsupported_target" });
+    expect(second?.icon).toBeUndefined();
+  } finally {
+    await catalog.close();
+  }
+});

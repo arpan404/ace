@@ -196,3 +196,19 @@ Cursor's hint is "Sign in to Cursor". Explicit refresh, changed login identity,
 installation/configuration change and maximum cache age cause rechecks. Provider
 status also exposes `state: not_configured` and the sign-in action for an
 installed, logged-out provider. Other discovery failures retain their backoff.
+
+## Amendment: SDK-owned API-key storage
+
+Accepted 2026-10-07 under ADR 0002's API-key hand-off policy. A separate isolated
+worker receives a pasted key over stdin and calls the public
+`FileCredentialStore.save` API in SDK 1.0.35. Its published
+`auth/credential-store.d.ts` declares the credential record and owner-only file
+permissions. The SDK writes its default `<instance.homeDir>/user/.cursor/sdk/auth.json`.
+ace does not implement a serializer or read that credential file.
+
+Before changing credentials, fence the instance and drain its SDK hosts. Discard
+all credential-worker diagnostics and publish only fixed failure categories.
+After exit, probe SDK status through the existing account driver, bump the login
+revision, rebind and refresh models/readiness. Selected pasted-key accounts mask
+the launch-environment key so the SDK's stored credential remains effective.
+This does not authorize Cursor ACP authentication or a hosted credential proxy.

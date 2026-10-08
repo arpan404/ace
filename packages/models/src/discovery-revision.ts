@@ -18,6 +18,8 @@ export function connectionRevision(
   const values =
     provider === "opencode"
       ? sources
+          // Free Zen appears in served metadata without an auth-list connection.
+          .filter((source) => source.requiresAuth !== false)
           .map((source) => JSON.stringify([source.kind, source.id, source.label, source.service]))
           .toSorted()
       : models.map((model) => `${model.nativeProviderId ?? ""}/${model.id}`).toSorted();

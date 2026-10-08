@@ -51,6 +51,9 @@ export function startTurn(
     threadId: state.threadId,
     agentId: record.agent.id,
     trigger: fact.trigger,
+    ...(fact.permissionMode !== undefined
+      ? { provider: state.config.provider, permissionMode: fact.permissionMode }
+      : {}),
     state: "active",
     startedAt: ctx.now,
     ...(fact.nativeTurnId === undefined ? {} : { nativeId: fact.nativeTurnId }),

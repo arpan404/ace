@@ -26,6 +26,7 @@
     "browser.backendLoss",
     "browser.profile",
     "permissions.defaultMode",
+    "permissions.providerModes",
     "approvals.policy",
     "notifications.enabled",
     "notifications.sound",

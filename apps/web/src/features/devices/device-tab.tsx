@@ -215,7 +215,7 @@ function SelectedDevice(props: { devices: Devices }) {
         ) : live ? (
           <>
             {/* The screen takes what the tab has left, so the whole device shows at once. */}
-            <div className="relative min-h-[160px] flex-1">
+            <div className="relative min-h-40 flex-1">
               <div className="absolute inset-0 flex items-center justify-center">
                 <DeviceScreen
                   session={session}
@@ -241,7 +241,7 @@ function SelectedDevice(props: { devices: Devices }) {
             />
           </>
         ) : (
-          <div className="grid min-h-[160px] flex-1 place-items-center rounded-xl bg-secondary/40">
+          <div className="grid min-h-40 flex-1 place-items-center rounded-xl bg-secondary/40">
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="text-sm text-muted-foreground">
                 {controls.running ? "The live view is off." : `${selected.name} is off.`}

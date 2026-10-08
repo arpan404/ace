@@ -57,7 +57,7 @@ export function approvalOutcome(
 ): ApprovalOutcome {
   const review = interaction.review;
   if (review && review.decision !== "escalate") {
-    const mode = reviewModeNames[review.mode].toLowerCase();
+    const mode = (reviewModeNames[review.mode] ?? review.mode).toLowerCase();
     return review.decision === "approve"
       ? { state: "approved", tone: "approved", text: `Approved by ace · ${mode}` }
       : { state: "denied", tone: "denied", text: `Denied by ace · ${mode}` };
@@ -86,22 +86,10 @@ export function approvalOutcome(
   return { state: "pending", tone: "waiting", text: "Waiting for your approval" };
 }
 
-/**
- * The approval options the daemon will accept in this mode (IR-13): outside full access it
- * refuses "for this thread" and "always", so they are not offered.
- */
+/** Preserve every approval scope offered by the native harness. */
 export function offeredOptions(
   options: readonly ApprovalOption[],
-  mode: PermissionMode | undefined,
+  _mode: PermissionMode | null | undefined,
 ): { options: ApprovalOption[]; hidden: number } {
-  if (mode === undefined || mode === "full-access") return { options: [...options], hidden: 0 };
-  const offered = options.filter(
-    (option) => option.kind !== "allow_session" && option.kind !== "allow_always",
-  );
-  return { options: offered, hidden: options.length - offered.length };
-}
-
-/** Why "always allow" is missing, in this mode. */
-export function oneShotNote(mode: PermissionMode): string {
-  return `Always-allow isn't available in ${reviewModeNames[mode]}: ace reviews each action.`;
+  return { options: [...options], hidden: 0 };
 }

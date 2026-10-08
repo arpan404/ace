@@ -150,8 +150,10 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     },
     send(message) {
       const body = new TextEncoder().encode(JSON.stringify(ClientMessage.parse(message)));
-      if (body.length > 256 * 1024 || queuedBytes + body.length > queueLimit)
+      if (body.length > 256 * 1024 || queuedBytes + body.length > queueLimit) {
+        body.fill(0);
         return Promise.reject(new Error("Relay request queue limit"));
+      }
       queuedBytes += body.length;
       const task = sending
         .then(() => {
@@ -161,7 +163,11 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
             const plain = new Uint8Array(chunk.length + 1);
             plain[0] = offset + chunk.length === body.length ? 1 : 0;
             plain.set(chunk, 1);
-            write(secured.send.encrypt(plain));
+            try {
+              write(secured.send.encrypt(plain));
+            } finally {
+              plain.fill(0);
+            }
             if (++sendCount % rekeyInterval === 0) secured.send.rekey();
           }
         })
@@ -171,6 +177,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
         })
         .finally(() => {
           queuedBytes -= body.length;
+          body.fill(0);
         });
       sending = task.catch(() => {});
       return task;

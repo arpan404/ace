@@ -110,9 +110,9 @@ test("what OpenCode and Claude reported shows apart from the API-price estimate"
   await waitFor(() =>
     expect(reported()).toEqual(["$0.08", "Claude Code $0.08 over 1 session · OpenCode $0.0017"]),
   );
-  // Only Claude's tokens have a list price: 7 days × $1.50.
+  // Claude's reported subscription tokens are valued at the current API list prices.
   expect((await stat("At API prices"))()).toEqual([
-    "$10.50",
+    "$4.91",
     "Leaves out 700K tokens without a price",
   ]);
   await waitFor(() =>
@@ -129,7 +129,7 @@ test("what OpenCode and Claude reported shows apart from the API-price estimate"
     "Claude Code",
     "700K",
     "Per session",
-    "$10.50",
+    "$4.91",
   ]);
 });
 
@@ -239,5 +239,5 @@ test("when usage by model can't be read, the page says so and reads it again on 
   // Reported costs failed too and have their own Try again; this one reads usage by model.
   await userEvent.click(within(failed).getByRole("button", { name: "Try again" }));
   const table = await screen.findByRole("table", { name: "Usage by model" }, { timeout: 4000 });
-  await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(5));
+  await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(7));
 });

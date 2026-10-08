@@ -122,3 +122,14 @@ uses stored canonical views; write toolkits require explicit host ports.
 Provider adapter workstreams must wire session leases into their lifecycle and
 apply these helpers. Browser/preview and durable notification/orchestration
 consumers remain owned by their workstreams, with no substitute execution here.
+
+## Amendment: OpenCode native tool readiness
+
+The isolated [OpenCode 2.0.22 probe](../research/providers/opencode-ace-tools.md)
+shows that native model tools can lag a successful MCP connection. Add a
+credential-free Promise plugin to the owned CLI's runtime plugin list. Observe
+its native tool transforms and await a bounded, cancellable readiness RPC
+before accepting the session. Keep remote MCP registration, scoped authority
+and redaction in the existing adapter. Stage the plugin with standalone
+releases. No Effect dependency is introduced into ace, and no credentials
+enter the plugin or its readiness RPC.

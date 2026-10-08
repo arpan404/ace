@@ -216,12 +216,24 @@ Pi reads the same private storage mechanism into its extension closure and delet
 the file-path environment variable before registering agent tools. Neither the Pi
 MCP bearer nor its rollback control secret is inherited by shell commands.
 
+OpenCode's direct status tool is `ace_ace_status`, because it prefixes MCP tool
+names with their server name. Claude uses `mcp__ace__ace_status`; other
+providers use their advertised ace server/tool prefix. Call status or read
+`ace://status` to check availability. A disabled tool group does not imply
+that ace is absent.
+
+OpenCode also receives a credential-free native readiness plugin through its
+runtime configuration. Session admission waits for the actual native
+`ace_ace_status` registration, because MCP connection status precedes the
+provider's debounced tool reload. The plugin carries no MCP authority, changes
+no user configuration files and is staged in standalone releases. See the
+[isolated CLI results](../research/providers/opencode-ace-tools.md).
+
 OpenCode v2 gets one owned process per scoped lease. Before admission, ace uses
 its in-memory, location-scoped `mcp.add` and `mcp.connect` APIs and checks the native
-catalog reports `connected`. The v2 config shape is `mcp.servers.ace`, with
+catalog reports `connected`, then waits for native tool readiness. The v2 config shape is `mcp.servers.ace`, with
 `disabled:false`, `codemode:false`, and `oauth:false`. Code Mode would otherwise
-hide individual tools behind a code-execution tool. The old v1 `mcp.ace` and
-`enabled:true` injection did not register a v2 server. No ace bearer is added to
+hide individual tools behind a code-execution tool. No ace bearer is added to
 `OPENCODE_CONFIG_CONTENT`, persisted provider config, or project config. Existing
 user MCP servers are preserved; an `ace` name collision fails admission.
 

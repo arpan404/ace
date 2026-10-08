@@ -11,6 +11,9 @@
       "const": "provider.sign_in",
       "type": "string"
     },
+    "apiKey": {
+      "$ref": "https://ace.local/protocol/v1/ApiKeySupport.json"
+    },
     "auth": {
       "enum": [
         "logged_in",
@@ -26,6 +29,9 @@
     "authEvidence": {
       "const": "credentials_configured",
       "type": "string"
+    },
+    "authMethod": {
+      "$ref": "https://ace.local/protocol/v1/AccountAuthMethod.json"
     },
     "checkedAt": {
       "minimum": 0,
@@ -52,14 +58,33 @@
         "null"
       ]
     },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "latestVersion": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "loginHint": {
       "maxLength": 1024,
       "type": "string"
+    },
+    "modelsAvailable": {
+      "type": "boolean"
     },
     "path": {
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
+    },
+    "permissionModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+      },
+      "maxItems": 256,
+      "type": "array"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -98,6 +123,10 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "versionCheckedAt": {
+      "minimum": 0,
+      "type": "number"
     }
   },
   "required": [

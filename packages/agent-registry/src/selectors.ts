@@ -78,7 +78,7 @@ export function sessionSelectors(
     }
     if (!model && (config.category === "model" || (!config.category && config.id === "model")))
       model = { method: "session/set_config_option", configId: config.id, values };
-    if (!mode && (config.category === "mode" || (!config.category && config.id === "mode")))
+    if (!mode && ["mode", "permission", "permissions"].includes(config.category ?? config.id))
       mode = { method: "session/set_config_option", configId: config.id, values };
   }
   if (!model && session.models && (profile?.legacyModel || legacyModel))

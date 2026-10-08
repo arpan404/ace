@@ -16,11 +16,17 @@ export class Client {
   private closed = false;
   /** Catalog pushes can arrive between any request and its reply; only catalog tests read them. */
   receiveCatalogPushes = false;
+  receiveQuotaPushes = false;
   constructor(url: string, options: import("ws").ClientOptions = {}) {
     this.socket = new WebSocket(url, options);
     this.socket.on("message", (data) => {
       const message = ServerMessage.parse(JSON.parse(data.toString()));
-      if (message.type === "models.changed" && !this.receiveCatalogPushes) return;
+      if (
+        (message.type === "models.changed" || message.type === "providers.changed") &&
+        !this.receiveCatalogPushes
+      )
+        return;
+      if (message.type === "usage.limits_changed" && !this.receiveQuotaPushes) return;
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(message);
       else this.messages.push(message);

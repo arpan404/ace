@@ -110,7 +110,17 @@ test("daemon binds a provider default selected after startup and retains that ac
   }[] = [];
   const open = async () => {
     const frames = scriptFrames();
-    const frame = frames.frame(start, end);
+    const frame = frames.frame(
+      start,
+      {
+        type: "usage",
+        agent: "root",
+        inputTokens: 10,
+        outputTokens: 2,
+        counterMode: "incremental",
+      },
+      end,
+    );
     const payload = new ProviderPayload(JSON.stringify(frame.data));
     const scripted = createScriptedAdapter({
       provider: "codex",
@@ -187,7 +197,7 @@ test("daemon binds a provider default selected after startup and retains that ac
     provider: "codex",
     observedAt: 1,
     timeZone: "UTC",
-    payload: new ProviderPayload(JSON.stringify({ auth: "logged_in" })),
+    payload: new ProviderPayload(JSON.stringify({ auth: "logged_in", authDetail: "API key" })),
   });
   registry.close();
 
@@ -209,6 +219,13 @@ test("daemon binds a provider default selected after startup and retains that ac
   const thread = first.store.listThreads()[0];
   if (!thread) throw new Error("Missing thread");
   expect(thread.status.state).toBe("done");
+  expect(
+    first.store
+      .readUsagePage({ afterSeq: 0, limit: 256 })
+      .events.filter((event) => event.payload.type === "usage.updated"),
+  ).toMatchObject([
+    { payload: { accountId: "selected", billingMode: "api", inputTokens: 10, outputTokens: 2 } },
+  ]);
   await first.close();
   const second = await open();
   cleanup.push(() => second.close());

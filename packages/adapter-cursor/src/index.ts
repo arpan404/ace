@@ -8,7 +8,7 @@ export {
   type CursorAccountDriverOptions,
 } from "./auth.ts";
 export { cursorSdkEnvironment, CursorInstance, defaultCursorInstance } from "./instance.ts";
-export { cursorCapabilities, localPolicy } from "./policy.ts";
+export { cursorCapabilities } from "./policy.ts";
 export {
   Envelope as CursorEnvelopeSchema,
   Limits as CursorLimitsSchema,

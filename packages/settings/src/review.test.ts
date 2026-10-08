@@ -57,26 +57,26 @@ test.each([
   },
 );
 
-test("a workspace symlink cannot overwrite the daemon's global approvals", async () => {
+test("a workspace symlink cannot overwrite the daemon's global notification setting", async () => {
   const f = await setup();
-  await f.service.set("approvals.policy", "ask", { kind: "global" });
+  await f.service.set("notifications.sound", true, { kind: "global" });
   await symlink(f.dataDir, join(f.workspace, ".ace"), "dir");
   await expect(
-    f.service.set("approvals.policy", "never", { kind: "workspace", workspace: f.workspace }),
+    f.service.set("notifications.sound", false, { kind: "workspace", workspace: f.workspace }),
   ).rejects.toMatchObject({ code: "validation" });
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "approvals.policy": "ask" },
+    settings: { "notifications.sound": true },
   });
   await f.service.refresh({ kind: "global" });
-  expect(await f.service.get("approvals.policy")).toMatchObject({
-    value: "ask",
+  expect(await f.service.get("notifications.sound")).toMatchObject({
+    value: true,
     provenance: "global",
   });
 });
 
 test("a workspace directory changed to an escaping symlink during a write cannot publish globally", async () => {
   const f = await setup();
-  await f.service.set("approvals.policy", "ask", { kind: "global" });
+  await f.service.set("notifications.sound", true, { kind: "global" });
   const ace = join(f.workspace, ".ace");
   await mkdir(ace);
   const raced = new SettingsService({
@@ -94,10 +94,10 @@ test("a workspace directory changed to an escaping symlink during a write cannot
   });
   cleanups.push(() => raced.close());
   await expect(
-    raced.set("approvals.policy", "never", { kind: "workspace", workspace: f.workspace }),
+    raced.set("notifications.sound", false, { kind: "workspace", workspace: f.workspace }),
   ).rejects.toMatchObject({ code: "validation" });
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "approvals.policy": "ask" },
+    settings: { "notifications.sound": true },
   });
   expect(await readdir(join(f.workspace, "old-ace"))).toEqual([]);
 });

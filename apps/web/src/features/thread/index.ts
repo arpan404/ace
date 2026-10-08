@@ -5,7 +5,7 @@ export { useDraftScope } from "./composer/draft-scope.ts";
 export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";
 /** The composer's pieces New thread reuses: the approvals icon, the chip and tab styles. */
 export { PermissionPicker } from "./composer/permission-picker.tsx";
-export { usePermissionCapabilities } from "./composer/permission-hooks.ts";
+export { usePermissionCapabilities, usePermissionModes } from "./composer/permission-hooks.ts";
 export {
   chipControl as composerChip,
   stripControl as composerStrip,

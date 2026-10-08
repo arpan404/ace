@@ -32,11 +32,8 @@ export type Pending = {
 export type SessionCommandsContext = {
   nativeSessionId: string;
   getLaunchOptions?(threadId: string): Promise<{
-    mode: PermissionMode;
-    options: Pick<
-      TurnStartParams,
-      "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
-    >;
+    mode: PermissionMode | null;
+    options: Pick<TurnStartParams, "effort" | "serviceTier" | "permissions" | "approvalsReviewer">;
   }>;
   active: Map<string, string>;
   parents: Map<string, string>;

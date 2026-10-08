@@ -92,7 +92,11 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         const plain = new Uint8Array(chunk.length + 1);
         plain[0] = kind + (offset + chunk.length === data.length ? 1 : 0);
         plain.set(chunk, 1);
-        await sendFrame(socket, transport.send.encrypt(plain));
+        try {
+          await sendFrame(socket, transport.send.encrypt(plain));
+        } finally {
+          plain.fill(0);
+        }
         if (++sendCount % REKEY_INTERVAL === 0) transport.send.rekey();
       }
     });
@@ -104,6 +108,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       throw error;
     } finally {
       pendingBytes -= data.length;
+      data.fill(0);
     }
   };
   const channel: MessageChannel<Incoming, Outgoing> = {
@@ -160,12 +165,14 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     async receiveFrame() {
       if (receiving) throw new Error("Concurrent receive is unsupported");
       receiving = true;
+      const chunks: Uint8Array[] = [];
+      let jsonBytes: Uint8Array | undefined;
       try {
-        const chunks: Uint8Array[] = [];
         let size = 0;
         let binary: boolean | undefined;
         while (true) {
           const plain = transport.receive.decrypt(await reader.next());
+          chunks.push(plain.subarray(1));
           if (++receiveCount % REKEY_INTERVAL === 0) transport.receive.rekey();
           const flag = plain[0];
           if (
@@ -181,7 +188,6 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           size += plain.length - 1;
           if (isBinary && size > BINARY_MESSAGE_LIMIT) throw new Error("Binary message too large");
           if (size > LOGICAL_MESSAGE_LIMIT) throw new Error("Logical message too large");
-          chunks.push(plain.subarray(1));
           if (flag % 2 === 1) break;
         }
         const data = new Uint8Array(size);
@@ -194,6 +200,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           onReceive?.(data);
           return data;
         }
+        jsonBytes = data;
         const message = incoming.parse(
           JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(data)),
         );
@@ -203,6 +210,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         end(error instanceof Error ? error : new Error("Invalid message"));
         throw error;
       } finally {
+        for (const chunk of chunks) chunk.fill(0);
+        jsonBytes?.fill(0);
         receiving = false;
       }
     },

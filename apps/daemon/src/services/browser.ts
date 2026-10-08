@@ -1,3 +1,4 @@
+import { settingsScope } from "../settings.ts";
 import { z } from "zod";
 import { privateBrowserOwnership } from "../browser-private.ts";
 import { browserArtifactAccess } from "../browser-artifacts.ts";
@@ -6,7 +7,6 @@ import { BrowserOrigins } from "../browser-origins.ts";
 import { BrowserService } from "@ace/browser";
 import {
   ItemId,
-  PermissionMode,
   BrowserOrigin,
   ThreadId,
   BrowserBackendClientMessage,
@@ -16,7 +16,6 @@ import {
 import { InteractionId as importInteractionId } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
 import { BrowserForget } from "../browser-forget.ts";
-import { settingsScope } from "../settings.ts";
 import type { ServiceContext } from "./types.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
@@ -27,17 +26,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     store,
     now,
     id,
-    mode: async (threadId) =>
-      services.engine?.permissionAuthority(threadId) ??
-      store.getThread(threadId)?.permission?.effective ??
-      PermissionMode.parse(
-        (
-          await services.settings?.get(
-            "permissions.defaultMode",
-            settingsScope(store, { threadId }),
-          )
-        )?.value ?? "auto-review",
-      ),
+    mode: async () => "ask",
     deferRecovery: true,
     root: (threadId) => services.engine?.rootAgent(threadId),
     open: (interaction) => {
@@ -93,17 +82,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       store,
       now,
       id,
-      mode: async (threadId) =>
-        services.engine?.permissionAuthority(threadId) ??
-        store.getThread(threadId)?.permission?.effective ??
-        PermissionMode.parse(
-          (
-            await services.settings?.get(
-              "permissions.defaultMode",
-              settingsScope(store, { threadId }),
-            )
-          )?.value ?? "auto-review",
-        ),
+      mode: async () => "ask",
       root: (threadId) =>
         services.engine?.rootAgent(threadId) ?? store.getThread(threadId)?.rootAgentId,
       open: (interaction) => {

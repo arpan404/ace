@@ -1,4 +1,4 @@
-import type { Device, DeviceScope, ProviderKind } from "@ace/protocol";
+import type { Device, DeviceScope, ProviderKind, RegistryAgent } from "@ace/protocol";
 import type { ProviderState } from "@ace/ui-core";
 
 /**
@@ -55,6 +55,8 @@ export interface ProviderInstall {
   via?: string;
   /** Added by command in Settings (not discovered), so it can be removed there. */
   added?: boolean;
+  /** Installed from the ACP registry: the version installed and its registry entry, if listed. */
+  registry?: { version: string; agent: RegistryAgent | undefined };
   accounts: ProviderAccount[];
 }
 

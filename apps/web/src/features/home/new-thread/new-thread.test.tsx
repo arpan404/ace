@@ -396,43 +396,31 @@ test("slash commands are offered before the thread exists, for the chosen provid
   expect((field as HTMLTextAreaElement).value).toMatch(/^\/\S+ $/);
 });
 
-test("approvals chosen for a new thread are the ones it starts with", async () => {
+test("native approvals chosen for a new thread are the ones it starts with", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto-review" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Ask first" }));
-  expect(await screen.findByRole("button", { name: "Approvals: Ask first" })).toBeTruthy();
-
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
+  expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
-  expect(await screen.findByRole("button", { name: /^Approvals: Ask first/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Approvals: Accept edits/ })).toBeTruthy();
 });
-
-test("a default of Ask first falls back visibly on Cursor, which can't pause for approval", async () => {
+test("switching provider clears a native mode the new provider does not offer", async () => {
   const made = app();
   cursorSharesGpt6(made);
-  made.daemon.services.settings.seed({ "permissions.defaultMode": "ask" });
   await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: "Approvals: Ask first" })).toBeTruthy();
-
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
   await chooseModel("GPT-6", "Cursor", /^Model: Opus 5.5/);
   await closeModelControl();
-  const chip = await screen.findByRole("button", { name: "Approvals: Read only" });
-  expect(chip.getAttribute("aria-description")).toBe(
-    "Cursor can't pause for your approval, so the thread starts in Read only",
-  );
-  await userEvent.click(chip);
-  const ask = await screen.findByRole("menuitemradio", { name: "Ask first" });
-  expect(ask.getAttribute("aria-disabled")).toBe("true");
-  expect(ask.textContent).toContain("Cursor can't pause for your approval");
-  await userEvent.click(ask);
-  await userEvent.keyboard("{Escape}");
-
-  // The thread starts (the daemon refuses Ask for Cursor) in the mode the chip showed.
+  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
-  expect(await started(made)).toMatchObject({ provider: "cursor" });
-  expect(await screen.findByRole("button", { name: /^Approvals: Read only/ })).toBeTruthy();
+  expect(await started(made)).toMatchObject({
+    provider: "cursor",
+    permission: { override: null, effective: null },
+  });
 });
 
 test("an unsent New thread draft waits for the next visit, and goes once the thread starts", async () => {

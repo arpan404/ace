@@ -73,7 +73,12 @@ export async function addAccount(
   const after = await loginStatus(instance, options.discovery);
   registry.ingest(instance.id, {
     provider: instance.provider,
-    payload: new ProviderPayload(JSON.stringify({ auth: after.auth })),
+    payload: new ProviderPayload(
+      JSON.stringify({
+        auth: after.auth,
+        ...("authDetail" in after ? { authDetail: after.authDetail } : {}),
+      }),
+    ),
     observedAt: options.now(),
     timeZone: "UTC",
   });

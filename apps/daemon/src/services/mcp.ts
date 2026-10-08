@@ -52,11 +52,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         return { intentId: record.childId };
       }),
     observations,
-    (caller) => ({
-      permissionMode:
-        services.engine?.permissionMode(caller.threadId) ??
-        store.getThread(caller.threadId)?.permission?.effective ??
-        null,
+    (_caller) => ({
+      permissionMode: "ask",
       disabled: {
         ...(!services.screen?.isEnabled()
           ? {

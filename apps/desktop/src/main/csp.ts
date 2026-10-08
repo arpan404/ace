@@ -28,7 +28,15 @@ export function contentSecurityPolicy(options: {
     "default-src": ["'self'"],
     "script-src": ["'self'", ...hashes, ...(dev ? [dev, "'unsafe-inline'"] : [])],
     "style-src": ["'self'", "'unsafe-inline'", ...(dev ? [dev] : [])],
-    "img-src": ["'self'", "data:", "blob:", "http://127.0.0.1:*", ...(dev ? [dev] : [])],
+    // The ACP registry's agent icons (one-colour SVGs, drawn as images; never scripts).
+    "img-src": [
+      "'self'",
+      "data:",
+      "blob:",
+      "http://127.0.0.1:*",
+      "https://cdn.agentclientprotocol.com",
+      ...(dev ? [dev] : []),
+    ],
     "font-src": ["'self'", "data:", ...(dev ? [dev] : [])],
     "connect-src": [
       "'self'",
