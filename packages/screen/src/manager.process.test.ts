@@ -54,6 +54,7 @@ it("live screenshots and MCP actions use the approved session and human takeover
   expect(firstFrame.payload.toString()).toBe("jpeg-0");
   const screenshot = await tool("screen_screenshot", {});
   expect(screenshot).toEqual({
+    _meta: { "ace/screen": { mode: "background", scale: 1, size: { width: 100, height: 100 } } },
     content: [
       {
         type: "image",

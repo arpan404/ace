@@ -355,7 +355,6 @@ test("ACP receives ace routing context on native prompts after opening and resum
     const h = await open(
       { load: true },
       {
-        permissionMode: "full-access",
         ...(resume ? { resume } : {}),
         mcp: { httpServers: [], stdioServers: [], secrets: [], end() {} },
       },

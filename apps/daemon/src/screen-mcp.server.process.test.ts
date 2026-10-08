@@ -83,6 +83,22 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
       const result: unknown = await response.json();
       return result;
     }
+    const disabled = z
+      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+      .parse(await request(lease.bearer, "tools/list"));
+    expect(
+      disabled.result.tools.map((tool) => tool.name).filter((name) => name.startsWith("screen_")),
+    ).toEqual([]);
+    const denied = daemon.mcp.openSession(
+      { ...scope, capabilities: [] },
+      new AbortController().signal,
+    );
+    const deniedTools = z
+      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+      .parse(await request(denied.bearer, "tools/list"));
+    expect(deniedTools.result.tools.map((tool) => tool.name)).not.toContain("screen_ui_tree");
+    await screen.enable(true);
+    await screen.approve("dev.ace.test", true);
     const listed = z
       .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
       .parse(await request(lease.bearer, "tools/list"));
@@ -98,16 +114,6 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
         "screen_scroll",
       ]),
     );
-    const denied = daemon.mcp.openSession(
-      { ...scope, capabilities: [] },
-      new AbortController().signal,
-    );
-    const deniedTools = z
-      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
-      .parse(await request(denied.bearer, "tools/list"));
-    expect(deniedTools.result.tools.map((tool) => tool.name)).not.toContain("screen_ui_tree");
-    await screen.enable(true);
-    await screen.approve("dev.ace.test", true);
     const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.test" });
     screen.delegateAgent(session.sessionId, scope);
     screen.configureAccess({

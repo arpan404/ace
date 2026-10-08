@@ -288,17 +288,32 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
     signal: new AbortController().signal,
   };
   await startScreen(context);
+  const { startMcp } = await import("./services/mcp.ts");
+  const { invoke } = await import("./browser-mcp-test-support.ts");
+  await startMcp(context);
   h.engine.bindHostInteractions((command) => context.services.screenApprovals?.resolve(command));
   await screen.enable(true);
   await screen.approve("dev.example.audit", true);
   const state = await screen.start({ kind: "window", bundleId: "dev.example.audit", windowId: 1 });
   screen.delegateAgent(state.sessionId, { threadId, agentId });
-  const owner = JSON.stringify([threadId, agentId]);
-  await expect(
-    screen.input(state.sessionId, "agent", { kind: "text.type", text: "dont-leak-me" }, owner),
-  ).rejects.toMatchObject({ code: "secure_input_required" });
+  const mcp = context.services.mcp;
+  if (!mcp) throw new Error("Missing audit MCP service");
+  const lease = mcp.openSession(
+    { sessionId: "audit-mcp", threadId, agentId, capabilities: ["screen"] },
+    new AbortController().signal,
+  );
+  const connection = { url: mcp.url, bearer: lease.bearer };
+  const denied = await (await invoke(connection, "screen_type", { text: "dont-leak-me" })).json();
+  expect(denied).toMatchObject({
+    result: {
+      isError: true,
+      content: [{ text: expect.stringContaining("secure_input_required") }],
+    },
+  });
   screen.secureInput(state.sessionId, true);
-  await screen.input(state.sessionId, "agent", { kind: "text.type", text: "dont-leak-me" }, owner);
+  const accepted = await (await invoke(connection, "screen_type", { text: "dont-leak-me" })).json();
+  expect(accepted.result.isError).not.toBe(true);
+  expect(accepted).toMatchObject({ result: { content: expect.any(Array) } });
   const steps = Object.values(h.store.snapshotThread(threadId).items).filter(
     (item) => item.type === "notice" && item.code === "screen.step",
   );

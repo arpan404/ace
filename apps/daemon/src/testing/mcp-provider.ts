@@ -162,6 +162,20 @@ if (provider === "opencode") {
           location: input.location,
         },
       };
+    } else if (
+      path === "/api/experimental/session/native/instructions/entries/ace.tool-guidance" &&
+      req.method === "PUT"
+    ) {
+      let body = "";
+      for await (const chunk of req) {
+        body += String(chunk);
+        if (Buffer.byteLength(body) > 65536) throw new Error("Fake request exceeds bound");
+      }
+      const entry = z.object({ value: z.string() }).parse(JSON.parse(body));
+      if (!entry.value.includes("ace_browser_") || !entry.value.includes("screen_"))
+        throw new Error("Native tool guidance is missing");
+      res.writeHead(204).end();
+      return;
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
     else {
       // Older providers may not offer optional metadata APIs such as command.list.

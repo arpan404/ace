@@ -104,9 +104,10 @@ test("browser and device steps name the element and device from what earlier ste
   await userEvent.click(within(steps).getByRole("button", { name: /^Browsed github\.com/ }));
   expect(
     within(steps).getByRole("button", {
-      name: "Typed “octocat” into “Username or email address”",
+      name: "Typed “[redacted]” into “Username or email address”",
     }),
   ).toBeTruthy();
+  expect(steps.textContent).not.toContain("octocat");
   expect(within(steps).getByRole("button", { name: "Clicked “Sign in”" })).toBeTruthy();
   expect(within(steps).getByRole("button", { name: "You have the browser Failed" })).toBeTruthy();
 });

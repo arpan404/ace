@@ -124,9 +124,9 @@ it("one host helper serves inspections, restarts and semantic tools with control
       },
       { type: "text", text: expect.stringContaining("1.5 pixels per target point") },
     ]);
-    await tool("screen_key", { key: "ENTER", modifiers: ["control"] });
+    await tool("screen_key", { key: "Enter", modifiers: ["control"] });
     expect(await manager.uiTree(session.sessionId, {}, "agent-a")).toMatchObject({
-      root: { value: "control:ENTER" },
+      root: { value: "control:Enter" },
     });
     await expect(
       manager.uiAct(session.sessionId, "agent", { ref: "save", action: "press" }, "agent-b"),

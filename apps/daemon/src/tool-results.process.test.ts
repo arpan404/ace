@@ -174,7 +174,7 @@ it.each([
       const failure: unknown = JSON.parse(text.text);
       expect(failure).toMatchObject({
         code: "focus_changed",
-        message: "Background action changed focus or cursor",
+        message: "Input target focus changed",
       });
       expect(failure).toEqual(
         expect.objectContaining(detail ? { detail } : { code: "focus_changed" }),

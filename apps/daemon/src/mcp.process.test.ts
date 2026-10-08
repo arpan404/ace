@@ -368,33 +368,47 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     { ...scope, capabilities: ["agents", "notify", "browser", "screen", "devices"] },
     new AbortController().signal,
   );
-  const response = await fetch(daemon.mcp.url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${lease.bearer}`,
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      "MCP-Protocol-Version": "2026-07-28",
-      "Mcp-Method": "tools/list",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/list",
-      params: {
-        _meta: {
-          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-          "io.modelcontextprotocol/clientInfo": { name: "composition", version: "1" },
-          "io.modelcontextprotocol/clientCapabilities": {},
-        },
+  async function catalog() {
+    const response = await fetch(daemon.mcp.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${lease.bearer}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list",
       },
-    }),
-  });
-  expect(response.ok).toBe(true);
-  const result = z
-    .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
-    .parse(await response.json());
-  const names = result.result.tools.map((tool) => tool.name);
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "composition", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    expect(response.ok).toBe(true);
+    const result = z
+      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+      .parse(await response.json());
+    return result.result.tools.map((tool) => tool.name);
+  }
+  const disabled = await catalog();
+  expect(disabled.filter((name) => /^(screen_|device_)/.test(name))).toEqual([]);
+  await screen.enable(true);
+  expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual([
+    "screen_request_app",
+  ]);
+  await screen.approve("dev.ace.catalog", true);
+  await daemon.devices.request(
+    { op: "enable", enabled: true },
+    { kind: "human", owner: "catalog" },
+  );
+  const names = await catalog();
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([

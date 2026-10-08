@@ -239,31 +239,42 @@ export class ModelCatalog implements ModelCatalogApi {
     delete state.unconfiguredAt;
     // Unchanged metadata and an empty catalog cannot recover on a short retry.
     // Explicit refresh and identity/configuration changes still reset eligibility.
-    if (["no_models", "parse_failure", "cli_too_old"].includes(state.errorDetail.code)) {
-      state.backoff.reset();
-      state.retryAt = this.#options.now() + (this.#options.ttlMs ?? 21_600_000);
-      this.#options.onError?.(
-        state.config.provider,
-        state.config.id,
-        state.errorDetail,
-        undefined,
-        {
-          level: state.errorDetail.code === "no_models" ? "info" : "warn",
-          durationMs: Math.max(0, this.#options.now() - startedAt),
+    const terminal = ["no_models", "parse_failure", "cli_too_old"].includes(state.errorDetail.code);
+    const schedule = terminal
+      ? {
+          level: state.errorDetail.code === "no_models" ? ("info" as const) : ("warn" as const),
           retryInMs: this.#options.ttlMs ?? 21_600_000,
-          ...(diagnostic.stage ? { stage: diagnostic.stage } : {}),
-          ...(diagnostic.cliVersion ? { cliVersion: diagnostic.cliVersion } : {}),
-        },
-      );
-      return;
-    }
-    state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
+        }
+      : undefined;
+    if (schedule) {
+      state.backoff.reset();
+      state.retryAt = this.#options.now() + schedule.retryInMs;
+    } else
+      state.backoff.retain(new Set(sources?.length ? sources.map((source) => source.id) : [""]));
     if (sources?.length) {
       for (const source of sources)
-        this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, source, error);
-    } else this.#reportFailure(state, state.errorDetail, startedAt, diagnostic, undefined, error);
-    state.retryAt = state.backoff.retryAt();
+        this.#reportFailure(
+          state,
+          state.errorDetail,
+          startedAt,
+          diagnostic,
+          source,
+          error,
+          schedule,
+        );
+    } else
+      this.#reportFailure(
+        state,
+        state.errorDetail,
+        startedAt,
+        diagnostic,
+        undefined,
+        error,
+        schedule,
+      );
+    if (!schedule) state.retryAt = state.backoff.retryAt();
   }
+
   #reportFailure(
     state: State,
     error: NonNullable<ModelInstanceStatus["errorDetail"]>,
@@ -271,14 +282,17 @@ export class ModelCatalog implements ModelCatalogApi {
     diagnostic: DiscoveryDiagnostics,
     source?: import("@ace/protocol").ModelSource,
     cause?: unknown,
+    scheduleOverride?: { level: "warn" | "debug" | "info"; retryInMs: number },
   ): void {
-    const schedule = state.backoff.fail(
-      source?.id ?? "",
-      error.code,
-      this.#options.now(),
-      this.#options.retryMs ?? 30_000,
-      this.#options.random?.() ?? 0.5,
-    );
+    const schedule =
+      scheduleOverride ??
+      state.backoff.fail(
+        source?.id ?? "",
+        error.code,
+        this.#options.now(),
+        this.#options.retryMs ?? 30_000,
+        this.#options.random?.() ?? 0.5,
+      );
     const cliVersion = diagnostic.cliVersion ?? state.config.installationVersion;
     const detail = discoveryError(error, error.code, {
       ...state.config,
