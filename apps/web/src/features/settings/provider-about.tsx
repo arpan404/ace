@@ -1,9 +1,11 @@
-import { signInSteps, type ReadinessView } from "@ace/ui-core";
+import { InstallAgent } from "@ace/protocol";
+import { acpRegistryId } from "@ace/ui-core/provider-icons";
 import { compareVersions } from "@ace/ui-core/acp-registry";
+import { AddAcpAgent } from "./add-acp-agent.tsx";
+import { signInSteps, type ReadinessView } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { CopyCommand } from "@/components/copy-command.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -11,8 +13,7 @@ import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { SignInButton } from "@/features/sign-in/index.ts";
 import type { ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
-import { RediscoverButton } from "./rediscover-button.tsx";
-import { AddAcpAgent } from "./add-acp-agent.tsx";
+import type { ProviderEntry } from "./provider-entries.ts";
 import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 /*
@@ -22,8 +23,8 @@ import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 function Fact(props: { term: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-9 items-center gap-4 py-0.5">
-      <dt className="w-24 shrink-0 text-muted-foreground">{props.term}</dt>
+    <div className="flex min-h-8 flex-wrap items-center gap-2 py-1">
+      <dt className="w-36 shrink-0 text-muted-foreground">{props.term}</dt>
       <dd className="min-w-0 flex-1 text-right break-words">{props.children}</dd>
     </div>
   );
@@ -40,12 +41,15 @@ export function ProviderAbout(props: {
   const version = row?.version ?? install.version;
   const steps = signInSteps(install.kind);
   const entry = install.registry?.agent;
-  const update =
-    install.registry && entry && compareVersions(entry.version, install.registry.version) > 0
+  const registryUpdate =
+    entry &&
+    install.registry &&
+    !InstallAgent.safeParse(acpRegistryId(entry.acpAgentId)).success &&
+    compareVersions(entry.version, install.registry.version) > 0
       ? entry
       : undefined;
   return (
-    <SettingSection label="About" card>
+    <SettingSection label="About">
       <dl className="divide-y">
         {version && (
           <Fact term="Version">
@@ -53,11 +57,13 @@ export function ProviderAbout(props: {
             {row?.updateAvailable && (
               <span className="ml-2 text-sm text-status-needs-you">Update available</span>
             )}
-            {update && (
-              <span className="ml-2">
-                <AddAcpAgent agentId={update.acpAgentId}>Update to {update.version}</AddAcpAgent>
-              </span>
-            )}
+          </Fact>
+        )}
+        {registryUpdate && (
+          <Fact term="Update">
+            <AddAcpAgent agentId={registryUpdate.acpAgentId}>
+              Update to {registryUpdate.version}
+            </AddAcpAgent>
           </Fact>
         )}
         {install.registry && <Fact term="Installed from">ACP registry</Fact>}
@@ -101,51 +107,6 @@ export function ProviderAbout(props: {
         )}
       </dl>
     </SettingSection>
-  );
-}
-
-/** A provider that isn't on this computer: how to get it, then check again. */
-export function InstallSteps(props: {
-  install: ProviderInstall;
-  row: ProviderReadiness | undefined;
-}) {
-  const { install, row } = props;
-  return (
-    <SettingSection label="Install" card>
-      <ol className="flex flex-col gap-4 p-4">
-        <li className="flex gap-3">
-          <Step n={1} />
-          <div className="flex min-w-0 flex-col gap-1.5 pt-0.5">
-            {row?.installCommand ? (
-              <>
-                <p>Install it from a terminal on the computer running ace:</p>
-                <CopyCommand command={row.installCommand} />
-              </>
-            ) : (
-              <p>{row?.installHint ?? `Install ${install.name} with its own installer.`}</p>
-            )}
-          </div>
-        </li>
-        <li className="flex gap-3">
-          <Step n={2} />
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 pt-0.5">
-            <p className="flex-1">Come back and check again. ace finds it on its own.</p>
-            <RediscoverButton />
-          </div>
-        </li>
-      </ol>
-    </SettingSection>
-  );
-}
-
-function Step(props: { n: number }) {
-  return (
-    <span
-      aria-hidden
-      className="grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-sm font-medium text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]"
-    >
-      {props.n}
-    </span>
   );
 }
 
@@ -198,15 +159,30 @@ export function RemoveAgentRow(props: { name: string }) {
 
 function DangerRow(props: { title: string; detail: string; children: ReactNode }) {
   return (
-    <section
-      aria-label={props.title}
-      className="mt-7 flex min-h-9 items-center gap-4 border-t py-1.5"
-    >
+    <section aria-label={props.title} className="mt-7 flex flex-wrap items-center gap-2 py-2">
       <div className="min-w-0 flex-1">
         <p className="font-medium">{props.title}</p>
         <p className="text-sm text-muted-foreground">{props.detail}</p>
       </div>
       {props.children}
     </section>
+  );
+}
+
+/** The provider's technical facts and account-wide actions load after its status. */
+export function ProviderTail(props: { entry: ProviderEntry; missing: boolean }) {
+  const { install, row, view } = props.entry;
+  return (
+    <>
+      {!props.missing && (
+        <>
+          <ProviderAbout install={install} row={row} view={view} />
+          {row && view?.more.includes("sign_out") && (
+            <SignOutRow provider={install.kind} name={install.name} />
+          )}
+        </>
+      )}
+      {install.added && <RemoveAgentRow name={install.name} />}
+    </>
   );
 }

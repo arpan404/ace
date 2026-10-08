@@ -1,5 +1,6 @@
 import type { ProviderStatus as DiscoveryStatus, ProviderKind } from "@ace/protocol";
 import type { AccountView } from "./accounts.ts";
+import { providerAccountModel, type ProviderAccountModel } from "./provider-account-model.ts";
 import { providerNames } from "./providers.ts";
 
 /**
@@ -41,7 +42,13 @@ export function signInSteps(provider: ProviderKind): SignIn | undefined {
  * daemon reports), `signed_out` (installed, but every ace account of it is signed out) or
  * `not_installed` (discovery didn't find its CLI), or `unknown` until authentication is verified.
  */
-export type ProviderState = "ready" | "signed_out" | "not_installed" | "unknown";
+export type ProviderState =
+  | "ready"
+  | "signed_out"
+  | "not_installed"
+  | "unknown"
+  | "limited"
+  | "attention";
 
 /** One provider as the daemon's discovery and accounts describe it. */
 export interface ProviderStatus {
@@ -59,24 +66,14 @@ export interface ProviderStatus {
   accounts: readonly AccountView[];
 }
 
-/**
- * A provider's state from discovery and its ace accounts. ace never handles credentials
- * (ADR 0002): with no ace account the daemon runs the CLI on the person's own login, so the CLI
- * has unknown authentication until discovery or an account verifies it.
- */
-export function providerState(
-  installed: boolean | null,
-  accounts: readonly Pick<AccountView, "signedIn" | "quota">[],
-  auth: DiscoveryStatus["auth"] = "unknown",
-): ProviderState {
-  if (installed === false) return "not_installed";
-  if (installed === null) return "unknown";
-  if (accounts.some((account) => account.signedIn) || auth === "logged_in") return "ready";
-  if (
-    auth === "logged_out" ||
-    (accounts.length > 0 && accounts.every((account) => account.quota.auth === "logged_out"))
-  )
-    return "signed_out";
+/** Picker state is a projection of the same account truth the detail and account pages show. */
+function pickerState(model: ProviderAccountModel): ProviderState {
+  const view = model.view;
+  if (view?.ready) return "ready";
+  if (view?.label === "Limit reached") return "limited";
+  if (view?.state === "not_installed") return "not_installed";
+  if (view?.state === "signed_out") return "signed_out";
+  if (view?.state === "attention" || view?.state === "off") return "attention";
   return "unknown";
 }
 
@@ -89,6 +86,7 @@ export function providerStatuses(
   installed: ReadonlySet<ProviderKind>,
   accounts: readonly AccountView[],
   discovery: readonly DiscoveryStatus[] = [],
+  now = 0,
 ): ProviderStatus[] {
   const native = nativeProviders.map(({ kind, binary }): ProviderStatus => {
     const own = accounts.filter(
@@ -97,17 +95,28 @@ export function providerStatuses(
     const row =
       discovery.find((entry) => entry.provider === kind && entry.runtime === "cursor-sdk") ??
       discovery.find((entry) => entry.provider === kind);
+    const model = providerAccountModel({
+      provider: kind,
+      accounts: own,
+      now,
+      row: row ?? {
+        provider: kind,
+        runtime: "cli",
+        installed: installed.has(kind),
+        auth: "unknown",
+        loginHint: "",
+        stale: false,
+        refreshing: false,
+      },
+    });
     return {
       provider: kind,
       name: providerNames[kind],
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
-      state:
-        kind === "opencode" && row?.installed && row.enabled !== false && row.modelsAvailable
-          ? "ready"
-          : providerState(row ? row.installed : installed.has(kind), own, row?.auth),
+      state: pickerState(model),
       actionId: row?.actionId,
-      accounts: own,
+      accounts: model.accounts,
     };
   });
   const agents = new Map<string, AccountView[]>();
@@ -117,23 +126,33 @@ export function providerStatuses(
     if (bucket) bucket.push(account);
     else agents.set(account.providerLabel, [account]);
   }
-  const acp = [...agents].map(([name, own]): ProviderStatus => ({
-    provider: "acp",
-    acpAgentId: own[0]?.acpAgentId,
-    name,
-    binary: name,
-    version: own.find((account) => account.version)?.version,
-    state: providerState(true, own),
-    accounts: own,
-  }));
+  const acp = [...agents].map(([name, own]): ProviderStatus => {
+    const model = providerAccountModel({
+      provider: "acp",
+      acpAgentId: own[0]?.acpAgentId,
+      accounts: own,
+      now,
+    });
+    return {
+      provider: "acp",
+      acpAgentId: own[0]?.acpAgentId,
+      name,
+      binary: name,
+      version: own.find((account) => account.version)?.version,
+      state: pickerState(model),
+      accounts: model.accounts,
+    };
+  });
   return [...native, ...acp];
 }
 
-/** "Codex", "Codex (not signed in)" or "Codex (not installed)", as a provider picker lists it. */
+/** "Codex", "Codex (signed out)" or "Codex (not installed)", as a provider picker lists it. */
 export function providerChoiceLabel(status: Pick<ProviderStatus, "name" | "state">): string {
-  if (status.state === "signed_out") return `${status.name} (not signed in)`;
+  if (status.state === "limited") return `${status.name} (limit reached)`;
+  if (status.state === "attention") return `${status.name} (needs attention)`;
+  if (status.state === "signed_out") return `${status.name} (signed out)`;
   if (status.state === "not_installed") return `${status.name} (not installed)`;
-  if (status.state === "unknown") return `${status.name} (sign-in unknown)`;
+  if (status.state === "unknown") return `${status.name} (sign-in not reported)`;
   return status.name;
 }
 

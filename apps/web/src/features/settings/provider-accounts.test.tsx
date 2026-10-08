@@ -70,7 +70,7 @@ test("an account's menu renames it, makes it the default and removes it after as
 test("the CLI's own sign-in can't be renamed or removed, only signed in again", async () => {
   await harness().open("/settings/providers/claude");
   const own = await account("ada@example.com");
-  expect(within(own).getByText("Claude Code's own sign-in")).toBeTruthy();
+  expect(within(own).getByText("Signed in")).toBeTruthy();
   await userEvent.click(within(own).getByRole("button", { name: "Manage ada@example.com" }));
   const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
   expect(items).toEqual(["Sign in again"]);

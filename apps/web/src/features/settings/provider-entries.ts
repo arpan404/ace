@@ -1,8 +1,8 @@
-import { readinessView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
+import { type ReadinessTone, type ReadinessView } from "@ace/ui-core";
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { useQuery } from "@tanstack/react-query";
 import { useProviderReadiness, type ProviderReadiness } from "@/lib/provider-readiness.ts";
-import { useCatalogSignals } from "@/lib/provider-signals.ts";
+import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import type { ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
@@ -33,7 +33,7 @@ export function useProviderEntries() {
   const backend = useSettingsBackend();
   const providers = useQuery(settingsQueries.providers(backend));
   const readiness = useProviderReadiness();
-  const signals = useCatalogSignals();
+  const { model } = useProviderAccountModels();
   const entries = providers.data?.map((install): ProviderEntry => {
     const row =
       install.kind === "acp"
@@ -43,7 +43,7 @@ export function useProviderEntries() {
       id: providerPageId(install),
       install,
       row,
-      view: row && readinessView(row, signals(install.kind)),
+      view: model(install.kind, install.acpAgentId).view,
     };
   });
   return { entries, query: providers };
@@ -64,6 +64,11 @@ export function entryStatus(entry: ProviderEntry): {
       tone: view.tone,
       text: view.summary,
       problem: view.tone === "problem" ? view.detail : undefined,
+    };
+  if (install.kind !== "acp")
+    return {
+      tone: "idle",
+      text: install.state === "not_installed" ? "Not installed" : "Checking…",
     };
   if (install.added) return { tone: "idle", text: "Added by command" };
   const listed = install.registry?.agent;

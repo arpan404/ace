@@ -2,6 +2,7 @@ import { liveWindow } from "@ace/accounts/availability";
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
+import type { ReadinessTone } from "./provider-readiness.ts";
 import { providerDisplayName } from "./providers.ts";
 
 type Summary = z.infer<typeof AccountSummary>;
@@ -31,6 +32,8 @@ export interface AccountView {
   /** What the daemon said when it was read; `accountLimit` says what holds at a later moment. */
   availability: Summary["availability"];
   signedIn: boolean;
+  /** Normal-profile runtime evidence when quota does not report authentication. */
+  runtimeStatus?: { tone: ReadinessTone; text: string; canRun: boolean } | undefined;
   /** Shortest window first: 5-hour, then daily, weekly, then the rest by name. */
   windows: QuotaWindowView[];
   /** The quota as the daemon reported it, blockers included, for the shared availability rules. */

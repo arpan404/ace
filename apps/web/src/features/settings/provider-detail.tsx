@@ -1,6 +1,6 @@
-import { CaretLeftIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { Suspense, type ReactNode } from "react";
+import { Suspense } from "react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -8,22 +8,37 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { ProviderUsage } from "@/features/accounts/index.ts";
 import { ReadinessAction } from "@/features/sign-in/index.ts";
-import { ProviderAccounts } from "./provider-accounts.tsx";
-import { InstallSteps, ProviderAbout, RemoveAgentRow, SignOutRow } from "./provider-about.tsx";
 import {
   entryStatus,
   isMissing,
   useProviderEntries,
   type ProviderEntry,
 } from "./provider-entries.ts";
-import { ProviderServices } from "./provider-services.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
 const DeferredProviderModels = deferredComponent(() =>
   import("./provider-models.tsx").then((module) => module.ProviderModels),
+);
+
+const DeferredProviderTail = deferredComponent(() =>
+  import("./provider-about.tsx").then((module) => module.ProviderTail),
+);
+
+const DeferredProviderUsage = deferredComponent(() =>
+  import("@/features/accounts/index.ts").then((module) => module.ProviderUsage),
+);
+const DeferredProviderServices = deferredComponent(() =>
+  import("./provider-services.tsx").then((module) => module.ProviderServices),
+);
+
+const DeferredProviderAccounts = deferredComponent(() =>
+  import("./provider-accounts.tsx").then((module) => module.ProviderAccounts),
+);
+
+const DeferredProviderCli = deferredComponent(() =>
+  import("./provider-cli.tsx").then((module) => module.ProviderCli),
 );
 
 const back = (
@@ -56,8 +71,8 @@ export function ProviderDetail(props: { id: string }) {
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
             {query.isError
-              ? "Couldn't load providers. Return to Providers and try again."
-              : "This provider page doesn't exist. Choose a provider from the list."}
+              ? "Couldn't list providers. Reconnect and check again."
+              : "This provider isn't on this computer."}
           </p>
         )}
       </SettingsBody>
@@ -87,26 +102,43 @@ function ProviderPage(props: { entry: ProviderEntry }) {
     >
       <div className="fx-view-in">
         {view?.primary && row && (
-          <Callout
-            tone={view.tone === "problem" ? "problem" : "action"}
-            title={view.tone === "problem" ? "Needs attention" : `Sign in to use ${install.name}`}
-            detail={view.detail ?? `${install.name} isn't signed in on this computer yet.`}
-            action={<ReadinessAction provider={install.kind} name={install.name} view={view} />}
-          />
+          <div
+            role={view.tone === "problem" ? "alert" : "status"}
+            className="mt-4 flex flex-wrap items-center gap-2 text-sm"
+          >
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {view.detail ?? `Sign in to use ${install.name}.`}
+            </span>
+            <ReadinessAction provider={install.kind} name={install.name} view={view} />
+          </div>
         )}
         <ProviderPreferences provider={install.kind} />
-        {missing ? (
-          <InstallSteps install={install} row={row} />
-        ) : (
+        <Suspense fallback={null}>
+          <DeferredProviderCli.Component key={props.entry.id} install={install} missing={missing} />
+        </Suspense>
+        {!missing && (
           <>
-            {upstreams && row && <ProviderServices provider={install.kind} name={install.name} />}
-            {install.kind !== "acp" && (
-              <ProviderAccounts provider={install.kind} name={install.name} view={view} />
+            {upstreams && row && (
+              <Suspense fallback={null}>
+                <DeferredProviderServices.Component provider={install.kind} name={install.name} />
+              </Suspense>
             )}
-            <SettingSection label="Usage" card>
-              <ProviderUsage provider={install.kind} />
+            <Suspense fallback={null}>
+              <DeferredProviderAccounts.Component
+                provider={install.kind}
+                acpAgentId={install.acpAgentId}
+                name={install.name}
+              />
+            </Suspense>
+            <SettingSection label="Usage">
+              <Suspense fallback={null}>
+                <DeferredProviderUsage.Component
+                  provider={install.kind}
+                  acpAgentId={install.acpAgentId}
+                />
+              </Suspense>
             </SettingSection>
-            <SettingSection label="Models" card>
+            <SettingSection label="Models">
               <Suspense
                 fallback={
                   <div className="grid h-16 place-items-center">
@@ -117,37 +149,12 @@ function ProviderPage(props: { entry: ProviderEntry }) {
                 <DeferredProviderModels.Component provider={install.kind} />
               </Suspense>
             </SettingSection>
-            <ProviderAbout install={install} row={row} view={view} />
-            {row && view?.more.includes("sign_out") && (
-              <SignOutRow provider={install.kind} name={install.name} />
-            )}
           </>
         )}
-        {install.added && <RemoveAgentRow name={install.name} />}
+        <Suspense fallback={null}>
+          <DeferredProviderTail.Component entry={props.entry} missing={missing} />
+        </Suspense>
       </div>
     </SettingsBody>
-  );
-}
-
-/** The one thing to fix, first on the page: what's wrong in a line, and its button. */
-function Callout(props: {
-  tone: "problem" | "action";
-  title: string;
-  detail: string;
-  action: ReactNode;
-}) {
-  return (
-    <div
-      role={props.tone === "problem" ? "alert" : "status"}
-      data-tone={props.tone === "problem" ? "failed" : "needs-you"}
-      className="mt-4 flex items-center gap-2 text-ui"
-    >
-      <WarningCircleIcon aria-hidden size={20} className="shrink-0 text-(--tone)" />
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">{props.title}</p>
-        <p className="text-sm text-muted-foreground">{props.detail}</p>
-      </div>
-      {props.action}
-    </div>
   );
 }

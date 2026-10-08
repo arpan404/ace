@@ -1,16 +1,11 @@
-import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
 );
 import { AppearanceSettings } from "./appearance-page.tsx";
-const GeneralSettings = lazy(() =>
-  import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
-);
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { Navigate } from "@tanstack/react-router";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { Screen } from "@/features/shell/index.ts";
 const RemoteDevices = lazy(() =>
@@ -22,10 +17,15 @@ import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
+// Provider preferences belong to General; keep them off every other settings route.
+const GeneralSettings = lazy(() =>
+  import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
+);
+
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={5} />}>
+      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={4} />}>
         <GeneralSettings />
       </Suspense>
     </SettingsBody>
@@ -93,7 +93,6 @@ export function RemoteSettingsScreen() {
 }
 
 export function NotificationSettingsScreen() {
-  if (!hasDesktopPreferences()) return <Navigate to="/settings/general" replace />;
   return (
     <SettingsBody page="Notifications">
       <NotificationSettings />

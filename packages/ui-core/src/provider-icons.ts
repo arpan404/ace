@@ -76,7 +76,7 @@ const acpAliases: Record<string, string> = {
 };
 
 /** "official:gemini", "local:Gemini CLI" and "gemini-cli" all name the registry's `gemini`. */
-function registryId(acpAgentId: string): string {
+export function acpRegistryId(acpAgentId: string): string {
   const id = acpAgentId
     .trim()
     .toLowerCase()
@@ -87,7 +87,7 @@ function registryId(acpAgentId: string): string {
 
 /** The agent's registry name, or its id without the source prefix when the registry is silent. */
 export function acpAgentName(acpAgentId: string): string {
-  return acpAgentBrands[registryId(acpAgentId)]?.name ?? providerDisplayName("acp", acpAgentId);
+  return acpAgentBrands[acpRegistryId(acpAgentId)]?.name ?? providerDisplayName("acp", acpAgentId);
 }
 
 const modelFamilies: readonly [RegExp, Brand, string][] = [
@@ -138,7 +138,7 @@ export function providerIcon(input: ProviderIconInput): ProviderIconChoice {
   if (input.provider === "acp") {
     if (!input.acpAgentId) return { brand: undefined, label: providerNames.acp };
     return {
-      brand: acpAgentBrands[registryId(input.acpAgentId)]?.brand,
+      brand: acpAgentBrands[acpRegistryId(input.acpAgentId)]?.brand,
       label: acpAgentName(input.acpAgentId),
     };
   }

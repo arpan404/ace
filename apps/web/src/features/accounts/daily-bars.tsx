@@ -24,12 +24,7 @@ export function DailyBars(props: {
   const max = Math.max(1, ...values);
   const shown = active === undefined ? undefined : props.rows[active];
   return (
-    <figure
-      className={cn(
-        "mt-4 rounded-lg px-4 pt-3 pb-4 shadow-[inset_0_0_0_1px_var(--border)]",
-        props.className,
-      )}
-    >
+    <figure className={cn("mt-4 py-3", props.className)}>
       <figcaption className="flex h-5 items-baseline justify-between text-xs text-subtle-foreground">
         <span>Tokens per day</span>
         {shown && (
