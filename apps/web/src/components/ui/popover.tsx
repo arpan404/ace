@@ -1,6 +1,6 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { cn } from "@/lib/cn.ts";
-import { popupSurface } from "./menu-styles.ts";
+import { layers, popupSurface } from "./menu-styles.ts";
 
 const Popover = PopoverPrimitive.Root;
 const PopoverTrigger = PopoverPrimitive.Trigger;
@@ -30,7 +30,7 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
-        className="isolate z-[60]"
+        className={cn(layers.popup, "isolate")}
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"

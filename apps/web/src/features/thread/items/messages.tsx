@@ -1,13 +1,17 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { GitForkIcon } from "@phosphor-icons/react";
-import { Suspense, useCallback } from "react";
+import { lazy, Suspense, useCallback } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredCopyAnswer } from "./deferred-review.ts";
 import { forkPointOf } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
 import { useStreaming } from "../transcript/use-streaming.ts";
+
+const RewindControl = lazy(() =>
+  import("../transitions/rewind-control.tsx").then((module) => ({ default: module.RewindControl })),
+);
 
 const CopyAnswer = DeferredCopyAnswer.Component;
 
@@ -36,6 +40,13 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
           <Suspense fallback={null}>
             <CopyAnswer text={text} />
           </Suspense>
+          {!name &&
+            item.nativeId &&
+            (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
+              <Suspense fallback={null}>
+                <RewindControl threadId={props.threadId} entryId={item.nativeId} />
+              </Suspense>
+            )}
           {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
         </div>
       )}

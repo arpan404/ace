@@ -47,6 +47,7 @@ export function Screen(
     <AppHeader
       title={props.title}
       subtitle={props.subtitle}
+      breadcrumb={props.breadcrumb}
       menu={props.menu}
       tools={props.tools}
       actions={props.actions}

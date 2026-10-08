@@ -66,6 +66,7 @@ import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
+  busy,
   drainQueue,
   interruptFacts,
   sendFacts,
@@ -73,7 +74,7 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, switchEvents } from "./transitions.ts";
+import { forkPointError, mergeForkError, switchEvents } from "./transitions.ts";
 import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export interface FakeDaemonOptions {
@@ -106,6 +107,7 @@ export interface ThreadInit {
   details?: Thread["details"];
   live?: Thread["live"];
   lineage?: Thread["lineage"];
+  execution?: Thread["execution"];
   permissionMode?: PermissionMode;
   parentThreadId?: string;
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
@@ -397,6 +399,7 @@ export class FakeDaemon implements Host {
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
+      ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: migratePermissionMode(init.provider, init.permissionMode),
         effective: migratePermissionMode(
@@ -664,6 +667,24 @@ export class FakeDaemon implements Host {
     this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "pi.control") {
+      const host = this.threads.get(message.threadId);
+      const valid =
+        host?.view.thread.provider === "pi" &&
+        !busy(host) &&
+        message.operation.kind === "rollback" &&
+        Object.values(host.view.items).some(
+          (item) =>
+            item.nativeId ===
+            (message.operation.kind === "rollback" ? message.operation.entryId : undefined),
+        );
+      connection.push({
+        type: "pi.result",
+        requestId: message.requestId,
+        result: valid ? { ok: true } : { ok: false, error: "Pi history point unavailable" },
+      });
+      return true;
+    }
     if (message.type === "terminal.request" && "terminalId" in message.operation) {
       const op = message.operation;
       const flow = this.services.authTerminals.get(op.terminalId);
@@ -1103,6 +1124,7 @@ export class FakeDaemon implements Host {
         this.createThread({
           ...started.thread,
           ...(from.details ? { details: from.details } : {}),
+          execution: payload.selection ?? { provider, options: {} },
           lineage: {
             parentThreadId: from.id,
             parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
@@ -1113,6 +1135,35 @@ export class FakeDaemon implements Host {
         });
         this.apply(id, started.facts);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
+      }
+      case "thread.merge": {
+        const fork = this.threads.get(payload.threadId);
+        if (!fork) return { commandId, ok: false, error: "thread_not_found" };
+        const parent = this.threads.get(fork.view.thread.lineage?.parentThreadId ?? "");
+        const error = mergeForkError(fork, parent, payload);
+        if (error || !parent)
+          return { commandId, ok: false, error: error ?? "source_thread_not_found" };
+        this.apply(parent.id, [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: `merge:${commandId}`,
+            draft: {
+              type: "message",
+              role: "user",
+              synthetic: true,
+              complete: true,
+              mergedContext: {
+                sourceThreadId: payload.threadId,
+                summary: payload.summary,
+                citations: payload.citations,
+                patchApplied: payload.patch !== undefined,
+              },
+              parts: [{ type: "text", text: payload.summary }],
+            },
+          },
+        ]);
+        return { commandId, ok: true };
       }
       case "thread.switch": {
         const host = this.threads.get(payload.threadId);

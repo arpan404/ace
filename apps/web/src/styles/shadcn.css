@@ -83,5 +83,3 @@
     display: none;
   }
 }
-
-/* The design's own .shimmer (styles/index.css) is the only shimmer; the vendored utility clashed with it. */

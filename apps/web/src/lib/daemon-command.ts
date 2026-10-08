@@ -45,6 +45,21 @@ const refusals: Record<string, string> = {
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",
+  fork_tree_is_live: "Wait for all agents in the fork to finish, then try again.",
+  source_tree_is_live: "Wait for all agents in the parent to finish before including code changes.",
+  source_thread_not_found: "The parent thread is gone. Keep the summary in this thread.",
+  thread_is_not_a_fork: "This thread has no parent to bring results back to.",
+  invalid_citation_thread: "The answer could not be linked. Reopen the fork and try again.",
+  merge_queue_capacity_exceeded:
+    "The parent has several results waiting. Try again after its next turn.",
+  merge_patch_too_large:
+    "The code changes are too large to bring back here. Bring back the summary and apply the changes in git.",
+  merge_patch_unavailable:
+    "Couldn't read code changes. Check that this thread has a git checkout, then try again.",
+  merge_patch_empty:
+    "There are no uncommitted code changes to include. Turn off Include code changes and try again.",
+  pi_rewind_failed:
+    "Couldn't rewind this conversation. Wait for all agents to finish. If the session has closed, send a message to resume it, then try again.",
   fork_point_unavailable: "That turn can't be forked.",
   provider_unavailable: "That provider isn't installed or signed in.",
   not_implemented: "ace on this machine can't do that yet.",

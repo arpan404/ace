@@ -1,3 +1,4 @@
+import { registerPiTurnBoundaries } from "./turn-boundary.ts";
 import { registerPiContextSamples } from "./context-usage.ts";
 import { z } from "zod";
 import {
@@ -84,6 +85,7 @@ export default async function aceExtension(
   delete env.ACE_PI_SESSION_FILE;
   const secret = session.controlSecret;
   registerPiContextSamples(pi);
+  registerPiTurnBoundaries(pi);
   pi.registerCommand("ace-rollback", {
     description: "ace conversation navigation",
     async handler(args, ctx) {
