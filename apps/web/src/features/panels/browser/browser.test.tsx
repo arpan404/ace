@@ -104,7 +104,7 @@ test("the browser shows the page an agent is driving, names the agent, and follo
     "turn-2",
   );
   expect(await within(panel).findByText("resume-sweep")).toBeTruthy();
-  expect(within(panel).getByText("is using this page", { exact: false })).toBeTruthy();
+  expect(within(panel).getByText("is browsing", { exact: false })).toBeTruthy();
   const frame = within(panel).getByRole("img", {
     name: "Live view of localhost:5173/settings/devices",
   });
@@ -121,12 +121,12 @@ test("the browser shows the page an agent is driving, names the agent, and follo
 
 test("taking control forwards clicks, wheel and keys, sizes the page to the panel, and hands back", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   // Before you take control, the page is a picture: nothing is forwarded.
   expect(within(panel).queryByRole("application")).toBeNull();
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
-  await within(panel).findByText("have control", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
+  await within(panel).findByText("in control", { exact: false });
   expect(browser.view("thread-cold-start")?.controller).toBe("human");
   // jsdom lays every element out 800px wide; the page starts at 760 and follows the panel.
   await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
@@ -158,13 +158,13 @@ test("taking control forwards clicks, wheel and keys, sizes the page to the pane
   await userEvent.click(
     within(panel).getAllByRole("button", { name: "Hand back" })[0] as HTMLElement,
   );
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   expect(browser.view("thread-cold-start")?.controller).toBe("agent");
 });
 
 test("⌃⇧C takes and hands back control from the keyboard", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
   await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
@@ -173,7 +173,7 @@ test("⌃⇧C takes and hands back control from the keyboard", async () => {
 
 test("an address takes the page from the agent and opens; Back returns; a dead port says why", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
 
   await goTo(panel, "docs.example.com/guide");
   await waitFor(() =>
@@ -202,8 +202,8 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
 
 test("Back dismisses a failed first address even when the document has no earlier entry", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await within(panel).findByText("is browsing", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
   const retainedFrame = browser.frame("thread-cold-start")?.sequence;
   await goTo(panel, "localhost:4321");
@@ -220,7 +220,7 @@ test("Back dismisses a failed first address even when the document has no earlie
 
 test("document Back and Forward follow successful navigation and Reload refreshes the current page", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "docs.example.com/guide");
   await waitFor(() =>
     expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
@@ -250,7 +250,7 @@ test("document Back and Forward follow successful navigation and Reload refreshe
 
 test("Back traverses a failed navigation that replaced the document and clears the error", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "docs.example.com/guide");
   await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
   // Chromium can commit an error document before returning a navigation failure.
@@ -272,7 +272,7 @@ test("Back traverses a failed navigation that replaced the document and clears t
 
 test("text that isn't an address is refused instead of searched", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "how to center a div");
   expect(await within(panel).findByText(/That isn't an address/)).toBeTruthy();
   expect(browser.view("thread-cold-start")?.url).toBe("localhost:5173/settings/devices");
@@ -298,7 +298,7 @@ test("a thread's first page downloads the browser with progress, then opens the 
 
 test("the page lives in one browser tab; another offers to load its own address there", async () => {
   const { panel } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "docs.example.com");
   await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
 
@@ -323,11 +323,29 @@ test("the page lives in one browser tab; another offers to load its own address 
 
 test("leaving the browser while holding control hands the page back to the agent", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take control" }));
+  await within(panel).findByText("is browsing", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
+});
+
+test("when the window loses focus to the page, the chrome lets go of its focused button but keeps an address being typed", async () => {
+  const { panel } = await openBrowser();
+  await within(panel).findByText("is browsing", { exact: false });
+  const takeOver = within(panel).getByRole("button", { name: "Take over" });
+  takeOver.focus();
+  expect(document.activeElement).toBe(takeOver);
+  // The desktop's native page taking focus blurs the app's window.
+  act(() => window.dispatchEvent(new FocusEvent("blur")));
+  expect(document.activeElement).not.toBe(takeOver);
+
+  const field = address(panel) as HTMLInputElement;
+  await userEvent.click(field);
+  await userEvent.keyboard("docs.exa");
+  act(() => window.dispatchEvent(new FocusEvent("blur")));
+  expect(document.activeElement).toBe(field);
+  expect(field.value).toBe("docs.exa");
 });
 
 /** Hide or show the page, as switching tabs or minimising the window does. */
@@ -338,7 +356,7 @@ function visibility(state: DocumentVisibilityState) {
 
 test("while the window is hidden the browser stops pulling frames, and shows the latest once shown", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   const page = () =>
     within(panel).getByRole("img", { name: "Live view of localhost:5173/settings/devices" });
   try {
@@ -362,7 +380,7 @@ test("while the window is hidden the browser stops pulling frames, and shows the
 
 test("a tab whose page has closed (as after a restart) names that page and opens it again", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is using this page", { exact: false });
+  await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "docs.example.com/guide");
   await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
 

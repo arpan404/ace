@@ -70,6 +70,7 @@ async function browser(window: BrowserWindow, config: ScenarioConfig): Promise<v
   // The embedded browser, through the real view host, as the daemon's `open`/`close` do.
   const views = new EmbeddedViews({
     window: () => window,
+    partitionsDir: `${app.getPath("userData")}/Partitions`,
     platform: process.platform,
     log: (message) => console.error(message),
   });

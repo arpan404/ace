@@ -15,8 +15,17 @@ const timeout = z.number().int().min(1).max(30_000).default(10_000);
 export const BrowserOpen = z.object({
   threadId: ThreadId,
   workspaceId: WorkspaceId,
-  profile: z.enum(["ephemeral", "persistent"]).default("ephemeral"),
+  /**
+   * `persistent` keeps the thread's own cookies and storage across opens; `ephemeral` is a
+   * private, in-memory profile removed on close. Omitted: the `browser.profile` setting.
+   */
+  profile: z.enum(["ephemeral", "persistent"]).optional(),
   headed: z.boolean().default(false),
+  /**
+   * Opened for agent work. It never changes which backend is chosen: an agent drives the
+   * desktop's native view when one is available. After that view is lost, agent work
+   * continues headlessly at the last URL unless a person holds the page.
+   */
   background: z.boolean().default(false),
 });
 export type BrowserOpen = z.infer<typeof BrowserOpen>;

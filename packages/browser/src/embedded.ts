@@ -4,9 +4,9 @@ import { modelScreenshot } from "./model-screenshot.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
+  BrowserBackendOperation,
   BrowserBackendClientMessage,
   type BrowserBackendServerMessage,
-  type BrowserBackendOperation,
   type BrowserBackendRequest,
 } from "@ace/protocol";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
@@ -89,7 +89,8 @@ export class EmbeddedBackend implements BrowserBackend {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
-    if (!session) return Promise.reject(new Error("Desktop browser session closed"));
+    if (!session && operation.kind !== "purge")
+      return Promise.reject(new Error("Desktop browser session closed"));
     if (this.pending.size >= 128) return Promise.reject(new Error("Browser relay request limit"));
     const id = String(++this.sequence);
     const message: BrowserBackendRequest = {
@@ -112,8 +113,9 @@ export class EmbeddedBackend implements BrowserBackend {
         () => {
           signal?.removeEventListener("abort", abort);
           this.pending.delete(id);
-          session.pending.delete(id);
+          session?.pending.delete(id);
           reject(new Error("Desktop browser command timed out"));
+          if (!session) return;
           // Uncertain work belongs to this session, never to its siblings.
           this.loseSession(sessionId, "Desktop browser command timed out");
           try {
@@ -136,11 +138,11 @@ export class EmbeddedBackend implements BrowserBackend {
       const abort = () => {
         cancel();
         this.pending.delete(id);
-        session.pending.delete(id);
+        session?.pending.delete(id);
         reject(signal?.reason ?? new Error("Desktop browser command cancelled"));
       };
       this.pending.set(id, { sessionId, resolve, reject, cancel });
-      session.pending.add(id);
+      session?.pending.add(id);
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) {
         abort();
@@ -151,7 +153,7 @@ export class EmbeddedBackend implements BrowserBackend {
       } catch (error) {
         cancel();
         this.pending.delete(id);
-        session.pending.delete(id);
+        session?.pending.delete(id);
         reject(error);
       }
     });
@@ -288,9 +290,24 @@ export class EmbeddedBackend implements BrowserBackend {
     session.cleanup();
     session.request.lost(reason);
   }
+  /** Ask the desktop to drop a deleted thread's persistent partition (and any view of it). */
+  async purge(threadId: string, workspaceId: string): Promise<void> {
+    const operation = { kind: "purge" as const, threadId, workspaceId };
+    await this.call(
+      `${this.id}-purge-${++this.sequence}`,
+      BrowserBackendOperation.parse(operation),
+    );
+  }
   disconnect(reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    for (const [id, waiter] of this.pending) {
+      // Session-less requests (purges) have no session to reject them on loss.
+      if (this.sessions.has(waiter.sessionId)) continue;
+      this.pending.delete(id);
+      waiter.cancel();
+      waiter.reject(new Error(reason));
+    }
     this.lost();
     for (const sessionId of this.sessions.keys()) {
       try {

@@ -63,6 +63,12 @@ export interface BrowserServiceOptions {
     options: BrowserOpen,
   ) => "auto" | "embedded" | "headless" | Promise<"auto" | "embedded" | "headless">;
   backendLoss?: (options: BrowserOpen) => "pause" | "headless" | Promise<"pause" | "headless">;
+  /** The profile for an open that names none; the library default is `ephemeral`. */
+  profilePreference?: (
+    options: BrowserOpen,
+  ) => "persistent" | "ephemeral" | Promise<"persistent" | "ephemeral">;
+  /** A desktop backend registered; called after the registration reply is on its way. */
+  onEmbeddedRegistered?: () => void;
   acquisition?: Omit<ChromiumAcquisitionOptions, "dataDir" | "signal" | "progress">;
   onDownload?: (progress: BrowserDownloadProgress) => void;
   onBackendLost?: (event: BrowserBackendLost) => void;
