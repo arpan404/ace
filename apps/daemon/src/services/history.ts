@@ -6,6 +6,9 @@ export async function startHistory(context: ServiceContext): Promise<void> {
   if (!options.history) return;
   const history = await openDaemonHistory(config.dataDir, store, {
     ...options.history,
+    ...((options.history.adapters ?? services.historyAdapters)
+      ? { adapters: options.history.adapters ?? services.historyAdapters }
+      : {}),
     signal: context.signal,
   });
   resources.own(() => history.close());

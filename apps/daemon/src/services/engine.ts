@@ -1,3 +1,4 @@
+import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
 import { configuredDiscovery } from "../provider-discovery.ts";
 import { logError, logFields, logMetadata } from "@ace/diagnostics";
@@ -84,7 +85,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const bindProvider = (source: ProviderAdapter) => {
     const adapter = configuredAdapter(source, services.providerConfigurations);
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
-      return withDaemonMcp(context, adapter);
+      return withDaemonMcp(context, {
+        ...adapter,
+        openSession: async (session) =>
+          adapter.openSession((await historySessionContext(context, session)) ?? session),
+      });
     const sdkBinding =
       adapter.backend === "cursor-sdk" ? bindCursorSdk(accounts, cursorOptions) : undefined;
     if (sdkBinding) services.cursorAccounts = sdkBinding;
@@ -93,7 +98,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     const wrapped: ProviderAdapter = {
       ...adapter,
       ...(bound.close ? { close: () => bound.close?.() ?? Promise.resolve() } : {}),
-      openSession(session) {
+      async openSession(session) {
+        const historyContext = await historySessionContext(context, session);
+        if (historyContext) return adapter.openSession(historyContext);
         if (
           adapter.backend === "cursor-sdk" &&
           session.instanceId === defaultInstance.id &&
@@ -298,6 +305,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       services.browserOrigins?.resolve(command),
   );
   services.engine = engine;
+  services.historyAdapters = historyEnginePort(context, engine, registry);
   services.browserOrigins?.recover();
   services.screenApprovals?.recover();
   services.browserApprovals?.recover();

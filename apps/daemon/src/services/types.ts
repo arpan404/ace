@@ -81,6 +81,7 @@ export interface Services {
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationWorker;
   review: ReturnType<typeof createDaemonReview>;
+  historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;
   history?: DaemonHistory;
   usage: ReturnType<typeof createDaemonUsage>;
 }

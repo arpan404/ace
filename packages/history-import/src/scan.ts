@@ -63,6 +63,7 @@ export async function scan(
           );
     if (changed?.length === 0) continue;
     const epoch = catalog.start(instance.id);
+    const readsBefore = result.reads;
     {
       const roots =
         changed?.filter((path) => !isRootDatabase(instance, path)) ?? inventoryRoots(instance);
@@ -218,10 +219,13 @@ export async function scan(
         for (const path of changed) await catalog.updates.prune(instance.id, path, epoch, signal);
         await catalog.updates.summarize(instance.id, signal);
       } else {
-        await catalog.prune(instance.id, epoch, signal);
-        await catalog.summarizeTree(instance.id, signal, () =>
-          progress(result.files, { ...result }),
-        );
+        const removed = await catalog.prune(instance.id, epoch, signal);
+        // The saved tree already has recency for unchanged sources. Avoid rewriting
+        // every summary on warm startup, while still reconciling deletions.
+        if (removed || result.reads !== readsBefore)
+          await catalog.summarizeTree(instance.id, signal, () =>
+            progress(result.files, { ...result }),
+          );
       }
     }
   }
