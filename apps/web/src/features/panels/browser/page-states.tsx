@@ -183,29 +183,34 @@ export function LoadFailed(props: {
 }
 
 /**
- * The thread has one live page and another tab is showing it. This tab keeps its own address
- * and can take the page over.
+ * This tab's page is open, but another of the thread's pages is the live one (the one the agent
+ * works in). Showing it here makes it the live page, taking control from an agent if one drives.
  */
-export function Parked(props: {
+export function Background(props: {
   url: string;
-  liveUrl: string;
-  onShowHere(): void;
-  onGoToTab(): void;
+  agent: boolean;
+  disabled?: string | undefined;
+  onShow(): void;
 }) {
+  const address = displayAddress(props.url) || "A blank page";
   return (
     <EmptyState
       icon={GlobeSimpleIcon}
-      title="The page is in another tab"
-      description={`This thread has one live page, showing ${displayAddress(props.liveUrl) || "a blank page"} in another tab. Load ${displayAddress(props.url)} here to move it to this tab.`}
+      title={addressHost(props.url) ?? address}
+      description={
+        props.agent
+          ? `An agent is using another page of this thread. Show ${address} to take over and switch to it.`
+          : `${address} is open in the background.`
+      }
       action={
-        <div className="flex gap-2">
-          <Button size="sm" onClick={props.onShowHere}>
-            Load it here
-          </Button>
-          <Button size="sm" variant="ghost" onClick={props.onGoToTab}>
-            Go to that tab
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          disabled={props.disabled !== undefined}
+          title={props.disabled}
+          onClick={props.onShow}
+        >
+          Show this page
+        </Button>
       }
     />
   );

@@ -150,5 +150,5 @@ export function browserChord(input: KeyInput, platform: NodeJS.Platform): string
   )
     return;
   const key = pressedKey(input);
-  return key && ["L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
+  return key && ["T", "L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
 }

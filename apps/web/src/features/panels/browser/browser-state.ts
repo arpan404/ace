@@ -4,9 +4,9 @@ import type { WorkspaceTab } from "@/lib/workspace/index.ts";
 import { useScopedRecent, useScopedRecentStore, type ScopedRecent } from "../recent-store.ts";
 
 /*
- * The Browser tool's local state. A thread has one live page on the daemon (the browser
- * service keeps one session per thread), and any number of browser tabs: each remembers its own
- * address and history, and the tab that last drove the page is the one showing it live.
+ * The Browser tool's local state. A thread has one browser session on the daemon with up to
+ * eight pages; each browser tab shows one of them (`page-tabs.ts`) and remembers its own
+ * address and history, so a tab whose page closed can open it again.
  */
 
 const History = z.object({ entries: z.array(z.string()), index: z.number() });
@@ -20,6 +20,10 @@ export const BrowserTabData = z.object({
   viewport: z.optional(z.string()),
   /** Opened with an address (the launcher, Suggested): go there once the tab shows. */
   go: z.optional(z.boolean()),
+  /** The daemon page (its tab id) this tab shows. */
+  page: z.optional(z.string()),
+  /** An agent opened the page, not the person. */
+  agent: z.optional(z.boolean()),
 });
 export type BrowserTabData = Omit<z.infer<typeof BrowserTabData>, "history"> & {
   history?: PageHistory | undefined;

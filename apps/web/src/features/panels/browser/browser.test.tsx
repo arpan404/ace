@@ -126,7 +126,7 @@ test("taking control forwards clicks, wheel and keys, sizes the page to the pane
   expect(within(panel).queryByRole("application")).toBeNull();
 
   await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await within(panel).findByText("in control", { exact: false });
+  await within(panel).findByText("You're browsing", { exact: false });
   expect(browser.view("thread-cold-start")?.controller).toBe("human");
   // jsdom lays every element out 800px wide; the page starts at 760 and follows the panel.
   await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
@@ -296,29 +296,43 @@ test("a thread's first page downloads the browser with progress, then opens the 
   expect(browser.view("thread-settings")?.closed).toBe(false);
 });
 
-test("the page lives in one browser tab; another offers to load its own address there", async () => {
-  const { panel } = await openBrowser();
+test("each browser tab holds one page: a new tab's address opens a page beside the first, which keeps its own", async () => {
+  const { panel, browser } = await openBrowser();
   await within(panel).findByText("is browsing", { exact: false });
   await goTo(panel, "docs.example.com");
   await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
+  const first = browser.view("thread-cold-start")?.activeTabId;
 
-  // A new tab from the launcher's address bar takes an address of its own.
+  // A new tab from the launcher's address bar opens a page of its own.
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const launcherAddress = await within(panel).findByRole("combobox", { name: "Address" });
   await userEvent.type(launcherAddress, "example.org{Enter}");
   await within(panel).findByRole("tab", { name: "example.org", selected: true });
-  await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("example.org"));
+  await waitFor(() => expect(browser.tabsList("thread-cold-start")).toHaveLength(2));
+  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/");
 
-  // The first tab still remembers docs.example.com, and can take the page back.
+  // The first tab still has its page; showing it (holding the page) makes it the live one.
   await userEvent.click(within(panel).getByRole("tab", { name: "docs.example.com" }));
+  await waitFor(() => expect(browser.view("thread-cold-start")?.activeTabId).toBe(first));
+  await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com"));
+  expect(browser.tabsList("thread-cold-start")).toHaveLength(2);
+});
+
+test("a link that opens a new window opens it in a browser tab of its own and shows it", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is browsing", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
+  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
+  // The page's window.open (a target=_blank link) becomes a new page of the session.
+  act(() => browser.tabOpen("thread-cold-start", "https://help.example.com/start"));
   expect(
-    await within(panel).findByRole("heading", { name: "The page is in another tab" }),
+    await within(panel).findByRole("tab", { name: "help.example.com", selected: true }),
   ).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("button", { name: "Load it here" }));
   await waitFor(() =>
-    expect(within(panel).queryByRole("heading", { name: "The page is in another tab" })).toBeNull(),
+    expect((address(panel) as HTMLInputElement).value).toBe("help.example.com/start"),
   );
-  expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com");
+  // The page it came from keeps its own tab.
+  expect(within(panel).getByRole("tab", { name: /^localhost:5173/ })).toBeTruthy();
 });
 
 test("leaving the browser while holding control hands the page back to the agent", async () => {

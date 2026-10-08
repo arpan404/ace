@@ -1,7 +1,5 @@
 import {
-  ArrowSquareOutIcon,
   ArrowUpRightIcon,
-  DevicesIcon,
   DotsThreeIcon,
   FileTextIcon,
   GlobeIcon,
@@ -208,20 +206,6 @@ function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
       }
       actions={
         <>
-          <IconButton
-            icon={DevicesIcon}
-            label={`Page size · ${noPage}`}
-            disabled
-            focusableWhenDisabled
-            className={toolbarButton}
-          />
-          <IconButton
-            icon={ArrowSquareOutIcon}
-            label={`Open in your browser · ${noPage}`}
-            disabled
-            focusableWhenDisabled
-            className={toolbarButton}
-          />
           <IconButton
             icon={DotsThreeIcon}
             label={`Browser options · ${noPage}`}

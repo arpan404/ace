@@ -5,39 +5,59 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
-import { AgentTabs } from "./agent-tabs.tsx";
-import { ControlPill, useControl } from "./control-strip.tsx";
+import { BrowserControl, controlState, PrivateToggle, useControl } from "./browser-control.tsx";
+import { browserTabData } from "./browser-state.ts";
 import { PageDialog } from "./page-dialog.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { useNativeView } from "./native-view.ts";
-import { LoadFailed, Offline, Opening, Parked, Reopen, StartPage } from "./page-states.tsx";
+import { Background, LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
+import { SiteAccess } from "./site-access.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
+import { useNewBrowserTab, usePageSync } from "./use-page-sync.ts";
 import { viewportById } from "./viewports.ts";
 
 /**
- * A browser tab: an editable address over the thread's live page, with Back, Forward, Reload,
- * the control lease, device sizes and opening the page in this device's own browser. The page
- * fills the panel on ace's own surface; a failed load keeps its address with Reload; a tab whose
- * address isn't the live page's offers to load it here.
+ * A browser tab: one page of the thread's browser, with an editable address, Back, Forward,
+ * Reload, who drives it (Take over, Hand back, Make private), device sizes and opening the page
+ * in this device's own browser. The page fills the panel on ace's own surface; a failed load
+ * keeps its address with Reload; a tab whose page is in the background shows it on request.
  */
 function Browser(props: TabViewProps) {
   const [finding, setFinding] = useState(false);
   const threadId = props.scope;
   const { preview: source } = usePanelServices();
-  const page = useBrowserTab(source, threadId, props.tab);
-  const actions = useWorkspaceActions(threadId);
+  const browser = useBrowserFeatures(source, threadId);
+  const page = useBrowserTab(source, threadId, props.tab, browser.features);
   const toast = useToast();
   const control = useControl(source, threadId, page.live);
-  const browser = useBrowserFeatures(source, threadId);
+  const newTab = useNewBrowserTab(threadId);
+  usePageSync(source, threadId, page.live, browser);
+  const workspace = useScopeWorkspace(threadId);
+  const shown = workspace.open && workspace.active === props.tab.key;
+  // Shown while the person holds the page, a background page becomes the live one.
+  const background = page.background?.tabId;
+  const switchable = !!page.heldAs && page.live?.controller === "human";
+  useEffect(() => {
+    if (!shown || !background || !switchable) return;
+    // The daemon may get there by itself (closing the live page makes another one live): ask
+    // only if it still hasn't, and quietly, since a page that just closed is no failure.
+    const timer = setTimeout(() => {
+      if (source.view(threadId)?.activeTabId !== background)
+        void browser.features.switchTab(threadId, background).catch(() => {});
+    }, 50);
+    return () => clearTimeout(timer);
+    // Only showing the tab (or getting control while it shows) switches.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, background, switchable]);
   // The rail's indicator: an agent drives this page, or it is held privately.
   const live = page.live;
   const reported = live && {
@@ -103,7 +123,8 @@ function Browser(props: TabViewProps) {
     return () => removeEventListener("blur", release);
   }, []);
   const shortcut = (accelerator: BrowserAccelerator) => {
-    if (accelerator === "CmdOrCtrl+L")
+    if (accelerator === "CmdOrCtrl+T") newTab();
+    else if (accelerator === "CmdOrCtrl+L")
       root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
     else if (accelerator === "CmdOrCtrl+F") setFinding(true);
     else if (accelerator === "CmdOrCtrl+R") page.reload();
@@ -119,7 +140,8 @@ function Browser(props: TabViewProps) {
     const mod = event.metaKey || event.ctrlKey;
     if (!mod || event.altKey) return;
     const key = event.key.toLowerCase();
-    if (key === "l") shortcut("CmdOrCtrl+L");
+    if (key === "t" && !event.shiftKey) shortcut("CmdOrCtrl+T");
+    else if (key === "l") shortcut("CmdOrCtrl+L");
     else if (key === "f" && !event.shiftKey) shortcut("CmdOrCtrl+F");
     else if (key === "r" && !event.shiftKey) shortcut("CmdOrCtrl+R");
     else if (event.code === "BracketLeft" && !event.shiftKey) shortcut("CmdOrCtrl+[");
@@ -179,13 +201,13 @@ function Browser(props: TabViewProps) {
   else if (!page.online) content = <Offline />;
   else if (loading || (page.bound && page.live && !page.frame))
     content = <Opening download={page.download} />;
-  else if (page.live && !page.bound && page.data.url && page.owner)
+  else if (page.background)
     content = (
-      <Parked
-        url={page.data.url}
-        liveUrl={page.live.url}
-        onShowHere={() => page.data.url && page.go(page.data.url)}
-        onGoToTab={() => page.owner && actions.activate(page.owner)}
+      <Background
+        url={page.background.url}
+        agent={page.live?.controller === "agent"}
+        disabled={offline}
+        onShow={() => background && void browser.switchTab(background)}
       />
     );
   else if (page.data.url && !page.bound)
@@ -199,24 +221,18 @@ function Browser(props: TabViewProps) {
     );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
-  const tabs = !!page.live && !page.live.closed && !!page.live.tabs?.length;
-  const pill = page.bound && !!page.live;
+  const held = page.bound ? page.live : undefined;
+  const privately = held?.takeoverMode === "private";
+  // A page's question shows in its own tab, or in the live one when no tab shows its page.
+  const dialogTab = page.live?.pendingDialog?.tabId;
+  const dialogHere =
+    dialogTab === page.data.page ||
+    (page.bound &&
+      !workspace.tabs.some(
+        (each) => each.kind === "browser" && browserTabData(each).page === dialogTab,
+      ));
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
-      {page.live && (tabs || pill) && (
-        <div className="@container flex h-9 shrink-0 items-end gap-1 px-1.5">
-          {tabs && <AgentTabs view={page.live} browser={browser} busy={control.busy} />}
-          {pill && (
-            <ControlPill
-              view={page.live}
-              heldHere={!!page.heldAs}
-              busy={control.busy}
-              onToggle={control.toggle}
-              onPrivate={control.takePrivately}
-            />
-          )}
-        </div>
-      )}
       <PageToolbar
         nav={
           <PageNav
@@ -263,28 +279,60 @@ function Browser(props: TabViewProps) {
             }
             autoFocus={!props.tab.data}
             onGo={page.go}
+            lead={<SiteAccess threadId={threadId} browser={browser} url={shownUrl} />}
+            trail={
+              held && (
+                <PrivateToggle
+                  view={held}
+                  heldHere={!!page.heldAs}
+                  busy={control.busy}
+                  onPrivate={control.takePrivately}
+                />
+              )
+            }
+            tone={privately ? "private" : undefined}
           />
         }
         actions={
-          <BrowserActions
-            source={source}
-            threadId={threadId}
-            shownUrl={shownUrl}
-            external={external}
-            viewport={viewport}
-            onViewport={setViewport}
-            live={!!page.live}
-            online={page.online}
-            backend={page.live?.backend}
-            browser={browser}
-            onFind={() => setFinding(true)}
-            downloads={page.live?.downloads ?? []}
-            privately={page.live?.takeoverMode === "private"}
-          />
+          <>
+            {held && (
+              <BrowserControl
+                view={held}
+                heldHere={!!page.heldAs}
+                busy={control.busy}
+                onToggle={control.toggle}
+                onPrivate={control.takePrivately}
+              />
+            )}
+            <BrowserActions
+              source={source}
+              threadId={threadId}
+              shownUrl={shownUrl}
+              external={external}
+              viewport={viewport}
+              onViewport={setViewport}
+              live={!!page.live}
+              online={page.online}
+              backend={page.live?.backend}
+              browser={browser}
+              onFind={() => setFinding(true)}
+              downloads={page.live?.downloads ?? []}
+              privately={page.live?.takeoverMode === "private"}
+              onNewTab={newTab}
+              onPrivate={
+                held && controlState(held, !!page.heldAs, undefined).canPrivate
+                  ? control.takePrivately
+                  : undefined
+              }
+            />
+          </>
         }
+        agent={held?.controller === "agent"}
         progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
-      {page.live && !page.live.closed && <PageDialog view={page.live} browser={browser} />}
+      {page.live && !page.live.closed && dialogHere && (
+        <PageDialog view={page.live} browser={browser} />
+      )}
       {finding && page.live && (
         <FindPage source={source} threadId={threadId} onClose={() => setFinding(false)} />
       )}

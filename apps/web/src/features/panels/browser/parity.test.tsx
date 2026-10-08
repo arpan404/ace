@@ -18,32 +18,61 @@ async function openBrowser() {
   return { app, panel, browser: app.daemon.browser };
 }
 
-test("the agent's tabs show by name; switching and closing one is what the daemon's browser does", async () => {
+test("a page an agent opens gets a browser tab of its own, named by its site, and the panel follows it", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByRole("tab", { name: /^localhost:5173/, selected: true });
+  act(() => browser.tabOpen(threadId, "https://status.example/"));
+  // The person was watching the live page, so the panel shows the agent's new page.
+  expect(
+    await within(panel).findByRole("tab", { name: /^status\.example/, selected: true }),
+  ).toBeTruthy();
+  expect(
+    within(panel)
+      .getAllByRole("tab")
+      .filter((tab) => /^(localhost|status)/.test(tab.textContent ?? "")),
+  ).toHaveLength(browser.tabsList(threadId).length);
+  // No strip of pages inside the browser: one page per tab.
+  expect(within(panel).queryByRole("tablist", { name: "Agent tabs" })).toBeNull();
+});
+
+test("when an agent closes a page it opened, that page's tab goes with it", async () => {
   const { panel, browser } = await openBrowser();
   act(() => browser.tabOpen(threadId, "https://status.example/"));
-  const strip = await within(panel).findByRole("tablist", { name: "Agent tabs" });
-  const tabs = within(strip).getAllByRole("tab");
-  expect(tabs).toHaveLength(browser.tabsList(threadId).length);
-  // The agent's newest tab is the one it shows.
-  expect(within(strip).getByRole("tab", { selected: true })).toBe(tabs.at(-1));
-
-  await userEvent.click(tabs[0]!);
+  await within(panel).findByRole("tab", { name: /^status\.example/ });
+  const opened = browser.tabsList(threadId).find((tab) => tab.url === "https://status.example/");
+  act(() => browser.tabClose(threadId, opened?.tabId ?? ""));
   await waitFor(() =>
-    expect(browser.view(threadId)?.activeTabId).toBe(browser.tabsList(threadId)[0]?.tabId),
+    expect(within(panel).queryByRole("tab", { name: /^status\.example/ })).toBeNull(),
   );
-  // Switching needs the person's lease, so it took control first.
+  // The page that stays keeps its tab, live again.
+  expect(
+    await within(panel).findByRole("tab", { name: /^localhost:5173/, selected: true }),
+  ).toBeTruthy();
+});
+
+test("showing another page's tab switches the page, and closing a page's tab closes that page", async () => {
+  const { panel, browser } = await openBrowser();
+  const [first] = browser.tabsList(threadId);
+  act(() => browser.tabOpen(threadId, "https://status.example/"));
+  await within(panel).findByRole("tab", { name: /^status\.example/, selected: true });
+
+  // The agent drives the other page, so this one waits until the person asks to see it.
+  await userEvent.click(within(panel).getByRole("tab", { name: /^localhost:5173/ }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Show this page" }));
+  await waitFor(() => expect(browser.view(threadId)?.activeTabId).toBe(first?.tabId));
+  // Switching pages needs the person's lease, so it took control first.
   expect(browser.view(threadId)?.controller).toBe("human");
 
-  const [first] = browser.tabsList(threadId);
-  await userEvent.click(within(strip).getAllByRole("button", { name: /^Close / })[0]!);
+  // Holding the page, showing a tab switches to its page straight away.
+  await userEvent.click(within(panel).getByRole("tab", { name: /^status\.example/ }));
+  await waitFor(() => expect(browser.view(threadId)?.url).toBe("https://status.example/"));
+
+  const status = browser.tabsList(threadId).find((tab) => tab.url === "https://status.example/");
+  await userEvent.click(within(panel).getByRole("button", { name: /^Close status\.example/ }));
   await waitFor(() =>
-    expect(browser.tabsList(threadId).map((tab) => tab.tabId)).not.toContain(first?.tabId),
+    expect(browser.tabsList(threadId).map((tab) => tab.tabId)).not.toContain(status?.tabId),
   );
-  // With one tab left there is nothing to switch between, so the strip goes.
-  const left = () =>
-    within(panel).queryByRole("tablist", { name: "Agent tabs" })?.querySelectorAll('[role="tab"]')
-      .length ?? 1;
-  await waitFor(() => expect(left()).toBe(tabs.length - 1));
+  expect(browser.tabsList(threadId).map((tab) => tab.tabId)).toEqual([first?.tabId]);
 });
 
 test("a page's question waits in the panel, and answering it clears it on the daemon", async () => {
@@ -114,14 +143,16 @@ test("making a page you hold private keeps your control, and Hand back ends priv
   const { panel, browser } = await openBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(browser.view(threadId)?.controller).toBe("human"));
-  await within(panel).findByText("in control", { exact: false });
+  await within(panel).findByText("You're browsing", { exact: false });
 
   await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
   await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
   expect(browser.view(threadId)?.controller).toBe("human");
-  // Private already: there is nothing more to make private, only Hand back.
+  // Private already: the toggle shows it, and Hand back is what ends it.
   await waitFor(() =>
-    expect(within(panel).queryByRole("button", { name: "Make private" })).toBeNull(),
+    expect(
+      within(panel).getByRole("button", { name: "Make private" }).getAttribute("aria-pressed"),
+    ).toBe("true"),
   );
 
   await userEvent.click(within(panel).getByRole("button", { name: "Hand back" }));
@@ -137,7 +168,7 @@ test("a private page whose holder dropped stays paused for agents until it is ta
   const owner = browser.view(threadId)?.owner ?? "";
   act(() => browser.disconnect(owner));
 
-  expect(await within(panel).findByText("Private · paused")).toBeTruthy();
+  expect(await within(panel).findByText("Private and paused", { exact: false })).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: "Take over" })).toBeNull();
   await userEvent.click(within(panel).getByRole("button", { name: "Take back privately" }));
   await waitFor(() =>
@@ -187,22 +218,32 @@ test("closing the browser tab keeps a private page private: agents stay locked o
   expect(browser.frame(threadId)?.src).toBe(before);
 });
 
-test("the person opens a new page tab without replacing the current page", async () => {
+test("⌘T opens a new browser tab whose address opens a page of its own beside the current one", async () => {
   const { panel, browser } = await openBrowser();
   const first = browser.view(threadId)?.activeTabId;
-  const count = browser.tabsList(threadId).length;
-  await userEvent.click(within(panel).getByRole("button", { name: "New page tab" }));
-  await waitFor(() => expect(browser.tabsList(threadId)).toHaveLength(count + 1));
+  await userEvent.click(within(panel).getByRole("combobox", { name: "Address" }));
+  await userEvent.keyboard("{Meta>}t{/Meta}");
+  await within(panel).findByRole("tab", { name: "New page", selected: true });
+  const address = await within(panel).findByRole("combobox", { name: "Address" });
+  await waitFor(() => expect(document.activeElement).toBe(address));
+  await userEvent.type(address, "docs.example.com{Enter}");
+
+  await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
+  await waitFor(() => expect(browser.tabsList(threadId)).toHaveLength(2));
   expect(browser.tabsList(threadId).some((tab) => tab.tabId === first)).toBe(true);
-  expect(browser.view(threadId)?.activeTabId).not.toBe(first);
+  expect(browser.view(threadId)?.url).toBe("https://docs.example.com/");
+  // Still one browser tab per page.
+  expect(
+    within(panel).getAllByRole("tab", { name: /^(localhost:5173|docs\.example\.com)/ }),
+  ).toHaveLength(2);
 });
 
-test("picking a page size closes the chooser so the page can receive input again", async () => {
+test("picking a page size from the options closes the menu so the page can receive input again", async () => {
   const { panel } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Page size" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: /iPhone 16 Pro/ }));
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   expect(
-    within(panel).getByRole("button", { name: "Page size" }).getAttribute("aria-expanded"),
+    within(panel).getByRole("button", { name: "Browser options" }).getAttribute("aria-expanded"),
   ).toBe("false");
 });

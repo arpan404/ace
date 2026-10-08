@@ -214,7 +214,14 @@ export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(25
 export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
 /** A toolbar shortcut from the thread's native page. */
 export const BrowserShortcut = BrowserWantsControl.extend({
-  accelerator: z.enum(["CmdOrCtrl+L", "CmdOrCtrl+F", "CmdOrCtrl+R", "CmdOrCtrl+[", "CmdOrCtrl+]"]),
+  accelerator: z.enum([
+    "CmdOrCtrl+T",
+    "CmdOrCtrl+L",
+    "CmdOrCtrl+F",
+    "CmdOrCtrl+R",
+    "CmdOrCtrl+[",
+    "CmdOrCtrl+]",
+  ]),
 });
 export type BrowserShortcut = z.infer<typeof BrowserShortcut>;
 /** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */

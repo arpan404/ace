@@ -61,7 +61,8 @@ const screens: Record<string, Setup> = {
   },
   "browser-tabs-dialog": async (page) => {
     await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);
-    await expect(panel(page).getByRole("tablist", { name: "Agent tabs" })).toBeVisible();
+    // Each of the agent's pages is a browser tab of the panel's own.
+    await expect(panel(page).getByRole("tab", { name: /^status\.example\.com/ })).toBeVisible();
     await expect(panel(page).getByRole("alertdialog")).toBeVisible();
   },
   "browser-downloads": async (page) => {
@@ -81,8 +82,11 @@ const screens: Record<string, Setup> = {
     // Answer the page first: a pending question holds every other command.
     await panel(page).getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
     await panel(page).getByRole("button", { name: "Make private", exact: true }).click();
-    // Private: the toggle is gone and the pill offers only Hand back.
-    await expect(panel(page).getByRole("button", { name: "Make private" })).toHaveCount(0);
+    // Private: the toggle shows it pressed, and Hand back is what ends it.
+    await expect(panel(page).getByRole("button", { name: "Make private" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await expect(panel(page).getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
   },
   "devices-delegated": async (page) => {

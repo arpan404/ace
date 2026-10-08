@@ -117,10 +117,15 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           return !!box && Math.abs(height - box.height) < 2;
         })
         .toBe(true);
-      await p.getByRole("button", { name: "New page tab" }).click();
+      // A new browser tab's address opens a page of its own; closing the tab closes it.
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitem", { name: "New browser tab" }).click();
+      await address.fill(new URL("/second", s.url).href);
+      await address.press("Enter");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await p.getByRole("tab", { name: "Fixture", exact: true }).click();
-      await p.getByRole("button", { name: "Close New tab", exact: true }).click();
+      await p.keyboard.press("ControlOrMeta+Alt+w");
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
+      await pane.waitFor();
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Find in page" }).click();
       await p.getByRole("textbox", { name: "Find text" }).fill("Fixture needle");
