@@ -1,3 +1,4 @@
+import { mcpReadyPluginDirectory } from "./mcp-ready.ts";
 import { z } from "zod";
 import type { SessionContext } from "@ace/engine-api";
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
@@ -63,7 +64,12 @@ export class ServerPool {
           ? { overrides: { ...this.options.discovery?.overrides, opencode: ctx.executable } }
           : {}),
       },
-      ...(connection ? { secrets: [...(this.options.secrets ?? []), connection.bearer] } : {}),
+      ...(connection
+        ? {
+            mcpReadyPlugin: mcpReadyPluginDirectory,
+            secrets: [...(this.options.secrets ?? []), connection.bearer],
+          }
+        : {}),
     };
     let entry = this.entries.get(key);
     if (entry && !sameEnvironment(entry.env, env))

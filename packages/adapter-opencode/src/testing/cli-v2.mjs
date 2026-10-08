@@ -100,6 +100,71 @@ const publish = (type, data, directory = "/one", extra = {}) => {
   return e;
 };
 const nativeMcp = new Map();
+let toolCatalog = [];
+let readinessRequested = false;
+const transforms = [];
+let readiness;
+const pluginPath = configuration.plugins?.find(
+  (plugin) => typeof plugin === "string" && plugin.endsWith("mcp-ready-plugin"),
+);
+if (pluginPath) {
+  let module;
+  try {
+    module = await import(`${pluginPath}/server.ts`);
+  } catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+    module = await import(`${pluginPath}/server.mjs`);
+  }
+  const plugin = module.default;
+  await plugin.setup({
+    tool: {
+      async transform(read) {
+        transforms.push(read);
+        read({ list: () => toolCatalog });
+      },
+      async list() {
+        return toolCatalog;
+      },
+    },
+    rpc: {
+      async register(_definition, handlers) {
+        readiness = handlers.ready;
+      },
+    },
+  });
+}
+async function loadMcpTools() {
+  const ace = nativeMcp.get("ace");
+  const catalog = await fetch(ace.url, {
+    method: "POST",
+    headers: {
+      ...ace.headers,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "fake-opencode", version: "2.0.22" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const result = await catalog.json();
+  toolCatalog = result.result.tools.map((tool) => ({
+    id: `ace_${tool.name}`,
+    description: tool.description,
+    options: { namespace: "ace" },
+  }));
+  for (const read of transforms) read({ list: () => toolCatalog });
+}
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost"),
     path = url.pathname;
@@ -135,7 +200,30 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/api/experimental/mcp/ace/connect") {
+    if (readiness && !process.env.ACE_TEST_HOLD_MCP_TOOLS && !process.env.ACE_TEST_MCP_FAILED)
+      await loadMcpTools();
     empty();
+    return;
+  }
+  if (path === "/api/rpc/ace.mcp.readiness/ready") {
+    readinessRequested = true;
+    if (!readiness) throw new Error("ace native readiness plugin did not load");
+    const controller = new AbortController();
+    res.on("close", () => controller.abort());
+    json({ output: await readiness({}, { signal: controller.signal }) });
+    return;
+  }
+  if (path === "/test/mcp-tools/settle") {
+    await loadMcpTools();
+    json({ settled: true });
+    return;
+  }
+  if (path === "/test/mcp-tools") {
+    json({
+      readinessRequested,
+      tools: toolCatalog.map((tool) => ({ name: tool.id, description: tool.description })),
+      plugins: configuration.plugins ?? [],
+    });
     return;
   }
   if (path === "/test/mcp") {

@@ -1,3 +1,4 @@
+import { availability } from "./provider-mcp-availability.ts";
 import { z } from "zod";
 
 export async function proof(
@@ -195,5 +196,7 @@ export async function proof(
     )
       throw new Error("Browser MCP accepted forged caller identity");
   }
+  const status = await availability(url, authorization);
+  if (status.threadId !== threadId) throw new Error("MCP discovery lost caller scope");
   return threadId;
 }
