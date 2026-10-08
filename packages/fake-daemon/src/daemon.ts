@@ -3,7 +3,7 @@ import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
-import { ProviderConfigurations } from "@ace/protocol";
+import { ItemId, ProviderConfigurations } from "@ace/protocol";
 import {
   resolvePermissionMode,
   limitPermissionMode,
@@ -183,6 +183,35 @@ export class FakeDaemon implements Host {
         onResolved: (listener) => this.onResolved(listener),
       },
     });
+    this.appDevices.screenHost = this.screen;
+    this.appDevices.onRecording = (threadId, artifactId) => {
+      this.servicesWire.files.registerArtifact(
+        threadId,
+        artifactId,
+        new Uint8Array([0, 0, 0, 8, 102, 116, 121, 112]),
+      );
+      this.append(
+        this.thread(threadId),
+        [
+          {
+            type: "item.created",
+            item: {
+              type: "artifact",
+              source: "device",
+              artifactId,
+              id: ItemId.parse(artifactId),
+              createdAt: options.clock(),
+              complete: true,
+              path: `${artifactId}.mp4`,
+              filename: "Device recording.mp4",
+              mimeType: "video/mp4",
+              bytes: 8,
+            },
+          },
+        ],
+        options.clock(),
+      );
+    };
     this.services = new FakeServices({
       clock: options.clock,
       broadcast: (message) => {

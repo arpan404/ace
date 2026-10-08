@@ -196,7 +196,16 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         </Marker>
       );
     case "artifact":
-      return <ArtifactLine threadId={props.threadId} path={item.path} mimeType={item.mimeType} />;
+      return (
+        <ArtifactLine
+          threadId={props.threadId}
+          path={item.path}
+          mimeType={item.mimeType}
+          artifactId={item.artifactId}
+          bytes={item.bytes}
+          filename={item.filename}
+        />
+      );
     case "message":
       return (
         <QuietText

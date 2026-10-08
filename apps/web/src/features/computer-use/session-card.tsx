@@ -6,6 +6,7 @@ import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { LiveView } from "./live-view.tsx";
@@ -17,7 +18,7 @@ export function AppMark(props: { name: string; className?: string }) {
     <span
       aria-hidden
       className={cn(
-        "grid size-6 shrink-0 place-items-center rounded-md bg-foreground/8 text-xs font-medium text-foreground",
+        "grid size-6 shrink-0 place-items-center text-xs font-medium text-muted-foreground",
         props.className,
       )}
     >
@@ -48,12 +49,9 @@ export function SessionCard(props: {
   const session = use.session;
   const busy = use.pending;
   return (
-    <article
-      aria-label={view.app}
-      className="flex min-w-0 flex-col overflow-hidden rounded-lg bg-card shadow-[inset_0_0_0_1px_var(--border)]"
-    >
+    <article aria-label={view.app} className="flex min-w-0 flex-col overflow-hidden border-b">
       {props.live !== false && session && state.lifecycle === "live" && (
-        <div className="relative aspect-video border-b bg-foreground/3">
+        <div className="relative aspect-video border-b">
           <LiveView session={session} sessionId={state.sessionId} label={`${view.app} live view`} />
         </div>
       )}
@@ -155,11 +153,7 @@ function SecureInput(props: { use: ComputerUse; state: ScreenState }) {
   const { use, state } = props;
   const allowed = state.secureInputAllowed;
   return (
-    <div
-      role="group"
-      aria-label="Secure input"
-      className="flex items-center gap-2 rounded-md bg-foreground/3 px-2.5 py-2 text-sm"
-    >
+    <div role="group" aria-label="Secure input" className="flex items-center gap-2 py-2 text-sm">
       <p className="min-w-0 flex-1 text-muted-foreground">{secureInputCopy(allowed).explanation}</p>
       <Button
         size="sm"
@@ -177,12 +171,7 @@ function SessionMenu(props: { use: ComputerUse; state: ScreenState }) {
   const { use, state } = props;
   return (
     <Menu>
-      <MenuTrigger
-        aria-label="Session options"
-        className="grid size-7 place-items-center rounded-sm text-muted-foreground focus-ring hover:bg-accent hover:text-foreground aria-expanded:bg-accent"
-      >
-        <DotsThreeIcon aria-hidden size={16} weight="bold" />
-      </MenuTrigger>
+      <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Session options" size="sm" />} />
       <MenuContent align="end">
         <MenuItem
           disabled={state.lifecycle !== "live"}

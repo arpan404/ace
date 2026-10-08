@@ -1,6 +1,6 @@
 import { DeviceClientError } from "@ace/client/devices";
-import type { DeviceInput, DeviceOperation, DevicePermission } from "@ace/protocol";
-import { AgentId, ThreadId } from "@ace/protocol";
+import type { DeviceInput, DeviceOperation, DevicePermission, DeviceSettings } from "@ace/protocol";
+import { AgentId, ThreadId, ScreenFrameHeader } from "@ace/protocol";
 import {
   deviceControls,
   deviceRows,
@@ -104,6 +104,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     connected &&
     enabled &&
     selected?.running === true &&
+    (selected.platform !== "ios" || state?.threadId === threadId) &&
     (state === undefined || state.lifecycle === "idle")
       ? selected.id
       : undefined;
@@ -214,6 +215,46 @@ export function useDevices(threadId: string, deviceId?: string) {
           agentId: AgentId.parse(agentId),
         }),
       ),
+    action: (operation: DeviceOperation) => act(() => withControl(operation)),
+    install: (path: string) =>
+      target && act(() => withControl({ op: "install", deviceId: target, path })),
+    openUrl: (url: string) =>
+      target && act(() => withControl({ op: "open_url", deviceId: target, url })),
+    openApp: (appId: string) =>
+      target && act(() => withControl({ op: "open_app", deviceId: target, appId })),
+    configure: (settings: DeviceSettings) =>
+      target && act(() => withControl({ op: "configure", deviceId: target, settings })),
+    recording: state?.recording === true,
+    record: () =>
+      target &&
+      act(async () => {
+        await run({ op: state?.recording ? "record.stop" : "record.start", deviceId: target });
+      }),
+    screenshot: () =>
+      target &&
+      act(async () => {
+        if (!session) return;
+        let image: Uint8Array | undefined;
+        let header: unknown;
+        const release = session.client.watchFrames(target, async (frame) => {
+          image = frame.payload.slice();
+          header = frame.header;
+        });
+        try {
+          const reply = ScreenFrameHeader.parse(await run({ op: "screenshot", deviceId: target }));
+          if (!image || JSON.stringify(header) !== JSON.stringify(reply))
+            throw new Error("Couldn't save the screenshot. Try again.");
+        } finally {
+          release();
+        }
+        if (!image) return;
+        const url = URL.createObjectURL(new Blob([image.slice()], { type: "image/jpeg" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${selected.name}.jpg`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }),
     /**
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the
      * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.

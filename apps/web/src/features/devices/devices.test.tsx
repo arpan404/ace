@@ -75,11 +75,12 @@ test("booting an emulator shows its live screen, which takes keys and text while
   );
 });
 
-test("a running simulator shows its screen as soon as its tab opens, and only watches until you take control", async () => {
+test("an approved running simulator shows its screen, and only watches until you take control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   await shows(screenImage);
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
@@ -104,6 +105,7 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
@@ -232,6 +234,7 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   const guide = await within(iphone).findByRole("alert", {
     name: "Screen Recording permission needed",
   });
@@ -257,6 +260,7 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   app.daemon.appDevices.permissions.accessibility = false;
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
   await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));

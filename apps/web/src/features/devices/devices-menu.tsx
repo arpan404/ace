@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
+import { DeviceActionDialog, type DeviceAction } from "./device-action-dialog.tsx";
 import type { useDevices } from "./use-devices.ts";
 
 /**
@@ -21,6 +22,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const { devices } = props;
   const { view } = devices;
   const controls = view.selected ? view.controls : undefined;
+  const [action, setAction] = useState<DeviceAction>();
   const [confirm, setConfirm] = useState(false);
   return (
     <>
@@ -29,6 +31,36 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
           render={<IconButton icon={DotsThreeIcon} label="Device actions" size="sm" />}
         />
         <MenuContent align="end">
+          {controls && (
+            <>
+              {(
+                [
+                  "Install app…",
+                  "Open URL…",
+                  "Open app…",
+                  "Device settings…",
+                ] satisfies DeviceAction[]
+              ).map((name) => (
+                <MenuItem
+                  key={name}
+                  disabled={view.pending || !controls.running}
+                  onClick={() => setAction(name)}
+                >
+                  {name}
+                </MenuItem>
+              ))}
+              <MenuItem disabled={view.pending || !controls.live} onClick={devices.screenshot}>
+                Screenshot
+              </MenuItem>
+              <MenuItem
+                disabled={view.pending || !controls.live || !controls.approvedHere}
+                onClick={devices.record}
+              >
+                {devices.recording ? "Stop recording" : "Record"}
+              </MenuItem>
+              <MenuSeparator />
+            </>
+          )}
           {controls?.running && controls.live && (
             <MenuItem
               icon={<StopIcon aria-hidden size={16} />}
@@ -75,6 +107,9 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
           </MenuItem>
         </MenuContent>
       </Menu>
+      {action && (
+        <DeviceActionDialog action={action} devices={devices} close={() => setAction(undefined)} />
+      )}
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>

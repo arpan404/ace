@@ -202,6 +202,12 @@ function SelectedDevice(props: { devices: Devices }) {
             </Button>
           )}
         </div>
+        {selected.platform === "ios" && (
+          <p className="text-xs text-subtle-foreground">
+            Approving turns on computer use and shares Simulator with this thread only. Revoke
+            removes that access.
+          </p>
+        )}
         {controls.approvedHere && controls.running && (
           <Holder devices={devices} threadId={devices.threadId} controlled={controlled} />
         )}

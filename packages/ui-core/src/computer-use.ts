@@ -81,7 +81,8 @@ export function screenSession(
       tone = "failed";
       break;
     default:
-      status = who ? `${who} ${who === "You" ? "are" : "is"} in control` : "Nobody is in control";
+      status =
+        who === "You" ? "Agent paused" : who ? `${who} is in control` : "Nobody is in control";
       tone =
         state.controller === "agent"
           ? "working"

@@ -25,6 +25,10 @@ async function hash(bytes: Uint8Array): Promise<string> {
 }
 /** Fixture storage is capped at 16 MiB including in-progress uploads. Wire frames remain 64 KiB. */
 export class FakeFilesWire {
+  registerArtifact(threadId: string, artifactId: string, bytes: Uint8Array) {
+    if (bytes.length > 16 * 1024 * 1024) throw new Error("Artifact fixture too large");
+    this.files.set(this.key(threadId, `artifacts/${artifactId}`), { bytes, version: artifactId });
+  }
   private files = new Map<string, File>();
   private uploads = new Map<string, Upload>();
   private sequence = 0;
@@ -144,9 +148,10 @@ export class FakeFilesWire {
           const op = message.operation;
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
-          if (op.op === "download" || op.op === "stat") {
-            const key = this.key(threadId, op.path);
-            const file = this.file(threadId, op.path, key);
+          if (op.op === "download" || op.op === "stat" || op.op === "artifact.download") {
+            const path = op.op === "artifact.download" ? `artifacts/${op.artifactId}` : op.path;
+            const key = this.key(threadId, path);
+            const file = this.file(threadId, path, key);
             if (!file && op.op === "stat") {
               // As the daemon: an absent path is a result with no version, not an error.
               emit({

@@ -132,7 +132,7 @@ test("an agent's app shows live in the background; taking over and handing back 
       "human",
     ),
   );
-  expect(await within(card).findByText("You are in control")).toBeTruthy();
+  expect(await within(card).findByText("Agent paused")).toBeTruthy();
 
   await userEvent.click(within(card).getByRole("button", { name: "Hand back" }));
   await waitFor(async () =>
@@ -309,4 +309,34 @@ test("permissions refused because computer use is off point at turning it on, an
   app.daemon.screen.permissionReadFailure = undefined;
   await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
   await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+});
+
+test("sharing a window grants only this thread, starts capture and delegates to its agent", async () => {
+  const { app, world } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await app.open("/t/thread-checkout");
+  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  // Computer use is available through the panel's tool picker.
+  if (!within(panel).queryByRole("button", { name: "Share an app or window…" })) {
+    await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+    const tools = await within(panel).findByRole("list", { name: "Tools" });
+    await userEvent.click(within(tools).getByRole("button", { name: /^Computer use/ }));
+  }
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Share an app or window…" }),
+  );
+  const dialog = await screen.findByRole("dialog", { name: "Share an app or window" });
+  await userEvent.click(await within(dialog).findByRole("button", { name: "TextEdit · Untitled" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Share with agent" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(await world.sessions()).toEqual([expect.objectContaining({ controller: "agent" })]);
+  expect(app.daemon.screen.access.list()).toEqual([
+    expect.objectContaining({
+      bundleId: "com.apple.TextEdit",
+      scope: "thread",
+      threadId: "thread-checkout",
+    }),
+  ]);
+  expect(await within(panel).findByRole("article", { name: "TextEdit" })).toBeTruthy();
 });

@@ -193,7 +193,7 @@ export class FakeScreen {
     this.publish(session);
     for (const channel of this.channels) channel.subscriptions.delete(session.state.sessionId);
   }
-  private enable(enabled: boolean): void {
+  enable(enabled: boolean): void {
     const changed = this.access.enabled !== enabled;
     this.access.enabled = enabled;
     if (changed) this.push({ type: "screen.enabled", enabled });
