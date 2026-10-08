@@ -159,11 +159,11 @@ test("turning a toast off in Settings silences it", async () => {
   });
 });
 
-test("an agent message raises Agent says, opens its thread and respects the category toggle", async () => {
+test("an agent message raises Agent messages, opens its thread and respects the category toggle", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("watcher-started");
   await app.open("/settings/notifications");
-  const toggle = await screen.findByRole("switch", { name: "Agent says" });
+  const toggle = await screen.findByRole("switch", { name: "Agent messages" });
   const say = (id: string, message: string) =>
     app.daemon.notify({
       id,
@@ -175,7 +175,9 @@ test("an agent message raises Agent says, opens its thread and respects the cate
       actions: [],
     });
   say("ready", "Your preview is ready.");
-  expect(await within(toasts()).findByText("Agent says · Fix flaky checkout test")).toBeTruthy();
+  expect(
+    await within(toasts()).findByText("Agent messages · Fix flaky checkout test"),
+  ).toBeTruthy();
   await within(toasts()).findByText("Your preview is ready.");
   say("ready", "Your preview is ready.");
   expect(within(toasts()).getAllByText("Your preview is ready.")).toHaveLength(1);

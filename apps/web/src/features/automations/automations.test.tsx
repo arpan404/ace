@@ -124,6 +124,7 @@ test("a recent run shows its output and opens the thread it produced", async () 
   await userEvent.click(
     runs.getByRole("button", { name: "Open the run #212 · approved with 1 note" }),
   );
+  expect(screen.getAllByText("#212 · approved with 1 note")).toHaveLength(1);
   await userEvent.click(screen.getByRole("link", { name: "Open thread" }));
   expect(
     await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
@@ -713,8 +714,8 @@ test("scheduled runs and the next run use the schedule's timezone without a repe
   );
   await heading("Nightly dependency audit");
   const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
-  expect(runs.getAllByText(/02:00/)).toHaveLength(4);
-  await waitFor(() => expect(next()).toMatch(/02:00.*Asia\/Kolkata/));
+  expect(runs.getAllByText(/2:00 AM/)).toHaveLength(4);
+  await waitFor(() => expect(next()).toMatch(/2:00 AM.*Asia\/Kolkata/));
   await userEvent.click(
     runs.getByRole("button", { name: "Open the run 2 advisories · opened a thread in ace" }),
   );

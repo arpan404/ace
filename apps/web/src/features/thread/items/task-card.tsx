@@ -6,7 +6,7 @@ import { Prose } from "@/components/markdown/prose.tsx";
 
 /**
  * The prompt a thread was started with by ace rather than typed (IR-9): a delegated task, a
- * handoff, an automation. The role is a small label, the task is prose, and a delegated thread
+ * handoff, an automation. The task is prose, and a delegated thread
  * links back to the thread that started it.
  */
 export function TaskCard(props: { prompt: TaskPrompt }) {
@@ -30,11 +30,6 @@ export function TaskCard(props: { prompt: TaskPrompt }) {
     >
       <p className="flex items-center gap-2 text-xs text-subtle-foreground">
         <span>{heading}</span>
-        {prompt.role && (
-          <span className="rounded-sm bg-muted px-1.5 py-px text-[11px] text-muted-foreground">
-            {prompt.role}
-          </span>
-        )}
       </p>
       <Prose text={prompt.task} className="mt-1.5 text-ui leading-[1.55]" />
       {prompt.parentThreadId && (

@@ -1,8 +1,9 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ProviderKind } from "@ace/protocol";
-import { providerNames } from "@ace/ui-core";
+import { Link } from "@tanstack/react-router";
+import type { ReadinessTone } from "@ace/ui-core";
 import { StatusLine } from "@/components/provider-tile.tsx";
-import { useProviderAccountModels } from "@/lib/account-views.ts";
+
+import { catalogKey } from "@/lib/model-catalog.ts";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DiagnosticReport } from "@ace/protocol";
@@ -29,10 +30,17 @@ const checks: Record<string, { label: string; fix: string }> = {
   },
 };
 
-export function RunChecks() {
+export function RunChecks(props: {
+  providers: readonly {
+    id: string;
+    name: string;
+    tone: ReadinessTone;
+    text: string;
+    ready: boolean;
+  }[];
+}) {
   const client = useClient();
   const queries = useQueryClient();
-  const { model } = useProviderAccountModels();
   const ready = useConnectionState() === "ready";
   const [report, setReport] = useState<DiagnosticReport>();
   const [running, setRunning] = useState(false);
@@ -47,6 +55,9 @@ export function RunChecks() {
       );
       if (!result.report || result.error) throw new Error();
       await client.request({ type: "providers.request", operation: "refresh" });
+      // Discovery includes installed ACP agents as well as the built-in providers.
+      await client.request({ type: "models.refresh", filter: {} }, { timeoutMs: 30_000 });
+      await queries.invalidateQueries({ queryKey: catalogKey });
       refreshProviders(queries);
       setReport(result.report);
     } catch {
@@ -70,20 +81,14 @@ export function RunChecks() {
       )}
       {report && (
         <ul aria-label="Check results" className="divide-y">
-          {report.checks.map((check) => {
-            const parsed = ProviderKind.safeParse(check.id.slice(9));
-            const kind =
-              check.id.startsWith("provider.") && parsed.success ? parsed.data : undefined;
-            const provider = kind && providerNames[kind];
-            const view = kind && model(kind).view;
-            const info = checks[check.id];
-            return (
-              <li key={check.id}>
-                <div className="flex h-8 items-center justify-between gap-2 text-sm">
-                  <span>{provider ?? info?.label ?? "Additional check"}</span>
-                  {kind ? (
-                    <StatusLine tone={view?.tone ?? "idle"} text={view?.summary ?? "Checking…"} />
-                  ) : (
+          {report.checks
+            .filter((check) => !check.id.startsWith("provider."))
+            .map((check) => {
+              const info = checks[check.id];
+              return (
+                <li key={check.id}>
+                  <div className="flex h-8 items-center justify-between gap-2 text-sm">
+                    <span>{info?.label ?? "Additional check"}</span>
                     <StatusLabel
                       tone={check.status === "ok" ? "done" : "failed"}
                       label={
@@ -94,19 +99,32 @@ export function RunChecks() {
                             : "Needs a fix"
                       }
                     />
+                  </div>
+                  {check.status !== "ok" && (
+                    <p className="pb-2 text-sm text-muted-foreground">
+                      {info?.fix ??
+                        "Update ace and run the checks again. If this continues, export a support bundle."}
+                    </p>
                   )}
-                </div>
-                {(kind ? view && !view.ready : check.status !== "ok") && (
-                  <p className="pb-2 text-sm text-muted-foreground">
-                    {provider
-                      ? `Open Settings › Providers to check ${provider}'s installation and sign-in.`
-                      : (info?.fix ??
-                        "Update ace and run the checks again. If this continues, export a support bundle.")}
-                  </p>
-                )}
-              </li>
-            );
-          })}
+                </li>
+              );
+            })}
+          {props.providers.map((provider) => (
+            <li key={provider.id}>
+              <div className="flex min-h-8 items-center justify-between gap-2 text-sm">
+                <span>{provider.name}</span>
+                <StatusLine tone={provider.tone} text={provider.text} />
+              </div>
+              {!provider.ready && (
+                <p className="pb-2 text-sm text-muted-foreground">
+                  <Link to="/settings/providers" className="underline underline-offset-2">
+                    Open Providers
+                  </Link>{" "}
+                  to check {provider.name}'s installation and sign-in.
+                </p>
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </>

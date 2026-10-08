@@ -1,3 +1,4 @@
+import { useProviderEntries, entryStatus } from "./provider-entries.ts";
 import { RunChecks } from "@/features/diagnostics/index.ts";
 import { SupportExport } from "@/features/diagnostics/index.ts";
 import { useState } from "react";
@@ -21,10 +22,21 @@ import { settingRow } from "./settings-index.ts";
 
 /** Daemon diagnostics and a full reset. Thresholds live on General; the theme editor under Appearance. */
 export function AdvancedSettings() {
+  const { entries } = useProviderEntries();
+  const providers = (entries ?? []).map((entry) => {
+    const status = entryStatus(entry);
+    return {
+      id: entry.id,
+      name: entry.install.name,
+      tone: status.tone,
+      text: status.text,
+      ready: entry.view?.ready ?? status.tone === "ready",
+    };
+  });
   return (
     <>
       <SettingSection label="Health">
-        <RunChecks />
+        <RunChecks providers={providers} />
         <SupportExport />
         <DaemonDiagnostics />
       </SettingSection>

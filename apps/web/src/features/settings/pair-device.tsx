@@ -1,5 +1,5 @@
 import { Switch } from "@/components/ui/switch.tsx";
-import { deviceScopeLabels } from "./device-scopes.ts";
+import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
 import type { Device, DeviceScope } from "@ace/protocol";
 import { CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,11 +23,6 @@ import type { Pairing } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend, useRemoteStatus } from "./data/use-settings.ts";
 
 type Access = "operate" | "read" | "admin";
-const accessOptions: { value: Access; label: string }[] = [
-  { value: "operate", label: "View and act" },
-  { value: "read", label: "View only" },
-  { value: "admin", label: "Administrator" },
-];
 const scopesFor: Record<Access, DeviceScope[]> = {
   operate: ["read", "operate"],
   read: ["read"],
@@ -126,7 +121,7 @@ export function PairDevice() {
             <SegmentedControl<Access>
               label="Access"
               value={access}
-              options={accessOptions}
+              options={deviceAccessOptions}
               onValueChange={setAccess}
             />
             <details>

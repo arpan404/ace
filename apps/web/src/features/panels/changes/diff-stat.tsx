@@ -13,6 +13,7 @@ export function ThreadDiffStat(props: { threadId: string; folded?: boolean | und
   return (
     <Tip label={`${label}: +${stat.additions} −${stat.deletions}`}>
       <span className="inline-flex">
+        <span className="mr-1 text-xs text-subtle-foreground">{label}</span>
         <DiffStat {...stat} />
       </span>
     </Tip>

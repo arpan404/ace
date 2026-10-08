@@ -37,7 +37,7 @@ async function pickLayout(panel: HTMLElement, name: "Auto" | "Unified" | "Split"
   await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
 }
 
-test("Changes shows the latest turn's edits by default and the whole thread under All turns", async () => {
+test("Changes shows the latest turn's edits by default and the whole thread under This thread", async () => {
   const { panel } = await openChanges();
   expect(within(panel).getByRole("tab", { name: /Changes/ }).textContent).toContain("+");
 
@@ -49,7 +49,7 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
   expect(within(outbox).getByText(/await socket.waitFor\("resume.ack"\)/)).toBeTruthy();
 
-  await pickScope(panel, "All turns");
+  await pickScope(panel, "This thread");
   await waitFor(() =>
     expect(
       within(file(panel, "apps/server/src/replay.ts")).getByText(/COLD_START_WINDOW = 200/),

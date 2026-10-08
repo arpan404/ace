@@ -35,7 +35,7 @@ function expectTotal(panel: HTMLElement, added: number, removed: number) {
 test("the Changes badge and toolbar count the selected turn and keep it when another tab opens", async () => {
   const panel = await openChanges();
   await waitFor(() => expectTotal(panel, 9, 3));
-  await pick(panel, "All turns");
+  await pick(panel, "This thread");
   await waitFor(() => expectTotal(panel, 17, 5));
   await pick(panel, "Turn 1");
   await waitFor(() => expectTotal(panel, 8, 2));

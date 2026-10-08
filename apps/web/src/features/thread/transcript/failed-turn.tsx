@@ -1,6 +1,6 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId, type ContentPart, type Item } from "@ace/protocol";
-import { describeProviderError } from "@ace/ui-core";
+import { describeProviderError, modelLabel } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow, noticeError } from "../items/error-row.tsx";
@@ -30,9 +30,14 @@ export function FailedTurn(props: {
   latest: boolean;
 }) {
   const { error, latest } = props;
-  const provider = useThreadMeta(props.threadId)?.provider;
+  const thread = useThreadMeta(props.threadId);
+  const provider = thread?.provider;
   const ask = useItem(props.threadId, props.askId ?? "");
   const notice = useItem(props.threadId, props.errorId ?? "");
+  const model =
+    notice?.executionSource?.selection.model ??
+    ask?.executionSource?.selection.model ??
+    (latest ? thread?.execution?.model : undefined);
   const client = useClient();
   const toast = useToast();
   const [sending, setSending] = useState(false);
@@ -40,11 +45,12 @@ export function FailedTurn(props: {
   const reported = notice?.type === "notice" ? noticeError(notice) : undefined;
   const view = describeProviderError(
     reported
-      ? { ...reported, provider: reported.provider ?? provider }
+      ? { ...reported, provider: reported.provider ?? provider, model: reported.model ?? model }
       : {
           text: error?.message ?? "",
           kind: error?.kind,
           provider,
+          model,
           // Details names the failure's kind as the daemon reported it.
           detail: error ? `${error.kind}: ${error.message}` : undefined,
         },
@@ -67,7 +73,15 @@ export function FailedTurn(props: {
   const fixable = latest && view.action !== undefined && fixes.has(view.action);
   // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
   const known = reported !== undefined || error !== undefined;
-  const failed = known ? view : { title: "Turn failed" };
+  const failed = known
+    ? {
+        ...view,
+        message:
+          [model && view.code !== "model_not_found" ? modelLabel(model) : undefined, view.message]
+            .filter(Boolean)
+            .join(" · ") || undefined,
+      }
+    : { title: "Turn failed" };
   return (
     <ErrorRow
       error={fixable ? failed : { ...failed, action: undefined }}

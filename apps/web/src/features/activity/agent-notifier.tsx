@@ -57,7 +57,7 @@ export function AgentNotifier() {
       if (!documentVisibility.visible()) {
         if (current.prefs.browser)
           notifyInBrowser({
-            title: `Agent says · ${notice.title}`,
+            title: `Agent messages · ${notice.title}`,
             body: notice.message ?? "",
             tag: notice.id,
             open,
@@ -66,7 +66,7 @@ export function AgentNotifier() {
       }
       current.toast.add({
         id: notice.id,
-        title: `Agent says · ${notice.title}`,
+        title: `Agent messages · ${notice.title}`,
         description: notice.message,
         timeout: 10_000,
         actionProps: { children: "Open", onClick: open },
