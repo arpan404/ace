@@ -10,9 +10,13 @@ import { loadTarget } from "@/boot/connection-settings.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function setup(linkRoute: boolean) {
+async function setup(linkRoute: boolean, rejectedConnection = false) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
-  vi.stubGlobal("fetch", daemon.access.fetch);
+  // Native browser fetch rejects a receiver other than the browser global.
+  vi.stubGlobal("fetch", function (this: unknown, input: string, init?: RequestInit) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Invalid fetch receiver");
+    return daemon.access.fetch(input, init);
+  });
   const access = new AccessClient({
     origin: "http://127.0.0.1:4242/",
     fetch: daemon.access.fetch,
@@ -26,7 +30,7 @@ async function setup(linkRoute: boolean) {
         stores={stores}
         defaultUrl="ws://127.0.0.1:4242/"
         pairingLink={linkRoute ? pairing.url : undefined}
-        createClient={() => fakeClient(daemon)}
+        createClient={() => fakeClient(daemon, rejectedConnection ? "c".repeat(64) : daemon.token)}
       >
         {() => <p>Connected to Office Mac</p>}
       </ConnectionGate>
@@ -79,4 +83,16 @@ test("an expired or used pairing link tells the person to create another and sav
     ),
   );
   expect(loadTarget(stores).target).toBeUndefined();
+});
+
+test("a redeemed link that cannot connect returns to an editable connection screen", async () => {
+  await setup(true, true);
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "This device's name" }),
+    "My phone",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Pair and connect" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("didn't accept");
+  expect(screen.getByRole("button", { name: "Have a pairing code?" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
 });

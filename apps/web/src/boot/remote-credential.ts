@@ -10,7 +10,7 @@ export function browserCredential(target: DaemonTarget): () => Promise<Credentia
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
     const access = new AccessClient({
       origin: `${url.origin}/`,
-      fetch,
+      fetch: (input, init) => fetch(input, init),
       token: async () => target.token,
     });
     return { ticket: (await access.ticket()).ticket };

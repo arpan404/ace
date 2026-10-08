@@ -39,7 +39,11 @@ export function PairingForm(props: {
       }
       if (!code || !name.trim())
         throw new Error("Enter the pairing link and a name for this device.");
-      const access = new AccessClient({ origin, fetch, token: async () => "" });
+      const access = new AccessClient({
+        origin,
+        fetch: (input, init) => fetch(input, init),
+        token: async () => "",
+      });
       const paired = await access.redeem(code, name.trim());
       const url = new URL(origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

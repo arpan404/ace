@@ -71,7 +71,10 @@ export function ConnectionScreen() {
           <PairingForm
             url={connection.url}
             link={connection.pairingLink}
-            connect={connection.connect}
+            connect={(target, remember) => {
+              setPairing(false);
+              connection.connect(target, remember);
+            }}
             cancel={() => setPairing(false)}
           />
         </Suspense>
