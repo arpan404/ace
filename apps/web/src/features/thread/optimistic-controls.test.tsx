@@ -83,7 +83,7 @@ test("offline, the model popover still changes effort and the account, which go 
   await closeModelControl();
 
   // The chip names the new account at once and says the switch is waiting.
-  await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
+  const chip = await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
   expect(chip.getAttribute("aria-description")).toBe(
     "Switches from Opus 5.5 on personal · Will apply when reconnected",
   );
@@ -112,7 +112,7 @@ test("a model switch shows the model it leaves until the agent's next turn", asy
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
 
-  await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
+  const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
   expect(chip.textContent).toContain("Opus 5.5 →GPT-5 Codex");
   expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on personal · /);
 });

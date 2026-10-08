@@ -74,7 +74,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   return (
     <PermissionPicker
       current={summary && permissionOption(summary.mode, capabilities)}
-      next={summary?.next && permissionOption(summary.next, capabilities)}
+      next={summary?.next ? permissionOption(summary.next, capabilities) : undefined}
       note={summary?.next && (permission.note ?? permissionPendingNote())}
       detail={summary?.coverage}
       inherited={summary?.inherited}
