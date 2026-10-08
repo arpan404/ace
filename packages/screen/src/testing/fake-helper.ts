@@ -18,7 +18,9 @@ let sequence = 0;
 let permissionQueries = 0;
 let codec: "jpeg" | "h264" = "jpeg";
 function frame(imageCodec = codec) {
-  const payload = Buffer.from(`jpeg-${sequence}`);
+  const payload = process.env.MODEL_IMAGE_FILE
+    ? readFileSync(process.env.MODEL_IMAGE_FILE)
+    : Buffer.from(`jpeg-${sequence}`);
   const packet = framePacket(
     v2
       ? {
@@ -169,6 +171,20 @@ function processRequest(request: ScreenHelperRequest) {
       codec: "jpeg",
     });
   if (request.sessionId) selectSession(request.sessionId);
+  if (["input", "ui.act"].includes(request.op) && process.env.RESULT_ERROR_CODE) {
+    console.log(
+      JSON.stringify({
+        version: request.version,
+        id: request.id,
+        ok: false,
+        error: {
+          code: process.env.RESULT_ERROR_CODE,
+          message: process.env.RESULT_ERROR_MESSAGE ?? "Backend failed",
+        },
+      }),
+    );
+    return;
+  }
   if (
     process.env.SECURE_TEXT === "1" &&
     ((request.op === "input" &&

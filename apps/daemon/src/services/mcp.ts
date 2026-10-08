@@ -1,6 +1,8 @@
+import { logError } from "@ace/diagnostics";
+import { toolResultObserver } from "../tool-result-mcp.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
 import { agentControlCall } from "./agent-control-failure.ts";
-import { agentControlToolkit } from "@ace/mcp-server";
+import { type CallObserver, agentControlToolkit } from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
@@ -10,13 +12,47 @@ import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
 
-  const observations = measurementObserver({
+  const measurements = measurementObserver({
     store,
     now: context.now,
     id: context.id,
     context: () => services.context,
   });
-  resources.own(observations.close);
+  const results = toolResultObserver({
+    store,
+    now: context.now,
+    id: context.id,
+    context: () => services.context,
+    screen: () => services.screen,
+  });
+  const observeCall: CallObserver = (name, input, call) => {
+    const callbacks = [
+      results.observeCall(name, input, call),
+      measurements.observeCall(name, input, call),
+    ];
+    return async (result) => {
+      for (const capture of callbacks) {
+        try {
+          await capture?.(result);
+        } catch (error) {
+          context.log.log("error", "MCP result capture failed", logError(error));
+        }
+      }
+    };
+  };
+  const observations = {
+    observeCall,
+    lease(sessionId: string) {
+      const stopMeasurement = measurements.lease(sessionId);
+      const stopResult = results.lease(sessionId);
+      return () => {
+        stopMeasurement();
+        stopResult();
+      };
+    },
+  };
+  resources.own(measurements.close);
+  resources.own(results.close);
   const mcp = await startDaemonMcp(
     store,
     [

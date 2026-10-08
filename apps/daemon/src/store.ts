@@ -1,3 +1,4 @@
+import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
@@ -86,6 +87,7 @@ export class Store {
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   readonly measurements: MeasurementStore;
+  readonly toolResults: ToolResultStore;
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
@@ -130,6 +132,7 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
+      this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
       this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
       this.history = new HistoryIndex(
         this.db,
@@ -526,7 +529,11 @@ export class Store {
           id: this.nextId(),
           threadId,
           at,
-          payload: this.measurements.decorate(threadId, prepared, seq),
+          payload: this.toolResults.decorate(
+            threadId,
+            this.measurements.decorate(threadId, prepared, seq),
+            seq,
+          ),
         });
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;

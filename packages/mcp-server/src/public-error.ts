@@ -5,6 +5,9 @@ import { z } from "zod";
 // never become this catalog. Only intentional failures can cross the MCP boundary.
 export const PublicToolCode = z.enum([
   "screen_disabled",
+  "screen_approval_denied",
+  "screen_approval_timeout",
+  "screen_read_only",
   "target_busy",
   "foreground_required",
   "focus_changed",
@@ -59,6 +62,18 @@ export const PublicToolCode = z.enum([
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+  screen_approval_denied: {
+    message: "Screen access approval denied",
+    hint: "Ask the person to approve this app or screen mode before retrying.",
+  },
+  screen_approval_timeout: {
+    message: "Screen access approval expired",
+    hint: "Request screen access again when the person is available.",
+  },
+  screen_read_only: {
+    message: "Screen access is read-only",
+    hint: "Ask the person to grant control before sending screen input.",
+  },
   screen_disabled: {
     message: "Computer use is disabled",
     hint: "A human must enable screen access before an agent can use apps.",
@@ -269,10 +284,17 @@ export class PublicToolError extends Error {
   readonly code: PublicToolCode;
   readonly hint: string;
   readonly permission: DeviceFailure["permission"];
-  constructor(code: PublicToolCode, permission?: DeviceFailure["permission"]) {
-    const detail = catalog[code];
-    super(detail.message);
+  readonly detail: string | undefined;
+  constructor(code: PublicToolCode, permission?: DeviceFailure["permission"], detail?: string) {
+    const entry = catalog[code];
+    super(entry.message);
     this.code = code;
+    this.detail = detail
+      ?.split("")
+      .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))
+      .join("")
+      .replace(/[a-f0-9]{64}/gi, "[redacted]")
+      .slice(0, 256);
     const parsed = DeviceFailure.shape.permission.safeParse(permission);
     this.permission = code === "permission_denied" && parsed.success ? parsed.data : undefined;
     this.hint =
@@ -280,6 +302,6 @@ export class PublicToolError extends Error {
         ? "Open System Settings > Privacy & Security > Screen Recording and enable Ace Screen Helper."
         : this.permission === "accessibility"
           ? "Open System Settings > Privacy & Security > Accessibility and enable Ace Screen Helper."
-          : detail.hint;
+          : entry.hint;
   }
 }
