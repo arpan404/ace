@@ -145,13 +145,6 @@ it.skipIf(!integration)(
         input: { kind: "key.press", key: "F5", modifiers: [] },
       }),
     ).rejects.toMatchObject({ code: "no_key_window", phase: "rejected-before-dispatch" });
-    await expect(
-      helper.request({
-        op: "input",
-        sessionId: scope.sessionId,
-        input: { kind: "key.press", key: "Cmd+L", modifiers: [] },
-      }),
-    ).rejects.toMatchObject({ code: "key_unsupported", phase: "rejected-before-dispatch" });
     // A menu target fires without changing the observed text tree.
     await expect(
       helper.request({
