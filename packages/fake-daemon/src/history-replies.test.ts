@@ -18,5 +18,5 @@ test("OpenCode history after a new prompt updates the existing fake transcript a
     (item) => item.type === "message" && item.role === "assistant",
   );
   expect(answers).toHaveLength(1);
-  expect(answers[0]).toMatchObject({ parts: [{ type: "text", text: "Offshift summary" }] });
+  expect(answers[0]).toMatchObject({ parts: [{ type: "text", text: "Delegation summary" }] });
 });

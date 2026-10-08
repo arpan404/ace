@@ -1,7 +1,6 @@
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";
-import { deckRuns } from "../conductor/decks.ts";
 import type { ServicesSeed } from "../services-wire.ts";
 
 /**
@@ -11,7 +10,6 @@ import type { ServicesSeed } from "../services-wire.ts";
  */
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
-    decks: deckRuns(now),
     automations: automationList(Math.floor(now / 60_000) * 60_000, timeZone),
     runs: automationRuns(now),
     plugins: pluginCatalog(now),

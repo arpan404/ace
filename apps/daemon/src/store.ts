@@ -12,11 +12,6 @@ import {
   type ThreadSearchRequest as ThreadSearchQuery,
   type ThreadCatchUpRequest as CatchUpQuery,
 } from "@ace/protocol";
-import {
-  migrateDeckWorkspaces,
-  saveWorkspaceDeck,
-  readWorkspaceDeck,
-} from "./deck-workspace-storage.ts";
 import { WorkspaceReservations } from "./workspace-reservations.ts";
 import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
 import { executionWorkspace } from "./workspace-root.ts";
@@ -26,7 +21,7 @@ import {
   encodeThreadClient,
   liveMetadataChange,
 } from "./thread-client-storage.ts";
-import { ThreadClientFields, type DeckOwnership } from "@ace/protocol";
+import { ThreadClientFields } from "@ace/protocol";
 import { ThreadTransitionView } from "@ace/protocol";
 import { ThreadProviderMetadata } from "@ace/protocol";
 import { HistoryIndex } from "./history-index.ts";
@@ -118,7 +113,6 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;",
       );
       migrate(this.db);
-      migrateDeckWorkspaces(this.db);
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
@@ -412,22 +406,15 @@ export class Store {
     ).get(sourceId);
     return row ? this.decodeThread(row) : undefined;
   }
-  createWorkspace(path: string, name: string, at = this.now(), deck?: DeckOwnership): WorkspaceId {
+  createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     return this.atomic(() => {
       const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
       const id = WorkspaceId.parse(existing?.id ?? this.nextId());
       if (!existing)
         this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
       this.workspaceReservations.registerWorkspace(id, path);
-      if (deck) saveWorkspaceDeck(this.db, id, deck);
       return id;
     });
-  }
-  workspaceDeck(id: WorkspaceId): DeckOwnership | undefined {
-    return readWorkspaceDeck(this.db, id);
-  }
-  markWorkspaceDeck(id: WorkspaceId, deck: DeckOwnership): void {
-    saveWorkspaceDeck(this.db, id, deck);
   }
   getWorkspacePath(id: WorkspaceId): string | undefined {
     const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);

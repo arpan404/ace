@@ -6,7 +6,6 @@ import { Store, Engine, AdapterRegistry } from "@ace/daemon";
 import { Command } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
 
-// Not executed locally: only conductor/admission.process.test.ts is authorized.
 test("the measurement provider starts under default permissions and persists its scripted stream", async () => {
   const home = mkdtempSync(join(tmpdir(), "ace-perf-script-"));
   const store = new Store(join(home, "events.sqlite"));

@@ -8,7 +8,7 @@ The repository owner requires static checks during authoring, with an explicit e
 
 Behavior tests use the public adapter contract, core facts and projected client views. Session tests start a CLI double as a real child process with authenticated HTTP/SSE and synchronize through received frames and HTTP responses. Clocks and shutdown deadlines are injected. No installed provider received a prompt and no recorder ran.
 
-This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main through `50c725f`, including the model catalog, automations, process-test reliability and conductor work. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
+This follow-up merged main and the ACP branch that supplies the shared transport facts, then merged main through `50c725f`, including the model catalog, automations, process-test reliability work. The nine fixture expectation files remain unchanged. Earlier reviews recorded passing suites and mutation campaigns before the new owner instruction; those results do not validate the final integrated head.
 
 ## Approved-main merge
 

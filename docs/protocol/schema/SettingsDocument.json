@@ -62,26 +62,6 @@
         "clients.theme": {
           "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
         },
-        "conductor.maxFixRounds": {
-          "maximum": 100,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "conductor.mergePolicy": {
-          "enum": [
-            "manual",
-            "after-review",
-            "after-checks"
-          ],
-          "type": "string"
-        },
-        "conductor.planApproval": {
-          "enum": [
-            "required",
-            "optional"
-          ],
-          "type": "string"
-        },
         "host.displayName": {
           "maxLength": 256,
           "type": "string"

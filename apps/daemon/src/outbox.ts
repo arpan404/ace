@@ -60,7 +60,6 @@ interface SerializedFrame {
   type: "serialized";
   chargedBytes: number;
   encoded: string;
-  snapshotId: string | undefined;
 }
 interface FragmentStream {
   type: "stream";
@@ -75,7 +74,6 @@ interface FragmentStream {
 type PendingFrame = EventBatch | SerializedFrame | FragmentStream;
 export class Outbox {
   private pending = new Map<number, PendingFrame>();
-  private snapshots = new Map<string, number>();
   private tail = 0;
   private streamSources = 0;
   private sourceBytes = 0;
@@ -182,25 +180,12 @@ export class Outbox {
       this.resync();
       return;
     }
-    // Conductor changes are complete replaceable views. Keep only the latest
-    // unsent view per subscription, after any intervening replies/events.
-    const snapshotId = message.type === "conductor.changed" ? message.subscriptionId : undefined;
-    if (snapshotId !== undefined) {
-      const index = this.snapshots.get(snapshotId);
-      const previous = index === undefined ? undefined : this.pending.get(index);
-      if (previous && index !== undefined) {
-        this.pending.delete(index);
-        this.bytes -= previous.chargedBytes;
-      }
-    }
     if (!this.admit(charge)) return;
     this.pending.set(++this.tail, {
       type: "serialized",
       encoded,
       chargedBytes: charge,
-      snapshotId,
     });
-    if (snapshotId !== undefined) this.snapshots.set(snapshotId, this.tail);
     this.bytes += charge;
     this.flush();
     this.tick();
@@ -223,8 +208,6 @@ export class Outbox {
       if (!entry) break;
       const [index, frame] = entry;
       if (frame.type !== "stream") this.pending.delete(index);
-      if (frame.type === "serialized" && frame.snapshotId !== undefined)
-        this.snapshots.delete(frame.snapshotId);
       this.bytes -= frame.chargedBytes;
       let encoded: string;
       if (frame.type === "stream") {
@@ -272,7 +255,6 @@ export class Outbox {
   }
   private resync(): void {
     this.pending.clear();
-    this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
     this.streamSources = 0;
@@ -281,7 +263,6 @@ export class Outbox {
   }
   clear(): void {
     this.pending.clear();
-    this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
     this.streamSources = 0;

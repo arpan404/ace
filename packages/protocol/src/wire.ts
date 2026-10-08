@@ -33,7 +33,6 @@ import {
   MachinesResult,
 } from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
-import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
 import {
   TerminalRequest,
@@ -149,7 +148,6 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...ProviderLoginRequest.options,
   ...OnboardingRequest.options,
   PreviewRequest,
-  ConductorRequest,
   ...AutomationRequest.options,
   ...ActivityReadsRequest.options,
   QueueGet,
@@ -211,8 +209,6 @@ export const ServerMessage = z.discriminatedUnion("type", [
   OnboardingResult,
   ProvidersChanged,
   PreviewResult,
-  ConductorResult,
-  ConductorChanged,
   AutomationResponse,
   ActivityReadsResult,
   ActivityReadsChanged,

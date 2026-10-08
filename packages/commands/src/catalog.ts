@@ -137,7 +137,6 @@ function builtins(): Definition[] {
     review: "Review changes",
     fork: "Fork this thread",
     checkpoint: "Save a checkpoint",
-    conductor: "Coordinate agents",
     model: "Choose a model",
   };
   return Object.entries(descriptions).map(([name, description]) => ({

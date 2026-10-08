@@ -74,7 +74,7 @@ export function createAgentControlPort(
     async execute(caller, value, signal) {
       const operation = AgentControlOperation.parse(value);
       signal.throwIfAborted();
-      // Authenticate again at the mutation boundary, including direct Deck callers.
+      // Authenticate again at the mutation boundary, including direct host callers.
       if (!store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
       if ("threadId" in operation) {

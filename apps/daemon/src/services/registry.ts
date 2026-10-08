@@ -4,7 +4,6 @@ import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createLongThreadSession } from "./long-thread.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
-import { createConductorSession } from "./conductor.ts";
 import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
 import { createTerminalSession } from "./terminal.ts";
@@ -43,7 +42,6 @@ export const socketServiceFactories = [
   createHostIdentitySession,
   createLongThreadSession,
   createPreviewClientSession,
-  createConductorSession,
   createAutomationsSession,
   createActivityReadsSession,
   createThreadOrganizationSession,

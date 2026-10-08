@@ -347,7 +347,7 @@ test("daemon draft adoption uses the same canonical project identity as mention 
   });
 });
 
-test("listener-phase service routing reads persisted automation changes and Deck plans", async () => {
+test("listener-phase service routing reads persisted automation changes", async () => {
   const f = await setup();
   cleanup = f.cleanup;
   const { client } = f.make();
@@ -370,9 +370,6 @@ test("listener-phase service routing reads persisted automation changes and Deck
     ok: true,
     automations: [automation],
   });
-  expect(
-    await client.request({ type: "conductor.request", operation: { op: "list", limit: 10 } }),
-  ).toMatchObject({ ok: true, runs: [] });
   expect(await client.request({ type: "automation.remove", id: automation.id })).toMatchObject({
     ok: true,
   });

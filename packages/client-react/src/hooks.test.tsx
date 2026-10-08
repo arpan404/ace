@@ -1,4 +1,4 @@
-import { Client, ConductorClient } from "@ace/client";
+import { Client } from "@ace/client";
 import {
   accountLimit,
   FakeDaemon,
@@ -6,7 +6,7 @@ import {
   facts,
   fakeTransport,
   flakyCheckout,
-  workbenchServices,
+  workbench,
   type Scenario,
 } from "@ace/fake-daemon";
 import { DeviceId, InteractionId, type ThreadListEntry } from "@ace/protocol";
@@ -34,23 +34,21 @@ test.each([
   ["", false],
   [" under StrictMode", true],
 ])(
-  "a deck worker question stays live when another component subscribes and unmounts%s",
+  "a thread question stays live when another component subscribes and unmounts%s",
   async (_label, strict) => {
     const { daemon, client } = setup();
-    daemon.seedServices(workbenchServices(1_800_000_000_000));
+    const scenario = workbench().find((candidate) => candidate.thread.id === "thread-sheet-rotate");
+    if (!scenario) throw new Error("Missing ordinary question scenario");
+    const script = new ScenarioPlayer(daemon, scenario);
+    script.runUntilBlocked();
     await client.start();
     await waitFor(() => expect(client.state).toBe("ready"));
-    let ids = 0;
-    const decks = new ConductorClient(client, () => `deck-${++ids}`);
-    const run = await decks.get("mobile-cold-start");
-    const gate = run.needsUser.find((entry) => entry.kind === "provider");
-    if (!gate?.threadId || !gate.interactionId) throw new Error("Missing worker question");
-    const threadId = gate.threadId;
-    const interactionId = gate.interactionId;
-    const reporting = run.delegations
-      .filter((entry) => entry.threadId !== threadId)
-      .slice(0, 4)
-      .map((entry) => client.thread(entry.threadId));
+    const threadId = script.threadId;
+    const lease = client.thread(threadId);
+    await waitFor(() => expect(lease.store.interactionIds()).toHaveLength(1));
+    const found = lease.store.interactionIds()[0];
+    if (!found) throw new Error("Missing question");
+    const interactionId = found;
     function Question({ label }: { label: string }) {
       const interaction = useInteraction(threadId, interactionId);
       const text =
@@ -62,18 +60,22 @@ test.each([
     const view = (second: boolean) => {
       const tree = (
         <ClientProvider client={client}>
-          <Question key="deck" label="deck" />
+          <Question key="thread" label="thread" />
           {second && <Question key="activity" label="activity" />}
         </ClientProvider>
       );
       return strict ? <StrictMode>{tree}</StrictMode> : tree;
     };
     const mounted = render(view(false));
-    const text = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
-    await waitFor(() => expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`));
+    const interaction = lease.store.interaction(interactionId);
+    const text =
+      interaction?.request.kind === "question" ? interaction.request.questions[0]?.text : "";
+    await waitFor(() =>
+      expect(screen.getByLabelText("thread").textContent).toBe(`pending: ${text}`),
+    );
     mounted.rerender(view(true));
     await waitFor(() => {
-      expect(screen.getByLabelText("deck").textContent).toBe(`pending: ${text}`);
+      expect(screen.getByLabelText("thread").textContent).toBe(`pending: ${text}`);
       expect(screen.getByLabelText("activity").textContent).toBe(`pending: ${text}`);
     });
     mounted.rerender(view(false));
@@ -83,14 +85,14 @@ test.each([
         await client.command({
           type: "interaction.resolve",
           interactionId: InteractionId.parse(interactionId),
-          resolution: { kind: "question", answers: { choice: ["apk"] } },
+          resolution: { kind: "question", answers: { recovery: ["persist"] } },
         }),
       ).toMatchObject({ ok: true });
     });
     await waitFor(() =>
-      expect(screen.getByLabelText("deck").textContent).toBe(`resolved: ${text}`),
+      expect(screen.getByLabelText("thread").textContent).toBe(`resolved: ${text}`),
     );
-    for (const lease of reporting) lease.release();
+    lease.release();
   },
 );
 

@@ -3,7 +3,6 @@ import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
-import { startConductor } from "./conductor.ts";
 import { startAutomations } from "./automations.ts";
 import { startActivityReads } from "./activity-reads.ts";
 import { startWorkspaceActions } from "./workspace-actions.ts";
@@ -151,15 +150,6 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine", "settings"],
     after: ["context", "agentControl", "workspaceActions"],
     start: startAutomations,
-  },
-  {
-    name: "conductor",
-    phase: "listener",
-    // agentControl is a listener-phase service that is still "starting" until the listener
-    // opens, so it can't be a hard dependency here; startConductor fails without it instead.
-    requires: ["engine"],
-    after: ["accounts", "notifications", "workspaceActions", "agentControl"],
-    start: startConductor,
   },
 ];
 /** Public daemon access fails explicitly when a feature could not be initialized. */

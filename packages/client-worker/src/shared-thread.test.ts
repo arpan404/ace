@@ -1,5 +1,5 @@
-import { ConductorClient, type ThreadReader, type ThreadSource } from "@ace/client";
-import { ScenarioPlayer, flakyCheckout, workbenchServices } from "@ace/fake-daemon";
+import { type ThreadReader, type ThreadSource } from "@ace/client";
+import { ScenarioPlayer, flakyCheckout, workbench } from "@ace/fake-daemon";
 import { InteractionId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanups, world } from "./worker-test-support.ts";
@@ -24,34 +24,27 @@ function watch(store: ThreadSource) {
   return { read: () => visible, stop };
 }
 
-test("a deck worker's question stays visible to overlapping subscribers and after either leaves", async () => {
+test("a thread's question stays visible to overlapping subscribers and after either leaves", async () => {
   const { daemon, tab } = world();
-  daemon.seedServices(workbenchServices(1_800_000_000_000));
+  const scenario = workbench().find((candidate) => candidate.thread.id === "thread-sheet-rotate");
+  if (!scenario) throw new Error("Missing ordinary question scenario");
+  const script = new ScenarioPlayer(daemon, scenario);
+  script.runUntilBlocked();
   const client = tab();
   await client.start();
-  let ids = 0;
-  const decks = new ConductorClient(client, () => `deck-${++ids}`);
-  const run = await decks.get("mobile-cold-start");
-  const gate = run.needsUser.find((entry) => entry.kind === "provider");
-  if (!gate?.threadId || !gate.interactionId) throw new Error("Missing worker question");
-  // Activity mounts its waiting-time reporters before the deck's lazy question card.
-  const reporting = run.delegations
-    .filter((entry) => entry.threadId !== gate.threadId)
-    .slice(0, 4)
-    .map((entry) => client.thread(entry.threadId));
-  cleanups.push(() => reporting.forEach((lease) => lease.release()));
-  const first = client.thread(gate.threadId);
+  const first = client.thread(script.threadId);
   const left = watch(first.store);
-  const second = client.thread(gate.threadId);
+  const second = client.thread(script.threadId);
   const right = watch(second.store);
   await vi.waitFor(() => {
     expect(left.read()).toMatchObject([{ state: "pending", request: { kind: "question" } }]);
     expect(right.read()).toEqual(left.read());
   });
-  expect(first.store.thread?.deck?.role).toBe("worker");
+  const interactionId = left.read()[0]?.id;
+  if (!interactionId) throw new Error("Missing question");
   await client.request({ type: "diagnostics.health" });
   expect(left.read()).toEqual(right.read());
-  expect(right.read()).toMatchObject([{ id: gate.interactionId, request: { kind: "question" } }]);
+  expect(right.read()).toMatchObject([{ id: interactionId, request: { kind: "question" } }]);
   left.stop();
   first.release();
   first.release();
@@ -59,12 +52,12 @@ test("a deck worker's question stays visible to overlapping subscribers and afte
   expect(
     await client.command({
       type: "interaction.resolve",
-      interactionId: InteractionId.parse(gate.interactionId),
-      resolution: { kind: "question", answers: { choice: ["apk"] } },
+      interactionId: InteractionId.parse(interactionId),
+      resolution: { kind: "question", answers: { recovery: ["persist"] } },
     }),
   ).toMatchObject({ ok: true });
   await vi.waitFor(() => expect(right.read()).toEqual([]));
-  expect(second.store.interaction(gate.interactionId)?.state).toBe("resolved");
+  expect(second.store.interaction(interactionId)?.state).toBe("resolved");
   right.stop();
   second.release();
 });

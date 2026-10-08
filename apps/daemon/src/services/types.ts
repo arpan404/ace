@@ -32,7 +32,6 @@ export interface Services {
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
   previewClient?: import("../preview-client.ts").PreviewClient;
-  conductor?: import("../conductor-runtime.ts").ConductorRuntime;
   automations?: import("@ace/automations").AutomationService;
   activityReads?: import("../activity-reads.ts").ActivityReads;
   projects?: import("../projects.ts").Projects;

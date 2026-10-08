@@ -130,7 +130,7 @@ test("a long branch is cut in the middle for the row and kept whole for the tool
 
 test("middle truncation keeps short text and both ends of long text", () => {
   expect(middleTruncateText("fix/retry", 16)).toBe("fix/retry");
-  expect(middleTruncateText("deck/resumable-streams", 16)).toBe("deck/res…streams");
+  expect(middleTruncateText("work/resumable-streams", 16)).toBe("work/res…streams");
   expect(middleTruncateText("abcdef", 2)).toBe("ab");
   // Characters, not UTF-16 units: an emoji in a branch name is never split in half.
   expect(middleTruncateText("🚀".repeat(12), 5)).toBe("🚀🚀…🚀🚀");

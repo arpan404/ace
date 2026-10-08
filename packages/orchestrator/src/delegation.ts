@@ -8,7 +8,7 @@ export interface DelegationCapacity {
   usage: { tokens: number; cost: number };
   cancelled: boolean;
 }
-/** Shared by MCP and Deck; callers reserve the admitted slot in their transaction. */
+/** Callers reserve the admitted slot in their transaction. */
 export function admitDelegation(input: DelegationCapacity, policy: DelegationPolicy, now: number) {
   if (input.cancelled) return "cancelled";
   if (input.depth >= policy.maxDepth) return "depth_limit";

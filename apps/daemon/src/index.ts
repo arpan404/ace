@@ -233,7 +233,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "projects",
       "canReadThread",
       "previewClient",
-      "conductor",
       "automations",
       "activityReads",
       "devices",
@@ -292,7 +291,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
         return services.devices;
       },
       engine: services.engine,
-      conductor: services.conductor,
       agentControl: services.agentControl,
       accounts: services.accounts,
       accountManagement: services.accountManagement,

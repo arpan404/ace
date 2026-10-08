@@ -12,7 +12,6 @@ import { RunTrigger } from "./thread.ts";
 import { QueueCommands, FollowUpBehavior } from "./queue.ts";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
-import { ConductorCommandPayload } from "./conductor.ts";
 import {
   AgentId,
   RunId,
@@ -61,7 +60,6 @@ export const CommandPayload = z.discriminatedUnion("type", [
   ...WorkspaceCommands,
   ...ProjectCommands,
   ...ForgeCommand.options,
-  ...ConductorCommandPayload.options,
   ...ReviewCommands,
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { PairingResponse, ConductorModel, OrchestrationBudget } from "@ace/protocol";
+import { PairingResponse, OrchestrationBudget } from "@ace/protocol";
 import {
   checkFiles,
   writeFiles,
@@ -149,15 +149,6 @@ it("refuses an intermediate symlink beneath the caller's owned boundary", async 
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-it.each([
-  { provider: "claude", model: "example", tier: "normal", cost: 0.125, quota: 0.5 },
-  { provider: "claude", model: "example", tier: "normal", cost: 0, quota: Number.MIN_VALUE },
-])("keeps fractional costs, positive subnormals and zero cost on the wire", (value) => {
-  expect(ConductorModel.safeParse(value).success).toBe(true);
-  const snapshot = convertSchemas([{ name: "ConductorModel", schema: ConductorModel }]);
-  expect(jsonValidator(snapshot).getSchema(schemaId("ConductorModel"))?.(value)).toBe(true);
 });
 
 it("preserves fractional orchestration budgets and rejects their invalid bounds", () => {

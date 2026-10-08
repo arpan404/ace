@@ -35,7 +35,6 @@
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/commands": "workspace:*",
-        "@ace/conductor": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/devices": "workspace:*",
@@ -390,14 +389,6 @@
         "zod": "^4.6.5",
       },
     },
-    "packages/conductor": {
-      "name": "@ace/conductor",
-      "dependencies": {
-        "@ace/protocol": "workspace:*",
-        "@ace/provider-kit": "workspace:*",
-        "zod": "^4.6.5",
-      },
-    },
     "packages/context": {
       "name": "@ace/context",
       "dependencies": {
@@ -474,7 +465,6 @@
       },
       "devDependencies": {
         "@ace/adapter-opencode": "workspace:*",
-        "@ace/conductor": "workspace:*",
       },
     },
     "packages/files": {
@@ -858,8 +848,6 @@
     "@ace/client-worker": ["@ace/client-worker@workspace:packages/client-worker"],
 
     "@ace/commands": ["@ace/commands@workspace:packages/commands"],
-
-    "@ace/conductor": ["@ace/conductor@workspace:packages/conductor"],
 
     "@ace/context": ["@ace/context@workspace:packages/context"],
 

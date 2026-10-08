@@ -1,6 +1,6 @@
 /*
  * Headless view logic shared by the web app and the Expo app: status wording, Home ordering and
- * settling, thread cards, work-log and diff summaries, relative time and the Deck model. Pure
+ * settling, thread cards, work-log and diff summaries, relative time. Pure
  * TypeScript over @ace/protocol and @ace/client types; no React, DOM or platform APIs.
  */
 export * from "./accounts.ts";
@@ -13,12 +13,7 @@ export * from "./checkout.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
 export * from "./content-hash.ts";
-export * from "./deck.ts";
 export * from "./devices.ts";
-export * from "./deck-view.ts";
-export * from "./deck-gate.ts";
-export * from "./deck-agents.ts";
-export * from "./deck-start.ts";
 export * from "./diff.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";

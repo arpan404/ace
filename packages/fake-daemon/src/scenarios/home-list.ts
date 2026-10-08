@@ -62,7 +62,7 @@ function resumableStreams(): Scenario {
     thread: {
       id: "thread-resumable-streams",
       workspaceId: "ace",
-      title: "Offshift: resumable relay streams",
+      title: "Resumable relay streams",
       provider: "claude",
     },
     steps: [
@@ -78,7 +78,7 @@ function resumableStreams(): Scenario {
             "root",
             "plan",
             "assistant",
-            "Dealt four cards. Each runs in its own worktree with a reviewer; I merge them in order.",
+            "Delegated four tasks. Each agent runs in its own worktree; I review and integrate their changes.",
           ),
           ...lanes.flatMap(([key, title]): Fact[] => [
             tool("root", `spawn-${key}`, {
