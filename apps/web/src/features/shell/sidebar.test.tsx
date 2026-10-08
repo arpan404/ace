@@ -6,7 +6,7 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
 const button = (name: string | RegExp) => screen.getByRole("button", { name });
-/** A list on screen: the thread list in the sidebar, or a view's own beside its column. */
+/** The list in the sidebar for the current place. */
 const list = (name: string) => screen.queryByRole("complementary", { name });
 /** The sidebar's own links and buttons: "ace ▾", Search, Activity, New thread and the places. */
 const appNav = () => screen.getByRole("navigation", { name: "App" });
@@ -18,7 +18,7 @@ function workbenchApp(storage = memoryKeyValue()) {
   return app;
 }
 
-test("the sidebar's places open their views, mark them, and keep the thread list beside", async () => {
+test("each place replaces the sidebar list and returning to New thread restores threads", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
   // One sidebar: no rail of views beside it.
@@ -26,10 +26,10 @@ test("the sidebar's places open their views, mark them, and keep the thread list
   for (const place of ["Automations", "Skills"]) {
     const link = within(appNav()).getByRole("link", { name: place });
     await userEvent.click(link);
-    // The view's own list sits beside its column; the sidebar still lists the threads.
+    // The current place owns the single sidebar list.
     expect(await screen.findByRole("complementary", { name: place })).toBeTruthy();
     expect(link.getAttribute("aria-current")).toBe("page");
-    expect(list("Threads")).toBeTruthy();
+    expect(list("Threads")).toBeNull();
   }
   // One of the sidebar's places is current at a time.
   expect(within(appNav()).getAllByRole("link", { current: "page" })).toEqual([
@@ -38,6 +38,7 @@ test("the sidebar's places open their views, mark them, and keep the thread list
 
   await userEvent.click(within(appNav()).getByRole("link", { name: /^New thread/ }));
   await title("New thread");
+  expect(list("Threads")).toBeTruthy();
   expect(within(appNav()).getAllByRole("link", { current: "page" })).toEqual([
     within(appNav()).getByRole("link", { name: /^New thread/ }),
   ]);
@@ -55,10 +56,11 @@ test("Settings is the gear beside the profile, and its pages take the thread lis
 
   await userEvent.click(within(appNav()).getByRole("link", { name: "Automations" }));
   await title("Automations");
-  expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(await screen.findByRole("complementary", { name: "Automations" })).toBeTruthy();
+  expect(list("Threads")).toBeNull();
 });
 
-test("the bell counts what needs you and opens Activity, its feed beside the column", async () => {
+test("the bell counts what needs you and opens Activity in the sidebar", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
   const bell = await within(appNav()).findByRole("link", { name: "Activity, 3 need you" });
@@ -67,7 +69,7 @@ test("the bell counts what needs you and opens Activity, its feed beside the col
   await title("Activity");
   expect(bell.getAttribute("aria-current")).toBe("page");
   expect(list("Activity")).toBeTruthy();
-  expect(list("Threads")).toBeTruthy();
+  expect(list("Threads")).toBeNull();
 });
 
 test("the bell's count follows a thread that comes to need you, through the client worker too", async () => {

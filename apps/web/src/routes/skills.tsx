@@ -5,7 +5,7 @@ import { ViewFrame } from "@/features/shell/index.ts";
 export const Route = createFileRoute("/skills")({
   component: () => (
     <InstallDialogProvider>
-      <ViewFrame label="Skills" sidebar={<SkillsSidebar />} place="pane">
+      <ViewFrame label="Skills" sidebar={<SkillsSidebar />} place="sidebar">
         <Outlet />
       </ViewFrame>
     </InstallDialogProvider>

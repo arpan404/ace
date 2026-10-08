@@ -77,13 +77,7 @@ export function RunChecks() {
                 <div className="flex h-8 items-center justify-between gap-2 text-sm">
                   <span>{provider ?? info?.label ?? "Additional check"}</span>
                   <StatusLabel
-                    tone={
-                      check.status === "ok"
-                        ? "done"
-                        : check.status === "warn"
-                          ? "waiting"
-                          : "failed"
-                    }
+                    tone={check.status === "ok" ? "done" : "failed"}
                     label={
                       check.status === "ok"
                         ? "Passed"

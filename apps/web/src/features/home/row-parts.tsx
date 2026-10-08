@@ -84,24 +84,21 @@ function PullRequest(props: { number: number }) {
   );
 }
 
-/** A working row's second line shows the work; only the others name the pull request here. */
-export function detailLine(card: ThreadCard): boolean {
-  return (
-    card.status.mark === "working" && (card.branch !== undefined || card.machine !== undefined)
-  );
-}
-
 /**
  * The row's right end: a snooze, the pull request, the status mark, then how long it has worked
  * or how long ago it last moved. Quick actions take its place on hover and focus.
  */
-export function RowMeta(props: { card: ThreadCard; detail: boolean }) {
+export function RowMeta(props: { card: ThreadCard }) {
   const { card } = props;
-  const pr = props.detail ? undefined : card.branch?.pr;
+  const pr = card.branch?.pr;
   return (
     <span className="flex shrink-0 items-center gap-1.5 text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
       {card.wake && <Icon icon={MoonIcon} size={12} />}
-      {pr !== undefined && <PullRequest number={pr} />}
+      {pr !== undefined && (
+        <span className="group-data-[status=active]/link:hidden">
+          <PullRequest number={pr} />
+        </span>
+      )}
       <StatusMark card={card} />
       {card.pill?.since !== undefined ? (
         <Elapsed since={card.pill.since} />
@@ -125,12 +122,11 @@ export function titleTone(card: ThreadCard): string {
 /** The diff as +added −removed in the only colours a row carries, or the pull request. */
 function ChangeMark(props: { card: ThreadCard }) {
   const { branch, diff } = props.card;
-  if (branch?.pr !== undefined) return <PullRequest number={branch.pr} />;
-  if (!diff) return null;
+  if (!diff) return branch?.pr !== undefined ? <PullRequest number={branch.pr} /> : null;
   return (
     <span className="inline-flex items-center gap-1 tabular-nums">
-      {diff.added > 0 && <span className="text-diff-add">+{diff.added}</span>}
-      {diff.removed > 0 && <span className="text-diff-del">−{diff.removed}</span>}
+      {diff.added > 0 && <span className="text-status-done">+{diff.added}</span>}
+      {diff.removed > 0 && <span className="text-status-failed">−{diff.removed}</span>}
     </span>
   );
 }
@@ -139,37 +135,38 @@ function ChangeMark(props: { card: ThreadCard }) {
 function ProviderMark(props: { card: ThreadCard }) {
   const { card } = props;
   return (
-    <span className="relative inline-flex">
-      <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={12} decorative />
+    <span className="inline-flex items-center gap-0.5">
+      <ProviderIcon
+        provider={card.provider}
+        acpAgentId={card.acpAgentId}
+        size={card.provider === "opencode" ? 24 : 16}
+        decorative
+      />
       {card.subagents > 0 && (
-        <span className="absolute -right-1.5 -bottom-1 min-w-3 rounded-full bg-sidebar px-0.5 text-center text-[8.5px] leading-3 font-semibold text-foreground shadow-[0_0_0_1px_var(--sidebar-border)]">
-          {card.subagents}
-        </span>
+        <span className="text-2xs text-muted-foreground tabular-nums">{card.subagents}</span>
       )}
     </span>
   );
 }
 
-/**
- * A working row's second line, under its title: where the work happens (branch or worktree,
- * another machine), then what it has changed so far and who does it.
- */
+/** Branch on hover, readable changes on hover and in the open row. */
 export function RowDetail(props: { card: ThreadCard }) {
   const { card } = props;
-  const branch = card.branch;
   return (
-    <span className="flex h-4 items-center gap-1.5 pl-7 text-xs text-subtle-foreground">
-      <span className="flex min-w-0 flex-1 items-center gap-1">
-        {branch?.worktree && <Icon icon={GitBranchIcon} size={12} />}
-        <span className="truncate">
-          {/* Cut in the middle so the distinctive end stays; the whole name is in the tooltip. */}
-          {branch && <span title={branch.name}>{branch.label}</span>}
-          {branch && card.machine && " · "}
-          {card.machine}
-        </span>
+    <span
+      aria-hidden
+      className="hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground group-hover/row:flex group-hover/row:flex-1 group-data-[status=active]/link:flex"
+    >
+      <span className="hidden min-w-0 items-center gap-1 group-hover/row:flex group-hover/row:flex-1">
+        {card.branch?.worktree && <Icon icon={GitBranchIcon} size={12} />}
+        <span className="truncate">{card.branch?.name ?? card.machine}</span>
       </span>
-      <ChangeMark card={card} />
-      <ProviderMark card={card} />
+      <span className="shrink-0">
+        <ChangeMark card={card} />
+      </span>
+      <span className="hidden shrink-0 group-hover/row:mr-11 group-hover/row:inline-flex">
+        <ProviderMark card={card} />
+      </span>
     </span>
   );
 }

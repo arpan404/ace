@@ -65,18 +65,20 @@ export function SkillsSidebar() {
     <ViewSidebar
       title="Skills"
       actions={
-        <>
-          <FilterMenu
-            label="Plugin"
-            value={plugin}
-            options={[
-              { value: "all", label: "All plugins" },
-              ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
-            ]}
-            onValueChange={setPlugin}
-          />
-          <InstallPluginButton />
-        </>
+        skills.data?.length ? (
+          <>
+            <FilterMenu
+              label="Plugin"
+              value={plugin}
+              options={[
+                { value: "all", label: "All plugins" },
+                ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
+              ]}
+              onValueChange={setPlugin}
+            />
+            <InstallPluginButton />
+          </>
+        ) : undefined
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
@@ -94,9 +96,7 @@ export function SkillsSidebar() {
         <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
         <ListSkeleton label="skills" shape="row" rows={5} />
-      ) : !skills.data.length ? (
-        <EmptyState variant="inline" title="No plugins installed" />
-      ) : !shown.length ? (
+      ) : !skills.data.length ? null : !shown.length ? (
         <EmptyState
           variant="inline"
           title="No matching skills"

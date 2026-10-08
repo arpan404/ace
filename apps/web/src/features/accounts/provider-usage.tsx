@@ -73,7 +73,7 @@ export function ProviderUsage(props: { provider: string; acpAgentId?: string | u
           </dd>
         </div>
       </dl>
-      {rows.length > 0 && <DailyBars rows={rows} className="mt-0" barsClassName="h-20" />}
+      {rows.length > 0 && <DailyBars rows={rows} className="mt-0" />}
       {shares.length > 1 && (
         <ul aria-label="Usage by account" className="flex flex-col gap-1 text-sm">
           {shares.map((row) => {
