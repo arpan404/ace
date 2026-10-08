@@ -14,6 +14,7 @@ import { Route as ActivityRouteImport } from "./routes/activity"
 import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as DeckRouteImport } from "./routes/deck"
 import { Route as MoreRouteImport } from "./routes/more"
+import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
@@ -69,6 +70,11 @@ const DeckRoute = DeckRouteImport.update({
 const MoreRoute = MoreRouteImport.update({
   id: "/more",
   path: "/more",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PairRoute = PairRouteImport.update({
+  id: "/pair",
+  path: "/pair",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -241,6 +247,7 @@ export interface FileRoutesByFullPath {
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
+  "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -274,6 +281,7 @@ export interface FileRoutesByFullPath {
   "/settings/providers/": typeof SettingsProvidersIndexRoute
 }
 export interface FileRoutesByTo {
+  "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
@@ -312,6 +320,7 @@ export interface FileRoutesById {
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
+  "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -353,6 +362,7 @@ export interface FileRouteTypes {
     | "/automations"
     | "/deck"
     | "/more"
+    | "/pair"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -386,6 +396,7 @@ export interface FileRouteTypes {
     | "/settings/providers/"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/pair"
     | "/setup"
     | "/archived"
     | "/new"
@@ -423,6 +434,7 @@ export interface FileRouteTypes {
     | "/automations"
     | "/deck"
     | "/more"
+    | "/pair"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -463,6 +475,7 @@ export interface RootRouteChildren {
   AutomationsRoute: typeof AutomationsRouteWithChildren
   DeckRoute: typeof DeckRouteWithChildren
   MoreRoute: typeof MoreRouteWithChildren
+  PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
@@ -503,6 +516,13 @@ declare module "@tanstack/react-router" {
       path: "/more"
       fullPath: "/more"
       preLoaderRoute: typeof MoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/pair": {
+      id: "/pair"
+      path: "/pair"
+      fullPath: "/pair"
+      preLoaderRoute: typeof PairRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -859,6 +879,7 @@ const rootRouteChildren: RootRouteChildren = {
   AutomationsRoute: AutomationsRouteWithChildren,
   DeckRoute: DeckRouteWithChildren,
   MoreRoute: MoreRouteWithChildren,
+  PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,

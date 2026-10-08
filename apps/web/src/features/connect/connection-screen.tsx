@@ -1,4 +1,8 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button.tsx";
+const PairingForm = lazy(() =>
+  import("./pairing-form.tsx").then((module) => ({ default: module.PairingForm })),
+);
 import {
   useDaemonConnection,
   type ConnectionProblem,
@@ -11,9 +15,9 @@ import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
-  auth: "The daemon didn't accept this token. It changes when the daemon's home is reset; copy it again.",
-  protocol: "This app and the daemon are different versions. Update ace on one of them.",
-  failed: "The daemon closed the connection. Check the address, then try again.",
+  auth: "This computer didn't accept the access token. Copy it again or create a new pairing link.",
+  protocol: "These devices use different ace versions. Update ace on both and try again.",
+  failed: "This computer closed the connection. Check its address, then try again.",
 };
 
 /**
@@ -25,6 +29,7 @@ const problems: Record<ConnectionProblem, ReactNode> = {
 export function ConnectionScreen() {
   useDismissBootSplash();
   const connection = useDaemonConnection();
+  const [pairing, setPairing] = useState(connection.pairingLink !== undefined);
   const handoff = connection.handoff;
   if (handoff)
     return (
@@ -41,13 +46,15 @@ export function ConnectionScreen() {
   return (
     <ConnectCard labelledBy="connect-title">
       <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
-        Connect to your daemon
+        {pairing ? "Pair this device" : "Connect to your computer"}
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">
-        {connection.desktop ? (
+        {pairing ? (
+          "Give this device a name so you can recognize and revoke its access later."
+        ) : connection.desktop ? (
           <>
-            This computer doesn't run ace's daemon itself. Connect to one on another machine at a
-            secure <code className="font-mono text-sm">wss://</code> address.
+            Connect to ace on another computer at a secure{" "}
+            <code className="font-mono text-sm">wss://</code> address.
           </>
         ) : (
           <>
@@ -59,18 +66,36 @@ export function ConnectionScreen() {
           </>
         )}
       </p>
-      <DaemonForm
-        url={connection.url}
-        token={connection.token}
-        remembered={connection.remembered}
-        submitLabel="Connect"
-        onSubmit={connection.connect}
-        readOnly={trying}
-        wide
-        selectToken={status.kind === "editing" && status.problem === "auth"}
-        alert={alertFor(connection)}
-        {...buttonsFor(connection)}
-      />
+      {pairing ? (
+        <Suspense fallback={null}>
+          <PairingForm
+            url={connection.url}
+            link={connection.pairingLink}
+            connect={connection.connect}
+            cancel={() => setPairing(false)}
+          />
+        </Suspense>
+      ) : (
+        <>
+          <DaemonForm
+            url={connection.url}
+            token={connection.token}
+            remembered={connection.remembered}
+            submitLabel="Connect"
+            onSubmit={connection.connect}
+            readOnly={trying}
+            wide
+            selectToken={status.kind === "editing" && status.problem === "auth"}
+            alert={alertFor(connection)}
+            {...buttonsFor(connection)}
+          />
+          {!trying && (
+            <Button variant="ghost" className="mt-4" onClick={() => setPairing(true)}>
+              Have a pairing code?
+            </Button>
+          )}
+        </>
+      )}
     </ConnectCard>
   );
 }
@@ -81,10 +106,10 @@ function alertFor(connection: DaemonConnection): ReactNode {
   if (status.kind !== "unreachable") return undefined;
   if (status.offline) return "This device is offline. ace connects once the network is back.";
   const where = <code className="font-mono text-sm break-all">{connection.url}</code>;
-  if (connection.desktop) return <>Couldn't reach the daemon at {where}. Is it running?</>;
+  if (connection.desktop) return <>Couldn't reach ace at {where}. Is it running?</>;
   return (
     <>
-      Couldn't reach {where}. Is the daemon running on that machine? Start it there with{" "}
+      Couldn't reach {where}. Is ace running on that computer? Start it there with{" "}
       <CopyCommand command="ace start" />
     </>
   );

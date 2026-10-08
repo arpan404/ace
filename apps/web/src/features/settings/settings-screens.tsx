@@ -8,7 +8,9 @@ import { NotificationSettings } from "./notifications-page.tsx";
 import { Navigate } from "@tanstack/react-router";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { RemoteDevices } from "./remote-page.tsx";
+const RemoteDevices = lazy(() =>
+  import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
+);
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
@@ -74,9 +76,11 @@ export function RemoteSettingsScreen() {
   return (
     <SettingsBody
       page="Remote devices"
-      lede="Machines running the ace daemon that this app can see. Threads from every machine merge into one list."
+      lede="Connect your own devices to this computer. Provider sign-ins stay here."
     >
-      <RemoteDevices />
+      <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
+        <RemoteDevices />
+      </Suspense>
     </SettingsBody>
   );
 }

@@ -1,4 +1,4 @@
-import { LimitPolicy, type SettingsKey } from "@ace/protocol";
+import { LimitPolicy, SettingsValues, type SettingsKey } from "@ace/protocol";
 import { z } from "zod";
 
 /** A daemon setting the UI edits: its key, how to read it, and what it is when unset. */
@@ -31,6 +31,10 @@ export type LimitPolicy = z.infer<typeof LimitPolicy>;
  * of its own until the person picks one (`useStartingProvider`), so Reset can't write it back.
  */
 export const settingKeys = {
+  hostName: setting("host.displayName", SettingsValues.shape["host.displayName"], ""),
+  remoteEnabled: setting("remote.enabled", z.boolean(), false),
+  remoteTransport: setting("remote.transport", SettingsValues.shape["remote.transport"], "local"),
+  relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   worktree: setting("threads.useWorktree", z.boolean(), true),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),

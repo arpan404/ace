@@ -103,6 +103,7 @@ export function browserMachinePool(options: {
         url: socketUrl(entry.target.url),
         token,
         deviceId: entry.deviceId,
+        pairedDeviceId: entry.deviceId,
         seed: null,
         hostId: entry.hostId,
       };

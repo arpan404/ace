@@ -1,3 +1,4 @@
+import { browserCredential } from "./remote-credential.ts";
 import { Client, webSocketTransport } from "@ace/client";
 import { ClientHost, type PortLike } from "@ace/client-worker";
 import { HostId } from "@ace/protocol";
@@ -23,7 +24,7 @@ const host = new ClientHost({
           ...browserClientOptions({
             deviceId: target.deviceId,
             transport: () => webSocketTransport(() => new WebSocket(target.url)),
-            credential: async () => target.token,
+            credential: browserCredential(target),
             storage: workerOutbox(target),
           }),
           expectedHostId: HostId.parse(target.hostId),

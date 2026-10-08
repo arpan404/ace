@@ -1,3 +1,10 @@
+import { useMachines } from "@/lib/machines.ts";
+import { RemoteAccess } from "./remote-access.tsx";
+import { settingKeys } from "./data/setting-keys.ts";
+import { useSettingControl } from "./data/use-settings.ts";
+import { Input } from "@/components/ui/input.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -19,7 +26,6 @@ import type { Machine } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
 import { settingRow } from "./settings-index.ts";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { UnavailableError } from "@/boot/fake-backend.ts";
 
 const platformNames: Record<Machine["platform"], string> = {
@@ -39,6 +45,7 @@ const lastSeen = (at: number, now: number) => `last seen ${ago(at, now)}`;
 export function RemoteDevices() {
   return (
     <>
+      <RemoteAccess />
       <Machines />
       <PairedDevices />
     </>
@@ -51,46 +58,64 @@ export function RemoteDevices() {
  */
 function Machines() {
   const backend = useSettingsBackend();
-  const machines = useQuery(settingsQueries.machines(backend));
-  const connection = useDaemonConnection();
+  const listed = useQuery(settingsQueries.machines(backend));
+  const connected = useMachines();
+  const name = useSettingControl(settingKeys.hostName, "Machine name");
   const now = useNow();
-  const unlisted = machines.error instanceof UnavailableError;
+  const unlisted = listed.error instanceof UnavailableError;
+  const machines = listed.data;
   return (
-    <SettingSection label="Machines" card>
-      {machines.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
-      {unlisted && (
-        <SettingRow
-          title={hostOf(connection.url)}
-          description="This machine · Other machines appear here once the daemon can list them."
+    <SettingSection label="Machines">
+      <SettingRow id="host.displayName" title="Machine name" htmlFor="host-name" inline compact>
+        <Input
+          id="host-name"
+          key={name.value}
+          defaultValue={name.value}
+          placeholder={
+            machines?.find((machine) => machine.current)?.name ??
+            connected[0]?.name ??
+            "This machine"
+          }
+          className="w-52"
+          maxLength={256}
+          disabled={name.offline}
+          onBlur={(event) => {
+            if (event.target.value !== name.value) name.set(event.target.value.trim());
+          }}
         />
-      )}
-      {machines.isError && !unlisted && <LoadError error={machines.error} />}
-      {machines.data?.map((machine) => (
+      </SettingRow>
+      {listed.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
+      {unlisted &&
+        connected.map((machine) => (
+          <SettingRow key={machine.id} compact inline title={machine.name}>
+            <StatusLabel
+              tone={machine.status === "online" ? "done" : "idle"}
+              label={machine.status === "online" ? "Online" : "Offline"}
+            />
+          </SettingRow>
+        ))}
+      {listed.isError && !unlisted && <LoadError error={listed.error} />}
+      {machines?.map((machine) => (
         <SettingRow
           key={machine.id}
-          title={machine.name}
+          compact
+          inline
+          title={machine.current && name.value ? name.value : machine.name}
           description={[
             machine.current ? "This machine" : platformNames[machine.platform],
             `${machine.threads} thread${machine.threads === 1 ? "" : "s"}`,
-            `daemon ${machine.daemonVersion}`,
+            `ace ${machine.daemonVersion}`,
             ...(machine.current ? [] : [lastSeen(machine.lastSeenAt, now)]),
           ].join(" · ")}
         >
-          <span className="text-sm text-muted-foreground">
-            {machine.online ? "Online" : "Offline"}
-          </span>
+          <StatusLabel
+            tone={machine.online ? "done" : "idle"}
+            label={machine.online ? "Online" : "Offline"}
+          />
         </SettingRow>
       ))}
     </SettingSection>
   );
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "This machine";
-  }
 }
 
 function LoadError(props: { error: Error }) {
@@ -104,26 +129,23 @@ function LoadError(props: { error: Error }) {
 function PairedDevices() {
   const backend = useSettingsBackend();
   const devices = useQuery(settingsQueries.devices(backend));
-  const now = useNow();
   const [revoking, setRevoking] = useState<Device | undefined>();
   return (
-    <SettingSection label="Paired devices" card>
+    <SettingSection label="Paired devices">
       {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
         <p className="py-3.5 text-sm text-muted-foreground">
-          No phones or browsers are paired with this daemon.
+          No devices are paired with this computer.
         </p>
       )}
       {devices.data?.map((device) => (
         <SettingRow
           key={device.id}
+          compact
+          inline
           title={device.name}
-          description={[
-            device.scopes.includes("operate") ? "Can view and act" : "View only",
-            `paired ${ago(device.createdAt, now)}`,
-            lastSeen(device.lastSeenAt, now),
-          ].join(" · ")}
+          description={[deviceScopeLabels(device.scopes)].join(" · ")}
         >
           <Button
             size="sm"
@@ -136,8 +158,9 @@ function PairedDevices() {
         </SettingRow>
       ))}
       <SettingRow
+        compact
         {...settingRow("remote.pair")}
-        description="Scan a code with the ace app on your phone, or open the link on another computer."
+        description="Open the link on your other device. Keep it private until it expires."
         inline
       >
         <PairDevice />
@@ -155,7 +178,7 @@ function RevokeDialog(props: { device: Device | undefined; onDone(): void }) {
     mutationFn: (device: Device) => backend.revoke(device.id),
     onSuccess: async (_, device) => {
       await queryClient.invalidateQueries({ queryKey: settingsQueries.devices(backend).queryKey });
-      toast.add({ title: `${device.name} can no longer reach this daemon` });
+      toast.add({ title: `${device.name} can no longer reach this computer` });
       props.onDone();
     },
   });

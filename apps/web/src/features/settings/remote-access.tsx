@@ -1,0 +1,97 @@
+import { useQuery } from "@tanstack/react-query";
+import { useSettingsBackend } from "./data/use-settings.ts";
+import { useId } from "react";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { Input } from "@/components/ui/input.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
+import { Select } from "@/components/ui/select.tsx";
+import { useSettingControl } from "./data/use-settings.ts";
+import { settingKeys } from "./data/setting-keys.ts";
+import { DaemonSlot } from "./setting-control.tsx";
+
+export function RemoteAccess() {
+  const id = useId();
+  const backend = useSettingsBackend();
+  const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
+  const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
+  const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const status = useQuery({
+    queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
+    queryFn: () => backend.remoteStatus(),
+    retry: false,
+  });
+  const overridden =
+    (status.data?.listenOverride !== null && status.data?.listenOverride !== undefined) ||
+    status.data?.relayOverride === true;
+  const selected =
+    overridden && status.data?.transport !== "local"
+      ? (status.data?.transport ?? "lan")
+      : transport.value === "local"
+        ? "lan"
+        : transport.value;
+  return (
+    <SettingSection
+      label="Remote access"
+      note="Only paired devices can connect. Turning this off disconnects them; saved pairings stay available for next time."
+    >
+      <SettingRow id="remote.enabled" title="Remote access" htmlFor={id} inline compact>
+        <DaemonSlot control={enabled}>
+          <Switch
+            id={id}
+            checked={overridden ? (status.data?.enabled ?? enabled.value) : enabled.value}
+            disabled={enabled.offline || enabled.pending || overridden || !status.data}
+            onCheckedChange={enabled.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      {overridden && (
+        <p className="py-2 text-sm text-muted-foreground">
+          Remote access is controlled by this computer's launch configuration. Change it there to
+          use these controls.
+        </p>
+      )}
+      {status.isError && (
+        <p role="alert" className="py-2 text-sm text-muted-foreground">
+          {status.error.message}
+        </p>
+      )}
+      <SettingRow id="remote.transport" title="Transport" inline compact>
+        <DaemonSlot control={transport}>
+          <Select
+            label="Transport"
+            value={selected}
+            options={[
+              { value: "lan", label: "LAN" },
+              { value: "tailscale", label: "Tailscale" },
+              { value: "relay", label: "Relay" },
+            ]}
+            disabled={transport.offline || transport.pending || overridden || !status.data}
+            onValueChange={transport.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <p className="py-2 text-sm text-muted-foreground">
+        {selected === "lan"
+          ? "Encrypted access on your local network. Browsers must trust this computer's HTTPS certificate. Never forward its local port to the internet."
+          : selected === "tailscale"
+            ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
+            : "Use a relay you host yourself. Its channels are end-to-end encrypted. Pair over LAN or Tailscale first. The relay currently carries files, browser and computer controls."}
+      </p>
+      {selected === "relay" && (
+        <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
+          <Input
+            id={`${id}-relay`}
+            aria-label="Relay address"
+            key={relay.value}
+            defaultValue={relay.value}
+            placeholder="wss://relay.example.com/"
+            disabled={relay.offline || relay.pending || overridden}
+            onBlur={(event) => {
+              if (event.target.value !== relay.value) relay.set(event.target.value.trim());
+            }}
+          />
+        </SettingRow>
+      )}
+    </SettingSection>
+  );
+}

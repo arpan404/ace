@@ -21,7 +21,7 @@ test("a device that scans the code turns the dialog into a confirmation with Don
   await vi.advanceTimersByTimeAsync(2_000);
 
   expect(await within(dialog).findByText("Pixel 9 paired")).toBeTruthy();
-  expect(within(dialog).getByText("Can view and act")).toBeTruthy();
+  expect(within(dialog).getByText("Read, Operate")).toBeTruthy();
   const done = within(dialog).getByRole("button", { name: "Done" });
   await waitFor(() => expect(document.activeElement).toBe(done));
   await user.click(done);
@@ -35,7 +35,7 @@ test("the chosen access shows above the code, and Change goes back to choose aga
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("button", { name: "View only" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
-  expect(await within(dialog).findByText("View only")).toBeTruthy();
+  expect(await within(dialog).findByText("Read")).toBeTruthy();
 
   await userEvent.click(within(dialog).getByRole("button", { name: "Change" }));
   expect(within(dialog).getByRole("button", { name: "Show pairing code" })).toBeTruthy();

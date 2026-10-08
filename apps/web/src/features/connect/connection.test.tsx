@@ -45,7 +45,7 @@ function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?
 
 async function connectWith(value: string, options: { url?: string; flipRemember?: boolean } = {}) {
   if (options.url) {
-    const address = await screen.findByLabelText("Daemon address");
+    const address = await screen.findByLabelText("Computer address");
     await userEvent.clear(address);
     await userEvent.type(address, options.url);
   }
@@ -56,13 +56,13 @@ async function connectWith(value: string, options: { url?: string; flipRemember?
 
 test("without a token the app asks for one and says how to get it", async () => {
   boot();
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to your computer" });
   expect(screen.getByLabelText("Token").getAttribute("aria-describedby")).toBeTruthy();
   const hint = document.getElementById(
     screen.getByLabelText("Token").getAttribute("aria-describedby") ?? "",
   );
   expect(hint?.textContent).toMatch(/run ace token and paste the result/);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
+  expect(screen.getByLabelText<HTMLInputElement>("Computer address").value).toBe(url);
 
   await connectWith("not-a-token");
   expect((await screen.findByRole("alert")).textContent).toMatch(/64 hexadecimal characters/);
@@ -109,7 +109,7 @@ test("pasting the link `ace start` opens fills in the token and the address", as
   await user.click(field);
   await user.paste(`http://127.0.0.1:4242/#token=${token}&daemon=ws://127.0.0.1:5151/`);
   expect(field.value).toBe(token);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(
+  expect(screen.getByLabelText<HTMLInputElement>("Computer address").value).toBe(
     "ws://127.0.0.1:5151/",
   );
 });
@@ -118,7 +118,7 @@ test("a token the daemon rejects returns to the form, says why and selects the t
   boot();
   await connectWith("cd".repeat(32));
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/didn't accept this token/);
+  expect(alert.textContent).toMatch(/didn't accept the access token/);
   const field = screen.getByLabelText<HTMLInputElement>("Token");
   expect(document.activeElement).toBe(field);
   expect(field.value).toBe("cd".repeat(32));
@@ -177,7 +177,7 @@ test("disconnecting forgets the token and returns to the connection screen", asy
   // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
   await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to your computer" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
   expect(session.getItem("ace.daemon.token")).toBeNull();
 });
@@ -190,7 +190,7 @@ test("a client that loads on demand connects once it arrives, and disconnecting 
   // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
   await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to your computer" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
 });
 
@@ -200,8 +200,8 @@ test("a daemon that later rejects the token sends the window back to the form wi
   // 4001: the daemon no longer accepts this token (its home was reset).
   daemon.disconnectAll(4001);
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/didn't accept this token/);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
+  expect(alert.textContent).toMatch(/didn't accept the access token/);
+  expect(screen.getByLabelText<HTMLInputElement>("Computer address").value).toBe(url);
   expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
-  within(alert).getByText(/copy it again/);
+  within(alert).getByText(/copy it again/i);
 });

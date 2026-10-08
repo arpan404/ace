@@ -147,6 +147,24 @@ const entries = [
   },
   // Remote devices
   {
+    id: "remote.enabled",
+    page: "/settings/remote",
+    title: "Remote access",
+    keywords: ["lan", "tailscale", "relay"],
+  },
+  {
+    id: "remote.transport",
+    page: "/settings/remote",
+    title: "Transport",
+    keywords: ["lan", "tailscale", "relay"],
+  },
+  {
+    id: "host.displayName",
+    page: "/settings/remote",
+    title: "Machine name",
+    keywords: ["host", "rename", "computer"],
+  },
+  {
     id: "remote.pair",
     page: "/settings/remote",
     title: "Pair a device",
