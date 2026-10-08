@@ -82,6 +82,24 @@ Example:
 }
 ```
 
+## AutomationPollError
+
+[JSON Schema](schema/AutomationPollError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| message | yes | string | {"maxLength":8192} |
+| at | yes | integer | {"minimum":0,"maximum":8640000000000000} |
+
+Example:
+
+```json
+{
+  "at": 3,
+  "message": "example"
+}
+```
+
 ## AutomationRequest
 
 [JSON Schema](schema/AutomationRequest.json), input validation.
@@ -99,24 +117,23 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 10,
-    "enabled": true,
+    "concurrency": 8,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 2,
+    "jitterMs": 6,
     "missedRun": "run_once",
     "model": "example",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "opencode",
     "title": "example",
     "trigger": {
-      "event": "pr_changed",
-      "kind": "github",
-      "pollIntervalMs": 60006,
-      "pullRequest": 9,
-      "repository": "5upM.8V_oB/Ng7eqttAh"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -184,13 +201,15 @@ Example:
 | type | yes | `"automation.inbox"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
 
 Example:
 
 ```json
 {
-  "limit": 8,
+  "before": 10,
+  "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -207,7 +226,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
-| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]}},"required":["id","nextRunAt"]}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
 
@@ -215,11 +234,12 @@ Example:
 
 ```json
 {
+  "automations": [],
   "inbox": {
-    "before": 1,
+    "before": null,
     "runs": []
   },
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -249,11 +269,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "result": "example",
-  "startedAt": 0,
+  "startedAt": 7,
   "status": "failed",
+  "threadId": "example",
   "title": "example",
-  "trigger": "manual"
+  "trigger": "github"
 }
 ```
 
@@ -311,7 +331,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -333,12 +353,11 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "review_comment",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60007,
-  "pullRequest": 5,
-  "repository": "OUJLyjQ1z/k47_"
+  "pollIntervalMs": 60009,
+  "pullRequest": 2,
+  "repository": "3.NYvJ2/xBeD49rC"
 }
 ```
 

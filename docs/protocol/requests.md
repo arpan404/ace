@@ -446,6 +446,7 @@ Example:
 | type | yes | `"automation.inbox"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
 
 Example:
@@ -453,7 +454,7 @@ Example:
 ```json
 {
   "before": 4,
-  "limit": 7,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -489,10 +490,9 @@ Example:
 
 ```json
 {
-  "allBefore": 8,
-  "read": [],
   "requestId": "example",
-  "type": "activity.markRead"
+  "type": "activity.markRead",
+  "unread": []
 }
 ```
 

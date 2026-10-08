@@ -14,6 +14,14 @@
     "kind": {
       "$ref": "https://ace.local/protocol/v1/SearchKind.json"
     },
+    "kinds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SearchKind.json"
+      },
+      "maxItems": 9,
+      "minItems": 1,
+      "type": "array"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

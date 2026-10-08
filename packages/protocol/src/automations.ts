@@ -95,10 +95,16 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     type: z.literal("automation.inbox"),
     requestId: text,
     before: z.number().int().positive().optional(),
+    automationId: text.optional(),
     limit: z.number().int().min(1).max(100),
   }),
 ]);
 export type AutomationRequest = z.infer<typeof AutomationRequest>;
+export const AutomationPollError = z.object({
+  message: z.string().max(8192),
+  at: instant,
+});
+export type AutomationPollError = z.infer<typeof AutomationPollError>;
 export const AutomationResponse = z.object({
   type: z.literal("automation.result"),
   requestId: text,
@@ -106,7 +112,13 @@ export const AutomationResponse = z.object({
   error: z.string().max(8192).optional(),
   automations: z.array(Automation).max(1000).optional(),
   schedules: z
-    .array(z.object({ id: text, nextRunAt: instant.nullable() }))
+    .array(
+      z.object({
+        id: text,
+        nextRunAt: instant.nullable(),
+        lastPollError: AutomationPollError.optional(),
+      }),
+    )
     .max(1000)
     .optional(),
   inbox: AutomationInbox.optional(),

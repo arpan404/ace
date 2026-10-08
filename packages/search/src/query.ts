@@ -110,6 +110,10 @@ export function querySearch(
       values.push(value);
     }
   }
+  if (q.filters.kinds) {
+    where.push(`d.kind IN (${q.filters.kinds.map(() => "?").join(",")})`);
+    values.push(...q.filters.kinds);
+  }
   const score = text ? `bm25(${table},8.0,1.0)` : "-d.at";
   const id = text ? `${table}.rowid` : "d.id";
   const title = text ? `snippet(${table},0,char(1),char(2),'…',24)` : "substr(d.title,1,4096)";

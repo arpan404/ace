@@ -17753,6 +17753,7 @@ Semantic rule: after must be <= before when both timestamps are present.
 | status | no | [SearchState.json](schema/SearchState.json) |  |
 | agentId | no | [AgentId.json](schema/AgentId.json) |  |
 | kind | no | [SearchKind.json](schema/SearchKind.json) |  |
+| kinds | no | array | {"minItems":1,"maxItems":9,"items":{"$ref":"https://ace.local/protocol/v1/SearchKind.json"}} |
 
 Example:
 
@@ -17788,17 +17789,17 @@ Example:
 
 ```json
 {
-  "agentId": "example",
-  "createdAt": 9,
-  "kind": "reasoning",
-  "provider": "acp",
-  "score": 5,
+  "createdAt": 5,
+  "itemId": "example",
+  "kind": "artifact",
+  "provider": "codex",
+  "score": 4,
   "snippet": {
     "highlights": [],
     "text": "example"
   },
-  "status": "working",
-  "statusSeq": 3,
+  "status": "waiting",
+  "statusSeq": 2,
   "threadId": "example",
   "threadTitle": "example",
   "title": {
@@ -17818,7 +17819,7 @@ Type: ["thread","message","reasoning","tool_call","notice","compaction","delegat
 Example:
 
 ```json
-"tool_call"
+"delegation.started"
 ```
 
 ## SearchQuery
@@ -17838,6 +17839,7 @@ Example:
 
 ```json
 {
+  "cursor": "example",
   "text": "example"
 }
 ```
@@ -17863,10 +17865,11 @@ Example:
 {
   "filters": {
     "kind": "reasoning",
+    "kinds": [
+      "message"
+    ],
     "status": "needs_you"
   },
-  "limit": 3,
-  "mode": "substring",
   "requestId": "example",
   "text": "example",
   "type": "search.query"
@@ -17890,7 +17893,7 @@ Example:
 ```json
 {
   "cursor": "example",
-  "generation": 3,
+  "generation": 6,
   "hits": [],
   "requestId": "example",
   "type": "search.results"
@@ -17911,7 +17914,7 @@ Example:
 
 ```json
 {
-  "cursor": null,
+  "cursor": "example",
   "generation": 1,
   "hits": []
 }
@@ -17964,12 +17967,12 @@ Example:
 
 ```json
 {
-  "generation": 1,
-  "headSeq": 6,
-  "indexWrites": 3,
-  "indexedSeq": 0,
-  "pending": 8,
-  "ready": false
+  "generation": 5,
+  "headSeq": 8,
+  "indexWrites": 1,
+  "indexedSeq": 6,
+  "pending": 3,
+  "ready": true
 }
 ```
 
@@ -18010,11 +18013,11 @@ Example:
 
 ```json
 {
-  "generation": 9,
-  "headSeq": 7,
-  "indexWrites": 3,
-  "indexedSeq": 0,
-  "pending": 1,
+  "generation": 8,
+  "headSeq": 1,
+  "indexWrites": 9,
+  "indexedSeq": 7,
+  "pending": 3,
   "ready": false,
   "requestId": "example",
   "type": "search.progress"
@@ -18056,7 +18059,7 @@ Example:
 
 ```json
 {
-  "code": "io",
+  "code": "version",
   "layer": "thread",
   "message": "example"
 }
@@ -18078,7 +18081,7 @@ Example:
 {
   "diagnostic": {
     "code": "size",
-    "layer": "global",
+    "layer": "workspace",
     "message": "example"
   },
   "subscriptionId": "example",
@@ -18107,6 +18110,7 @@ Example:
     "browser.backendLoss": "headless",
     "notifications.onMention": false,
     "plugins.preferences": {},
+    "projects.roots": [],
     "providers.coder.model": "example",
     "providers.coder.tier": "default",
     "providers.planner.tier": "flex",
@@ -18114,7 +18118,6 @@ Example:
     "providers.reviewer.tier": "flex",
     "remote.transport": "tailscale",
     "threads.continueAfterRestart": true,
-    "threads.followUpBehavior": "queue",
     "threads.unresponsiveAfter": "15m"
   },
   "version": 2
