@@ -1,4 +1,4 @@
-import { workbenchServices } from "@ace/fake-daemon";
+import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
@@ -369,4 +369,77 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
       "Code review",
     ),
   ).toBeTruthy();
+});
+
+test("Skills and a thread offer the same discovered skills for a project and provider", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.createThread({
+    id: "catalog-parity",
+    workspaceId: "relay",
+    provider: "codex",
+    title: "Catalog parity",
+  });
+  await app.open("/skills");
+  const project = await screen.findByRole("combobox", { name: "Skills project" });
+  await userEvent.click(project);
+  await userEvent.click(await screen.findByRole("option", { name: "relay" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
+  const list = within(await screen.findByRole("navigation", { name: "Skills catalog" }));
+  expect(await list.findByText("Review")).toBeTruthy();
+  expect(await list.findByText("Writing")).toBeTruthy();
+  expect(await list.findByText("Explain")).toBeTruthy();
+  for (const name of ["Quality tools", "Search docs", "Branch checks"])
+    expect(await list.findByText(name)).toBeTruthy();
+  await userEvent.click(list.getByRole("link", { name: "Writing" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Writing" })).toBeTruthy();
+  expect(screen.getAllByRole("heading", { name: "Source" })).toHaveLength(1);
+  await app.open("/t/catalog-parity");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "/");
+  expect(await screen.findByRole("option", { name: /^review / })).toBeTruthy();
+  expect(await screen.findByRole("option", { name: /^writing / })).toBeTruthy();
+  expect(await screen.findByRole("option", { name: /^explain / })).toBeTruthy();
+  expect(await screen.findByRole("option", { name: /^engineering:code-review / })).toBeTruthy();
+  await app.client.request({
+    type: "pluginRequest",
+    request: {
+      type: "plugins.availability",
+      name: "engineering",
+      enabled: false,
+      providers: ["codex", "claude"],
+    },
+  });
+  await waitFor(() =>
+    expect(screen.queryByRole("option", { name: /^engineering:code-review / })).toBeNull(),
+  );
+  expect(screen.getByRole("option", { name: /^writing / })).toBeTruthy();
+});
+
+test("Skills follows the New thread provider until a different provider is selected", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices({
+    ...workbenchServices(Date.now()),
+    settings: { "providers.default": "codex" },
+  });
+  await app.open("/skills");
+  const provider = await screen.findByRole("combobox", { name: "Skills provider" });
+  await waitFor(() => expect(provider.textContent).toBe("Codex"));
+  const selectDefault = (value: string) =>
+    app.client.request({
+      type: "settings.set",
+      key: "providers.default",
+      value,
+      layer: { kind: "global" },
+    });
+  await selectDefault("claude");
+  await waitFor(() => expect(provider.textContent).toBe("Claude Code"));
+  expect(await within(catalog()).findByText("Quality:fix")).toBeTruthy();
+  await userEvent.click(provider);
+  await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
+  await selectDefault("cursor");
+  await waitFor(() => expect(provider.textContent).toBe("Codex"));
+  expect(await within(catalog()).findByText("Google drive")).toBeTruthy();
 });

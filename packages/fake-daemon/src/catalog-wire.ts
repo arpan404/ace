@@ -5,12 +5,17 @@ import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeContextWire } from "./context-wire.ts";
 import type { FakeWireSession } from "./service-context.ts";
 export class FakeCatalogWire {
-  constructor(privatePrompts: FakePromptFiles) {
+  constructor(
+    privatePrompts: FakePromptFiles,
+    extras: (provider: ProviderKind) => CatalogEntry[] = () => [],
+  ) {
     this.prompts = privatePrompts;
-    privatePrompts.onChanged = () => this.changed();
+    this.extras = extras;
+    privatePrompts.onChanged = () => this.invalidate();
   }
+  private readonly extras: (provider: ProviderKind) => CatalogEntry[];
   private readonly prompts: FakePromptFiles;
-  private changed(): void {
+  invalidate(): void {
     for (const listener of this.listeners) listener();
   }
   private readonly overrides = new Map<ProviderKind, CatalogEntry[]>();
@@ -40,16 +45,29 @@ export class FakeCatalogWire {
     const read = (message: Extract<ClientMessage, { type: "catalog.list" }>) => {
       const thread = message.threadId ? host.thread(message.threadId)?.thread : undefined;
       const draft = message.draft;
-      if (!thread && (!draft || drafts.draftWorkspace(owner, draft.draftId) !== draft.workspaceId))
+      if (
+        !message.workspace &&
+        !thread &&
+        (!draft || drafts.draftWorkspace(owner, draft.draftId) !== draft.workspaceId)
+      )
         throw new Error("catalog_context_unavailable");
-      const provider = thread?.provider ?? draft?.provider;
-      const project = thread?.workspaceId ?? draft?.workspaceId;
+      const provider = thread?.provider ?? draft?.provider ?? message.workspace?.provider;
+      const project = thread?.workspaceId ?? draft?.workspaceId ?? message.workspace?.workspaceId;
       if (!provider || !project) throw new Error("catalog_context_unavailable");
       const query = message.query.toLowerCase().replace(/^\//, "");
       return {
         entries: [
           ...(this.overrides.get(provider) ??
-            extensionCatalog(provider, project, draft?.instanceId ?? provider)),
+            extensionCatalog(
+              provider,
+              project,
+              draft?.instanceId ??
+                message.workspace?.instanceId ??
+                thread?.imported?.instanceId ??
+                thread?.execution?.instanceId ??
+                provider,
+            )),
+          ...this.extras(provider),
           ...this.prompts.catalog(project, provider),
         ]
           .filter((e) => `${e.name} ${e.description}`.toLowerCase().includes(query))

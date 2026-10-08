@@ -1,4 +1,13 @@
-import { CommandIcon, PlugIcon, RobotIcon, ScrollIcon, SparkleIcon } from "@phosphor-icons/react";
+import { useSkillDiscovery } from "./discovered-skills.tsx";
+import {
+  ClockIcon,
+  CommandIcon,
+  PlugIcon,
+  RobotIcon,
+  ScrollIcon,
+  SparkleIcon,
+  WrenchIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
@@ -28,6 +37,8 @@ export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }
   { kind: "agent", label: "Agents", icon: RobotIcon },
   { kind: "rule", label: "Rules", icon: ScrollIcon },
   { kind: "plugin", label: "Plugins", icon: PlugIcon },
+  { kind: "mcp-tool", label: "Tools", icon: WrenchIcon },
+  { kind: "workflow", label: "Workflows", icon: ClockIcon },
 ];
 
 /** The catalog as the sidebar draws it: grouped by kind, in catalog order within a kind. */
@@ -50,6 +61,7 @@ function matches(skill: Skill, query: string): boolean {
 /** Skills' list in the sidebar: what installed plugins ship, searchable and by plugin. */
 export function SkillsSidebar() {
   const skills = useSkills();
+  const discovery = useSkillDiscovery();
   useRemovalReconciler();
   const [query, setQuery] = useState("");
   const [plugin, setPlugin] = useState("all");
@@ -80,6 +92,7 @@ export function SkillsSidebar() {
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
+          {discovery.controls}
           <SearchField
             label="Search skills"
             placeholder="Search skills"

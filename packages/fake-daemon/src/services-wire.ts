@@ -59,7 +59,9 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  */
 export class FakeServicesWire {
   readonly prompts = new FakePromptFiles();
-  private readonly catalog = new FakeCatalogWire(this.prompts);
+  private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
+    this.plugins.extensions(provider),
+  );
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
@@ -303,6 +305,15 @@ export class FakeServicesWire {
           }
           if (message.type === "pluginRequest") {
             emit(await this.plugins.handle(message));
+            if (
+              [
+                "plugins.accept",
+                "plugins.remove",
+                "plugins.availability",
+                "plugins.skillAvailability",
+              ].includes(message.request.type)
+            )
+              this.catalog.invalidate();
             return;
           }
           if (message.type.startsWith("automation.")) {

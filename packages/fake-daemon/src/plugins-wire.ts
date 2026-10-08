@@ -1,3 +1,4 @@
+import { pluginCatalog } from "@ace/plugins/catalog";
 import {
   ProviderKind,
   PluginReview,
@@ -91,6 +92,33 @@ export class FakePluginsWire {
       enabled: policy?.enabled ?? true,
       providers: policy?.providers ?? ProviderKind.options,
     };
+  }
+  extensions(provider: import("@ace/protocol").ProviderKind) {
+    return pluginCatalog(
+      provider,
+      [...this.installs.values()].flatMap((install) => {
+        const policy = this.availability(install.name);
+        if (!policy.enabled || !policy.providers.includes(provider)) return [];
+        const components = (this.components.get(install.name) ?? []).filter((component) => {
+          const availability = this.componentAvailability(install.name, component);
+          return availability.enabled && availability.providers.includes(provider);
+        });
+        const ofKind = (kind: Component["kind"]) =>
+          components
+            .filter((c) => c.kind === kind)
+            .map(({ name, path, description }) => ({ name, path, description }));
+        return [
+          {
+            install,
+            manifest: {
+              skills: ofKind("skill"),
+              commands: ofKind("command"),
+              agents: ofKind("agent"),
+            },
+          },
+        ];
+      }),
+    );
   }
   seed(seed: PluginSeed): void {
     for (const plugin of seed.marketplace ?? []) this.marketplace.set(plugin.name, plugin);

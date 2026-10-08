@@ -19,6 +19,16 @@ export function createCatalogSession(context: SocketContext): SocketService {
       if (!service.listCatalog) throw new Error("catalog_unavailable");
       return service.listCatalog(request.threadId, request.query, request.limit);
     }
+    if (request.workspace) {
+      const { workspaceId, provider, instanceId } = request.workspace;
+      const workspace = context.options.store.getWorkspacePath(workspaceId);
+      if (!workspace || !service.listCatalogWorkspace) throw new Error("catalog_unavailable");
+      return service.listCatalogWorkspace(
+        { workspace: await realpath(workspace), provider, instance: instanceId ?? provider },
+        request.query,
+        request.limit,
+      );
+    }
     const draft = request.draft;
     const device = context.device();
     if (!draft || !device || !context.options.context?.draftWorkspace || !service.listCatalogDraft)
@@ -40,6 +50,8 @@ export function createCatalogSession(context: SocketContext): SocketService {
         context.canReadThread(request.threadId) &&
         Boolean(context.options.store.getThread(request.threadId))
       );
+    if (request.workspace)
+      return Boolean(context.options.store.getWorkspacePath(request.workspace.workspaceId));
     const draft = request.draft,
       device = context.device();
     if (!draft || !device || !context.options.context?.draftWorkspace) return false;

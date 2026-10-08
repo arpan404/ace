@@ -17,6 +17,7 @@
     "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/models": "workspace:*",
+    "@ace/plugins": "workspace:*",
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
