@@ -159,7 +159,8 @@ const noPage = "open a page first";
  */
 function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
   const services = useLoadedServices();
-  const bar = (known: readonly UrlSuggestion[]) => (
+  const known = usePreviewSuggestions(services?.preview, props.threadId);
+  return (
     <PageToolbar
       nav={
         <PageNav
@@ -190,29 +191,22 @@ function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
       }
     />
   );
-  if (!services) return bar([]);
-  return <KnownAddresses source={services.preview} threadId={props.threadId} render={bar} />;
 }
 
-function KnownAddresses(props: {
-  source: PreviewSource;
-  threadId: string;
-  render(known: readonly UrlSuggestion[]): React.ReactNode;
-}) {
-  return props.render(usePreviewSuggestions(props.source, props.threadId));
-}
-
-function usePreviewSuggestions(source: PreviewSource, threadId: string): UrlSuggestion[] {
+function usePreviewSuggestions(
+  source: PreviewSource | undefined,
+  threadId: string,
+): UrlSuggestion[] {
   // The source's reads change with its version; read them again on each one.
   "use no memo";
   const subscribe = useCallback(
-    (changed: () => void) => source.subscribe(changed, threadId),
+    (changed: () => void) => source?.subscribe(changed, threadId) ?? (() => {}),
     [source, threadId],
   );
-  useSyncExternalStore(subscribe, () => source.version);
+  useSyncExternalStore(subscribe, () => source?.version ?? 0);
   // Find the thread's dev servers while the launcher shows.
-  useEffect(() => source.watch(threadId), [source, threadId]);
-  return urlSuggestions(source.view(threadId), source.servers(threadId));
+  useEffect(() => source?.watch(threadId), [source, threadId]);
+  return source ? urlSuggestions(source.view(threadId), source.servers(threadId)) : [];
 }
 
 function Suggested(props: {

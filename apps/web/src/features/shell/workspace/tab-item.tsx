@@ -27,7 +27,7 @@ const badgeGap = 6;
 /** A folded tab's badge dot: just off the top right of its centred 14px icon. */
 const dotPlace = { top: 3, left: "calc(50% + 5px)" };
 /** Fewer title pixels than this read as noise: the tab folds to its icon instead. */
-const leastTitle = 32;
+const leastTitle = 64;
 
 /** A badge's dot, drawn in its place when the strip is a little short. */
 const dotWidth = 6;
@@ -48,7 +48,7 @@ export function measureTab(element: HTMLElement): {
     1 + tabChrome(element.dataset.closeRoom === "true") + (badge > 0 ? badgeGap + badge : 0);
   return {
     natural: fixed + title,
-    least: fixed + (title <= 100 ? title : Math.min(title, leastTitle)),
+    least: fixed + (element.dataset.tabTool === "true" ? title : Math.min(title, leastTitle)),
     badge: Math.max(0, badge - dotWidth),
   };
 }
@@ -86,7 +86,7 @@ export function TabItem(props: {
   const title = definition.title(tab);
   const Badge = kind?.Badge;
   const closable = !tab.pinned;
-  const iconOnly = props.iconOnly && !props.active;
+  const iconOnly = props.iconOnly;
   const badgeDot = props.badgeDot && !iconOnly;
   const closeLabel = kind?.closeLabel ?? "Close";
   // Pinned per-thread tools (Changes, Agents) fold to icons first, and together (`fitTabs`).
@@ -198,7 +198,7 @@ export function TabItem(props: {
                 data-tab-badge
                 className={cn(
                   "flex min-w-0 shrink-0 items-center empty:hidden",
-                  (iconOnly || badgeDot) && "w-0 overflow-hidden",
+                  (iconOnly || badgeDot) && "absolute w-0 overflow-hidden",
                 )}
               >
                 <Badge scope={props.scope} tab={tab} />
