@@ -66,7 +66,7 @@ export * from "./terminal-client.ts";
 export * from "./conductor-client.ts";
 
 export * from "./preview-client.ts";
-export { PreviewPort, PreviewDescriptor } from "./preview.ts";
+export { PreviewPort, PreviewDescriptor, PreviewGatewayStatus, PreviewRefusal } from "./preview.ts";
 
 export * from "./run-client.ts";
 export * from "./agent-control.ts";

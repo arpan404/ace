@@ -44,6 +44,11 @@ export interface SocketContext {
   /** Capture authenticated authority for admitted durable effects across reconnects. */
   authorityLease?(scope: DeviceScope): () => boolean;
   canReadThread(thread: import("@ace/protocol").ThreadId): boolean;
+  /**
+   * True while this socket is authenticated by the daemon's own token file credential (loopback
+   * only, never revocable), not by a paired device.
+   */
+  hostCredential?(): boolean;
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;
   fail(

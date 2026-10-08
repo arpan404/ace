@@ -9,6 +9,10 @@ const Claims = z.object({
   kind: z.enum(["link", "session"]),
 });
 type Claims = z.infer<typeof Claims>;
+/** A signed link must be redeemed within a minute of minting. */
+export const previewLinkMs = 60_000;
+/** A redeemed session lasts an hour; clients refresh it by redeeming a fresh link before then. */
+export const previewSessionMs = 3_600_000;
 export type DeviceAuthority = {
   authorize(token: string): Promise<string | null>;
   isPaired(deviceId: string): Promise<boolean>;
@@ -47,29 +51,35 @@ export function createPreviewAuth(options: AuthOptions) {
       return;
     }
   };
+  const mintFor = async (audience: string, device: string) => {
+    if (device.length === 0 || device.length > 256 || !(await options.authority.isPaired(device)))
+      throw new Error("Paired device required");
+    const now = options.now();
+    for (const [nonce, expires] of issued) {
+      if (expires > now) break;
+      issued.delete(nonce);
+    }
+    if (issued.size >= options.maxLinks) throw new Error("Too many outstanding preview links");
+    const nonce = options.nonce();
+    if (issued.has(nonce)) throw new Error("Duplicate preview nonce");
+    issued.set(nonce, now + previewLinkMs);
+    return sign({ audience, device, nonce, expires: now + previewLinkMs, kind: "link" });
+  };
   return {
+    /** A link for the holder of a device token the authority accepts. */
     async mint(audience: string, deviceToken: string) {
       if (deviceToken.length > 4096) throw new Error("Invalid device token");
       const device = await options.authority.authorize(deviceToken);
-      if (!device || device.length > 256 || !(await options.authority.isPaired(device))) {
-        throw new Error("Paired device required");
-      }
-      const now = options.now();
-      for (const [nonce, expires] of issued) {
-        if (expires > now) break;
-        issued.delete(nonce);
-      }
-      if (issued.size >= options.maxLinks) throw new Error("Too many outstanding preview links");
-      const nonce = options.nonce();
-      if (issued.has(nonce)) throw new Error("Duplicate preview nonce");
-      issued.set(nonce, now + 60_000);
-      return sign({ audience, device, nonce, expires: now + 60_000, kind: "link" });
+      if (!device) throw new Error("Paired device required");
+      return mintFor(audience, device);
     },
+    /** A link for a device identity the caller has already authenticated by other means. */
+    mintFor,
     async redeem(token: string, audience: string) {
       const c = verify(token, audience, "link");
       if (!c || !issued.delete(c.nonce)) return;
       if (!(await options.authority.isPaired(c.device))) return;
-      return sign({ ...c, kind: "session", expires: options.now() + 3_600_000 });
+      return sign({ ...c, kind: "session", expires: options.now() + previewSessionMs });
     },
     async authenticate(token: string, audience: string) {
       const c = verify(token, audience, "session");

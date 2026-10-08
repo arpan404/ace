@@ -13,6 +13,37 @@ export async function openExternal(url: string, scope: object = globalThis): Pro
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/**
+ * Open an address that is still being fetched (a single-use sign-in link) in this device's own
+ * browser. A browser blocks a tab opened after waiting, so the tab opens at once, blank and cut
+ * off from ace, and goes to the address when it arrives; if fetching it fails the tab closes.
+ */
+export async function openExternalWhenReady(
+  address: Promise<string>,
+  scope: object = globalThis,
+): Promise<void> {
+  const open = systemOpener(scope);
+  if (open) {
+    await openExternal(await address, scope);
+    return;
+  }
+  const tab = window.open("", "_blank");
+  if (!tab) {
+    // Keep the rejection handled; the blocked tab is what the person needs to hear about.
+    address.catch(() => {});
+    throw new Error("The browser blocked the new tab.");
+  }
+  tab.opener = null;
+  try {
+    const url = await address;
+    if (!/^https?:\/\//i.test(url)) throw new Error("Only web addresses open outside ace.");
+    tab.location.replace(url);
+  } catch (error) {
+    tab.close();
+    throw error;
+  }
+}
+
 /** The desktop bridge's `shell.openExternal`, when there is one. */
 function systemOpener(scope: object): ((url: string) => Promise<unknown>) | undefined {
   const ace: unknown = Reflect.get(scope, "ace");

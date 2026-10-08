@@ -1,5 +1,5 @@
 export { createPreviewGateway, type GatewayOptions } from "./gateway.ts";
-export { type DeviceAuthority } from "./auth.ts";
+export { type DeviceAuthority, previewLinkMs, previewSessionMs } from "./auth.ts";
 export {
   discoverListeningPorts,
   parseListeningPorts,

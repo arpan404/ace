@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewGatewayStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "$ref": "https://ace.local/protocol/v1/PreviewRefusal.json"
+    },
+    "status": {
+      "maximum": 599,
+      "minimum": 400,
+      "type": "integer"
+    },
+    "type": {
+      "const": "ace-preview.status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "status",
+    "reason"
+  ],
+  "type": "object"
+}

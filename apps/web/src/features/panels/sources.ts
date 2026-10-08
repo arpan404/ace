@@ -108,6 +108,14 @@ export interface PreviewServer {
   name?: string | undefined;
   source: "listener" | "terminal" | "launch";
 }
+/**
+ * A single-use address that signs a frame or browser in to a dev server's preview, and how
+ * long the session it opens lasts.
+ */
+export interface PreviewLink {
+  url: string;
+  sessionMs: number;
+}
 export type ForwardedInput =
   | {
       kind: "mouse";
@@ -164,6 +172,11 @@ export interface PreviewSource {
   forward(threadId: string, port: number): Promise<void>;
   /** Stop previewing it; the server itself keeps running. */
   unforward(threadId: string, port: number): Promise<void>;
+  /**
+   * A fresh sign-in link for a previewed port; rejects with the daemon's refusal code
+   * (`forbidden`, `preview_not_found`, …). Each link works once, so every load asks again.
+   */
+  link(threadId: string, port: number): Promise<PreviewLink>;
   /**
    * Navigate the page, as the person holding control (BrowserCommand `navigate`). Resolves
    * with the address the page reached; rejects with the daemon's reason (a Chromium net error,

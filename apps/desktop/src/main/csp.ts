@@ -23,6 +23,12 @@ export function contentSecurityPolicy(options: {
     "http://localhost:*",
     "ws://localhost:*",
   ];
+  /**
+   * The local daemon's dev-server previews (ADR 0008): one `p<port>-<generation>` host per
+   * forwarded port under `preview.localhost`, framed and renewed in the background (a no-cors
+   * sign-in fetch).
+   */
+  const previews = "http://*.preview.localhost:*";
   const hashes = (options.inlineScripts ?? []).map((hash) => `'${hash}'`);
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
@@ -33,12 +39,13 @@ export function contentSecurityPolicy(options: {
     "connect-src": [
       "'self'",
       ...loopback,
+      previews,
       ...(options.daemonOrigins ?? []),
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
     "media-src": ["'self'", "blob:", "data:"],
     // `blob:` frames hold attachment previews this page typed as PDFs (the built-in viewer).
-    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", "blob:"],
+    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:"],
     "worker-src": ["'self'", "blob:"],
     "object-src": ["'none'"],
     "base-uri": ["'none'"],
