@@ -7,6 +7,7 @@ import {
   type CloneOptions,
   type ProjectGitPolicy,
 } from "./projects.ts";
+import { rollbackIntegration } from "./integration-rollback.ts";
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
 import { changedFiles } from "./changed-files.ts";
@@ -98,6 +99,10 @@ export class GitService {
 
   integrate(input: { worktree: string; revision: string; key: string }) {
     return integrateRevision(this.repository, input);
+  }
+
+  rollbackIntegration(input: { worktree: string; key: string; revision: string }) {
+    return rollbackIntegration(this.repository, input);
   }
 
   /** Commit every change, or only `paths`; other changes stay as they were. */

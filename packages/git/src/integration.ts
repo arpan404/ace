@@ -34,6 +34,16 @@ export async function integrateRevision(
     )
       throw new GitError("dirty_worktree", "Deck integration worktree requires attention");
     await repository.commit(root, revision);
+    const baseRef = `${receipt}.base`;
+    const prior = await repository.cli.call(root, ["rev-parse", "--verify", baseRef], {
+      allowFailure: true,
+    });
+    if (prior.exitCode !== 0)
+      await repository.cli.call(
+        root,
+        ["update-ref", baseRef, await repository.commit(root, "HEAD")],
+        { write: true },
+      );
     const contained = await repository.cli.call(
       root,
       ["merge-base", "--is-ancestor", revision, "HEAD"],
@@ -64,7 +74,12 @@ export async function integrateRevision(
         if (current.conflicted.length)
           await repository.cli.call(root, ["merge", "--abort"], { write: true });
         else throw new GitError("git_failed", conflict);
-        return { revision, conflict, trivial: false };
+        // Only a single plain-text document is delegated to the integrator. Code and
+        // multi-file conflicts stay with the worker that owns their semantics.
+        const trivial =
+          current.conflicted.length === 1 &&
+          current.conflicted.every((file) => /\.(?:md|txt)$/.test(file.path));
+        return { revision, conflict, trivial };
       }
     }
     const head = await repository.commit(root, "HEAD");
