@@ -19,6 +19,7 @@ export class GitDiagnostics {
   private hookFailed = false;
   private authFailed = false;
   private conflicts = false;
+  private remoteUnreachable = false;
   accept(chunk: Buffer): void {
     // Never concatenate an arbitrarily large process write into our retained state.
     for (let offset = 0; offset < chunk.length; offset += 4096)
@@ -34,7 +35,9 @@ export class GitDiagnostics {
         ? "auth_failed"
         : this.conflicts
           ? "conflicts"
-          : "git_failed";
+          : this.remoteUnreachable
+            ? "remote_unreachable"
+            : "git_failed";
   }
   private text(text: string): void {
     const lines = (this.tail + text).split("\n");
@@ -79,6 +82,10 @@ export class GitDiagnostics {
   private plain(text: string): void {
     this.authFailed ||=
       /authentication failed|could not read (Username|Password)|permission denied \(publickey\)|authorization failed|HTTP[^\n]*40[13]|returned error: 40[13]|access denied/i.test(
+        text,
+      );
+    this.remoteUnreachable ||=
+      /could not resolve (host|hostname)|failed to connect|couldn't connect|connection refused|network is unreachable/i.test(
         text,
       );
     this.conflicts ||= /CONFLICT|unmerged files|resolve your current index/i.test(text);

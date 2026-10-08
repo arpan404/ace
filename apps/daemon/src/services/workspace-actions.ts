@@ -1,4 +1,5 @@
 import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
+import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
@@ -101,11 +102,11 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           )
             send(WorkspaceActionResult.parse(result));
         })
-        .catch(() =>
+        .catch((error: unknown) =>
           send({
             type: "workspace.result",
             requestId: message.requestId,
-            result: { kind: "error", code: "workspace_read_failed" },
+            result: { kind: "error", code: actionErrorCode(error) },
           }),
         )
         .finally(() => {

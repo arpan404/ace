@@ -9,6 +9,7 @@ import { ChangedFiles } from "./changed-files.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
 import { UserMessage } from "./user-message.tsx";
+import { WorktreeNote } from "../worktree/worktree-note.tsx";
 import { Subagents } from "./subagents.tsx";
 import { WorkLog } from "./work-log.tsx";
 
@@ -67,10 +68,16 @@ function Event(props: { threadId: string; itemId: string }) {
 /**
  * A user message: the person's bubble, unless ace sent it on their behalf (a resume, a
  * delegation result, an answer, a handoff), which reads as an event instead (A3). Only a
- * candidate goes to the event view, which decides exactly and shows the bubble otherwise.
+ * candidate goes to the event view, which decides exactly and shows the bubble otherwise. The
+ * message that started a thread in a worktree keeps how that worktree was made under it.
  */
 function PersonMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   if (mayBeSystemInput(item)) return <Event threadId={props.threadId} itemId={props.itemId} />;
-  return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
+  return (
+    <>
+      <UserMessage threadId={props.threadId} itemId={props.itemId} />
+      <WorktreeNote threadId={props.threadId} itemId={props.itemId} />
+    </>
+  );
 }

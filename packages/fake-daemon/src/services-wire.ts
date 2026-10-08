@@ -246,6 +246,39 @@ export class FakeServicesWire {
           if (message.type === "preview.request") {
             if (!this.host.thread(message.threadId)) throw new Error("thread_not_found");
             const op = message.operation;
+            const refusal = this.browser.previewRefusal;
+            if (refusal && (op.op === "link" || op.op === "forward")) {
+              emit({
+                type: "preview.result",
+                requestId: message.requestId,
+                ok: false,
+                error: refusal,
+              });
+              return;
+            }
+            if (op.op === "link") {
+              // The fake has no gateway: its previews are the servers' own addresses, so the
+              // sign-in link is that address and the session never needs renewing.
+              const server = this.browser
+                .servers(message.threadId)
+                .find((candidate) => candidate.port === op.port);
+              emit(
+                server?.origin
+                  ? {
+                      type: "preview.result",
+                      requestId: message.requestId,
+                      ok: true,
+                      link: { url: server.origin, sessionMs: 3_600_000 },
+                    }
+                  : {
+                      type: "preview.result",
+                      requestId: message.requestId,
+                      ok: false,
+                      error: "preview_not_found",
+                    },
+              );
+              return;
+            }
             if (op.op === "forward")
               this.browser.serve(message.threadId, {
                 port: op.port,

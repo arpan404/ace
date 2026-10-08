@@ -7,7 +7,9 @@ import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
-import { DevServerFrame, noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { forwardFailure } from "./preview-errors.ts";
+import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
 import { usePanelServices } from "../services.ts";
 import type { PreviewSource } from "../sources.ts";
 import { portLabel } from "./port.ts";
@@ -45,7 +47,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<"forward" | "stop">();
   const [error, setError] = useState<string>();
-  const url = server?.origin ?? `http://localhost:${props.port}`;
+  const url = previewUrl(server ?? { port: props.port });
   const title = server ? portLabel(server) : undefined;
   const [phase, setPhase] = useState<FramePhase>("loading");
   const loading = !!server && phase === "loading";
@@ -56,14 +58,18 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
     setLoading(props.threadId, props.tabKey, loading);
     return () => setLoading(props.threadId, props.tabKey, false);
   }, [props.threadId, props.tabKey, loading]);
-  const run = (kind: "forward" | "stop", work: () => Promise<void>, failure: string) => {
+  const run = (
+    kind: "forward" | "stop",
+    work: () => Promise<void>,
+    failure: (error: unknown) => string,
+  ) => {
     setBusy(kind);
     setError(undefined);
     work().then(
       () => setBusy(undefined),
-      () => {
+      (refusal: unknown) => {
         setBusy(undefined);
-        setError(failure);
+        setError(failure(refusal));
       },
     );
   };
@@ -93,12 +99,16 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
                   run(
                     "stop",
                     () => preview.unforward(props.threadId, props.port),
-                    `Couldn't stop previewing port ${props.port}.`,
+                    () => `Couldn't stop previewing port ${props.port}.`,
                   )
                 }
               />
             )}
-            <OpenOutside url={url} />
+            {server ? (
+              <OpenPreviewOutside source={preview} threadId={props.threadId} server={server} />
+            ) : (
+              <OpenOutside url={url} />
+            )}
           </>
         }
         progress={loading ? `Loading ${url}` : undefined}
@@ -109,8 +119,10 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
         </p>
       )}
       {server ? (
-        <DevServerFrame
-          url={url}
+        <PreviewFrame
+          source={preview}
+          threadId={props.threadId}
+          server={server}
           attempt={attempt}
           onPhase={setPhase}
           onRetry={() => setAttempt((count) => count + 1)}
@@ -134,7 +146,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
                   run(
                     "forward",
                     () => preview.forward(props.threadId, props.port),
-                    `The daemon couldn't preview port ${props.port}.`,
+                    (failure) => forwardFailure(failure, props.port),
                   )
                 }
               >

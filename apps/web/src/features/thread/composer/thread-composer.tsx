@@ -10,9 +10,9 @@ import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
-import { readingColumn } from "../lib/column.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
+import { ComposerDock } from "./composer-dock.tsx";
 import { useComposerAnswer } from "./answer-slot.ts";
 import {
   ControlsPending,
@@ -39,11 +39,6 @@ const loadSender = () => (sender ??= import("./send-message.ts"));
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
-
-const composerInset = {
-  paddingLeft: "var(--transcript-gutter)",
-  paddingRight: "calc(var(--transcript-gutter) + var(--summary-inset, 0px))",
-};
 
 /** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
@@ -203,85 +198,76 @@ export function ThreadComposer({
     );
 
   return (
-    // A pinned summary beside the text insets the composer with it (`--summary-inset`), so their
-    // edges still agree. The backdrop runs from 2.5rem above the composer to the bottom edge and fades in over
-    // its first 2.5rem, so transcript text dissolves under it with no band edge.
-    <div
-      ref={box}
-      style={composerInset}
-      className="relative flex-none pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]"
-    >
-      <div className={`relative ${readingColumn}`}>
-        <Suspense fallback={null}>
-          <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
-        </Suspense>
-        <Composer
-          ref={composer}
-          thread={props.thread}
-          draftKey={`thread:${props.thread.id}`}
-          keepsAttachments
-          busy={busy}
-          followUp={followUp}
-          canSteer={canSteer}
-          onSubmit={submit}
-          onStop={tab === "plan" ? stop : undefined}
-          stopping={stopping}
-          onReturnedOptions={(options) => {
-            const identity = selectionIdentity(runsOn(meta));
-            if (options) setPicked({ threadId: props.thread.id, identity, options });
-          }}
-          autoFocus={focusOnOpen && !asking}
-          typeToFocus
-          reader={reader}
-          sendsWhileUploading
-          attached={
-            <Suspense fallback={null}>
-              {tab === "requests" && open ? (
-                <DeferredRequestStack.Component
-                  threadId={props.thread.id}
-                  ids={open}
-                  onLeave={toMessage}
-                />
-              ) : tab === "plan" ? (
-                <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
-              ) : tab === "status" ? (
-                <DeferredStatusStrip.Component
-                  threadId={props.thread.id}
-                  status={props.status}
-                  stopping={stopping}
-                  onStop={stop}
-                />
-              ) : environment ? (
-                <DeferredThreadEnvironment.Component
-                  thread={props.thread}
-                  id={environmentId}
-                  onClose={() => {
-                    setShown(undefined);
-                    toMessage();
-                  }}
-                />
-              ) : (
-                <DeferredEnvironmentStrip.Component
-                  thread={props.thread}
-                  controls={environmentId}
-                  onOpen={() => setShown(props.thread.id)}
-                />
-              )}
-            </Suspense>
-          }
-          answer={tab === "requests" ? answer : undefined}
-          controls={
-            <Suspense fallback={<ControlsPending />}>
-              <DeferredPermissionControl.Component thread={props.thread} />
-            </Suspense>
-          }
-          trailing={
-            <Suspense fallback={<ControlsPending />}>
-              <DeferredModelControl.Component thread={props.thread} busy={busy} next={next} />
-            </Suspense>
-          }
-        />
-      </div>
-    </div>
+    <ComposerDock ref={box}>
+      <Suspense fallback={null}>
+        <DeferredQueueArea.Component threadId={props.thread.id} status={props.status} />
+      </Suspense>
+      <Composer
+        ref={composer}
+        thread={props.thread}
+        draftKey={`thread:${props.thread.id}`}
+        keepsAttachments
+        busy={busy}
+        followUp={followUp}
+        canSteer={canSteer}
+        onSubmit={submit}
+        onStop={tab === "plan" ? stop : undefined}
+        stopping={stopping}
+        onReturnedOptions={(options) => {
+          const identity = selectionIdentity(runsOn(meta));
+          if (options) setPicked({ threadId: props.thread.id, identity, options });
+        }}
+        autoFocus={focusOnOpen && !asking}
+        typeToFocus
+        reader={reader}
+        sendsWhileUploading
+        attached={
+          <Suspense fallback={null}>
+            {tab === "requests" && open ? (
+              <DeferredRequestStack.Component
+                threadId={props.thread.id}
+                ids={open}
+                onLeave={toMessage}
+              />
+            ) : tab === "plan" ? (
+              <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
+            ) : tab === "status" ? (
+              <DeferredStatusStrip.Component
+                threadId={props.thread.id}
+                status={props.status}
+                stopping={stopping}
+                onStop={stop}
+              />
+            ) : environment ? (
+              <DeferredThreadEnvironment.Component
+                thread={props.thread}
+                id={environmentId}
+                onClose={() => {
+                  setShown(undefined);
+                  toMessage();
+                }}
+              />
+            ) : (
+              <DeferredEnvironmentStrip.Component
+                thread={props.thread}
+                controls={environmentId}
+                onOpen={() => setShown(props.thread.id)}
+              />
+            )}
+          </Suspense>
+        }
+        answer={tab === "requests" ? answer : undefined}
+        controls={
+          <Suspense fallback={<ControlsPending />}>
+            <DeferredPermissionControl.Component thread={props.thread} />
+          </Suspense>
+        }
+        trailing={
+          <Suspense fallback={<ControlsPending />}>
+            <DeferredModelControl.Component thread={props.thread} busy={busy} next={next} />
+          </Suspense>
+        }
+      />
+    </ComposerDock>
   );
 }

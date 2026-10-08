@@ -129,7 +129,11 @@ Example:
         "number": 3,
         "state": "merged"
       },
-      "mode": "worktree"
+      "workspace": {
+        "id": "example",
+        "name": "example",
+        "path": "example"
+      }
     },
     "execution": {
       "instanceId": "example",

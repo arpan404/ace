@@ -25,7 +25,6 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { useBranches } from "@/lib/branches.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -33,8 +32,8 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
 import { rowIcon } from "./work-card-parts.tsx";
-import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-import type { CheckoutChange } from "../sources/workspace-source.ts";
+import type { ThreadRef } from "../sources/index.ts";
+import type { Move } from "./checkout-move.tsx";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -52,12 +51,10 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
  * branch, move to a worktree) and the folder's own actions. What can't be done now stays listed,
  * disabled, with the reason.
  */
-function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
+function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const details = meta?.details;
   const { checkout, state } = useCheckoutState(props.thread);
-  const sources = useThreadSources();
-  const toast = useToast();
   const branches = useBranches(props.thread.workspaceId);
   const path = details?.worktree ?? details?.workspace?.path;
   const folder = useFolderActions(path);
@@ -71,15 +68,6 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
   const worktreeReason =
     noCheckout ?? (checkout?.mode === "worktree" ? "Already in a worktree of its own" : live);
   const switchReason = noCheckout ?? live;
-  const move = (change: CheckoutChange, done: string) =>
-    void sources.workspace.setCheckout(props.thread, change).then(
-      () => toast.add({ title: done }),
-      (error: unknown) =>
-        toast.error({
-          title: "Couldn't move the checkout",
-          description: error instanceof Error ? error.message : undefined,
-        }),
-    );
   // The same facts, in the same words, as the composer's environment card.
   const worktree = checkout?.mode === "worktree";
   const facts: [string, string | undefined][] = [
@@ -155,7 +143,11 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
                   }
                   disabled={branch === checkout?.branch}
                   onClick={() =>
-                    move({ mode: checkout?.mode ?? "local", branch }, `Switched to ${branch}`)
+                    props.move({
+                      change: { mode: checkout?.mode ?? "local", branch },
+                      done: `Switched to ${branch}`,
+                      carriesTo: branch,
+                    })
                   }
                 >
                   <span className="font-mono text-sm">{branch}</span>
@@ -170,11 +162,26 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
         disabled={!!worktreeReason}
         reason={worktreeReason}
         onClick={() =>
-          move({ mode: "worktree", branch: checkout?.branch ?? undefined }, "Moved to a worktree")
+          props.move({
+            change: { mode: "worktree", branch: checkout?.branch ?? undefined },
+            done: "Moved to a worktree",
+          })
         }
       >
         Move to a worktree
       </MenuItem>
+      {worktree && (
+        <MenuItem
+          icon={glyph(LaptopIcon)}
+          disabled={!!switchReason}
+          reason={switchReason}
+          onClick={() =>
+            props.move({ change: { mode: "local" }, done: "Moved to the local checkout" })
+          }
+        >
+          Move to local checkout
+        </MenuItem>
+      )}
       <MenuSeparator />
       <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
         Copy path
@@ -202,12 +209,17 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
 }
 
 /** The environment menu on whatever opens it: the project's ⋯, or the environment row. */
-function EnvironmentMenu(props: { thread: ThreadRef; trigger: ReactElement; onClose(): void }) {
+function EnvironmentMenu(props: {
+  thread: ThreadRef;
+  trigger: ReactElement;
+  move(move: Move): void;
+  onClose(): void;
+}) {
   return (
     <Menu>
       <MenuTrigger render={props.trigger} />
       <MenuContent align="end" className="w-[300px]">
-        <EnvironmentItems thread={props.thread} onClose={props.onClose} />
+        <EnvironmentItems thread={props.thread} move={props.move} onClose={props.onClose} />
       </MenuContent>
     </Menu>
   );
@@ -217,7 +229,7 @@ function EnvironmentMenu(props: { thread: ThreadRef; trigger: ReactElement; onCl
  * The card's head: the project's name with its ⋯, then where the thread runs ("Worktree · This
  * Mac"), both opening the environment menu.
  */
-export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
+export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
   const { checkout } = useCheckoutState(props.thread);
@@ -238,6 +250,7 @@ export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
         </h2>
         <EnvironmentMenu
           thread={props.thread}
+          move={props.move}
           onClose={props.onClose}
           trigger={
             <IconButton icon={DotsThreeIcon} label="Project actions" size="sm" className="size-7" />
@@ -246,6 +259,7 @@ export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
       </div>
       <EnvironmentMenu
         thread={props.thread}
+        move={props.move}
         onClose={props.onClose}
         trigger={
           <button

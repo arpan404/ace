@@ -1,4 +1,4 @@
-import type { ApprovalOption, Interaction, PermissionMode } from "@ace/protocol";
+import type { ApprovalOption, Interaction, PermissionMode, PermissionReview } from "@ace/protocol";
 
 /*
  * Where an approval stands, as its step's note (IR-2), and which of its options the daemon
@@ -92,4 +92,15 @@ export function offeredOptions(
   _mode: PermissionMode | null | undefined,
 ): { options: ApprovalOption[]; hidden: number } {
   return { options: [...options], hidden: 0 };
+}
+
+/** Reasons the policy states for itself, reworded for the person reading them. */
+const reasonWords: Record<string, string> = {
+  "Provider did not supply an exact action":
+    "ace couldn't see exactly what this does, so it's asking you",
+};
+
+/** The policy's reason for a review, in words. */
+export function reviewReason(review: Pick<PermissionReview, "reason">): string {
+  return reasonWords[review.reason] ?? review.reason;
 }

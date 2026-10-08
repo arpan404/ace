@@ -12,6 +12,7 @@ import type {
   BrowserDownload,
   BrowserView,
   ForwardedInput,
+  PreviewLink,
   PreviewServer,
   PreviewSource,
   ScreenFrame,
@@ -175,6 +176,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     changed(threadId);
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
+  const link = async (threadId: string, port: number): Promise<PreviewLink> => {
+    const reply = await client.request({
+      type: "preview.request",
+      threadId: ThreadId.parse(threadId),
+      operation: { op: "link", port },
+    });
+    if (!reply.ok || !reply.link) throw new Error(reply.error ?? "preview_link_refused");
+    return reply.link;
+  };
   const sendCapture = (threadId: string, watch: Watch) => {
     if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
     void client
@@ -352,6 +362,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     canForward: () => gateway,
     forward: (threadId, port) => previews(threadId, { op: "forward", port }),
     unforward: (threadId, port) => previews(threadId, { op: "unforward", port }),
+    link,
     async open(threadId, workspaceId) {
       const reply = await client
         .request(

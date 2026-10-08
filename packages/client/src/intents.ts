@@ -208,6 +208,33 @@ export class Intents {
       this.pump();
     });
   }
+  /**
+   * A create the daemon settled as failed (a worktree that couldn't be made, or was cancelled)
+   * goes again under the same id when the person picks Retry or the local checkout: the daemon
+   * reruns it from its retained draft and answers with another receipt, so the intent waits for
+   * that receipt without being resent. `undo` puts the failure back if the daemon refused.
+   */
+  reopen(id: string): { undo(): void } {
+    const previous = this.records.get(id);
+    if (previous?.state !== "failed" || previous.localFailure) return { undo() {} };
+    const { error: _error, waiting: _waiting, ...rest } = previous;
+    const next: Intent = { ...rest, state: "pending" };
+    this.put(id, next);
+    this.inFlight.add(id);
+    this.options.changed(id);
+    const save = (intent: Intent) =>
+      void this.serialize(() => this.persist(intent, [])).catch(() => {});
+    save(next);
+    return {
+      undo: () => {
+        if (this.records.get(id) !== next) return;
+        this.put(id, previous);
+        this.inFlight.delete(id);
+        this.options.changed(id);
+        save(previous);
+      },
+    };
+  }
   deliveryFailed(id: string, error: string): Promise<void> {
     const current = this.records.get(id);
     if (!current || (current.state === "failed" && current.error === error))

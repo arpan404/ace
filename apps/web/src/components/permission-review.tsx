@@ -17,9 +17,19 @@ const glyphs: Record<ReviewTone, IconGlyph> = {
   escalated: ShieldWarningIcon,
 };
 
-/** Who decided and the exact input judged, as a two-column list. */
-export function ReviewFacts(props: { view: ReviewView; className?: string }) {
-  const { view } = props;
+/**
+ * Who decided and the exact input judged, as a two-column list. On an approval card (`card`) the
+ * tool goes, and so do the reason and the command when the card already shows them.
+ */
+export function ReviewFacts(props: {
+  view: ReviewView;
+  card?: { reasonShown: boolean; commandShown: boolean } | undefined;
+  className?: string;
+}) {
+  const { view, card } = props;
+  const target = card?.commandShown
+    ? view.target.filter((line) => line.label !== "Command")
+    : view.target;
   return (
     <dl
       className={cn(
@@ -29,11 +39,19 @@ export function ReviewFacts(props: { view: ReviewView; className?: string }) {
     >
       <dt className="text-subtle-foreground">Reviewer</dt>
       <dd className="min-w-0 text-muted-foreground">{view.reviewer}</dd>
-      <dt className="text-subtle-foreground">Reason</dt>
-      <dd className="min-w-0 text-foreground">{view.reason}</dd>
-      <dt className="text-subtle-foreground">Tool</dt>
-      <dd className="min-w-0 text-muted-foreground">{view.tool}</dd>
-      {view.target.map((line) => (
+      {!card?.reasonShown && (
+        <>
+          <dt className="text-subtle-foreground">Reason</dt>
+          <dd className="min-w-0 text-foreground">{view.reason}</dd>
+        </>
+      )}
+      {!card && (
+        <>
+          <dt className="text-subtle-foreground">Tool</dt>
+          <dd className="min-w-0 text-muted-foreground">{view.tool}</dd>
+        </>
+      )}
+      {target.map((line) => (
         <div key={`${line.label}:${line.value}`} className="contents">
           <dt className="text-subtle-foreground">{line.label}</dt>
           <dd
@@ -99,24 +117,20 @@ export function PermissionReviewNote(props: {
 }
 
 /**
- * Inside an approval card: why ace sent the request to a person rather than deciding it, and
- * exactly what it judged.
+ * Inside an approval card's Details: who reviewed it and exactly what it judged, leaving out
+ * what the card already says.
  */
-export function PermissionReviewSummary(props: { review: PermissionReview; className?: string }) {
-  const view = describeReview(props.review);
+export function PermissionReviewSummary(props: {
+  review: PermissionReview;
+  reasonShown: boolean;
+  commandShown: boolean;
+}) {
   return (
-    <section
-      aria-label="ace's review"
-      className={cn("rounded-md bg-muted px-3 py-2.5", props.className)}
-    >
-      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon icon={glyphs[view.tone]} size={14} className="text-subtle-foreground" />
-        <span>
-          <b className="font-medium text-foreground">{view.verdict}</b>
-          {view.tone === "escalated" && " · ace's risk policy wants your decision"}
-        </span>
-      </p>
-      <ReviewFacts view={view} className="mt-2" />
+    <section aria-label="ace's review">
+      <ReviewFacts
+        view={describeReview(props.review)}
+        card={{ reasonShown: props.reasonShown, commandShown: props.commandShown }}
+      />
     </section>
   );
 }

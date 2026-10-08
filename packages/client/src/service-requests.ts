@@ -23,7 +23,9 @@ export type ServiceResponse<Q extends ServiceRequest> =
         ? Replies<"provider.login.result">
         : Q["type"] extends `onboarding.${string}`
           ? Replies<"onboarding.result">
-          : LegacyServiceResponse<Q>;
+          : Q["type"] extends "worktree.creation.request"
+            ? Replies<"worktree.creation.result">
+            : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "prompts.request"
   ? Replies<"prompts.result">
@@ -167,6 +169,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.login.terminal": ["provider.login.result"],
   "provider.logout": ["provider.login.result"],
   "onboarding.query": ["onboarding.result"],
+  "worktree.creation.request": ["worktree.creation.result"],
   "onboarding.dismiss": ["onboarding.result"],
   "context.request": ["context.result"],
   "models.list": ["models.result"],

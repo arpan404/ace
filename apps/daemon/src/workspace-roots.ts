@@ -1,3 +1,4 @@
+import type { CreationProgress } from "./creation-progress.ts";
 import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
@@ -90,8 +91,17 @@ export class WorkspaceRoots {
     });
     return path;
   }
-  prepareCreation(command: Command) {
-    return this.creations.prepare(command);
+  prepareCreation(command: Command, progress?: CreationProgress) {
+    return this.creations.prepare(command, progress);
+  }
+  async localCreation(command: Command): Promise<void> {
+    const p = command.payload;
+    if (p.type !== "thread.create" && p.type !== "thread.prepare")
+      throw new Error("invalid_command");
+    const path = this.store.getWorkspacePath(p.workspaceId);
+    if (!path) throw new Error("workspace_not_found");
+    await this.creations.ready(p.threadId ? ThreadId.parse(p.threadId) : undefined);
+    await this.git.assertMutationAvailable(path);
   }
   private async createWorktree(
     id: ThreadId,

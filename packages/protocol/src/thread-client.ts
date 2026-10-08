@@ -1,3 +1,4 @@
+import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
@@ -29,6 +30,8 @@ export const ThreadOrganization = z.object({
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
+  /** Completed creation timings and redacted log survive reloads on the admitted thread. */
+  worktreeCreation: WorktreeCreationProgress.optional(),
   workspaceChange: z
     .object({
       commandId: z.string().min(1).max(256),

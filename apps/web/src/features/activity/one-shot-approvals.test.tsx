@@ -78,14 +78,13 @@ test("native auto mode preserves and returns the provider session grant", async 
   app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
-  expect(within(card).getByRole("checkbox").getAttribute("aria-checked")).toBe("false");
-  expect(within(card).getByText(/Always allow git push/)).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
   expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
   // The command reads as typed, not as the login shell that ran it.
   expect(within(card).getByText("git push origin main")).toBeTruthy();
 
-  await userEvent.click(within(card).getByRole("checkbox"));
-  await userEvent.click(within(card).getByRole("button", { name: /^Approve/ }));
+  await userEvent.click(within(card).getByRole("button", { name: "Always allow" }));
   await waitFor(() =>
     expect(app.daemon.resolution(scenario.thread.id, "approve-push")).toEqual({
       kind: "approval",
@@ -96,9 +95,15 @@ test("native auto mode preserves and returns the provider session grant", async 
 
 test("native bypass mode preserves the provider session grant", async () => {
   const app = harness();
-  app.play(pushRequest("bypassPermissions")).runUntilBlocked();
+  const scenario = pushRequest("bypassPermissions");
+  app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
-  expect(within(card).getByText("Always allow git push in this thread")).toBeTruthy();
-  expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "Always allow" }));
+  await waitFor(() =>
+    expect(app.daemon.resolution(scenario.thread.id, "approve-push")).toEqual({
+      kind: "approval",
+      optionId: "thread",
+    }),
+  );
 });

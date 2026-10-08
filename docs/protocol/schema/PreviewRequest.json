@@ -47,6 +47,22 @@
             "port"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "link",
+              "type": "string"
+            },
+            "port": {
+              "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+            }
+          },
+          "required": [
+            "op",
+            "port"
+          ],
+          "type": "object"
         }
       ]
     },

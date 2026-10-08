@@ -5,6 +5,7 @@ import { ClockIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
 import { type StagedSend, leasable } from "../composer/send-store.ts";
+import { useWorktreeCreation } from "../worktree/use-worktree-creation.ts";
 import { FailedHeld, FailedSend } from "./failed-send.tsx";
 import { sendFailure } from "./send-failure.ts";
 
@@ -34,7 +35,8 @@ function uploadingLabel(staged: StagedSend): string {
  * Under the person's bubble while its message is on its way: "Sending…" (or "Will apply when
  * reconnected" offline, "Still waiting for the daemon…" when it's slow), "Uploading 2 images…"
  * while its files finish, and "Not sent" with the reason, Retry and Edit when the daemon
- * refused it or couldn't deliver it. Nothing once the daemon has it.
+ * refused it or couldn't deliver it. Nothing once the daemon has it, nor while a worktree card
+ * below speaks for it.
  */
 export function SendStatus(props: {
   threadId: string;
@@ -49,6 +51,14 @@ export function SendStatus(props: {
   const online = useConnectionState() === "ready";
   const notice = useItem(leasable(props.threadId), props.noticeId ?? "");
   const { send, staged } = props;
+  // A new thread's worktree speaks for its message under the bubble: its card says how the
+  // making goes, and offers Retry and the local checkout if it stops.
+  const creating =
+    send?.payload.type === "thread.create" && send.payload.mode === "worktree"
+      ? send.commandId
+      : undefined;
+  const worktree = useWorktreeCreation(creating).state?.progress;
+  if (worktree) return props.otherwise;
   if (staged?.failed) return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)
     return (
