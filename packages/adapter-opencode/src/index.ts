@@ -35,6 +35,9 @@ export function createOpenCodeAdapter(
         );
         return {
           ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
+          get mcp() {
+            return session.mcp;
+          },
           get nativeSessionId() {
             return session.nativeSessionId;
           },

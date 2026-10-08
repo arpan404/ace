@@ -122,3 +122,17 @@ uses stored canonical views; write toolkits require explicit host ports.
 Provider adapter workstreams must wire session leases into their lifecycle and
 apply these helpers. Browser/preview and durable notification/orchestration
 consumers remain owned by their workstreams, with no substitute execution here.
+
+## Native Sources and user controls
+
+Thread Sources reads enabled ace groups through the same discovery filter as the MCP endpoint.
+Provider inventories expose names and normalized connection states only. Claude Code controls
+use its live SDK handle; Codex uses MCP status, native config writes and reload; OpenCode uses
+location-scoped MCP registrations and connect/disconnect. Ending a provider session removes its
+control handle. Controls require thread read or operate authority as appropriate.
+
+Explicit Add server accepts a name and command/arguments or a non-secret HTTP URL. Claude and
+Codex persist through their own config mechanisms; OpenCode's current API registers for the
+session. Environment variables and authentication headers must be configured in the provider.
+ace neither reads that config nor stores it. The service-owned ace connection cannot be replaced
+or disabled by these controls. Codex reload changes apply on its next turn.

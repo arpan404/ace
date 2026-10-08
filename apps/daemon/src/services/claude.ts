@@ -1,3 +1,4 @@
+import { addClaudeMcp } from "../provider-mcp-add.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ClaudeOptions, ClaudeRateLimitObservation } from "@ace/adapter-claude";
 import { createRedactor } from "@ace/redaction";
@@ -91,11 +92,31 @@ export async function daemonClaudeAdapter(
         session = opened;
         const controls = opened.mcp;
         if (!controls) throw new Error("Claude MCP controls unavailable");
+        let dynamic: Record<string, unknown> = { ...options.mcpServers };
         const boundControls: ProviderMcpControl = {
+          async add(name, server) {
+            if (!cli.path) throw new Error("Claude Code is unavailable");
+            await addClaudeMcp(
+              ctx.executable ?? cli.path,
+              ctx.cwd,
+              ctx.env ?? options.env,
+              name,
+              server,
+            );
+            dynamic[name] =
+              server.transport === "http"
+                ? { type: "http", url: server.url }
+                : { command: server.command, args: server.args };
+            await safe(() => controls.replace({ ...dynamic, ...ace }));
+          },
           status: () => safe(async () => stored(await controls.status())),
           // SDK replacements preserve the service-owned ace lease as well as CLI settings/plugins.
           replace: (servers) =>
-            safe(async () => stored(await controls.replace({ ...servers, ...ace }))),
+            safe(async () => {
+              const result = await controls.replace({ ...servers, ...ace });
+              dynamic = { ...servers };
+              return stored(result);
+            }),
           reconnect: (name) => safe(() => controls.reconnect(name)),
           enable: (name) => safe(() => controls.enable(name)),
           disable: (name) => safe(() => controls.disable(name)),

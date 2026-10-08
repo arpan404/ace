@@ -894,7 +894,7 @@ Example:
   "name": "example",
   "requestId": "example",
   "threadId": "example",
-  "type": "mcp.enable"
+  "type": "mcp.reconnect"
 }
 ```
 
@@ -2043,6 +2043,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"notification.register"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":200} |
 | device | yes | [NotificationAddress.json](schema/NotificationAddress.json) |  |
 
 Example:
@@ -2050,15 +2051,27 @@ Example:
 ```json
 {
   "device": {
-    "channel": "webpush",
+    "channel": "fcm",
     "platform": "phone",
-    "subscription": {
-      "auth": "8FMQfPystOY5_GT0oa8vtw",
-      "endpoint": "https://example.invalid/",
-      "p256dh": "e4DdsNOA-XhWWQ_oppZgo0CxKr1G2oKpERkg3r0PQDBx_x-qmM9Tw6Rxl_uC_krN-JEvos_ryGdvCflg26E_5I_"
-    }
+    "token": "example"
   },
   "type": "notification.register"
+}
+```
+
+### notification.config
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.config"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "notification.config"
 }
 ```
 
@@ -2073,9 +2086,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "includePreview": true
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -2094,7 +2105,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 4
+  "until": 0
 }
 ```
 
@@ -2115,7 +2126,6 @@ Example:
 
 ```json
 {
-  "channel": "devices",
   "deviceId": "example",
   "protocolVersion": 1,
   "ticket": "example",
@@ -2137,10 +2147,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 9,
+  "paced": false,
   "scope": {
-    "kind": "thread",
-    "threadId": "example"
+    "kind": "threads"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2178,15 +2187,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "position": {
-        "end": 1,
-        "file": "example.ts",
-        "side": "new",
-        "start": 1
-      },
-      "sessionId": "example",
-      "text": "example",
-      "type": "review.comment"
+      "name": "'%~-",
+      "type": "workspace.rename",
+      "workspaceId": "example"
     }
   },
   "type": "command"
@@ -2207,8 +2210,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "offset": 3,
+  "limit": 7,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2229,8 +2232,8 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "limit": 1,
+  "before": 4,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

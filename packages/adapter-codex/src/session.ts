@@ -1,3 +1,4 @@
+import { codexMcpControls } from "./mcp-controls.ts";
 import { limitPermissionMode } from "@ace/core";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
@@ -368,6 +369,7 @@ export async function openCodexSession(
       selectedOptions = executionOptions;
     },
     close: lifetime.close,
+    mcp: codexMcpControls(request, nativeSessionId, ctx.signal),
     ...createSessionCommands({
       nativeSessionId,
       getLaunchOptions: async (threadId) => {

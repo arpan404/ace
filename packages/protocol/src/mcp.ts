@@ -50,10 +50,67 @@ export type McpIntent = z.infer<typeof McpIntent>;
 export const PendingMcpIntent = z.object({ id: z.string().min(1).max(256), intent: McpIntent });
 export type PendingMcpIntent = z.infer<typeof PendingMcpIntent>;
 
+export const McpServerInput = z.discriminatedUnion("transport", [
+  z.strictObject({
+    transport: z.literal("command"),
+    command: z.string().min(1).max(2048),
+    args: z.array(z.string().max(2048)).max(64).default([]),
+  }),
+  z.strictObject({
+    transport: z.literal("http"),
+    url: z
+      .string()
+      .min(1)
+      .max(2048)
+      .refine((value) => {
+        try {
+          const url = new URL(value);
+          return (
+            ["http:", "https:"].includes(url.protocol) &&
+            !url.username &&
+            !url.password &&
+            !url.search &&
+            !url.hash
+          );
+        } catch {
+          return false;
+        }
+      })
+      .meta({
+        examples: ["https://example.invalid/mcp"],
+        "x-ace-constraint":
+          "HTTP or HTTPS URL without credentials, query parameters or a fragment.",
+      }),
+  }),
+]);
+export type McpServerInput = z.infer<typeof McpServerInput>;
+export const McpSourceServer = z.object({
+  name: z.string().min(1).max(256),
+  status: z.enum(["connected", "connecting", "disabled", "failed", "unknown"]),
+});
+export const McpSources = z.object({
+  groups: z.array(z.string().max(64)).max(16),
+  servers: z.array(McpSourceServer).max(512),
+  live: z.boolean(),
+  canAdd: z.boolean(),
+  appliesNextTurn: z.boolean().default(false),
+});
+export type McpSources = z.infer<typeof McpSources>;
+
 const providerRequest = z.object({ requestId: z.string().min(1).max(512), threadId: ThreadId });
 const serverName = z.string().min(1).max(256);
 export const McpProviderRequest = z.discriminatedUnion("type", [
   providerRequest.extend({ type: z.literal("mcp.status") }),
+  providerRequest.extend({ type: z.literal("mcp.sources") }),
+  providerRequest.extend({
+    type: z.literal("mcp.add"),
+    name: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .refine((name) => name !== "ace")
+      .meta({ "x-ace-constraint": "The service-owned name ace is reserved." }),
+    server: McpServerInput,
+  }),
   providerRequest.extend({
     type: z.literal("mcp.replace"),
     servers: z

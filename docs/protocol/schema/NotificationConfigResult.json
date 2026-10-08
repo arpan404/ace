@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationConfigResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "preferences": {
+      "$ref": "https://ace.local/protocol/v1/NotificationPreferences.json"
+    },
+    "publicKey": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9_-]{87}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "notification.config.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "publicKey",
+    "preferences"
+  ],
+  "type": "object"
+}

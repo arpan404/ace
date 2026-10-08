@@ -986,7 +986,13 @@
       "$ref": "https://ace.local/protocol/v1/ModelsChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationConfigResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationRegisterResult.json"
     },
     {
       "properties": {

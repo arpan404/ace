@@ -1,23 +1,20 @@
 {
-  "$id": "https://ace.local/protocol/v1/NotificationRegister.json",
+  "$id": "https://ace.local/protocol/v1/NotificationConfigRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "device": {
-      "$ref": "https://ace.local/protocol/v1/NotificationAddress.json"
-    },
     "requestId": {
       "maxLength": 200,
       "minLength": 1,
       "type": "string"
     },
     "type": {
-      "const": "notification.register",
+      "const": "notification.config",
       "type": "string"
     }
   },
   "required": [
     "type",
-    "device"
+    "requestId"
   ],
   "type": "object"
 }

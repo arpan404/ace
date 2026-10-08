@@ -129,6 +129,8 @@ export interface SessionContext {
 /** Configuration owners use these controls; no authentication operations are exposed. */
 export interface ProviderMcpControl {
   status(): Promise<unknown>;
+  add?(name: string, server: import("@ace/protocol").McpServerInput): Promise<void>;
+  readonly appliesNextTurn?: boolean;
   replace(servers: Record<string, unknown>): Promise<unknown>;
   reconnect(name: string): Promise<void>;
   enable(name: string): Promise<void>;

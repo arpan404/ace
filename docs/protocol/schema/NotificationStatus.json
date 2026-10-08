@@ -6,7 +6,8 @@
     "done",
     "failed",
     "unresponsive",
-    "background_done"
+    "background_done",
+    "agent_says"
   ],
   "type": "string"
 }

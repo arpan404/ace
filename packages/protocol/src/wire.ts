@@ -114,6 +114,9 @@ import {
 import {
   PresenceUpdate,
   NotificationRegister,
+  NotificationRegisterResult,
+  NotificationConfigRequest,
+  NotificationConfigResult,
   NotificationSettings,
   NotificationSnooze,
   NotificationMessage,
@@ -189,6 +192,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
+  NotificationConfigRequest,
   NotificationSettings,
   NotificationSnooze,
 
@@ -251,7 +255,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...BrowserServerMessage.options,
   ModelsResult,
   ModelsChanged,
+  NotificationConfigResult,
   NotificationMessage,
+  NotificationRegisterResult,
   ...CoreServerMessage.options,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
