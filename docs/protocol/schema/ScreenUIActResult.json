@@ -31,15 +31,6 @@
       ],
       "type": "string"
     },
-<<<<<<< HEAD
-    "phase": {
-      "enum": [
-        "rejected-before-dispatch",
-        "dispatched",
-        "partial"
-      ],
-      "type": "string"
-=======
     "notes": {
       "items": {
         "maxLength": 1024,
@@ -47,7 +38,14 @@
       },
       "maxItems": 8,
       "type": "array"
->>>>>>> origin/fix/screen-daemon-parallel
+    },
+    "phase": {
+      "enum": [
+        "rejected-before-dispatch",
+        "dispatched",
+        "partial"
+      ],
+      "type": "string"
     },
     "snapshot": {
       "$ref": "https://ace.local/protocol/v1/ScreenUITreeResult.json"

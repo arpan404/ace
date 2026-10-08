@@ -28,15 +28,6 @@
             ],
             "type": "object"
           },
-<<<<<<< HEAD
-          "title": {
-            "maxLength": 256,
-            "type": "string"
-          },
-          "windowId": {
-            "maximum": 9007199254740991,
-            "minimum": 0,
-=======
           "bundleId": {
             "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
           },
@@ -47,26 +38,16 @@
           "windowId": {
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
->>>>>>> origin/fix/screen-daemon-parallel
             "type": "integer"
           }
         },
         "required": [
           "windowId",
-<<<<<<< HEAD
-          "title",
-          "bounds"
-        ],
-        "type": "object"
-      },
-      "maxItems": 128,
-=======
           "title"
         ],
         "type": "object"
       },
       "maxItems": 2048,
->>>>>>> origin/fix/screen-daemon-parallel
       "type": "array"
     },
     "code": {

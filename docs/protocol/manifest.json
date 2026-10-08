@@ -21,13 +21,8 @@
       "sha256": "5f8629b4b8f0275948b30bf617db6b76409081e059c2bbf936bc5008e2831605"
     },
     "mcp.md": {
-<<<<<<< HEAD
-      "bytes": 108228,
-      "sha256": "eae2f30b6a6a292c71d330edb7debc4c5e0e4e4cf2afab3bb7e6ab7cd3f3e7a4"
-=======
-      "bytes": 105063,
-      "sha256": "04722b2760541f5d3d1098e737276a1d380727c8456aab97b157ddb81693e456"
->>>>>>> origin/fix/screen-daemon-parallel
+      "bytes": 110086,
+      "sha256": "3d20af257351c03802a20012b7fc00659df0d80a11c096ffd5658b77207e3f30"
     },
     "models.md": {
       "bytes": 14366,
@@ -38,13 +33,8 @@
       "sha256": "4609a929b4f274e203a05fc0ca64ed53661a7f632720cfc1b9bf045fd2c76d5d"
     },
     "push.md": {
-<<<<<<< HEAD
       "bytes": 70049,
       "sha256": "c7c3cebd5b022c03edfc311ba23e0921b0b09e9a72ac8b610f7a03bdfeb69723"
-=======
-      "bytes": 68543,
-      "sha256": "d266815eedd434d78f1cb9257a009eeab5cc69e4c358c75d25f63f9799e13336"
->>>>>>> origin/fix/screen-daemon-parallel
     },
     "requests.md": {
       "bytes": 63203,
@@ -1791,13 +1781,8 @@
       "sha256": "6add5d3b2df6e9a6ebaa28c2eaa5984273f2f8d9708f35c91d2c8838cf13bffa"
     },
     "schema/ScreenError.json": {
-<<<<<<< HEAD
-      "bytes": 2088,
-      "sha256": "efebe23d62da4373b0e5e8a20f46eed2110fc330e6218f55107693a652250f59"
-=======
       "bytes": 2186,
       "sha256": "644bfacba23d85bff1fedb3df77b2f5021a6b40d064fa406e4978ad09c4b3dac"
->>>>>>> origin/fix/screen-daemon-parallel
     },
     "schema/ScreenFrameHeader.json": {
       "bytes": 318,
@@ -1828,21 +1813,12 @@
       "sha256": "d400b85444823c2e45099f7f7381a03afafad5742767a811ee22f5e7cd103930"
     },
     "schema/ScreenHelperRequest.json": {
-<<<<<<< HEAD
-      "bytes": 25474,
-      "sha256": "f8761ae0a4730b19d93aafec30a69c3c45131028540d7f18b168afe5097bc93f"
-    },
-    "schema/ScreenHelperRequestV2.json": {
-      "bytes": 14215,
-      "sha256": "a520ee94984ed5368ccb882e5a341258b6b000f346713fdd52509493d86b7275"
-=======
       "bytes": 27816,
       "sha256": "efdb8b67a8212e6a214c6604d485b1b3a055bfbf874e7a0ac772e52495f2a5b4"
     },
     "schema/ScreenHelperRequestV2.json": {
-      "bytes": 12214,
-      "sha256": "1bc6491f3758b1bb979a8305426d5aa29a9d8df3589c5cc8b7fa9865ce352bce"
->>>>>>> origin/fix/screen-daemon-parallel
+      "bytes": 14000,
+      "sha256": "890b00285c0d4b07f89a4ed96ab1c405c3e824067d65be6789080b0cbbab0fe7"
     },
     "schema/ScreenId.json": {
       "bytes": 178,
@@ -1937,13 +1913,8 @@
       "sha256": "d9aa2aa3583e7d30d47b1f65219d46f96b2c21bf832680ad56aab1eb9b53bcc0"
     },
     "schema/ScreenUIActResult.json": {
-<<<<<<< HEAD
-      "bytes": 1066,
-      "sha256": "785b18517be9ff127b18db973575b865d2464a64eb3faef879d50609cbeb7bb6"
-=======
-      "bytes": 1063,
-      "sha256": "e6b6b2860dbd7e3ff3d4f091c307e17b74eb40fabfede1377241f9fb409a252e"
->>>>>>> origin/fix/screen-daemon-parallel
+      "bytes": 1209,
+      "sha256": "56610191d2980c3b9bda48a39efdb51c7fdcef0d248b9511706a30a19a56a0f9"
     },
     "schema/ScreenUIAction.json": {
       "bytes": 294,
@@ -2050,13 +2021,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-<<<<<<< HEAD
       "bytes": 33429,
       "sha256": "71dd1e71c7bc274de7e20667dcefd420307d4c066f1db199e86ab49a1611a01e"
-=======
-      "bytes": 33249,
-      "sha256": "2f600c429e4f87a72557137c1889ba31704e4a86a68c300bd86ce7f02f4d0199"
->>>>>>> origin/fix/screen-daemon-parallel
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -2543,13 +2509,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-<<<<<<< HEAD
-      "bytes": 168113,
-      "sha256": "a5f486b9cfc1c914bdae5a9e15b5738b013101614f6b18e1b109f5cfbb44932d"
-=======
-      "bytes": 174715,
-      "sha256": "2b4c606b7afeda5f5936d0851aba738869b2f84afed22b4b6e6ec9333241b3f8"
->>>>>>> origin/fix/screen-daemon-parallel
+      "bytes": 182147,
+      "sha256": "ad64670ad25948357213aff5b031ef3fc2fccf07d0771113a69302a6db934351"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2720,18 +2681,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-<<<<<<< HEAD
-      "bytes": 575147,
-      "sha256": "f5800397e73de8de01bcd5aa1966272febfe4848f1c8862203a7ccfaf0514be2"
+      "bytes": 579594,
+      "sha256": "9605fb0fcf3f6e3a6ecf949c15a74d685f1af7a8d8e6c249cf7d65e06971c751"
     }
   },
-  "input": "770d2009473b7fb77435f72a8aee0411c06c907d52e55d9840b7b667de8c15c5",
-=======
-      "bytes": 557397,
-      "sha256": "7e1a7a6f1e98e1ff9dc491a21dd8d4eb545f285123ef6196adc0cdf8ab1ff239"
-    }
-  },
-  "input": "6fc661bfdc3aa99cffa665b86a3ab095fe143a79bec26c04b0a30e9fe9801088",
->>>>>>> origin/fix/screen-daemon-parallel
+  "input": "13289c8813165d627a4af15fb9d159f49f2d7b781d0ae45f58c7119a5302eafa",
   "version": 1
 }

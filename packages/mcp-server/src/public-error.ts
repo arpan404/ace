@@ -109,7 +109,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   window_ambiguous: {
     message: "The helper cannot uniquely identify the selected window",
-    hint: "Refresh window candidates and select an exact window ID.",
+    hint: "Call screen_list_windows, then screen_open_app with windowId or screen_select_window for an existing session.",
   },
   key_unsupported: {
     message: "Unsupported key name",
@@ -121,7 +121,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   no_key_window: {
     message: "The selected window has no verified keyboard destination",
-    hint: "Use ui.act on a field, or the helper's menu.press/open.url operations. Do not replay input into a different window.",
+    hint: "Use screen_ui_act on a field, screen_menu or screen_open_url. Do not replay input into a different window.",
   },
   delivery_unconfirmed: {
     message: "Input was dispatched but its effect is unconfirmed",
@@ -134,26 +134,6 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   clipboard_changed: {
     message: "Clipboard changed during paste",
     hint: "The human's new clipboard was retained. Inspect the target before retrying.",
-  },
-  window_ambiguous: {
-    message: "App window identity is ambiguous",
-    hint: "Call screen_list_windows, then screen_open_app with windowId or screen_select_window for an existing session. No input was dispatched when phase is rejected-before-dispatch.",
-  },
-  key_unsupported: {
-    message: "Named key is unsupported",
-    hint: "Choose a key from screen_key's enum. Use screen_type for Unicode text.",
-  },
-  modifier_unsupported: {
-    message: "Key modifier is unsupported",
-    hint: "Use command, option, shift or control, or the advertised aliases alt, meta and super.",
-  },
-  no_key_window: {
-    message: "Selected window has no verified keyboard destination",
-    hint: "Inspect screen_ui_tree and focus an editable field with screen_ui_act, or use screen_menu or screen_open_url.",
-  },
-  delivery_unconfirmed: {
-    message: "Input was dispatched but delivery is unconfirmed",
-    hint: "Inspect screen_ui_tree or screen_screenshot before retrying. Repeating text or clicks can duplicate the action.",
   },
   invalid_arguments: {
     message: "Invalid tool arguments",
