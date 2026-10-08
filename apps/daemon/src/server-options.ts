@@ -53,7 +53,7 @@ export interface ServerOptions {
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
-  relay?: { url: string; keys: KeyPair };
+  relay?: { url: string; keys: KeyPair } | undefined;
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
@@ -67,6 +67,10 @@ export interface ServerOptions {
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;
   remote?: RemoteListener;
+  remoteConfig?: import("./config.ts").Config;
+  network?: import("./network.ts").NetworkRuntime;
+  webRoot?: string;
+  applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;
   now?: () => number;
   runtime?: Partial<DeliveryRuntime>;
   entropy?: EntropySource;

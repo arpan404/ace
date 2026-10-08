@@ -41,6 +41,7 @@ export const defaults: SettingsValues = {
   "logs.retention": "30d",
   "remote.enabled": false,
   "remote.transport": "local",
+  "remote.relayUrl": "",
   "conductor.planApproval": "required",
   "conductor.mergePolicy": "manual",
   "conductor.maxFixRounds": 3,

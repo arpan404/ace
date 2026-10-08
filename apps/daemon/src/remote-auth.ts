@@ -13,6 +13,7 @@ export class AccessError extends Error {
 export class RemoteAuth {
   private codes = new Map<string, { expiresAt: number; scopes: Scope[] }>();
   private tickets: TicketPool;
+  private ticketLimits: TicketLimits;
   private attempts = new Map<string, { count: number; resetsAt: number }>();
   private devices: Devices;
   private localToken: string;
@@ -29,6 +30,7 @@ export class RemoteAuth {
     this.localToken = localToken;
     this.now = runtime.now;
     this.secret = runtime.secret;
+    this.ticketLimits = limits;
     this.tickets = new TicketPool(limits);
   }
   local(token: string): boolean {
@@ -87,6 +89,10 @@ export class RemoteAuth {
     if (!device || device.revokedAt !== null || device.scopes.includes("desktop")) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
+  }
+  clearPending(): void {
+    this.codes.clear();
+    this.tickets = new TicketPool(this.ticketLimits);
   }
   list(): Device[] {
     return this.devices.list();

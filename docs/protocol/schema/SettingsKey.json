@@ -43,6 +43,7 @@
     "logs.retention",
     "remote.enabled",
     "remote.transport",
+    "remote.relayUrl",
     "conductor.planApproval",
     "conductor.mergePolicy",
     "conductor.maxFixRounds",

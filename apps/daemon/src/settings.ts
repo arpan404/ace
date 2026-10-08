@@ -37,6 +37,7 @@ export function settingsSession(options: {
   subscriptions: Map<string, () => void>;
   send(message: ServerMessage): void;
   authorize?(request: SettingsRequest): boolean;
+  set?(key: string, value: unknown, commit: () => Promise<void>): Promise<void>;
 }) {
   let closed = false;
   let tail: Promise<void> = Promise.resolve();
@@ -123,7 +124,11 @@ export function settingsSession(options: {
                     : { kind: "global" };
             // Validation remains in the service, including recursive secret checks.
             const assignment = validateAssignment(request.key, request.value);
-            await service.set(assignment.key, assignment.value, layer);
+            const commit = async () => {
+              await service.set(assignment.key, assignment.value, layer);
+            };
+            if (options.set) await options.set(assignment.key, assignment.value, commit);
+            else await commit();
           }
           const selector = {
             keys:

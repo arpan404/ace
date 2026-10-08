@@ -754,7 +754,7 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {
     "workspaceId": "example"
@@ -802,7 +802,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.coder.tier"
+    "providers.coder.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {

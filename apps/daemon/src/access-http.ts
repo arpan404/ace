@@ -23,10 +23,17 @@ async function body(request: IncomingMessage): Promise<unknown> {
  * pairing and revoking. Only origins on the allowlist (`web-origins.ts`) get CORS headers, so other
  * sites can neither preflight these routes nor read any response. The token travels only in the
  * Authorization header and no cookie is ever accepted, so no credentials mode is granted. Pairing
- * redemption and tickets stay same-origin.
+ * redemption, tickets and status use this same explicit allowlist.
  */
 function crossOrigin(path: string): boolean {
-  return path === "/v1/devices" || path === "/v1/pairings" || /^\/v1\/devices\/[^/]+$/.test(path);
+  return (
+    path === "/v1/status" ||
+    path === "/v1/pair" ||
+    path === "/v1/tickets" ||
+    path === "/v1/devices" ||
+    path === "/v1/pairings" ||
+    /^\/v1\/devices\/[^/]+$/.test(path)
+  );
 }
 export interface AccessHttpOptions {
   auth: RemoteAuth;
@@ -39,6 +46,7 @@ export interface AccessHttpOptions {
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   ready?: () => boolean;
+  remoteStatus?: () => import("@ace/protocol").RemoteAccessStatus;
 }
 export function accessHttp({
   auth,
@@ -50,6 +58,7 @@ export function accessHttp({
   version = "development",
   serviceStatus,
   ready = () => true,
+  remoteStatus,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -94,6 +103,7 @@ export function accessHttp({
             ready: ready(),
             version,
             remote: pairing() ?? null,
+            ...(remoteStatus ? { remoteAccess: remoteStatus() } : {}),
             ...(serviceStatus ? { services: serviceStatus() } : {}),
           };
         else if (path === "/v1/maintenance" && maintenance) {
@@ -106,7 +116,7 @@ export function accessHttp({
           if (!connection)
             throw new AccessError(
               409,
-              "Remote access is off. Restart with ACE_LISTEN=lan or ACE_LISTEN=tailscale.",
+              "Turn on remote access in Settings, then choose LAN or Tailscale to pair.",
             );
           const data = PairingRequest.safeParse(await body(request));
           if (!data.success) throw new AccessError(400, "Invalid scopes");

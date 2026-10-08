@@ -34,3 +34,12 @@ export const SocketTicket = z.object({
   ticket: z.string().regex(/^[0-9a-f]{64}$/),
   expiresAt: timestamp,
 });
+
+/** Current network resources and launch overrides, independent of saved preferences. */
+export const RemoteAccessStatus = z.object({
+  enabled: z.boolean(),
+  transport: z.enum(["local", "lan", "tailscale", "relay"]),
+  listenOverride: z.enum(["local", "lan", "tailscale"]).nullable(),
+  relayOverride: z.boolean(),
+});
+export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;
