@@ -110,6 +110,9 @@ export function fakeProviderAccounts(
       return true;
     }
     account.label = request.label;
+    if (request.shortLabel !== undefined) account.shortLabel = request.shortLabel;
+    if (request.badgeColor === null) delete account.badgeColor;
+    else if (request.badgeColor !== undefined) account.badgeColor = request.badgeColor;
   }
   if (request.type === "provider.accounts.setDefault" && account)
     for (const row of accounts)

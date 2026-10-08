@@ -45,7 +45,7 @@ test("an account's menu renames it, makes it the default and removes it after as
   await app.open("/settings/providers/claude");
   const work = await account("Work");
   await userEvent.click(within(work).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
   const field = within(work).getByRole("textbox", { name: "Account name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Client work{Enter}");

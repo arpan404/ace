@@ -1,3 +1,5 @@
+import { signInSuccess } from "./success-copy.ts";
+import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,19 +46,22 @@ export function SignInDialog(props: {
   const view = useSyncExternalStore(login.subscribe, login.getView);
   const readiness = useProviderReadiness();
   const toast = useToast();
+  const accounts = useAccountViews();
   const queryClient = useQueryClient();
   const { provider, action, service, choice } = login.target;
   const name = login.target.name ?? providerNames[provider];
   const row = readiness.data?.find((entry) => entry.provider === provider);
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
   const finish = useEffectEvent(() => {
-    toast.add({
-      title: service
-        ? `${service} is ${action === "logout" ? "disconnected" : "connected"}`
-        : action === "logout"
-          ? `Signed out of ${name}`
-          : `Signed in to ${name}${login.target.newAccount ? ` · ${login.target.newAccount}` : ""}`,
-    });
+    if (login.claimCompletion())
+      toast.add({
+        kind: "provider-auth",
+        eventId: view.kind === "progress" ? view.progress.session : undefined,
+        title: signInSuccess(
+          login.target,
+          accounts.data?.find((account) => account.id === login.target.instance)?.label,
+        ),
+      });
     props.onClose();
   });
   useEffect(() => {

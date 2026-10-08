@@ -66,6 +66,7 @@ export function AgentNotifier() {
       }
       current.toast.add({
         id: notice.id,
+        eventId: notice.id,
         title: `Agent says · ${notice.title}`,
         description: notice.message,
         timeout: 10_000,

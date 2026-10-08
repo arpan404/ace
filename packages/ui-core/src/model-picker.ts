@@ -88,7 +88,7 @@ export function pickerList(
   const distinct = distinctModels(models, input.instance);
   let found: PickerModel[];
   if (terms.length) {
-    found = distinct.filter((model) => {
+    found = models.filter((model) => {
       const text = haystack(model);
       return terms.every((term) => text.includes(term));
     });

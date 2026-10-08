@@ -80,6 +80,8 @@ export default function LimitNotifier() {
       said.current.add(change.key);
       toasts.add({
         ...words(change, now),
+        kind: `account-limit:${change.account.id}`,
+        eventId: change.key,
         actionProps: { children: "View usage", onClick: () => void go({ to: "/accounts" }) },
       });
     }

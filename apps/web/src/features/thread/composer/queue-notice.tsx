@@ -1,3 +1,4 @@
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { AddAccountButton } from "@/features/account-management/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
@@ -75,6 +76,8 @@ export function QueueNotice(props: {
       <div className="flex min-w-0 basis-full items-start gap-2">
         {notice.kind === "model" || notice.kind === "not_sent" ? (
           <Dot tone="needs-you" />
+        ) : notice.kind === "limited" && account ? (
+          <ProviderAccountIcon provider={account.provider} account={account} size={16} />
         ) : (
           <Icon
             icon={icons[notice.kind]}

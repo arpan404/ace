@@ -18,7 +18,7 @@ const choice = (patch: Partial<ModelChoice>): ModelChoice => {
 
 const limit = (resetsAt: number | undefined) => `resets ${resetsAt ?? "?"}`;
 
-test("each account's row says when it is at its limit; a search lists the model once, open while any account can take it", () => {
+test("search keeps each account's model and its own limit state", () => {
   const rows = pickerModelsFromChoices(
     [
       choice({ id: "a", accountId: "a", exhausted: true, resetsAt: 9 }),
@@ -26,28 +26,13 @@ test("each account's row says when it is at its limit; a search lists the model 
     ],
     limit,
   );
-  expect(rows).toMatchObject([
-    { instance: "a", unavailable: "resets 9" },
-    { instance: "b", unavailable: undefined },
-  ]);
-  expect(pickerList(rows, { query: "gpt", favorites: [] }).rows).toMatchObject([
+  expect(pickerList(rows, { query: "gpt", favorites: [], instance: "a" }).rows).toMatchObject([
+    { label: "GPT-5", instance: "a", unavailable: "resets 9" },
     { label: "GPT-5", instance: "b", unavailable: undefined },
   ]);
-  // Even when the account in use is the one at its limit.
-  expect(pickerList(rows, { query: "gpt", favorites: [], instance: "a" }).rows).toMatchObject([
-    { instance: "b", unavailable: undefined },
-  ]);
-
-  const blocked = pickerModelsFromChoices(
-    [
-      choice({ id: "a", accountId: "a", exhausted: true, resetsAt: 9 }),
-      choice({ id: "b", accountId: "b", exhausted: true, resetsAt: 4 }),
-    ],
-    limit,
-  );
-  const listed = pickerList(blocked, { query: "gpt", favorites: [] }).rows;
-  expect(listed).toHaveLength(1);
-  expect(listed[0]?.unavailable).toBeDefined();
+  expect(
+    pickerList(rows, { query: "", favorites: [rows[0]?.key ?? ""], instance: "a" }).rows,
+  ).toMatchObject([{ label: "GPT-5", instance: "b", unavailable: undefined }]);
 });
 
 test("speed can change on a running thread only where the provider takes a service tier", () => {

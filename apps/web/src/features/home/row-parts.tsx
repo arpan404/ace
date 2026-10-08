@@ -3,7 +3,7 @@ import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 
 /*
@@ -115,11 +115,17 @@ function ChangeMark(props: { card: ThreadCard }) {
 }
 
 /** The provider's mark, with the count of subagents working beside it. */
-function ProviderMark(props: { card: ThreadCard }) {
+function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
     <span role="img" aria-label={card.providerLabel} className="inline-flex items-center gap-0.5">
-      <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={16} decorative />
+      <ProviderAccountIcon
+        instance={props.instance}
+        provider={card.provider}
+        acpAgentId={card.acpAgentId}
+        size={card.provider === "opencode" ? 24 : 16}
+        decorative
+      />
       {card.subagents > 0 && (
         <span className="text-2xs text-muted-foreground tabular-nums">{card.subagents}</span>
       )}
@@ -128,7 +134,7 @@ function ProviderMark(props: { card: ThreadCard }) {
 }
 
 /** Always-visible task context; only its right-side marks give way to the hover action. */
-export function RowDetail(props: { card: ThreadCard }) {
+export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
@@ -138,7 +144,7 @@ export function RowDetail(props: { card: ThreadCard }) {
       </span>
       <span className="flex shrink-0 items-center gap-1.5 group-focus-within/row:invisible group-hover/row:invisible">
         <ChangeMark card={card} />
-        <ProviderMark card={card} />
+        <ProviderMark card={card} instance={props.instance} />
       </span>
     </span>
   );

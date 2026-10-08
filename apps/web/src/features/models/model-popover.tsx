@@ -1,10 +1,3 @@
-import {
-  AddAccountButton,
-  canAddAccounts,
-  useAddAccount,
-  AccountKeyMark,
-} from "@/features/account-management/index.ts";
-import { Select } from "@/components/ui/select.tsx";
 import { effortLabel } from "@ace/ui-core";
 import { ArrowCounterClockwiseIcon, CaretRightIcon, LightningIcon } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -13,7 +6,7 @@ import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
-import type { AccountRow, ModelControlActions, ModelControlView } from "./control-view.ts";
+import type { ModelControlActions, ModelControlView } from "./control-view.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 
 const iconButton =
@@ -56,6 +49,7 @@ export function ModelPopover(props: {
           currentInstance={view.instance}
           currentProvider={view.provider}
           catalog={view.catalog}
+          onClose={props.onClose}
           onPick={(key, instance) => {
             const same = key === view.modelKey && (!instance || instance === view.instance);
             if (!same && (!actions.onModel(key, instance) || view.unavailable)) props.onClose();
@@ -151,15 +145,6 @@ function EffortPanel(props: {
           </Tip>
         )}
       </div>
-      {view.provider && (
-        <Accounts
-          provider={view.provider}
-          accounts={view.accounts}
-          value={view.account}
-          onChange={actions.onAccount}
-          onClose={props.onClose}
-        />
-      )}
       {steps.length > 1 && (
         <DisabledReason reason={view.effortReason}>
           <StepSlider
@@ -179,69 +164,6 @@ function EffortPanel(props: {
       {efforts.length > 0 && view.effortReason && (
         <p className="text-center text-xs text-subtle-foreground">{view.effortReason}</p>
       )}
-    </div>
-  );
-}
-
-/** One compact account selector, including the shared add flow. The current account stays selected at a limit. */
-function Accounts(props: {
-  provider: NonNullable<ModelControlView["provider"]>;
-  accounts: readonly AccountRow[];
-  value: string | undefined;
-  onChange(id: string): void;
-  onClose(): void;
-}) {
-  const add = useAddAccount();
-  const current = props.accounts.find((account) => account.id === props.value);
-  if (!current && (!add || !canAddAccounts(props.provider))) return null;
-  if (!current)
-    return (
-      <div className="flex h-8 items-center gap-2 text-xs text-muted-foreground">
-        <span>Account</span>
-        <AddAccountButton provider={props.provider} label="Add account…" onOpen={props.onClose} />
-      </div>
-    );
-  return (
-    <div
-      className="flex items-center gap-2"
-      onKeyDownCapture={(event) => {
-        if (
-          event.key === "Escape" &&
-          event.target instanceof HTMLElement &&
-          event.target.closest('[role="combobox"]')?.getAttribute("aria-expanded") === "false"
-        ) {
-          event.stopPropagation();
-          props.onClose();
-        }
-      }}
-    >
-      <span className="text-xs text-muted-foreground">Account</span>
-      <Tip label={current.disabled ?? current.detail}>
-        <span className="min-w-0 flex-1">
-          <Select
-            label="Account"
-            value={current.id}
-            className="w-full bg-transparent"
-            options={[
-              ...props.accounts.map((account) => ({
-                value: account.id,
-                label: `${account.label}${account.disabled ? " · Limit reached" : ""}`,
-                disabled: !!account.disabled && account.id !== current.id,
-              })),
-              ...(add && canAddAccounts(props.provider)
-                ? [{ value: "add-account", label: "Add account…" }]
-                : []),
-            ]}
-            onValueChange={(id) => {
-              if (id === "add-account") {
-                props.onClose();
-                add?.(props.provider);
-              } else if (id !== current.id) props.onChange(id);
-            }}
-          />
-        </span>
-      </Tip>
-      <AccountKeyMark method={current.authMethod} />
     </div>
   );
 }

@@ -27,7 +27,7 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
     .getAllByRole("option")
     .find((option) => {
       const name = option.getAttribute("aria-label") ?? "";
-      return name.startsWith(`${label}, `) && name.endsWith(`, ${provider}`);
+      return name.startsWith(`${label}, `) && name.includes(`, ${provider}`);
     });
   if (!row) throw new Error(`No ${label} under ${provider} in the model picker`);
   await userEvent.click(row);
@@ -44,9 +44,23 @@ export async function closeModelControl() {
   );
 }
 
-/** Choose an account through the popover's one-line selector. */
+/** Choose the same model on another account through its rail entry. */
 export async function chooseAccount(popover: HTMLElement, name: string) {
-  await userEvent.click(within(popover).getByRole("combobox", { name: "Account" }));
-  await userEvent.click(await screen.findByRole("option", { name }));
-  await waitFor(() => expect(screen.queryByRole("option", { name })).toBeNull());
+  const change = within(popover).queryByRole("button", { name: /^Change model/ });
+  const model = change?.getAttribute("aria-label")?.replace("Change model: ", "");
+  const list = await openModelPicker(popover);
+  if (name === "Add account…") {
+    await userEvent.click(within(popover).getByRole("button", { name }));
+    return;
+  }
+  const tab = within(popover)
+    .getAllByRole("tab")
+    .find((entry) => entry.getAttribute("aria-label")?.endsWith(` · ${name}`));
+  if (!tab) throw new Error(`No account ${name}`);
+  await userEvent.click(tab);
+  const option = within(list)
+    .getAllByRole("option")
+    .find((entry) => entry.getAttribute("aria-label")?.startsWith(`${model},`));
+  if (!option) throw new Error(`No ${model} on ${name}`);
+  await userEvent.click(option);
 }

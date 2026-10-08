@@ -42,7 +42,9 @@ export function workerBundle(): Plugin {
               ...initialChunk(entry),
               debugName: "client-core",
               priority: 10,
-              name: (id) => (id === entry ? null : "client-core"),
+              // Workers have one entry each; keep it with its static dependencies so a
+              // tiny bootstrap does not add another gzip stream and import wrapper.
+              name: "client-core",
             },
             {
               debugName: "client-services",

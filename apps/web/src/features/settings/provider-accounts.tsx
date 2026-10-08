@@ -1,7 +1,9 @@
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { accountStatus, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -14,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -31,7 +32,7 @@ import {
 /*
  * Every account of a provider in one list: who it is, how it signs in, which one new threads
  * use, where it stands and how much of its plan is left. Each has its own Sign in again, Make
- * default, Rename and Remove; Add account names one and starts its sign-in straight away.
+ * default, Edit label and Remove; Add account names one and starts its sign-in straight away.
  */
 
 export function ProviderAccounts(props: {
@@ -100,17 +101,19 @@ function AccountItem(props: {
       <div className="flex min-h-8 items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {renaming ? (
-            <RenameField
-              label={account.label}
+            <AccountLabelEditor
+              account={account}
               onCancel={() => setRenaming(false)}
-              onSave={(next) => {
-                setRenaming(false);
-                if (next !== account.label)
-                  actions.rename(account.id, next).catch(fail(`Couldn't rename ${account.label}`));
+              onSave={(name, badge) => {
+                actions
+                  .rename(account.id, name, badge)
+                  .then(() => setRenaming(false))
+                  .catch(fail(`Couldn't update ${account.label}`));
               }}
             />
           ) : (
             <span className="flex min-w-0 items-center gap-2">
+              <ProviderAccountIcon provider={provider} account={account} size={16} />
               <span className="truncate font-medium">{label}</span>
               <AccountKeyMark method={account.authMethod} />
               {account.isDefault && !props.only && (
@@ -119,8 +122,8 @@ function AccountItem(props: {
             </span>
           )}
         </div>
-        <StatusLine tone={state.tone} text={state.text} />
-        {signIn && props.manageable && (
+        {!renaming && <StatusLine tone={state.tone} text={state.text} />}
+        {!renaming && signIn && props.manageable && (
           <Menu>
             <MenuTrigger
               render={
@@ -188,7 +191,7 @@ function AccountItem(props: {
               )}
               {!account.implicit && (
                 <>
-                  <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
+                  <MenuItem onClick={() => setRenaming(true)}>Edit label…</MenuItem>
                   <MenuSeparator />
                   <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
                     Remove
@@ -213,37 +216,6 @@ function AccountItem(props: {
         }}
       />
     </li>
-  );
-}
-
-function RenameField(props: { label: string; onSave(label: string): void; onCancel(): void }) {
-  const [value, setValue] = useState(props.label);
-  const save = (event: FormEvent) => {
-    event.preventDefault();
-    const next = value.trim();
-    if (next) props.onSave(next);
-    else props.onCancel();
-  };
-  return (
-    <form aria-label="Rename account" onSubmit={save} className="flex items-center gap-1.5">
-      <Input
-        aria-label="Account name"
-        autoFocus
-        value={value}
-        maxLength={128}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") props.onCancel();
-        }}
-        className="h-7 max-w-64"
-      />
-      <Button type="submit" size="sm" variant="primary">
-        Save
-      </Button>
-      <Button type="button" size="sm" variant="ghost" onClick={props.onCancel}>
-        Cancel
-      </Button>
-    </form>
   );
 }
 

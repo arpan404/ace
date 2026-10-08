@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { AccountSummary, NativeAccountProvider, AccountId } from "./accounts.ts";
+import {
+  AccountSummary,
+  NativeAccountProvider,
+  AccountId,
+  AccountShortLabel,
+  AccountBadgeColor,
+} from "./accounts.ts";
 import { ProviderLoginProgress } from "./provider-login.ts";
 
 import { AccountAuthMethod, ApiKeySupport } from "./account-auth.ts";
@@ -23,7 +29,14 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     method: AccountLoginMethod,
     upstream: ApiKeyUpstream.optional(),
   }),
-  z.strictObject({ type: z.literal("provider.accounts.rename"), requestId: id, ...target, label }),
+  z.strictObject({
+    type: z.literal("provider.accounts.rename"),
+    requestId: id,
+    ...target,
+    label,
+    shortLabel: AccountShortLabel.optional(),
+    badgeColor: AccountBadgeColor.nullable().optional(),
+  }),
   z.strictObject({ type: z.literal("provider.accounts.setDefault"), requestId: id, ...target }),
   z.strictObject({
     type: z.literal("provider.accounts.remove"),

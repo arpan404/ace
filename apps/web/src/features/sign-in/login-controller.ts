@@ -76,6 +76,19 @@ export class LoginController {
   private early = new Map<string, ProviderLoginProgress>();
   private chose = false;
   private openedPage = false;
+  private announced = false;
+
+  /** Dialog and inline readers can observe the same reply; only one owns its confirmation. */
+  claimCompletion(): boolean {
+    if (
+      this.announced ||
+      this.current.kind !== "progress" ||
+      this.current.progress.state !== "succeeded"
+    )
+      return false;
+    this.announced = true;
+    return true;
+  }
   private stops: (() => void)[] = [];
   private disposed = false;
 
