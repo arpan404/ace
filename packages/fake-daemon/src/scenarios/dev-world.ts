@@ -1,4 +1,5 @@
 import { uxAudit } from "./ux-audit.ts";
+import { aceTools } from "./ace-tools.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
@@ -46,6 +47,8 @@ export function devWorld(): WorldThread[] {
     { scenario: permissionAudit(), agoMs: 6 * minute },
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
+    // Agents using ace's own tools: computer use, the browser and a simulator.
+    ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { editorIcons, type AppImage, type IconLookup } from "./editor-icon.ts";
+import {
+  appIcons,
+  editorIcons,
+  spotlightApp,
+  type AppImage,
+  type IconLookup,
+} from "./editor-icon.ts";
 
 const image = (url: string): AppImage => ({ isEmpty: () => false, toDataURL: () => url });
 const empty: AppImage = { isEmpty: () => true, toDataURL: () => "data:image/png;base64," };
@@ -50,5 +56,43 @@ describe("editor icons", () => {
     const icon = editorIcons(lookup, "darwin");
     await Promise.all([icon("vscode"), icon("vscode"), icon("vscode")]);
     expect(asked).toEqual(["vscode://"]);
+  });
+});
+
+/** Spotlight's answer for each bundle id, as mdfind prints it. */
+function spotlight(found: Record<string, string>) {
+  const queries: string[] = [];
+  const findApp = spotlightApp(async (command, args) => {
+    expect(command).toBe("/usr/bin/mdfind");
+    queries.push(args.join(" "));
+    const id = /"(.+)"/.exec(args[0] ?? "")?.[1] ?? "";
+    return found[id] ?? "";
+  });
+  return { findApp, queries };
+}
+describe("app icons by bundle id", () => {
+  const files = { "/Applications/Safari.app": "data:image/png;base64,SAFARI" };
+  const forFile = async (path: string) =>
+    files[path as keyof typeof files] ? image(files[path as keyof typeof files]) : empty;
+
+  it("reads the icon of the app Spotlight finds for the bundle id", async () => {
+    const { findApp } = spotlight({
+      "com.apple.Safari": "/Users/dev/Library/Caches/x.plist\n/Applications/Safari.app\n",
+    });
+    const icon = appIcons({ findApp, forFile }, "darwin");
+    await expect(icon("com.apple.Safari")).resolves.toBe("data:image/png;base64,SAFARI");
+  });
+
+  it("has no icon for an app that isn't installed, or off macOS", async () => {
+    const { findApp } = spotlight({ "com.apple.Safari": "/Applications/Safari.app" });
+    await expect(appIcons({ findApp, forFile }, "darwin")("com.example.gone")).resolves.toBeNull();
+    await expect(appIcons({ findApp, forFile }, "linux")("com.apple.Safari")).resolves.toBeNull();
+  });
+
+  it("asks Spotlight once per app however many rows show it", async () => {
+    const { findApp, queries } = spotlight({ "com.apple.Safari": "/Applications/Safari.app" });
+    const icon = appIcons({ findApp, forFile }, "darwin");
+    await Promise.all([icon("com.apple.Safari"), icon("com.apple.Safari")]);
+    expect(queries).toEqual(['kMDItemCFBundleIdentifier == "com.apple.Safari"']);
   });
 });

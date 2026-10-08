@@ -10,12 +10,15 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { isMeasurementCall, reviewedInteraction, type StepIcon, type StepText } from "@ace/ui-core";
+import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
 import { StepDetail } from "./step-detail.tsx";
+import { StepGroup, StepImages, useAceLog } from "./ace-steps.tsx";
+import { ToolMarkIcon } from "./tool-mark.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 
 /*
@@ -34,21 +37,39 @@ const icons: Record<StepIcon, PhosphorIcon> = {
   note: NoteIcon,
 };
 
-/** The open log's steps. */
+/**
+ * The open log's steps. ace's own steps read with what earlier ones said, the daemon's audit of
+ * a computer-use action folds into its call, and consecutive steps on one app, site or device
+ * collapse into one line.
+ */
 export function WorkLogSteps(props: {
   threadId: string;
   itemIds: readonly string[];
   panel: string;
 }) {
+  const log = useAceLog(props.threadId, props.itemIds);
   return (
     <ul
       id={props.panel}
       aria-label="Steps"
       className="fx-rise-in mt-0.5 mb-2 flex flex-col border-l-2 py-1 pl-2.5"
     >
-      {props.itemIds.map((id) => (
-        <ToolStep key={id} threadId={props.threadId} itemId={id} />
-      ))}
+      {log.rows.map((row) =>
+        row.kind === "group" ? (
+          <StepGroup key={row.key} group={row}>
+            {row.ids.map((id) => (
+              <ToolStep key={id} threadId={props.threadId} itemId={id} ace={log.contexts[id]} />
+            ))}
+          </StepGroup>
+        ) : (
+          <ToolStep
+            key={row.id}
+            threadId={props.threadId}
+            itemId={row.id}
+            ace={log.contexts[row.id]}
+          />
+        ),
+      )}
     </ul>
   );
 }
@@ -57,8 +78,12 @@ export function WorkLogSteps(props: {
  * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
  * sits right under that step; a smoothness measurement opens to its card.
  */
-export function ToolStep(props: { threadId: string; itemId: string }) {
-  const data = useStepDisplay(props.threadId, props.itemId);
+export function ToolStep(props: {
+  threadId: string;
+  itemId: string;
+  ace?: AceToolContext | undefined;
+}) {
+  const data = useStepDisplay(props.threadId, props.itemId, props.ace);
   const item = data?.item;
   if (item?.type === "notice" && reviewedInteraction(item))
     return (
@@ -91,9 +116,10 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
   return (
     <li>
       <StepRow step={data.step} open={open} panel={panel} onToggle={() => setOpen(!open)} />
+      {data.step.ace && data.step.ace.images.length > 0 && <StepImages view={data.step.ace} />}
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-6">
-          <StepDetail item={data.item} threadId={props.threadId} />
+          <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />
         </div>
       )}
     </li>
@@ -110,15 +136,18 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
       aria-expanded={props.open}
       aria-controls={props.panel}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
+      title={step.ace?.problem?.hint}
       onClick={props.onToggle}
       className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
     >
-      {step.settled ? (
-        <Glyph aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
-      ) : (
+      {!step.settled ? (
         <Spinner className="mx-px" />
+      ) : step.ace ? (
+        <ToolMarkIcon mark={step.ace.mark} />
+      ) : (
+        <Glyph aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
       )}
-      <span className="shrink-0">{step.verb}</span>
+      <span className={step.target ? "shrink-0" : "min-w-0 truncate"}>{step.verb}</span>
       {step.target && (
         <code className="min-w-0 truncate font-mono text-[12px] text-foreground">
           {step.target}

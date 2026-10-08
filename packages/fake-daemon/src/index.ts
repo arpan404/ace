@@ -29,6 +29,14 @@ export {
   smoothnessMeasurements,
 } from "./scenarios/smoothness.ts";
 export { homeList } from "./scenarios/home-list.ts";
+export {
+  aceCall,
+  aceTools,
+  aceToolsBrowser,
+  aceToolsComputerUse,
+  aceToolsDevices,
+  screenAudit,
+} from "./scenarios/ace-tools.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";

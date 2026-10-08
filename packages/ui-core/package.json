@@ -9,6 +9,7 @@
     "./provider-icons": "./src/provider-icons.ts",
     "./deck": "./src/deck.ts",
     "./step-labels": "./src/tool-labels.ts",
+    "./ace-tools": "./src/ace-tool-rows.ts",
     "./command-rank": "./src/command-rank.ts",
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",

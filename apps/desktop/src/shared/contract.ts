@@ -73,6 +73,14 @@ export const EditorIconImage = z
   .max(2_000_000)
   .nullable();
 
+/** Any app's icon by its bundle id (computer-use rows), the same image shape as an editor's. */
+export const AppIconRequest = z.object({
+  bundleId: z
+    .string()
+    .max(255)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9.-]*$/),
+});
+
 export const NotifyRequest = z.object({
   title: z.string().min(1).max(200),
   body: z.string().max(1000).default(""),

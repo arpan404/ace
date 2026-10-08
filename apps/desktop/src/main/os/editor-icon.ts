@@ -59,3 +59,47 @@ export function editorIcons(lookup: IconLookup, platform: NodeJS.Platform) {
     return icon;
   };
 }
+
+/** Finding an app by its bundle id, on top of reading a file's icon. */
+export interface AppLookup extends Pick<IconLookup, "forFile"> {
+  /** The app bundle's path for a bundle id (Spotlight on macOS), or undefined. */
+  findApp(bundleId: string): Promise<string | undefined>;
+}
+
+/**
+ * Any app's icon by its bundle id, as a PNG data URL, so computer-use steps show the app the
+ * agent used as the system draws it. Null when the app isn't found or the platform has no
+ * bundle ids. Each id is looked up once per run.
+ */
+export function appIcons(lookup: AppLookup, platform: NodeJS.Platform) {
+  const cache = new Map<string, Promise<string | null>>();
+  const read = async (bundleId: string): Promise<string | null> => {
+    if (platform !== "darwin") return null;
+    try {
+      const path = await lookup.findApp(bundleId);
+      if (!path) return null;
+      const image = await lookup.forFile(path);
+      return image.isEmpty() ? null : image.toDataURL();
+    } catch {
+      return null;
+    }
+  };
+  return (bundleId: string): Promise<string | null> => {
+    let icon = cache.get(bundleId);
+    if (!icon) cache.set(bundleId, (icon = read(bundleId)));
+    return icon;
+  };
+}
+
+/** The first `.app` Spotlight lists for a bundle id; never launches the app. */
+export function spotlightApp(
+  run: (command: string, args: string[]) => Promise<string>,
+): AppLookup["findApp"] {
+  return async (bundleId) => {
+    const out = await run("/usr/bin/mdfind", [`kMDItemCFBundleIdentifier == "${bundleId}"`]);
+    return out
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.endsWith(".app"));
+  };
+}

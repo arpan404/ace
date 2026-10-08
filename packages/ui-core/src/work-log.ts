@@ -2,6 +2,7 @@ import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
 import { quickStat } from "./file-changes.ts";
 import { displayCommand, stepPath, type PathContext } from "./step-display.ts";
 import type { StepLabels } from "./tool-labels.ts";
+import type { AceToolContext, AceToolView } from "./ace-tools.ts";
 import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
 
@@ -28,6 +29,8 @@ export interface StepText {
   title?: string | undefined;
   /** The step waits on the person: an approval nobody has answered yet. */
   needsYou?: boolean | undefined;
+  /** One of ace's own tools: what it acted on, the images it returned, a failure in words. */
+  ace?: AceToolView | undefined;
 }
 
 /** What a step row needs beyond its item: where it ran, and the approval that gated it. */
@@ -39,6 +42,8 @@ export interface StepContext extends PathContext {
   /** The option the person just picked on this device, before the daemon confirms it. */
   answering?: string | undefined;
   labels?: StepLabels | undefined;
+  /** What earlier steps of the log say about this one, for ace's own tools. */
+  ace?: AceToolContext | undefined;
 }
 
 const unsettled = new Set<ToolCall["status"]>(["pending", "running", "awaiting_approval"]);
@@ -222,6 +227,17 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
       settled: item.complete,
       failed: false,
     };
+  const ace = context.labels?.ace(item, context.ace);
+  if (item.type === "notice" && ace)
+    return {
+      icon: ace.family === "browser" ? "web" : "tool",
+      verb: ace.problem?.title ?? ace.words.past,
+      target: ace.problem ? undefined : ace.words.target,
+      note: ace.problem ? "Failed" : undefined,
+      settled: true,
+      failed: !!ace.problem,
+      ace,
+    };
   if (item.type === "notice")
     return {
       icon: "note",
@@ -232,7 +248,15 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
   if (item.type !== "tool_call")
     return { icon: "tool", verb: item.type, settled: true, failed: false };
   const call = item.call;
-  const text = callText(call, context);
+  const text: CallText = ace
+    ? {
+        icon: ace.family === "browser" ? "web" : "tool",
+        verb: ace.words.past,
+        target: ace.words.target,
+        forms: { running: ace.words.running, awaiting: ace.words.awaiting },
+        ace,
+      }
+    : callText(call, context);
   const { forms, ...shown } = text;
   const { note, needsYou, outcome } = noteFor(call, text, context);
   // An approval the person just gave runs next; one they refused never ran.
@@ -249,13 +273,16 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
         ? forms.running
         : text.verb
     : verbFor(text.verb, status);
+  // ace's own failure reads as what went wrong, in words; its code waits in the details.
+  const problem = ace?.problem;
   return {
     ...shown,
-    verb,
-    note,
+    verb: problem?.title ?? verb,
+    ...(problem ? { target: undefined } : {}),
+    note: problem ? "Failed" : note,
     needsYou,
     settled: !unsettled.has(status),
-    failed: call.status === "failed" || outcome?.tone === "denied",
+    failed: call.status === "failed" || !!problem || outcome?.tone === "denied",
   };
 }
 
