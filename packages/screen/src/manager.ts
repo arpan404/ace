@@ -1,3 +1,5 @@
+import { selectSessionWindow, performAppOperation, type AppOperation } from "./app-session.ts";
+import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import { measureSession } from "./measurement.ts";
@@ -47,6 +49,7 @@ export class ScreenManager {
   private reservations = 0;
   private readonly host: HelperHost;
   private readonly launches: AppLaunches;
+  private readonly windows: AppWindows;
   private readonly lifecycle: TargetSessions;
   private readonly controllers: SessionControllers;
   private readonly accessPolicy: ScreenAccessPolicy;
@@ -76,11 +79,21 @@ export class ScreenManager {
           this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
         }
       },
+      onPermissionsChanged: (permissions) => {
+        for (const session of this.sessions.values()) {
+          session.state.permissions = permissions;
+          this.emit(session);
+          if (!permissions.screenRecording)
+            this.fail(session, new Error("Screen Recording permission revoked"));
+        }
+        options.onPermissionsChanged?.(permissions);
+      },
       onFailure: (error) => {
         for (const session of this.sessions.values()) this.fail(session, error);
       },
     });
     this.observations = new SessionObservations({
+      host: this.host,
       live: (id) => this.live(id),
       authorize: (target, scope) => this.authorize(target, scope),
       options,
@@ -103,6 +116,11 @@ export class ScreenManager {
       emit: (session) => this.emit(session),
       nextGeneration: () => ++this.captureGeneration,
     });
+    this.windows = new AppWindows(
+      this.host,
+      (bundleId, caller) => this.authorize({ kind: "app", bundleId }, caller),
+      options.scheduler,
+    );
     this.launches = new AppLaunches(this.host, (bundleId, caller) =>
       this.authorize({ kind: "app", bundleId }, caller),
     );
@@ -197,7 +215,12 @@ export class ScreenManager {
   async openApp(bundleId: string, caller?: ScreenAgentScope, signal?: AbortSignal) {
     return this.launches.open(bundleId, caller, signal);
   }
-  async openAgentApp(bundleId: string, caller: ScreenAgentScope, signal: AbortSignal) {
+  async openAgentApp(
+    bundleId: string,
+    caller: ScreenAgentScope,
+    signal: AbortSignal,
+    windowId?: number,
+  ) {
     if (this.agentPaused)
       throw new HelperCommandError("permission_denied", "Computer use stopped by human");
     const existing = [...this.sessions.values()].find((session) =>
@@ -211,23 +234,54 @@ export class ScreenManager {
           existing.state.sessionId,
           existing.owner ?? existing.state.controller,
         );
-      return this.state(existing.state.sessionId);
+      if (windowId !== undefined)
+        await this.selectWindow(existing.state.sessionId, windowId, agentOwner(caller), () =>
+          signal.throwIfAborted(),
+        );
+      return {
+        ...this.state(existing.state.sessionId),
+        ...(await this.windows.list(bundleId, caller)),
+      };
     }
     await this.openApp(bundleId, caller, signal);
     signal.throwIfAborted();
-    const inventory = await this.targets();
-    signal.throwIfAborted();
-    const window = inventory.windows.find((candidate) => candidate.bundleId === bundleId);
-    const target: ScreenTarget = window
-      ? { kind: "window", bundleId, windowId: window.windowId }
-      : { kind: "app", bundleId };
+    const windows = await this.windows.ready(bundleId, caller, signal, windowId);
+    const target: ScreenTarget =
+      windows.selectedWindowId !== undefined
+        ? { kind: "window", bundleId, windowId: windows.selectedWindowId }
+        : { kind: "app", bundleId };
     const state = await this.start(target, 10, caller);
     if (signal.aborted) {
       await this.stop(state.sessionId);
       signal.throwIfAborted();
     }
     this.delegateAgent(state.sessionId, caller);
-    return this.state(state.sessionId);
+    return { ...this.state(state.sessionId), ...windows };
+  }
+  listAppWindows(bundleId: string, caller?: ScreenAgentScope) {
+    return this.windows.list(bundleId, caller);
+  }
+  async selectWindow(id: string, windowId: number, owner: string, beforeDispatch: () => void) {
+    await this.execute(
+      id,
+      "agent",
+      owner,
+      async (session, validate) => {
+        await selectSessionWindow(session, windowId, validate, beforeDispatch);
+        this.emit(session);
+      },
+      "window.select",
+    );
+    return this.state(id);
+  }
+  appOperation(id: string, operation: AppOperation, owner: string, beforeDispatch: () => void) {
+    return this.execute(
+      id,
+      "agent",
+      owner,
+      (session, validate) => performAppOperation(session, operation, validate, beforeDispatch),
+      operation.op,
+    );
   }
   async revalidate() {
     await Promise.all(
@@ -523,9 +577,9 @@ export class ScreenManager {
     input: ScreenAction,
     owner = "local",
     beforeDispatch?: () => void,
-  ): Promise<void> {
+  ) {
     const action = ScreenAction.parse(input);
-    await this.execute(
+    return this.execute(
       id,
       actor,
       owner,
@@ -547,14 +601,9 @@ export class ScreenManager {
       this.options.modelImageRuntime,
     );
   }
-  async modelAction(
-    id: string,
-    owner: string,
-    input: ScreenAction,
-    beforeDispatch: () => void,
-  ): Promise<void> {
+  async modelAction(id: string, owner: string, input: ScreenAction, beforeDispatch: () => void) {
     const action = ScreenAction.parse(input);
-    await this.execute(
+    return this.execute(
       id,
       "agent",
       owner,

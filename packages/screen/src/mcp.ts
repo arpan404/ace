@@ -37,6 +37,10 @@ const risks = {
   screen_paste: "external-effect",
   screen_request_app: "external-effect",
   screen_open_app: "external-effect",
+  screen_list_windows: "read-only",
+  screen_select_window: "external-effect",
+  screen_open_url: "external-effect",
+  screen_menu: "external-effect",
   screen_request_foreground: "external-effect",
 } satisfies Record<keyof typeof computerUseSchemas, NonNullable<ApprovalTarget["riskClass"]>>;
 
@@ -82,9 +86,20 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                   },
                 };
               }
+              if (name === "screen_list_windows") {
+                const { bundleId } = computerUseSchemas.screen_list_windows.parse(args);
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify(await manager.listAppWindows(bundleId, caller)),
+                    },
+                  ],
+                };
+              }
               if (name === "screen_open_app") {
-                const { bundleId } = computerUseSchemas.screen_open_app.parse(args);
-                const state = await manager.openAgentApp(bundleId, caller, signal);
+                const { bundleId, windowId } = computerUseSchemas.screen_open_app.parse(args);
+                const state = await manager.openAgentApp(bundleId, caller, signal, windowId);
                 signal.throwIfAborted();
                 manager.agentSession(caller, state.sessionId);
                 return {

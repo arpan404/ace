@@ -15348,6 +15348,37 @@ Example:
 }
 ```
 
+## ScreenAppURL
+
+[JSON Schema](schema/ScreenAppURL.json), input validation.
+
+Semantic rule: Absolute app URL without embedded credentials.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"ace-fixture://identity"
+```
+
+## ScreenAppWindows
+
+[JSON Schema](schema/ScreenAppWindows.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| windows | yes | array | {"maxItems":2048,"items":{"type":"object","properties":{"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"bundleId":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"},"title":{"type":"string","maxLength":1024},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":0},"height":{"type":"number","minimum":0}},"required":["x","y","width","height"]},"focused":{"type":"boolean"},"main":{"type":"boolean"},"usable":{"type":"boolean"}},"required":["windowId","bundleId","title"]}} |
+| selectedWindowId | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "windows": []
+}
+```
+
 ## ScreenBundle
 
 [JSON Schema](schema/ScreenBundle.json), input validation.
@@ -15368,6 +15399,8 @@ Example:
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
 | background | no | boolean |  |
+| windowSelection | no | boolean |  |
+| permissionEvents | no | boolean |  |
 | maxSessions | no | integer | {"minimum":1,"maximum":8} |
 | platform | yes | ["macos","windows","linux-x11","linux-wayland"] |  |
 | capture | yes | object | {"properties":{"windows":{"type":"boolean"},"displays":{"type":"boolean"},"changeDriven":{"type":"boolean"}},"required":["windows","displays","changeDriven"]} |
@@ -15392,10 +15425,12 @@ Example:
   "input": {
     "keyboard": false,
     "pointer": true,
-    "scroll": false,
+    "scroll": true,
     "text": false
   },
+  "permissionEvents": true,
   "permissions": {
+<<<<<<< HEAD
     "input": "denied",
     "screen": "n/a"
   },
@@ -15403,6 +15438,16 @@ Example:
   "semanticActions": [],
   "uiTree": true,
   "version": 2
+=======
+    "input": "prompt",
+    "screen": "prompt"
+  },
+  "platform": "linux-x11",
+  "semanticActions": [],
+  "uiTree": false,
+  "version": 2,
+  "windowSelection": false
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15421,10 +15466,16 @@ Example:
 ```json
 {
   "operation": {
+<<<<<<< HEAD
     "bundleId": "example",
     "op": "open.app"
   },
   "requestId": "vDM7VWBxHYe0TuhakrVt4DqMgHvGW6gPTxa4L1eG5s2LBLDBGmsFT5nuFvOqu",
+=======
+    "op": "status"
+  },
+  "requestId": "oD-cmXPuctBVXX-3A1RV4exyqrq",
+>>>>>>> origin/fix/screen-daemon-parallel
   "type": "screen.request"
 }
 ```
@@ -15452,14 +15503,24 @@ Example:
 | code | yes | ["forbidden","permission_denied","approval_required","screen_disabled","denied","read_only","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | message | yes | string | {"maxLength":1024} |
 | phase | no | ["rejected-before-dispatch","dispatched","partial"] |  |
+<<<<<<< HEAD
 | candidates | no | array | {"maxItems":128,"items":{"type":"object","properties":{"windowId":{"type":"integer","minimum":0,"maximum":9007199254740991},"title":{"type":"string","maxLength":256},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]}},"required":["windowId","title","bounds"]}} |
+=======
+| candidates | no | array | {"maxItems":2048,"items":{"type":"object","properties":{"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"bundleId":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"},"title":{"type":"string","maxLength":1024},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]}},"required":["windowId","title"]}} |
+>>>>>>> origin/fix/screen-daemon-parallel
 
 Example:
 
 ```json
 {
+<<<<<<< HEAD
   "code": "target_gone",
   "message": "example"
+=======
+  "code": "modifier_unsupported",
+  "message": "example",
+  "phase": "rejected-before-dispatch"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15488,8 +15549,9 @@ Example:
 
 ```json
 {
-  "bytes": 8,
+  "bytes": 7,
   "codec": "jpeg",
+<<<<<<< HEAD
   "height": 3,
   "sequence": 7,
   "sessionId": "7p2AgtcFN4uDxb-YWWD7Jfrfz8Us1UZwi_uFVLU_5uHePRP",
@@ -15497,6 +15559,14 @@ Example:
   "version": 1,
   "videoCodec": "avc1.Ae7069",
   "width": 5
+=======
+  "height": 1,
+  "sequence": 0,
+  "sessionId": "aPWMQJg7DVAhE8YH542q6iT",
+  "timestamp": 4,
+  "version": 1,
+  "width": 4
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15522,6 +15592,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "bytes": 1,
   "captureGeneration": 8,
   "codec": "jpeg",
@@ -15532,6 +15603,17 @@ Example:
   "ts": 0,
   "version": 2,
   "videoCodec": "avc1.ca72Ef",
+=======
+  "bytes": 10,
+  "captureGeneration": 2,
+  "codec": "h264",
+  "height": 1,
+  "scale": 7,
+  "seq": 9,
+  "sessionId": "Gmdi1zEJWYbeVgetZ2z9gFKF",
+  "ts": 6,
+  "version": 2,
+>>>>>>> origin/fix/screen-daemon-parallel
   "width": 4
 }
 ```
@@ -15558,6 +15640,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "bytes": 9,
   "codec": "jpeg",
   "height": 5,
@@ -15567,6 +15650,17 @@ Example:
   "ts": 0,
   "version": 2,
   "width": 4
+=======
+  "bytes": 7,
+  "codec": "jpeg",
+  "height": 4,
+  "scale": 5,
+  "seq": 0,
+  "sessionId": "apLkDEciTLyY3MTWLt7N",
+  "ts": 6,
+  "version": 2,
+  "width": 9
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15587,8 +15681,15 @@ Example:
 ```json
 {
   "bundleId": "example",
+<<<<<<< HEAD
   "grantedAt": 9,
   "scope": "turn"
+=======
+  "grantedAt": 5,
+  "scope": "turn",
+  "threadId": "example",
+  "turnId": "example"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15613,14 +15714,22 @@ Example:
 | code | yes | ["forbidden","permission_denied","approval_required","screen_disabled","denied","read_only","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | message | yes | string | {"maxLength":1024} |
 | phase | no | ["rejected-before-dispatch","dispatched","partial"] |  |
+<<<<<<< HEAD
 | candidates | no | array | {"maxItems":128,"items":{"type":"object","properties":{"windowId":{"type":"integer","minimum":0,"maximum":9007199254740991},"title":{"type":"string","maxLength":256},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]}},"required":["windowId","title","bounds"]}} |
+=======
+| candidates | no | array | {"maxItems":2048,"items":{"type":"object","properties":{"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"bundleId":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"},"title":{"type":"string","maxLength":1024},"bounds":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]}},"required":["windowId","title"]}} |
+>>>>>>> origin/fix/screen-daemon-parallel
 
 Example:
 
 ```json
 {
   "candidates": [],
+<<<<<<< HEAD
   "code": "timeout",
+=======
+  "code": "secure_input_required",
+>>>>>>> origin/fix/screen-daemon-parallel
   "message": "example"
 }
 ```
@@ -15641,6 +15750,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "error": {
     "code": "read_only",
     "message": "example",
@@ -15649,6 +15759,11 @@ Example:
   "id": "ZjsrY7gK2S76qkkE6e97KGc8VisNmqcAN2cvg6mnkK5oI3DLtwYkNQIk",
   "ok": true,
   "version": 2
+=======
+  "id": "HA6ITMjsLdxD0",
+  "ok": false,
+  "version": 1
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15668,6 +15783,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "data": null,
   "error": {
     "code": "window_ambiguous",
@@ -15675,6 +15791,9 @@ Example:
     "phase": "dispatched"
   },
   "id": "AlnW2lF-wM3gb2_PUxXLaceJG6batUUYNv5U3slb7h_0ngyc3zSwm_",
+=======
+  "id": "VS",
+>>>>>>> origin/fix/screen-daemon-parallel
   "ok": false,
   "version": 2
 }
@@ -15700,9 +15819,17 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "3EYTrKNMC5UIw6xKMKplcqSTsiC",
   "op": "hello",
   "sessionId": "7ylCjEv8_oP8LZweNnAG64YfUxXRpJAX6eR6d9WG",
+=======
+  "humanDeviceInput": true,
+  "id": "G3Zj",
+  "mode": "foreground",
+  "op": "hello",
+  "sessionId": "Y7gK2S76qkkE6e97KG",
+>>>>>>> origin/fix/screen-daemon-parallel
   "version": 2
 }
 ```
@@ -15723,8 +15850,13 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "humanDeviceInput": false,
   "id": "5clWK24i9BkLijICaHs5zPTYArczTjLZRfMSX56QVvmq9CNKYkq_i4qiTI2WftS",
+=======
+  "id": "qcAN2cvg6mnkK",
+  "mode": "foreground",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "metrics",
   "version": 2
 }
@@ -15809,6 +15941,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "action": {
     "dx": 3,
     "dy": 0,
@@ -15818,9 +15951,14 @@ Example:
   "filmstrip": true,
   "id": "SCCg3EIW2de_xvN2wJxhfL3ADtruPq31lL5AC-Vk_mircrZUyU0",
   "maxWindowMs": 4,
+=======
+  "filmstrip": true,
+  "humanDeviceInput": false,
+  "id": "wYkNQIku4o-oolK1AlnW",
+>>>>>>> origin/fix/screen-daemon-parallel
   "mode": "background",
   "op": "measure_interaction",
-  "version": 1
+  "version": 2
 }
 ```
 
@@ -15845,10 +15983,15 @@ Example:
   "allowlist": [],
   "bundleId": "example",
   "humanDeviceInput": false,
+<<<<<<< HEAD
   "id": "CyN0_kYKW6JamCWwxxUqoXeGzngpAL4yNMw2sG9aKF23j3zDe5Ps5ik",
   "mode": "background",
   "op": "open.app",
   "secureInputAllowed": true,
+=======
+  "id": "xXLaceJG6batUUYNv5U3slb7h_0ngyc3zSwm_9jbYcJZ7A3",
+  "op": "open.app",
+>>>>>>> origin/fix/screen-daemon-parallel
   "version": 2
 }
 ```
@@ -15870,6 +16013,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "humanDeviceInput": false,
   "id": "GqlhwRMIirpkynIJ41OA5KhteO7gl148UeN",
   "op": "stream.configure",
@@ -15881,6 +16025,16 @@ Example:
     "fps": 2,
     "maxHeight": 66,
     "maxWidth": 73
+=======
+  "id": "C5UIw6xKMKplcqSTsiClN7ylCjEv8_oP8LZweNn",
+  "op": "stream.configure",
+  "settings": {
+    "bitrate": 128007,
+    "codec": "h264",
+    "fps": 4,
+    "maxHeight": 71,
+    "maxWidth": 64
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "version": 1
 }
@@ -15902,8 +16056,13 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "humanDeviceInput": true,
   "id": "rSWR7kZ3xlQGSDwnMi0Ilhry0cnyRX_AA_jP0dy55LutyjPrH",
+=======
+  "id": "JAX6eR6d9WGM_ZV_",
+  "mode": "background",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "stream.keyframe",
   "version": 2
 }
@@ -15925,12 +16084,19 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "2GcN7S-bLObOCe_kqOt3Fa1Kjwh8a09p",
   "mode": "background",
   "op": "stream.image",
   "secureInputAllowed": true,
   "sessionId": "KhtbRVU4V8qJTR-SqmT2xQZ3IjW0qw4KAipGJcaAIyrLZxBinvTW",
   "version": 1
+=======
+  "id": "i9BkLijICaHs5zPTYArczTjLZRfMSX56QVvmq9CNKYkq_i4qiTI2WftSD",
+  "op": "stream.image",
+  "secureInputAllowed": false,
+  "version": 2
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15952,11 +16118,20 @@ Example:
 ```json
 {
   "enabled": true,
+<<<<<<< HEAD
   "id": "6pxawIbmaYV6wKA96R5PpKBl_GlX_KdyCfOpTtnMOl9kr2cya0ZGtiR2",
   "mode": "background",
   "op": "capture",
   "secureInputAllowed": true,
   "version": 1
+=======
+  "humanDeviceInput": false,
+  "id": "kidzNW2licWGnCr-huIIISE2fSm_qbrUGSFqarh_waMOM6Zz6xK9",
+  "mode": "background",
+  "op": "capture",
+  "sessionId": "F",
+  "version": 2
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -15977,14 +16152,23 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "humanDeviceInput": true,
   "id": "lxfhDm7TlmUos0dd7DNGiyCwF7l13qm1",
   "input": {
     "dx": 8,
     "dy": 2,
     "kind": "scroll"
+=======
+  "id": "8UO",
+  "input": {
+    "key": "P",
+    "kind": "key.press",
+    "modifiers": []
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "op": "input",
+  "secureInputAllowed": true,
   "version": 2
 }
 ```
@@ -16010,16 +16194,26 @@ Example:
 ```json
 {
   "allowlist": [],
+<<<<<<< HEAD
   "id": "T8b6Zcwcj6Sc_c5pDrh9hjvY89wD9igMXi4kyL4ajTyf",
   "maxDepth": 6,
   "maxNodes": 4,
   "mode": "background",
+=======
+  "id": "iD",
+  "maxDepth": 2,
+  "maxNodes": 4,
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "ui.tree",
   "target": {
     "bundleIds": [
       "example"
     ],
+<<<<<<< HEAD
     "displayId": 6,
+=======
+    "displayId": 10,
+>>>>>>> origin/fix/screen-daemon-parallel
     "kind": "display"
   },
   "version": 2
@@ -16047,21 +16241,28 @@ Example:
 ```json
 {
   "allowlist": [],
+<<<<<<< HEAD
   "humanDeviceInput": false,
   "id": "iDV1BoygUSgW6hEHurVCA4MCbw6P06v15IVG3s3kMdRkSUE",
+=======
+  "humanDeviceInput": true,
+  "id": "7-yBq",
+  "limit": 10,
+  "mode": "foreground",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "ui.find",
   "query": {
     "name": "example",
     "text": "example"
   },
+<<<<<<< HEAD
   "secureInputAllowed": true,
   "sessionId": "jG8UVWtdxn-X0P_jiXMIM",
+=======
+>>>>>>> origin/fix/screen-daemon-parallel
   "target": {
-    "bundleIds": [
-      "example"
-    ],
-    "displayId": 5,
-    "kind": "display"
+    "bundleId": "example",
+    "kind": "app"
   },
   "version": 2
 }
@@ -16092,6 +16293,7 @@ Example:
 {
   "action": "press",
   "allowlist": [],
+<<<<<<< HEAD
   "id": "SUw",
   "name": "example",
   "op": "ui.act",
@@ -16104,6 +16306,16 @@ Example:
   "target": {
     "bundleId": "example",
     "kind": "app"
+=======
+  "id": "Cg3EIW2de_xvN2wJxhfL3ADtruPq3",
+  "mode": "foreground",
+  "op": "ui.act",
+  "ref": "-Vk_mircrZUyU0OwmL5wsfiTXg1yb",
+  "target": {
+    "bundleId": "example",
+    "kind": "window",
+    "windowId": 4
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "version": 2
 }
@@ -16125,9 +16337,16 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "ZYPdbfMkeH6WvLdkQzmk8M9uSnk7bm3V9z6Q6c7HeRLoYTw9qBoxmHj0gD_lC7uS",
+=======
+  "humanDeviceInput": true,
+  "id": "_kYKW6JamCWwxxUqoXeGzngpAL4yNMw2sG9aKF23j3zDe5Ps5ikMc",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "permissions",
-  "version": 1
+  "secureInputAllowed": true,
+  "sessionId": "lrIzI",
+  "version": 2
 }
 ```
 
@@ -16148,11 +16367,18 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "pBArym8hvJlWdJYZo2nOCGeM95y",
   "mode": "foreground",
   "op": "permissions.request",
   "permission": "accessibility",
   "secureInputAllowed": true,
+=======
+  "id": "IirpkynIJ41OA5KhteO7gl148UeNt-KBpo2MhTZ",
+  "mode": "background",
+  "op": "permissions.request",
+  "permission": "accessibility",
+>>>>>>> origin/fix/screen-daemon-parallel
   "version": 2
 }
 ```
@@ -16174,6 +16400,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "humanDeviceInput": false,
   "id": "Qtvsg5BhP7NQQCTmVYXstOl",
   "mode": "background",
@@ -16181,6 +16408,13 @@ Example:
   "op": "button.press",
   "sessionId": "q2lXu7w4nTydiEeHosCWBqdf9PRiC1UsC7X",
   "version": 1
+=======
+  "id": "YbByxTUdk2lbMaPL6vyL0xaaDdoHaAcYUt237eMZrjkxEUtPmlbNT7nlYVWrSWR",
+  "mode": "foreground",
+  "name": "example",
+  "op": "button.press",
+  "version": 2
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16200,14 +16434,134 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "i5",
   "mode": "background",
   "op": "targets",
   "version": 2
+=======
+  "humanDeviceInput": true,
+  "id": "GSDwnMi0Ilhry0cnyRX_AA_jP0dy55LutyjPrH1KGjp",
+  "mode": "foreground",
+  "op": "targets",
+  "sessionId": "2GcN7S-bLObOCe_kqOt3Fa1Kjwh8a09p",
+  "version": 1
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
 ### Variant 19
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | union | {"anyOf":[{"type":"number","const":1},{"type":"number","const":2}]} |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| sessionId | no | [ScreenId.json](schema/ScreenId.json) |  |
+| mode | no | ["background","foreground"] |  |
+| secureInputAllowed | no | boolean |  |
+| humanDeviceInput | no | boolean |  |
+| op | yes | `"windows.list"` |  |
+| bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
+| allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
+
+Example:
+
+```json
+{
+  "allowlist": [],
+  "bundleId": "example",
+  "humanDeviceInput": false,
+  "id": "VU4V8qJTR-SqmT2xQZ3IjW0qw4KAipGJcaAIyrLZxBin",
+  "mode": "foreground",
+  "op": "windows.list",
+  "sessionId": "WwDecVc36pxawIbmaYV6wKA96R5PpKBl_GlX_KdyCfOpTt",
+  "version": 1
+}
+```
+
+### Variant 18
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | union | {"anyOf":[{"type":"number","const":1},{"type":"number","const":2}]} |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| sessionId | no | [ScreenId.json](schema/ScreenId.json) |  |
+| mode | no | ["background","foreground"] |  |
+| secureInputAllowed | no | boolean |  |
+| humanDeviceInput | no | boolean |  |
+| op | yes | `"window.select"` |  |
+| windowId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "humanDeviceInput": true,
+  "id": "2cya0ZGtiR29nyboVq",
+  "op": "window.select",
+  "secureInputAllowed": true,
+  "version": 1,
+  "windowId": 5
+}
+```
+
+### Variant 19
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | union | {"anyOf":[{"type":"number","const":1},{"type":"number","const":2}]} |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| sessionId | no | [ScreenId.json](schema/ScreenId.json) |  |
+| mode | no | ["background","foreground"] |  |
+| secureInputAllowed | no | boolean |  |
+| humanDeviceInput | no | boolean |  |
+| op | yes | `"open.url"` |  |
+| bundleId | yes | [ScreenBundle.json](schema/ScreenBundle.json) |  |
+| url | yes | [ScreenAppURL.json](schema/ScreenAppURL.json) |  |
+| allowlist | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ScreenBundle.json"}} |
+
+Example:
+
+```json
+{
+  "allowlist": [],
+  "bundleId": "example",
+  "id": "TlmUos0dd7DNGiyCwF7l13qm1_LXakJRW3n3RT8b6Zcwcj6Sc_c5pDrh9hjv",
+  "op": "open.url",
+  "url": "https://example.com",
+  "version": 1
+}
+```
+
+### Variant 20
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | union | {"anyOf":[{"type":"number","const":1},{"type":"number","const":2}]} |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| sessionId | no | [ScreenId.json](schema/ScreenId.json) |  |
+| mode | no | ["background","foreground"] |  |
+| secureInputAllowed | no | boolean |  |
+| humanDeviceInput | no | boolean |  |
+| op | yes | `"menu.press"` |  |
+| path | yes | array | {"minItems":1,"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":256}} |
+
+Example:
+
+```json
+{
+  "id": "gMXi4kyL4",
+  "mode": "background",
+  "op": "menu.press",
+  "path": [
+    "example"
+  ],
+  "sessionId": "Tyf-pex4fP",
+  "version": 2
+}
+```
+
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -16223,6 +16577,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "OxDFY8biNlncJfwoNo02niB-UvmSfeh6qL3koRyNn7",
   "op": "stop",
   "secureInputAllowed": true,
@@ -16231,6 +16586,18 @@ Example:
 ```
 
 ### Variant 20
+=======
+  "humanDeviceInput": false,
+  "id": "iDV1BoygUSgW6hEHurVCA4MCbw6P06v15IVG3s3kMdRkSUE",
+  "op": "stop",
+  "secureInputAllowed": true,
+  "sessionId": "jG8UVWtdxn-X0P_jiXMIM",
+  "version": 2
+}
+```
+
+### Variant 22
+>>>>>>> origin/fix/screen-daemon-parallel
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -16251,14 +16618,21 @@ Example:
     "kind": "type",
     "text": "example"
   },
+<<<<<<< HEAD
   "id": "0BmNIr-5-daUOabym-i3kCWUbhShyuOy4GiEIg0i6kqFkn4Pds2qvg1tgS",
+=======
+  "id": "j-YA0cSUwgHQuoNWt8p2ZwA6VM0TCt",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "action",
-  "secureInputAllowed": true,
   "version": 2
 }
 ```
 
+<<<<<<< HEAD
 ### Variant 21
+=======
+### Variant 23
+>>>>>>> origin/fix/screen-daemon-parallel
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -16279,6 +16653,7 @@ Example:
 ```json
 {
   "allowlist": [],
+<<<<<<< HEAD
   "fps": 8,
   "humanDeviceInput": false,
   "id": "eO3T1FMpF1_2JEZllanEVydkN4BjV8nUY-rc-v1FQU4Voi2",
@@ -16289,8 +16664,20 @@ Example:
     "bundleId": "example",
     "kind": "window",
     "windowId": 1
+=======
+  "fps": 10,
+  "id": "nIpSze_u",
+  "op": "start",
+  "sessionId": "0Wnyiejp5TJ01NpZ_bfpW83h-D-ZYPdbfMkeH6WvLdkQzmk8M9uSnk7bm3V9",
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 1,
+    "kind": "display"
+>>>>>>> origin/fix/screen-daemon-parallel
   },
-  "version": 2
+  "version": 1
 }
 ```
 
@@ -16310,7 +16697,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "dWhEJG",
+=======
+  "id": "RLoYT",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "hello",
   "version": 2
 }
@@ -16328,7 +16719,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "6xOJMVoCqUvl5Eh34",
+=======
+  "id": "9qBoxmHj0gD_lC7uS_IO2SA",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "permissions",
   "version": 2
 }
@@ -16346,7 +16741,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "C7zYYCiDyBSxyV3MtJcb1lhkm380ngil-5x",
+=======
+  "id": "BArym8hvJlWdJYZo",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "targets",
   "version": 2
 }
@@ -16417,7 +16816,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "W45k7BOZAz9utzFUbP5KiwiSbj1Jc0JY9OMAJo3x0UYWfHk_b-3mxbuq1mx3",
+=======
+  "id": "nOCGeM95yTkZkhZZdwQtvsg5BhP7NQQCTmVYXstOlwIq2lXu7w4nTyd",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "stop",
   "version": 2
 }
@@ -16441,13 +16844,24 @@ Example:
 ```json
 {
   "allowlist": [],
+<<<<<<< HEAD
   "fps": 7,
   "id": "WcGDbjQu24hP8Ty_Iw00IJMnncY4aQ",
   "op": "start",
   "sessionId": "Z94AEg8PCxzf2t19aIdMrx",
+=======
+  "captureGeneration": 5,
+  "fps": 3,
+  "id": "EeHosCWBq",
+  "op": "start",
+  "sessionId": "f9PR",
+>>>>>>> origin/fix/screen-daemon-parallel
   "target": {
-    "bundleId": "example",
-    "kind": "app"
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 8,
+    "kind": "display"
   },
   "version": 2
 }
@@ -16467,11 +16881,20 @@ Example:
 ```json
 {
   "action": {
+<<<<<<< HEAD
     "kind": "click",
     "x": 4,
     "y": 8
   },
   "id": "JdfOKkC-xcD92nP8sYiuz27KhkjA31ZCXQfjwsHGMjtOz",
+=======
+    "button": "left",
+    "kind": "click",
+    "x": 5,
+    "y": 0
+  },
+  "id": "7Xhy5hHLbi5TriXShPOxDFY8biNln",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "action",
   "version": 2
 }
@@ -16492,7 +16915,12 @@ Example:
 ```json
 {
   "active": false,
+<<<<<<< HEAD
   "id": "Zt20CBNjg-Idjm",
+=======
+  "captureGeneration": 1,
+  "id": "o02niB-UvmSfeh6qL3koRyNn7TxeET_50BmNIr-5",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "watch",
   "version": 2
 }
@@ -16515,7 +16943,12 @@ Example:
 ```json
 {
   "allowlist": [],
+<<<<<<< HEAD
   "id": "hQI233NA9jUpfgq09R2lBYYdjNU4OoxLDU_AXvoizS0",
+=======
+  "id": "Oabym-i3kCWUbhShyuOy4GiEIg0i6kqFkn4Pds2qvg1tgS2",
+  "maxDepth": 2,
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "ui.tree",
   "version": 2
 }
@@ -16537,12 +16970,23 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "UDBJFRZFx2rBboPaUi7oGkOLy_qrvZ",
   "limit": 2,
+=======
+  "id": "7UeO3T1FMpF1_2JEZllanEVy",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "ui.find",
   "query": {
     "name": "example",
     "role": "example"
+<<<<<<< HEAD
+=======
+  },
+  "target": {
+    "bundleId": "example",
+    "kind": "app"
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "version": 2
 }
@@ -16567,6 +17011,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "action": "focus",
   "id": "qMbPw3Cm9n-f4MYr2oRo2g2mkz204HiE",
   "op": "ui.act",
@@ -16575,7 +17020,26 @@ Example:
     "bundleId": "example",
     "kind": "window",
     "windowId": 6
+=======
+  "action": "expand",
+  "allowlist": [],
+  "id": "UY-rc-v1FQU4Vo",
+  "name": "example",
+  "op": "ui.act",
+  "range": {
+    "length": 1,
+    "location": 8
+>>>>>>> origin/fix/screen-daemon-parallel
   },
+  "ref": "Y5cWcSNfTGfdWhEJGq6xOJMVoCqUvl5Eh34IC7zYYCiDyBSxyV3Mt",
+  "target": {
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 1,
+    "kind": "display"
+  },
+  "value": "example",
   "version": 2
 }
 ```
@@ -16594,11 +17058,19 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "dQaSEle1N6uvCVgOOcniRsfVhdzADSH_RN_wvl_fMDJ15tcnYMSjxOYIE6Q-",
   "op": "pointer.move",
   "version": 2,
   "x": 0,
   "y": 9
+=======
+  "id": "380ngil-5xlaZ",
+  "op": "pointer.move",
+  "version": 2,
+  "x": 1,
+  "y": 7
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16617,11 +17089,19 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "62EKrz85LysPorWd--RdCJ",
   "op": "pointer.click",
   "version": 2,
   "x": 6,
   "y": 3
+=======
+  "id": "kyKReVAAaLtg3Anjw2YiJoBMl1bpfPr2X6zoaeFY7",
+  "op": "pointer.click",
+  "version": 2,
+  "x": 7,
+  "y": 8
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16643,6 +17123,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "button": "right",
   "id": "lY86Gl",
   "op": "pointer.drag",
@@ -16651,6 +17132,16 @@ Example:
   "version": 2,
   "x": 3,
   "y": 0
+=======
+  "button": "left",
+  "id": "7BOZAz9utzF",
+  "op": "pointer.drag",
+  "toX": 8,
+  "toY": 5,
+  "version": 2,
+  "x": 0,
+  "y": 6
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16662,15 +17153,18 @@ Example:
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | op | yes | `"key.press"` |  |
 | key | yes | string | {"minLength":1,"maxLength":64} |
-| modifiers | no | array | {"default":[],"maxItems":4,"items":{"type":"string","enum":["control","shift","alt","meta","super"]}} |
+| modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
 
 Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "5rz-Oc2",
+=======
+  "id": "Sbj1Jc0JY",
+>>>>>>> origin/fix/screen-daemon-parallel
   "key": "example",
-  "modifiers": [],
   "op": "key.press",
   "version": 2
 }
@@ -16689,7 +17183,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "id": "YJzslAC2tIm",
+=======
+  "id": "MAJo3x0UYWfHk_b-3mxbuq1mx3DWcGDbjQu24hP8T",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "text.type",
   "text": "example",
   "version": 2
@@ -16710,9 +17208,15 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "dx": 6,
   "dy": 9,
   "id": "nb6C5N5aZym2gNKOzBXPP36-DQhE6J5_SjlBqSG7aahGhV6zoGtl-R24UU",
+=======
+  "dx": 3,
+  "dy": 3,
+  "id": "_Iw00IJMnncY4aQvZ94AEg8PC",
+>>>>>>> origin/fix/screen-daemon-parallel
   "op": "scroll",
   "version": 2
 }
@@ -16727,7 +17231,11 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
+<<<<<<< HEAD
 "QGZ3TFfc"
+=======
+"2t19aI"
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## ScreenInput
@@ -16747,8 +17255,13 @@ Example:
 ```json
 {
   "kind": "pointer.move",
+<<<<<<< HEAD
   "x": 2,
   "y": 4
+=======
+  "x": 0,
+  "y": 6
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16767,8 +17280,13 @@ Example:
 {
   "button": "left",
   "kind": "pointer.click",
+<<<<<<< HEAD
   "x": 3,
   "y": 1
+=======
+  "x": 2,
+  "y": 3
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16789,12 +17307,21 @@ Example:
 ```json
 {
   "button": "right",
+<<<<<<< HEAD
   "durationMs": 1,
   "kind": "pointer.drag",
   "toX": 5,
   "toY": 1,
   "x": 4,
   "y": 1
+=======
+  "durationMs": 7,
+  "kind": "pointer.drag",
+  "toX": 5,
+  "toY": 0,
+  "x": 6,
+  "y": 6
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16803,14 +17330,14 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"key.press"` |  |
-| key | yes | string | {"minLength":1,"maxLength":32} |
-| modifiers | no | array | {"default":[],"maxItems":4,"items":{"type":"string","enum":["command","shift","option","control","alt","meta","super"]}} |
+| key | yes | [ScreenKey.json](schema/ScreenKey.json) |  |
+| modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "example",
+  "key": "arrowright",
   "kind": "key.press",
   "modifiers": []
 }
@@ -16847,9 +17374,14 @@ Example:
 ```json
 {
   "dx": 3,
+<<<<<<< HEAD
   "dy": 6,
   "kind": "scroll",
   "x": 4
+=======
+  "dy": 0,
+  "kind": "scroll"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16882,8 +17414,13 @@ Example:
 ```json
 {
   "kind": "pointer.down",
+<<<<<<< HEAD
   "x": 6,
   "y": 8
+=======
+  "x": 4,
+  "y": 9
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16900,8 +17437,13 @@ Example:
 ```json
 {
   "kind": "pointer.up",
+<<<<<<< HEAD
   "x": 0,
   "y": 6
+=======
+  "x": 8,
+  "y": 2
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16937,6 +17479,30 @@ Example:
 }
 ```
 
+## ScreenKey
+
+[JSON Schema](schema/ScreenKey.json), input validation.
+
+Type: ["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","Enter","Return","Tab","Space","Backspace","Escape","Esc","Delete","Home","End","PageUp","PageDown","Left","Right","Up","Down","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","enter","return","tab","space","backspace","escape","esc","delete","home","end","pageup","pagedown","left","right","up","down","arrowleft","arrowright","arrowup","arrowdown","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","F13","F14","F15","F16","F17","F18","F19","F20","f1","f2","f3","f4","f5","f6","f7","f8","f9","f10","f11","f12","f13","f14","f15","f16","f17","f18","f19","f20","-","=","[","]","\\",";","'",",",".","/","`","!","@","#","$","%","^","&","*","(",")","_","+","{","}","\|",":","\"","<",">","?","~"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"F10"
+```
+
+## ScreenKeyModifiers
+
+[JSON Schema](schema/ScreenKeyModifiers.json), input validation.
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[]
+```
+
 ## ScreenLegacyFrameHeader
 
 [JSON Schema](schema/ScreenLegacyFrameHeader.json), input validation.
@@ -16960,6 +17526,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "bytes": 7,
   "codec": "h264",
   "height": 4,
@@ -16969,6 +17536,16 @@ Example:
   "timestamp": 0,
   "version": 1,
   "width": 3
+=======
+  "bytes": 2,
+  "codec": "jpeg",
+  "height": 2,
+  "sequence": 7,
+  "sessionId": "sYiuz27KhkjA31ZCXQfjwsHGMjtOzgA0QnZt20CBNjg-IdjmNAQhQI233NA9j",
+  "timestamp": 2,
+  "version": 1,
+  "width": 1
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -16990,8 +17567,13 @@ Example:
 ```json
 {
   "kind": "pointer.click",
+<<<<<<< HEAD
   "x": 8,
   "y": 0
+=======
+  "x": 4,
+  "y": 7
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17011,11 +17593,21 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "kind": "pointer.drag",
   "toX": 6,
   "toY": 8,
   "x": 5,
   "y": 4
+=======
+  "button": "left",
+  "durationMs": 2,
+  "kind": "pointer.drag",
+  "toX": 8,
+  "toY": 6,
+  "x": 6,
+  "y": 7
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17024,16 +17616,15 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"key.press"` |  |
-| key | yes | string | {"minLength":1,"maxLength":32} |
-| modifiers | no | array | {"default":[],"maxItems":4,"items":{"type":"string","enum":["command","shift","option","control","alt","meta","super"]}} |
+| key | yes | [ScreenKey.json](schema/ScreenKey.json) |  |
+| modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
 
 Example:
 
 ```json
 {
-  "key": "example",
-  "kind": "key.press",
-  "modifiers": []
+  "key": "F1",
+  "kind": "key.press"
 }
 ```
 
@@ -17067,10 +17658,16 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "dx": 0,
   "dy": 9,
   "kind": "scroll",
   "x": 6
+=======
+  "dx": 4,
+  "dy": 7,
+  "kind": "scroll"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17105,8 +17702,13 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "filmstrip": false,
   "observeMs": 10
+=======
+  "observeMs": 3,
+  "repeat": 2
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17128,14 +17730,18 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| key | yes | string | {"minLength":1,"maxLength":64} |
-| modifiers | no | array | {"default":[],"maxItems":4,"items":{"type":"string","enum":["control","shift","alt","meta","super","command","option"]}} |
+| key | yes | [ScreenKey.json](schema/ScreenKey.json) |  |
+| modifiers | no | [ScreenKeyModifiers.json](schema/ScreenKeyModifiers.json) |  |
 
 Example:
 
 ```json
 {
+<<<<<<< HEAD
   "key": "example"
+=======
+  "key": "up"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17155,7 +17761,11 @@ Example:
 {
   "bundleId": "example",
   "mode": "background",
+<<<<<<< HEAD
   "pid": 2
+=======
+  "pid": 5
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17225,8 +17835,7 @@ Example:
 
 ```json
 {
-  "op": "approvals",
-  "threadId": "example"
+  "op": "approvals"
 }
 ```
 
@@ -17259,8 +17868,12 @@ Example:
 {
   "mode": "background",
   "op": "mode",
+<<<<<<< HEAD
   "reason": "example",
   "sessionId": "k"
+=======
+  "sessionId": "ZFx2rBboPaUi7oGkOLy_qrvZLVka1jhFqMbPw3Cm9n-f"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17276,9 +17889,13 @@ Example:
 
 ```json
 {
-  "allowed": false,
+  "allowed": true,
   "op": "secure.input",
+<<<<<<< HEAD
   "sessionId": "kHIr78Dag8d-GkNpmcFvKTf"
+=======
+  "sessionId": "r2oRo2g2mkz204HiEnwKJD32GhnzrzdnKGKgjhF429iLhSl4Hl1"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17324,7 +17941,7 @@ Example:
 ```json
 {
   "op": "permissions.request",
-  "permission": "accessibility"
+  "permission": "screenRecording"
 }
 ```
 
@@ -17373,9 +17990,15 @@ Example:
   "op": "start",
   "target": {
     "bundleId": "example",
+<<<<<<< HEAD
     "kind": "app"
   },
   "threadId": "example"
+=======
+    "kind": "window",
+    "windowId": 8
+  }
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17391,7 +18014,11 @@ Example:
 ```json
 {
   "op": "stop",
+<<<<<<< HEAD
   "sessionId": "PbJB8E16_pjEv8oDY7RNge4Z75_3IKX7HcjdjTAe2ryp8GzRQDJ5g7PcOEU"
+=======
+  "sessionId": "QaSE"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17409,9 +18036,16 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "controller": "none",
   "op": "controller",
   "sessionId": "4oByssqn7wyNhiaR0whJfTgu74"
+=======
+  "agentId": "example",
+  "controller": "agent",
+  "op": "controller",
+  "sessionId": "e1N6uvCVgOOc"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17435,7 +18069,11 @@ Example:
     "y": 7
   },
   "op": "action",
+<<<<<<< HEAD
   "sessionId": "QPQXDhMetL8QlweGyGeSc-N4mXXn2oPZ"
+=======
+  "sessionId": "fVhdzADSH_RN_wvl_fM"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17451,7 +18089,11 @@ Example:
 ```json
 {
   "op": "subscribe",
+<<<<<<< HEAD
   "sessionId": "B_hWAA6pZ4W23SaIjEkbzPcKSbvAjvW_e4bnh2y"
+=======
+  "sessionId": "15tcnYMSjxOYIE6Q-c6v62EKrz85LysPorWd"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17467,7 +18109,11 @@ Example:
 ```json
 {
   "op": "unsubscribe",
+<<<<<<< HEAD
   "sessionId": "rEzmCNfz5mYVhHsrOFcC3rQak"
+=======
+  "sessionId": "-RdCJPvMflY86GlZvefDs9g5rz-Oc2skYJzslAC2tIm5nb6C5N5aZym2gNKOzBXP"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17483,7 +18129,11 @@ Example:
 ```json
 {
   "op": "record.start",
+<<<<<<< HEAD
   "sessionId": "XtBZiartEDkRJzAeuE3Mm5Aw4nc_ifPAMruKyFyij6Ai2cJxDRhnhhZFVE"
+=======
+  "sessionId": "36-DQhE6J5_SjlBqSG7aahGhV6zoGtl-R24UUS9hQG"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17499,7 +18149,11 @@ Example:
 ```json
 {
   "op": "record.stop",
+<<<<<<< HEAD
   "sessionId": "9br0flqt9exbFFoSpQAHMvR9meXyMBwKVtpt0MtFw0sFRKFJt1r1MJ"
+=======
+  "sessionId": "3TFfcsDwgpioczkJhqKoozJtMO3cNolI6RkJ40xvIl0Najbqy9cb"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17530,9 +18184,14 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "maxNodes": 10,
   "op": "ui.tree",
   "sessionId": "3LfUvK3pucZDvLK9d1VxjPMEcyAk6InTGPjxvs4pErFYj0aIM-"
+=======
+  "op": "ui.tree",
+  "sessionId": "N2aPRJEQ2VlwRwa9a8HgJPzZmbcbM"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17549,12 +18208,23 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "op": "ui.find",
   "query": {
     "name": "example",
     "text": "example"
   },
   "sessionId": "1UuxQqtD_9QWbQny7vOMeEdItbSN7B"
+=======
+  "limit": 5,
+  "op": "ui.find",
+  "query": {
+    "name": "example",
+    "role": "example",
+    "text": "example"
+  },
+  "sessionId": "wkHIr78D"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17574,11 +18244,16 @@ Example:
 
 ```json
 {
-  "action": "performSecondaryAction",
+  "action": "selectText",
   "name": "example",
   "op": "ui.act",
+<<<<<<< HEAD
   "ref": "mAbkfcQSLBNIPv-87jibgo4TKRHGxD87l",
   "sessionId": "7S-Nbar4zkj7WTpQ3Xc1D26qK8WhysDDT1MY2N7nvLPF"
+=======
+  "ref": "g",
+  "sessionId": "NpmcFvKTfQT"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17595,11 +18270,16 @@ Example:
 ```json
 {
   "input": {
-    "key": "example",
-    "kind": "key.press"
+    "kind": "pointer.down",
+    "x": 9,
+    "y": 6
   },
   "op": "input",
+<<<<<<< HEAD
   "sessionId": "rJn02xNx7jgWLto-nQSMn258XO0RddtqOXk_dFK30URs8nFv"
+=======
+  "sessionId": "t0wP6PbJB8E16_pjEv8oD"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17665,7 +18345,11 @@ Example:
 ```json
 {
   "input": "n/a",
+<<<<<<< HEAD
   "screen": "prompt"
+=======
+  "screen": "n/a"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17684,10 +18368,17 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "h": 7,
   "w": 4,
   "x": 7,
   "y": 2
+=======
+  "h": 8,
+  "w": 9,
+  "x": 9,
+  "y": 8
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17723,6 +18414,7 @@ Example:
 ```json
 {
   "state": {
+<<<<<<< HEAD
     "controller": "agent",
     "holder": {
       "agentId": "example",
@@ -17730,15 +18422,29 @@ Example:
     },
     "indicator": false,
     "lifecycle": "failed",
+=======
+    "controller": "none",
+    "error": "example",
+    "indicator": true,
+    "lifecycle": "live",
+>>>>>>> origin/fix/screen-daemon-parallel
     "permissions": {
       "accessibility": true,
       "screenRecording": false
     },
+<<<<<<< HEAD
     "sessionId": "UFCLV7wwXJTXSyzae7RQ7h3SIHfyOuC",
     "target": {
       "bundleId": "example",
       "kind": "window",
       "windowId": 3
+=======
+    "sessionId": "X7HcjdjTAe2ryp8GzRQDJ5g7PcOEUz4oByssq",
+    "target": {
+      "bundleId": "example",
+      "displayId": 7,
+      "kind": "app"
+>>>>>>> origin/fix/screen-daemon-parallel
     }
   },
   "type": "screen.state"
@@ -17761,9 +18467,14 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "errorCode": "key_unsupported",
   "ok": false,
   "requestId": "oYIbxWYpyrRgq2Gh3FN4",
+=======
+  "ok": false,
+  "requestId": "Tgu74Y",
+>>>>>>> origin/fix/screen-daemon-parallel
   "type": "screen.result"
 }
 ```
@@ -17790,6 +18501,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "controller": "agent",
   "holder": {
     "agentId": "example",
@@ -17802,6 +18514,42 @@ Example:
     "screenRecording": false
   },
   "sessionId": "NPizJG7NtBacZ3QaqNF7BCo_owQKNhVjyBO-mNkZffcJkIZ7I5j6lzEWTuDylujG",
+=======
+  "capabilities": {
+    "capture": {
+      "changeDriven": true,
+      "displays": true,
+      "windows": true
+    },
+    "codecs": [
+      "jpeg"
+    ],
+    "input": {
+      "keyboard": false,
+      "pointer": true,
+      "scroll": false,
+      "text": true
+    },
+    "permissionEvents": false,
+    "permissions": {
+      "input": "granted",
+      "screen": "granted"
+    },
+    "platform": "macos",
+    "semanticActions": [],
+    "uiTree": false,
+    "version": 2
+  },
+  "controller": "none",
+  "error": "example",
+  "indicator": false,
+  "lifecycle": "failed",
+  "permissions": {
+    "accessibility": true,
+    "screenRecording": true
+  },
+  "sessionId": "XDhMetL8QlweGyGeSc-N4mXXn2oPZ3ZWQ1MB_hWAA6p",
+>>>>>>> origin/fix/screen-daemon-parallel
   "target": {
     "bundleId": "example",
     "kind": "app"
@@ -17823,7 +18571,7 @@ Example:
 
 ```json
 {
-  "enabled": true,
+  "enabled": false,
   "permissions": {
     "accessibility": true,
     "screenRecording": false
@@ -17849,10 +18597,17 @@ Example:
 ```json
 {
   "bitrate": 128006,
+<<<<<<< HEAD
   "codec": "h264",
   "fps": 3,
   "maxHeight": 72,
   "maxWidth": 67
+=======
+  "codec": "jpeg",
+  "fps": 5,
+  "maxHeight": 65,
+  "maxWidth": 68
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17873,6 +18628,7 @@ Example:
 ```json
 {
   "bundleId": "example",
+  "displayId": 4,
   "kind": "app"
 }
 ```
@@ -17891,7 +18647,11 @@ Example:
 {
   "bundleId": "example",
   "kind": "window",
+<<<<<<< HEAD
   "windowId": 5
+=======
+  "windowId": 10
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17910,7 +18670,11 @@ Example:
   "bundleIds": [
     "example"
   ],
+<<<<<<< HEAD
   "displayId": 6,
+=======
+  "displayId": 2,
+>>>>>>> origin/fix/screen-daemon-parallel
   "kind": "display"
 }
 ```
@@ -17939,6 +18703,7 @@ Example:
 {
   "bytes": 6,
   "codec": "jpeg",
+<<<<<<< HEAD
   "height": 3,
   "scale": 9,
   "seq": 4,
@@ -17946,6 +18711,16 @@ Example:
   "ts": 3,
   "version": 2,
   "width": 9
+=======
+  "dirtyRects": [],
+  "height": 2,
+  "scale": 2,
+  "seq": 3,
+  "sessionId": "VhHsrOFcC3rQak5XtBZiartEDkRJzAeuE3Mm5Aw4nc_ifPAMruK",
+  "ts": 4,
+  "version": 2,
+  "width": 4
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17965,8 +18740,14 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "action": "focus",
   "ref": "bdFu9KlDLQ9SttkwkaWzuAmBjvkr0hHmOfGDraUK4f0JM6W-4y4_8BNT5f9YMxKB"
+=======
+  "action": "performSecondaryAction",
+  "name": "example",
+  "ref": "cJxDRhnhhZFVE19br0flqt9exbFFoSpQAHMvR9meXyMBwKVtpt0MtFw"
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -17998,9 +18779,15 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "action": "scroll",
   "name": "example",
   "ref": "3ANtpWo0gPNlgzk5fE3tGfD-yJrFTyywkf6btJ22-qipTK0gWoIPGzNyJnrbeE"
+=======
+  "action": "select",
+  "ref": "Jt1r1MJUb6X3LfUvK3pucZDvLK9d1Vxj",
+  "value": true
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -18014,7 +18801,11 @@ Example:
 | mode | no | ["background","foreground"] |  |
 | snapshot | no | [ScreenUITreeResult.json](schema/ScreenUITreeResult.json) |  |
 | warnings | no | array | {"maxItems":8,"items":{"type":"string","maxLength":1024}} |
+<<<<<<< HEAD
 | phase | no | ["rejected-before-dispatch","dispatched","partial"] |  |
+=======
+| notes | no | array | {"maxItems":8,"items":{"type":"string","maxLength":1024}} |
+>>>>>>> origin/fix/screen-daemon-parallel
 | method | no | string | {"maxLength":64} |
 | boundsCentre | no | object | {"properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]} |
 
@@ -18023,7 +18814,11 @@ Example:
 ```json
 {
   "fallback": true,
+<<<<<<< HEAD
   "mode": "foreground"
+=======
+  "warnings": []
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -18042,9 +18837,15 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "h": 5,
   "w": 4,
   "x": 8,
+=======
+  "h": 2,
+  "w": 3,
+  "x": 1,
+>>>>>>> origin/fix/screen-daemon-parallel
   "y": 3
 }
 ```
@@ -18062,7 +18863,12 @@ Example:
 
 ```json
 {
+  "limit": 5,
   "query": {
+<<<<<<< HEAD
+=======
+    "role": "example",
+>>>>>>> origin/fix/screen-daemon-parallel
     "text": "example"
   }
 }
@@ -18081,6 +18887,10 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
+=======
+  "limit": 6,
+>>>>>>> origin/fix/screen-daemon-parallel
   "query": {
     "role": "example",
     "text": "example"
@@ -18206,7 +19016,11 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
+<<<<<<< HEAD
 "pW4703Ku5sFnsAt_4AyvDv__Kl2y4MABNz"
+=======
+"uxQqtD_9QWbQny7vOMeEdItbSN7BGmAbkfcQSLBNIPv-87j"
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## ScreenUITree
@@ -18222,7 +19036,22 @@ Example:
 
 ```json
 {
-  "root": null,
+  "root": {
+    "actions": [
+      "press"
+    ],
+    "bounds": {
+      "h": 10,
+      "w": 10,
+      "x": 0,
+      "y": 0
+    },
+    "children": [],
+    "name": "Example",
+    "ref": "example",
+    "role": "button",
+    "states": []
+  },
   "truncated": true
 }
 ```
@@ -18239,7 +19068,13 @@ Example:
 Example:
 
 ```json
+<<<<<<< HEAD
 {}
+=======
+{
+  "maxDepth": 8
+}
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## ScreenUITreeOptions
@@ -18254,10 +19089,14 @@ Example:
 Example:
 
 ```json
+<<<<<<< HEAD
 {
   "maxDepth": 0,
   "maxNodes": 10
 }
+=======
+{}
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## ScreenUITreeResult
@@ -18274,7 +19113,7 @@ Example:
 ```json
 {
   "nodes": [],
-  "truncated": true
+  "truncated": false
 }
 ```
 
@@ -18302,6 +19141,7 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "bytes": 9,
   "codec": "jpeg",
   "height": 7,
@@ -18312,6 +19152,17 @@ Example:
   "ts": 6,
   "version": 2,
   "videoCodec": "avc1.B4D53C",
+=======
+  "bytes": 6,
+  "captureGeneration": 6,
+  "codec": "jpeg",
+  "height": 4,
+  "scale": 3,
+  "seq": 9,
+  "sessionId": "xD87l3qWzR7S-Nbar4zkj7WTpQ3Xc1D26",
+  "ts": 7,
+  "version": 2,
+>>>>>>> origin/fix/screen-daemon-parallel
   "width": 2
 }
 ```
@@ -18330,7 +19181,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "code": "search_invalid_query",
+=======
+  "code": "search_failed",
+>>>>>>> origin/fix/screen-daemon-parallel
   "requestId": "example",
   "type": "search.error"
 }
@@ -18357,10 +19212,14 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "after": 4,
   "before": 5,
   "provider": "opencode",
   "status": "needs_you"
+=======
+  "after": 3
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -18388,17 +19247,30 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "agentId": "example",
   "createdAt": 0,
   "kind": "message",
   "provider": "claude",
   "score": 8,
+=======
+  "createdAt": 6,
+  "itemId": "example",
+  "kind": "tool_call",
+  "provider": "codex",
+  "score": 3,
+>>>>>>> origin/fix/screen-daemon-parallel
   "snippet": {
     "highlights": [],
     "text": "example"
   },
+<<<<<<< HEAD
   "status": "waiting",
   "statusSeq": 1,
+=======
+  "status": "failed",
+  "statusSeq": 8,
+>>>>>>> origin/fix/screen-daemon-parallel
   "threadId": "example",
   "threadTitle": "example",
   "title": {
@@ -18418,7 +19290,11 @@ Type: ["thread","message","reasoning","tool_call","notice","compaction","delegat
 Example:
 
 ```json
+<<<<<<< HEAD
 "thread"
+=======
+"artifact"
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## SearchQuery
@@ -18438,11 +19314,16 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "filters": {
     "after": 7,
     "agentId": "example"
   },
   "limit": 5,
+=======
+  "limit": 3,
+  "mode": "tokens",
+>>>>>>> origin/fix/screen-daemon-parallel
   "text": "example"
 }
 ```
@@ -18466,6 +19347,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
+=======
+  "limit": 9,
+  "mode": "substring",
+>>>>>>> origin/fix/screen-daemon-parallel
   "requestId": "example",
   "text": "example",
   "type": "search.query"
@@ -18510,8 +19396,13 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "cursor": "example",
   "generation": 0,
+=======
+  "cursor": null,
+  "generation": 8,
+>>>>>>> origin/fix/screen-daemon-parallel
   "hits": []
 }
 ```
@@ -18563,11 +19454,19 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "generation": 0,
   "headSeq": 4,
   "indexWrites": 3,
   "indexedSeq": 4,
   "pending": 9,
+=======
+  "generation": 6,
+  "headSeq": 0,
+  "indexWrites": 2,
+  "indexedSeq": 0,
+  "pending": 3,
+>>>>>>> origin/fix/screen-daemon-parallel
   "ready": false
 }
 ```
@@ -18609,12 +19508,21 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "generation": 0,
   "headSeq": 5,
   "indexWrites": 4,
   "indexedSeq": 4,
   "pending": 2,
   "ready": true,
+=======
+  "generation": 5,
+  "headSeq": 9,
+  "indexWrites": 4,
+  "indexedSeq": 1,
+  "pending": 0,
+  "ready": false,
+>>>>>>> origin/fix/screen-daemon-parallel
   "requestId": "example",
   "type": "search.progress"
 }
@@ -18655,7 +19563,11 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "code": "parse",
+=======
+  "code": "io",
+>>>>>>> origin/fix/screen-daemon-parallel
   "layer": "thread",
   "message": "example"
 }
@@ -18677,8 +19589,14 @@ Example:
 {
   "diagnostic": {
     "code": "limit",
+<<<<<<< HEAD
     "layer": "defaults",
     "message": "example"
+=======
+    "layer": "global",
+    "message": "example",
+    "offset": 4
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "subscriptionId": "example",
   "type": "settings.diagnostic"
@@ -18699,6 +19617,7 @@ Example:
 ```json
 {
   "settings": {
+<<<<<<< HEAD
     "approvals.policy": "on-failure",
     "automations.timezone": "example",
     "browser.allowedOrigins": [],
@@ -18716,6 +19635,31 @@ Example:
     "providers.planner.tier": "standard",
     "remote.transport": "relay",
     "threads.followUpBehavior": "steer"
+=======
+    "automations.maxConcurrent": 9,
+    "browser.backend": "headless",
+    "clients.keybindings": false,
+    "conductor.planApproval": "required",
+    "notifications.enabled": true,
+    "notifications.onCompletion": false,
+    "notifications.quietHours": {
+      "end": "05:49",
+      "start": "23:27"
+    },
+    "notifications.sound": false,
+    "notifications.suppressWhenActive": false,
+    "permissions.defaultMode": "full-access",
+    "projects.roots": [],
+    "providers.coder.provider": "codex",
+    "providers.coder.reasoningEffort": "default",
+    "providers.configuration": [],
+    "providers.default": "antigravity",
+    "providers.planner.reasoningEffort": "high",
+    "providers.reviewer.provider": "claude",
+    "providers.reviewer.reasoningEffort": "max",
+    "providers.reviewer.tier": "fast",
+    "threads.followUpBehavior": "queue"
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "version": 2
 }
@@ -18735,9 +19679,15 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "key": "browser.profile",
   "provenance": "global",
   "value": true
+=======
+  "key": "providers.planner.model",
+  "provenance": "defaults",
+  "value": false
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -18756,10 +19706,14 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "key": "threads.settleOnClose",
+=======
+  "key": "conductor.mergePolicy",
+>>>>>>> origin/fix/screen-daemon-parallel
   "requestId": "example",
   "scope": {
-    "workspaceId": "example"
+    "threadId": "example"
   },
   "type": "settings.get"
 }
@@ -18774,7 +19728,11 @@ Type: ["providers.configuration","host.displayName","projects.roots","threads.fo
 Example:
 
 ```json
+<<<<<<< HEAD
 "providers.coder.reasoningEffort"
+=======
+"notifications.onFailure"
+>>>>>>> origin/fix/screen-daemon-parallel
 ```
 
 ## SettingsLayer
@@ -18856,11 +19814,17 @@ Example:
 
 ```json
 {
+<<<<<<< HEAD
   "key": "threads.unresponsiveAfter",
   "requestId": "example",
   "scope": {
     "threadId": "example"
   },
+=======
+  "key": "providers.reviewer.tier",
+  "requestId": "example",
+  "scope": {},
+>>>>>>> origin/fix/screen-daemon-parallel
   "type": "settings.get"
 }
 ```
@@ -18881,12 +19845,21 @@ Example:
 {
   "key": "example",
   "layer": {
+<<<<<<< HEAD
     "kind": "workspace",
     "workspaceId": "example"
   },
   "requestId": "example",
   "type": "settings.set",
   "value": []
+=======
+    "kind": "thread",
+    "threadId": "example"
+  },
+  "requestId": "example",
+  "type": "settings.set",
+  "value": {}
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -18905,11 +19878,19 @@ Example:
 ```json
 {
   "keys": [
+<<<<<<< HEAD
     "providers.planner.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {
     "threadId": "example"
+=======
+    "providers.planner.provider"
+  ],
+  "requestId": "example",
+  "scope": {
+    "workspaceId": "example"
+>>>>>>> origin/fix/screen-daemon-parallel
   },
   "subscriptionId": "example",
   "type": "settings.subscribe"
@@ -18971,7 +19952,7 @@ Example:
 
 ```json
 {
-  "threadId": "example"
+  "workspaceId": "example"
 }
 ```
 
@@ -18993,11 +19974,16 @@ Example:
 {
   "key": "example",
   "layer": {
-    "kind": "global"
+    "kind": "thread",
+    "threadId": "example"
   },
   "requestId": "example",
   "type": "settings.set",
+<<<<<<< HEAD
   "value": null
+=======
+  "value": []
+>>>>>>> origin/fix/screen-daemon-parallel
 }
 ```
 
@@ -19018,10 +20004,16 @@ Example:
 ```json
 {
   "keys": [
+<<<<<<< HEAD
     "notifications.onFailure"
+=======
+    "providers.reviewer.model"
+>>>>>>> origin/fix/screen-daemon-parallel
   ],
   "requestId": "example",
-  "scope": {},
+  "scope": {
+    "threadId": "example"
+  },
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -19110,10 +20102,11 @@ Example:
 {
   "app.openAtLogin": false,
   "approvals.policy": "on-failure",
-  "automations.enabled": true,
-  "automations.maxConcurrent": 4,
+  "automations.enabled": false,
+  "automations.maxConcurrent": 2,
   "automations.timezone": "example",
   "browser.allowedOrigins": [],
+<<<<<<< HEAD
   "browser.backend": "embedded",
   "browser.backendLoss": "headless",
   "browser.profile": "persistent",
@@ -19131,16 +20124,45 @@ Example:
   "notifications.suppressWhenActive": true,
   "permissions.defaultMode": null,
   "permissions.providerModes": {},
+=======
+  "browser.backend": "headless",
+  "browser.backendLoss": "headless",
+  "clients.keybindings": null,
+  "clients.theme": 8,
+  "conductor.maxFixRounds": 6,
+  "conductor.mergePolicy": "after-checks",
+  "conductor.planApproval": "required",
+  "host.displayName": "example",
+  "logs.retention": "forever",
+  "notifications.enabled": true,
+  "notifications.onApproval": false,
+  "notifications.onCompletion": false,
+  "notifications.onFailure": true,
+  "notifications.onMention": true,
+  "notifications.quietHours": {
+    "end": "21:00",
+    "start": "13:20"
+  },
+  "notifications.sound": false,
+  "notifications.suppressWhenActive": true,
+  "permissions.defaultMode": "ask",
+>>>>>>> origin/fix/screen-daemon-parallel
   "plugins.enabled": [],
   "plugins.preferences": {},
   "projects.roots": [],
   "providers.coder.model": "example",
+<<<<<<< HEAD
   "providers.coder.provider": "acp",
   "providers.coder.reasoningEffort": "none",
+=======
+  "providers.coder.provider": "claude",
+  "providers.coder.reasoningEffort": "low",
+>>>>>>> origin/fix/screen-daemon-parallel
   "providers.coder.tier": "priority",
   "providers.configuration": [],
   "providers.default": "cursor",
   "providers.planner.model": "example",
+<<<<<<< HEAD
   "providers.planner.provider": "claude",
   "providers.planner.reasoningEffort": "xhigh",
   "providers.planner.tier": "standard",
@@ -19157,6 +20179,24 @@ Example:
   "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
   "threads.unresponsiveAfter": "5m",
+=======
+  "providers.planner.provider": "opencode",
+  "providers.planner.reasoningEffort": "none",
+  "providers.planner.tier": "flex",
+  "providers.reviewer.model": "example",
+  "providers.reviewer.provider": "antigravity",
+  "providers.reviewer.reasoningEffort": "xhigh",
+  "providers.reviewer.tier": "priority",
+  "remote.enabled": true,
+  "remote.transport": "relay",
+  "threads.autoSettleAfter": "2d",
+  "threads.continueAfterRestart": true,
+  "threads.followUpBehavior": "steer",
+  "threads.limitPolicy": "migrate_now",
+  "threads.settleOnClose": false,
+  "threads.settleOnMerge": false,
+  "threads.unresponsiveAfter": "2m",
+>>>>>>> origin/fix/screen-daemon-parallel
   "threads.useWorktree": false
 }
 ```
@@ -19194,13 +20234,25 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
+  "contextMeters": {},
+  "entitiesBefore": {},
   "interactions": {},
   "itemOrder": [],
   "itemSeqs": {},
   "items": {},
   "kind": "thread",
+  "queue": {
+    "paused": true,
+    "reason": null,
+    "resumeAt": 4,
+    "revision": 6
+  },
   "runs": {},
+<<<<<<< HEAD
   "seq": 2,
+=======
+  "seq": 0,
+>>>>>>> origin/fix/screen-daemon-parallel
   "thread": {
     "acpSupport": {
       "capabilities": {
@@ -19218,6 +20270,7 @@ Example:
       },
       "visibility": "limited"
     },
+<<<<<<< HEAD
     "activityAt": 7,
     "archivedAt": 7,
     "continuation": {
@@ -19258,6 +20311,26 @@ Example:
         "runId": "example",
         "type": "turn"
       }
+=======
+    "archivedAt": 4,
+    "createdAt": 3,
+    "deck": {
+      "deckId": "VOPizJH8OtCac03QarNF8CCo.pxQKOiWkzBP_nNkZffcKkJ08I6j6lAEXUvDylukHji9QaJoB7I0Vl8rkPv0oP.AHHPk9O9rCFP.4GNCtx8tv54IMm6SIFmY2DYvDy4p",
+      "role": "reviewer",
+      "runId": "0IY_bdGu-LlEMR-TttlwkaXzvBnBjvkr1hImPfGDsaVL5f1JN7W_5y5.9BOT6f-Z",
+      "workspaceId": "example"
+    },
+    "id": "example",
+    "installationId": "example",
+    "instanceId": "example",
+    "pinOrder": 7,
+    "provider": "pi",
+    "rootAgentId": "example",
+    "settledAt": 2,
+    "snoozedUntil": 4,
+    "status": {
+      "state": "limited"
+>>>>>>> origin/fix/screen-daemon-parallel
     },
     "pinned": false,
     "provider": "cursor",

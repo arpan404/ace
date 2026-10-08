@@ -1,10 +1,11 @@
 import type { ScreenState } from "@ace/protocol";
 import type { Helper } from "./helper.ts";
 
-export type HelperPort = Pick<Helper, "capabilities" | "request" | "requestV2">;
+export type HelperPort = Pick<Helper, "capabilities" | "request" | "requestV2" | "permissions">;
 /** Only helpers advertising background routing receive the additive session envelope. */
 export function helperSession(helper: Helper, state: () => ScreenState): HelperPort {
   return {
+    permissions: () => helper.permissions(),
     get capabilities() {
       return helper.capabilities;
     },

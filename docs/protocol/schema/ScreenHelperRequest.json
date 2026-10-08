@@ -1017,6 +1017,231 @@
     },
     {
       "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "windows.list",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "bundleId",
+        "allowlist"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "window.select",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "windowId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "windowId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "open.url",
+          "type": "string"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "url": {
+          "$ref": "https://ace.local/protocol/v1/ScreenAppURL.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "bundleId",
+        "url",
+        "allowlist"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "humanDeviceInput": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "mode": {
+          "enum": [
+            "background",
+            "foreground"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "menu.press",
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "secureInputAllowed": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "const": 1,
+              "type": "number"
+            },
+            {
+              "const": 2,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "humanDeviceInput": {
           "type": "boolean"
         },

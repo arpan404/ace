@@ -12,6 +12,7 @@ import {
 } from "./screen-base.ts";
 import {
   ScreenError,
+  ScreenAppURL,
   ScreenInput,
   ScreenUIActOptions,
   ScreenUIFindOptions,
@@ -84,6 +85,22 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
   /** macOS: press a button of the captured window by accessible name (Simulator's Home). */
   HelperEnvelope.extend({ op: z.literal("button.press"), name: z.string().min(1).max(64) }),
   HelperEnvelope.extend({ op: z.literal("targets") }),
+  HelperEnvelope.extend({
+    op: z.literal("windows.list"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
+  HelperEnvelope.extend({ op: z.literal("window.select"), windowId: z.number().int().positive() }),
+  HelperEnvelope.extend({
+    op: z.literal("open.url"),
+    bundleId: ScreenBundle,
+    url: ScreenAppURL,
+    allowlist: z.array(ScreenBundle).max(64),
+  }),
+  HelperEnvelope.extend({
+    op: z.literal("menu.press"),
+    path: z.array(z.string().min(1).max(256)).min(1).max(8),
+  }),
   HelperEnvelope.extend({ op: z.literal("stop") }),
   HelperEnvelope.extend({ op: z.literal("action"), action: ScreenAction }),
   HelperEnvelope.extend({
