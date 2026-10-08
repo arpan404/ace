@@ -12,7 +12,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { automationRunSummary, useAutomationRuns } from "@/features/automations/index.ts";
+import { useAutomationRuns, RunOutput } from "@/features/automations/index.ts";
 import { Page } from "@/features/shell/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -312,7 +312,7 @@ function RunDetail(props: { run: AutomationRun }) {
   useHotkey("o", openAutomation, { enabled: run.threadId === undefined });
   return (
     <DetailFrame context="Automation run" at={runAt(run)} title={run.title}>
-      <p className="mt-3 text-ui">{automationRunSummary(run)}</p>
+      <RunOutput run={run} />
       <dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-ui">
         <dt className="text-muted-foreground">Started</dt>
         <dd>

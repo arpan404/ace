@@ -171,33 +171,29 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
   );
 }
 
-/** A text field over every IANA zone the browser knows (the native list suggests as you type). */
+/** A picker over the browser's IANA zones; keeps the saved zone through an edit. */
 function TimeZoneField(props: {
   value: string;
   error: string | undefined;
   onBlur(): void;
   onChange(value: string): void;
 }) {
-  const zones = useMemo(() => timeZones(props.value), [props.value]);
+  const zones = useMemo(
+    () => timeZones(props.value).map((value) => ({ value, label: value.replaceAll("_", " ") })),
+    [props.value],
+  );
   return (
-    <Row label="Time zone" htmlFor="automation-timezone" errors={props.error}>
-      <Input
-        id="automation-timezone"
-        name="timezone"
-        list="automation-timezones"
-        autoComplete="off"
-        spellCheck={false}
+    <Row label="Time zone" errors={props.error}>
+      <Select
+        label="Time zone"
         value={props.value}
-        onBlur={props.onBlur}
-        onValueChange={props.onChange}
-        className="@min-[34rem]:max-w-[calc((100%-2rem)/3)]"
-        {...invalidProps("automation-timezone", props.error)}
+        options={zones}
+        onValueChange={(value) => {
+          props.onChange(value);
+          props.onBlur();
+        }}
+        className="w-full min-w-0"
       />
-      <datalist id="automation-timezones">
-        {zones.map((zone) => (
-          <option key={zone} value={zone} />
-        ))}
-      </datalist>
     </Row>
   );
 }

@@ -50,18 +50,13 @@ async function choose(select: string, option: string) {
 
 test("schedules and triggers read in plain words, and paused ones say so", async () => {
   const { sidebar } = await open("/automations");
-  expect(sidebar.getByText("Every day at 02:00 · ace")).toBeTruthy();
-  expect(
-    sidebar.getByText("When a pull request opens or changes in arpan404/ace · ace"),
-  ).toBeTruthy();
-  expect(sidebar.getByText("Every 6 hours · ace")).toBeTruthy();
+  await userEvent.hover(sidebar.getByRole("link", { name: /Nightly dependency audit/ }));
+  expect(await screen.findByRole("tooltip", { name: "Every day at 02:00 · ace" })).toBeTruthy();
+  await userEvent.unhover(sidebar.getByRole("link", { name: /Nightly dependency audit/ }));
   const changelog = sidebar.getByRole("link", { name: /Changelog draft/ });
-  expect(within(changelog).getByText("Fridays at 16:00 · ace")).toBeTruthy();
-  expect(within(changelog).getByRole("img", { name: "Paused" })).toBeTruthy();
+  expect(within(changelog).getByText("Paused")).toBeTruthy();
   expect(
-    within(sidebar.getByRole("link", { name: /Nightly dependency audit/ })).queryByRole("img", {
-      name: "Paused",
-    }),
+    within(sidebar.getByRole("link", { name: /Nightly dependency audit/ })).queryByText("Paused"),
   ).toBeNull();
 });
 
@@ -82,7 +77,7 @@ test("an automation whose last run failed is marked in the list", async () => {
     if (latest) latest.status = "failed";
   });
   const flaky = sidebar.getByRole("link", { name: /Flaky test triage/ });
-  expect(await within(flaky).findByRole("img", { name: "Last run failed" })).toBeTruthy();
+  expect(await within(flaky).findByRole("img", { name: "Needs attention" })).toBeTruthy();
 });
 
 test("an automation shows its prompt, where it runs and its recent runs with outcomes", async () => {
@@ -98,7 +93,7 @@ test("an automation shows its prompt, where it runs and its recent runs with out
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(runs.getByText("2 advisories · opened a thread in ace")).toBeTruthy();
   expect(runs.getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
-  expect(runs.getByRole("img", { name: "failed" })).toBeTruthy();
+  expect(runs.getByText("Failed")).toBeTruthy();
 });
 
 test("the next run is the daemon's schedule, or says automations are off on this machine", async () => {
@@ -116,8 +111,10 @@ test("a run reads when it started, how long it took and what started it", async 
   await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
   const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
-  const line = runs.getByText(/· 4 min · Scheduled$/);
-  expect(line.getAttribute("title")).toMatch(/\d{4}/);
+  await userEvent.click(
+    runs.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
+  );
+  expect(screen.getByText(/^Scheduled · .* · 4 min$/)).toBeTruthy();
 });
 
 test("a recent run that left a thread opens it", async () => {
@@ -125,8 +122,9 @@ test("a recent run that left a thread opens it", async () => {
   await heading("Review pull requests on open");
   const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
   await userEvent.click(
-    runs.getByRole("link", { name: "Open the thread for #212 · approved with 1 note" }),
+    runs.getByRole("button", { name: "Open the run #212 · approved with 1 note" }),
   );
+  await userEvent.click(screen.getByRole("link", { name: "Open thread" }));
   expect(
     await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
   ).toBeTruthy();
@@ -139,12 +137,14 @@ test("a recent run without a thread opens what started it and what it found", as
   await userEvent.click(
     flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
   );
-  const details = await screen.findByRole("dialog", { name: "Flaky test triage" });
-  expect(within(details).getByText("On its schedule")).toBeTruthy();
-  expect(within(details).getByText("4 min")).toBeTruthy();
+  const details = await screen.findByRole("region", { name: "Run details for Flaky test triage" });
+  expect(within(details).getByText(/^Scheduled · .* · 4 min$/)).toBeTruthy();
+  expect(within(details).getByRole("region", { name: "Run output" }).textContent).toContain(
+    "Nothing flaky across 3 runs",
+  );
 });
 
-test("pausing stops the schedule and resuming from the menu restarts it", async () => {
+test("pausing stops the schedule and resuming from the switch restarts it", async () => {
   const { sidebar } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   const audit = sidebar.getByRole("link", { name: /Nightly dependency audit/ });
@@ -152,24 +152,24 @@ test("pausing stops the schedule and resuming from the menu restarts it", async 
 
   await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
 
-  expect(await within(audit).findByRole("img", { name: "Paused" })).toBeTruthy();
+  expect(await within(audit).findByText("Paused")).toBeTruthy();
   expect(screen.getByText("Paused. Resume to schedule the next run.")).toBeTruthy();
   expect(await screen.findByText("Paused · Nightly dependency audit")).toBeTruthy();
-  // A paused automation can't run: the header offers Resume instead of Run now.
-  expect(screen.queryByRole("button", { name: "Run now" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Run now" }).getAttribute("aria-disabled")).toBe(
+    "true",
+  );
   expect(screen.getByRole("switch", { name: "Paused" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Resume" }));
-  await waitFor(() => expect(within(audit).queryByRole("img", { name: "Paused" })).toBeNull());
+  await userEvent.click(screen.getByRole("switch", { name: "Paused" }));
+  await waitFor(() => expect(within(audit).queryByText("Paused")).toBeNull());
   expect(screen.getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("true");
   expect(screen.getByRole("button", { name: "Run now" })).toBeTruthy();
 });
 
-test("Resume in the header restarts a paused automation", async () => {
+test("the switch restarts an automation that was already paused", async () => {
   await open("/automations/auto-changelog");
   await heading("Changelog draft");
-  await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Paused" }));
   expect(await screen.findByText("Resumed · Changelog draft")).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Run now" })).toBeTruthy();
 });
@@ -247,8 +247,7 @@ test("a new automation is validated, read back in words and opened once created"
   await choose("Repeat", "Weekdays");
   await userEvent.clear(screen.getByLabelText("At"));
   await userEvent.type(screen.getByLabelText("At"), "08:30");
-  await userEvent.clear(screen.getByRole("combobox", { name: "Time zone" }));
-  await userEvent.type(screen.getByRole("combobox", { name: "Time zone" }), "Europe/London");
+  await choose("Time zone", "Europe/London");
   const readBack = await screen.findByText(/^Runs:/);
   expect(readBack.textContent).toMatch(
     /Weekdays at 08:30 \(Europe\/London\)\. Next: \w{3} \d+ \w{3} 08:30/,
@@ -314,7 +313,7 @@ test("a custom cron schedule must have five fields and is described once it does
 test("a GitHub trigger needs an owner/name repository", async () => {
   await open("/automations/new");
   await heading("New automation");
-  await userEvent.click(screen.getByRole("button", { name: "On a GitHub event" }));
+  await choose("When it runs", "On a GitHub event");
 
   await userEvent.type(field("Repository"), "ace");
   await userEvent.tab();
@@ -335,7 +334,7 @@ test("an issue-label trigger asks for its label and keeps it through an edit", a
   });
   await heading("Review pull requests on open");
   expect(main().getByText(/When an issue is labelled \(needs-triage\)/)).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
   await heading("Edit automation");
   expect((field("Label") as HTMLInputElement).value).toBe("needs-triage");
 
@@ -353,14 +352,12 @@ test("an automation that watches files keeps its own trigger in the editor", asy
         automation.trigger = { kind: "file", paths: ["src/**/*.test.ts"] };
   });
   await heading("Flaky test triage");
-  await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
   await heading("Edit automation");
-  expect(screen.getByRole("button", { name: "On file change" }).getAttribute("aria-pressed")).toBe(
-    "true",
+  expect(screen.getByRole("combobox", { name: "When it runs" }).textContent).toContain(
+    "On file change",
   );
-  expect((field("Paths to watch, one per line") as HTMLTextAreaElement).value).toBe(
-    "src/**/*.test.ts",
-  );
+  expect((field("File globs, one per line") as HTMLTextAreaElement).value).toBe("src/**/*.test.ts");
   expect(screen.queryByText(/Runs only when you press Run now/)).toBeNull();
 });
 
@@ -401,7 +398,7 @@ test("editing an automation's schedule changes how it reads everywhere", async (
   const { sidebar } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
 
-  await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
   await heading("Edit automation");
   expect((field("Name") as HTMLInputElement).value).toBe("Flaky test triage");
   await choose("Repeat", "Once a week");
@@ -412,7 +409,8 @@ test("editing an automation's schedule changes how it reads everywhere", async (
 
   await heading("Flaky test triage");
   expect(main().getByText(/^Mondays at 06:00/)).toBeTruthy();
-  expect(sidebar.getByText("Mondays at 06:00 · ace")).toBeTruthy();
+  await userEvent.hover(sidebar.getByRole("link", { name: /Flaky test triage/ }));
+  expect(await screen.findByRole("tooltip", { name: "Mondays at 06:00 · ace" })).toBeTruthy();
 });
 
 test("deleting an automation hides it at once, and Undo brings it back untouched", async () => {
@@ -551,7 +549,7 @@ test("an explicit automation model is saved as the provider model and survives e
   const reply = await app.client.request({ type: "automation.list" });
   const saved = reply.automations?.find((automation) => automation.title === "Explicit model QA");
   expect(saved?.model).toBe("gpt-5-codex");
-  await userEvent.click(screen.getByRole("link", { name: "Edit prompt" }));
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
   await heading("Edit automation");
   expect((await screen.findByRole("button", { name: /^Model: / })).textContent).toContain(
     "GPT-5 Codex",
@@ -566,3 +564,131 @@ test("saving an old automation repairs its catalog row model identity", async ()
   await heading("Review pull requests on open repaired");
   expect((await stored(app, "auto-pr-review"))?.model).toBe("gpt-5-codex");
 }, 20_000);
+
+test("file change automations require globs and save them from the create screen", async () => {
+  const { app } = await open("/automations/new");
+  await heading("New automation");
+  await userEvent.type(field("Name"), "Watch tests");
+  await userEvent.type(field("What should the agent do?"), "Review changed tests.");
+  await choose("When it runs", "On file change");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+  expect(await screen.findByText("Add at least one path.")).toBeTruthy();
+  await userEvent.type(field("File globs, one per line"), "src/**/*.test.ts\npackages/**/*.ts");
+  await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
+  await heading("Watch tests");
+  const reply = await app.client.request({ type: "automation.list" });
+  expect(
+    reply.automations?.find((automation) => automation.title === "Watch tests")?.trigger,
+  ).toEqual({ kind: "file", paths: ["src/**/*.test.ts", "packages/**/*.ts"] });
+});
+
+test("a poll failure shows a fix hint and stays visible until the trigger is replaced", async () => {
+  const { sidebar } = await open("/automations/auto-pr-review", (seed) => {
+    seed.pollErrors = { "auto-pr-review": { at: Date.now(), message: "gh auth required: 401" } };
+  });
+  await heading("Review pull requests on open");
+  const error = await main().findByRole("alert");
+  expect(error.textContent).toContain("Couldn't check GitHub");
+  expect(error.textContent).toContain("Sign in to GitHub on this machine");
+  expect(error.textContent).not.toContain("401");
+  expect(
+    within(sidebar.getByRole("link", { name: /Review pull requests/ })).getByRole("img", {
+      name: "Needs attention",
+    }),
+  ).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await heading("Edit automation");
+  await userEvent.type(field("Name"), " fixed");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await heading("Review pull requests on open fixed");
+  expect(main().getByRole("alert")).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await heading("Edit automation");
+  await choose("When it runs", "By hand");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await heading("Review pull requests on open fixed");
+  expect(main().queryByRole("alert")).toBeNull();
+});
+
+test("a rarely run automation has its own history and older pages", async () => {
+  await open("/automations/auto-changelog", (seed) => {
+    seed.runs = Array.from({ length: 105 }, (_, index) => ({
+      id: `history-${index}`,
+      automationId: index < 53 ? "auto-changelog" : "auto-pr-review",
+      title: index < 53 ? "Changelog draft" : "Review pull requests on open",
+      eventKey: `history-${index}`,
+      trigger: "manual",
+      status: "succeeded",
+      startedAt: index + 1,
+      finishedAt: index + 2,
+      result: `Result ${index}`,
+    }));
+  });
+  await heading("Changelog draft");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  expect(await runs.findByText("Result 52")).toBeTruthy();
+  expect(runs.queryByText("Result 0")).toBeNull();
+  expect(runs.queryByText("Result 104")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Show older" }));
+  expect(await runs.findByText("Result 0")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+});
+
+test("run details show full output, link the produced thread and close back to the row", async () => {
+  await open("/automations/auto-pr-review");
+  await heading("Review pull requests on open");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  const row = await runs.findByRole("button", { name: "Open the run #212 · approved with 1 note" });
+  await userEvent.click(row);
+  const detail = screen.getByRole("region", {
+    name: "Run details for Review pull requests on open",
+  });
+  expect(within(detail).getByRole("region", { name: "Run output" }).textContent).toContain(
+    "#212 · approved with 1 note",
+  );
+  expect(within(detail).getByRole("link", { name: "Open thread" }).getAttribute("href")).toBe(
+    "/t/thread-bump-codex",
+  );
+  expect(within(detail).getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await userEvent.click(within(detail).getByRole("button", { name: "Close" }));
+  expect(
+    screen.queryByRole("region", { name: "Run details for Review pull requests on open" }),
+  ).toBeNull();
+  expect(document.activeElement).toBe(row);
+});
+
+test("a failed run shows its complete error even without a produced thread", async () => {
+  await open("/automations/auto-flaky-triage", (seed) => {
+    const run = seed.runs?.find((candidate) => candidate.automationId === "auto-flaky-triage");
+    if (run) {
+      run.status = "failed";
+      run.result = "The test command failed.\nInstall the project dependencies and try again.";
+    }
+  });
+  await heading("Flaky test triage");
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Open the run Failed: The test command failed/ }),
+  );
+  const error = screen.getByRole("region", { name: "Run error" });
+  expect(error.textContent).toContain("Install the project dependencies and try again.");
+  expect(screen.queryByRole("link", { name: "Open thread" })).toBeNull();
+});
+
+test("the detail has one Edit entry point and keeps a selected time zone when reopened", async () => {
+  await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  expect(screen.getAllByRole("link", { name: "Edit" })).toHaveLength(1);
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await heading("Edit automation");
+  await choose("Time zone", "Asia/Tokyo");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await heading("Nightly dependency audit");
+  expect(main().getByText("Every day at 02:00 (Asia/Tokyo)")).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await heading("Edit automation");
+  expect(screen.getByRole("combobox", { name: "Time zone" }).textContent).toContain("Asia/Tokyo");
+});

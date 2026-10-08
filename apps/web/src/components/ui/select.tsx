@@ -51,7 +51,7 @@ function Select<T extends string>(props: {
           className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
         >
           <SelectPrimitive.Popup className={cn(popupSurface, "min-w-(--anchor-width)")}>
-            <SelectPrimitive.List>
+            <SelectPrimitive.List className="max-h-64 overflow-y-auto">
               {props.options.map((option) => (
                 <SelectPrimitive.Item key={option.value} value={option.value} className={menuItem}>
                   <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">

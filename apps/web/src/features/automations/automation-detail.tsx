@@ -1,5 +1,5 @@
 import type { Automation } from "@ace/protocol";
-import { ClockIcon, PauseIcon, PencilSimpleIcon, PlayIcon, TrashIcon } from "@phosphor-icons/react";
+import { ClockIcon, PlayIcon, TrashIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -7,7 +7,7 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -24,6 +24,7 @@ import {
   useAutomationActions,
   useAutomations,
 } from "./use-automations.ts";
+import { PollError } from "./poll-error.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 
 /** One automation: what it does, where it runs, when next, and its recent runs. */
@@ -52,7 +53,7 @@ export function AutomationScreen(props: { id: string }) {
             title={error ? "Couldn't load this automation" : "Automation not found"}
             description={
               error
-                ? "The daemon didn't answer. It will be read again once the connection is back."
+                ? "Couldn't connect. This loads again when the connection is back."
                 : "It may have been deleted on another device."
             }
             action={
@@ -74,50 +75,44 @@ export function AutomationScreen(props: { id: string }) {
       subtitle="Automation"
       menu={
         <>
-          <MenuItem icon={<Icon icon={PencilSimpleIcon} />} render={<Link {...edit} />}>
-            Edit
-          </MenuItem>
-          <MenuItem
-            icon={<Icon icon={automation.enabled ? PauseIcon : PlayIcon} />}
-            onClick={() => actions.toggle(!automation.enabled)}
-          >
-            {automation.enabled ? "Pause" : "Resume"}
-          </MenuItem>
-          <MenuSeparator />
           <MenuItem danger icon={<Icon icon={TrashIcon} />} onClick={actions.remove}>
             Delete
           </MenuItem>
         </>
-      }
-      actions={
-        // A paused automation can't run (the daemon refuses): offer the step that works.
-        !automation.enabled ? (
-          <Button variant="ghost" size="sm" onClick={() => actions.toggle(true)}>
-            <Icon icon={PlayIcon} size={14} />
-            Resume
-          </Button>
-        ) : running === false ? (
-          <Tip label="Automations are off on this machine">
-            <Button variant="ghost" size="sm" disabled focusableWhenDisabled>
-              <Icon icon={PlayIcon} size={14} />
-              Run now
-            </Button>
-          </Tip>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={actions.runNow}>
-            <Icon icon={PlayIcon} size={14} />
-            Run now
-          </Button>
-        )
       }
     >
       <Page>
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-semibold tracking-title">{automation.title}</h2>
-            <p className="mt-1 text-base text-muted-foreground">
-              {projectName(automation.workspace)}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-base text-muted-foreground">
+                {projectName(automation.workspace)}
+              </span>
+              <Link {...edit} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                Edit
+              </Link>
+              {/* A paused automation must resume before it can run. */}
+              {!automation.enabled || running === false ? (
+                <Tip
+                  label={
+                    !automation.enabled
+                      ? "Resume this automation to run it"
+                      : "Automations are off on this machine"
+                  }
+                >
+                  <Button variant="ghost" size="sm" disabled focusableWhenDisabled>
+                    <Icon icon={PlayIcon} size={14} />
+                    Run now
+                  </Button>
+                </Tip>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={actions.runNow}>
+                  <Icon icon={PlayIcon} size={14} />
+                  Run now
+                </Button>
+              )}
+            </div>
           </div>
           <div className="mt-2 flex items-center gap-2">
             <label htmlFor={switchId} className="text-sm text-muted-foreground">
@@ -131,15 +126,12 @@ export function AutomationScreen(props: { id: string }) {
           </div>
         </div>
         <div className="mt-7">
-          <SettingRow title="Prompt" description={automation.prompt}>
-            <EditLink id={automation.id} label="Edit" what="prompt" />
-          </SettingRow>
-          <SettingRow title="When" description={describeWhen(automation.trigger, localTimeZone())}>
-            <EditLink id={automation.id} label="Change" what="when it runs" />
-          </SettingRow>
-          <SettingRow title="Runs on" description={runsOn(automation, choices)}>
-            <EditLink id={automation.id} label="Change" what="agent" />
-          </SettingRow>
+          <SettingRow title="Prompt" description={automation.prompt} />
+          <SettingRow
+            title="When"
+            description={describeWhen(automation.trigger, localTimeZone())}
+          />
+          <SettingRow title="Runs on" description={runsOn(automation, choices)} />
           <SettingRow
             title="Next run"
             description={
@@ -153,6 +145,7 @@ export function AutomationScreen(props: { id: string }) {
             />
           )}
         </div>
+        {entry.lastPollError && <PollError error={entry.lastPollError} />}
         <RecentRuns automationId={automation.id} />
       </Page>
     </Screen>
@@ -201,26 +194,18 @@ function NextRun(props: {
   }
 }
 
-function EditLink(props: { id: string; label: string; what: string }) {
-  return (
-    <Link
-      to="/automations/$automationId/edit"
-      params={{ automationId: props.id }}
-      aria-label={`${props.label} ${props.what}`}
-      className={buttonVariants({ variant: "ghost", size: "sm" })}
-    >
-      {props.label}
-    </Link>
-  );
-}
-
 function useAutomationControls(automation: Automation | undefined) {
   const { setEnabled, remove, runNow, setHidden } = useAutomationActions();
   const list = useAutomations().data;
   const toast = useToast();
   const navigate = useNavigate();
   const failed = (error: unknown) =>
-    toast.error({ title: error instanceof Error ? error.message : "The daemon didn't answer." });
+    toast.error({
+      title:
+        error instanceof Error
+          ? error.message
+          : "Couldn't connect. Try again once the connection is back.",
+    });
   return {
     toggle(enabled: boolean) {
       if (!automation) return;

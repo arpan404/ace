@@ -5,3 +5,5 @@ export { AutomationsEmptyScreen } from "./automations-empty-screen.tsx";
 export { AutomationsSidebar } from "./automations-sidebar.tsx";
 export { runSummary as automationRunSummary } from "./labels.ts";
 export { useAutomationRuns, useAutomations } from "./use-automations.ts";
+
+export { RunOutput } from "./run-output.tsx";
