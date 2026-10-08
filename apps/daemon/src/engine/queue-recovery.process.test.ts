@@ -364,3 +364,33 @@ test("an unacknowledged send is never replayed automatically and must be removed
   ).toBe(true);
   expect(recovered.engine.queue(id).messages.map((queued) => queued.id)).toEqual(["following"]);
 });
+
+test.each(["model_unavailable", "Cannot open directory"])(
+  "a known pre-delivery failure stays held across restart even when continuation is automatic: %s",
+  async (failure) => {
+    const frames = scriptFrames();
+    const h = await fixture([], frames);
+    h.registry.register(
+      {
+        ...h.adapter,
+        async openSession() {
+          throw new Error(failure);
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const id = await h.create();
+    const reason = failure === "model_unavailable" ? "model_unavailable" : "not_sent";
+    const replacement = replaceProvider(h, frames, [
+      { on: "send", frames: [frames.frame(start, end)] },
+    ]);
+    const recovered = await restart(h, { preferences: { continueAfterRestart: true } });
+    expect(recovered.queue(id)).toMatchObject({
+      paused: true,
+      reason,
+      messages: [{ input: text("first") }],
+    });
+    expect(sends(replacement)).toEqual([]);
+    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
+  },
+);

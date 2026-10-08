@@ -24,6 +24,14 @@ test("cancelled engine publication rolls back history and sequences before a lat
     {
       type: "response_item",
       payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Inspect the working directory" }],
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
         type: "function_call",
         call_id: "c",
         name: "exec_command",

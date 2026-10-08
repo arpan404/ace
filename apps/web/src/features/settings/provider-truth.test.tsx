@@ -117,7 +117,7 @@ test("leaving the provider page during update resumes the same job on the Provid
   await within(group).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await waitFor(() => expect(within(group).queryByRole("progressbar")).toBeNull());
-  expect(within(group).getByText("Ready")).toBeTruthy();
+  expect(await within(group).findByText("Installed")).toBeTruthy();
 });
 
 test("a live limit update changes the provider and account surfaces together", async () => {
@@ -208,8 +208,7 @@ test("OpenAI key entry stays inline in an OpenCode account and cancels without s
   await userEvent.type(field, "fake-key-that-must-be-cleared");
   await userEvent.click(within(list).getByRole("button", { name: "Cancel" }));
   expect(field instanceof HTMLInputElement && field.value).toBe("");
-  expect(await within(list).findByText("Sign-in cancelled")).toBeTruthy();
-  await userEvent.click(within(list).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(within(list).queryByLabelText("OpenAI API key")).toBeNull());
   expect(within(list).queryByLabelText("OpenAI API key")).toBeNull();
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-that-must-be-cleared");
 });

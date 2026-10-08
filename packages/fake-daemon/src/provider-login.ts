@@ -9,6 +9,7 @@ interface Job {
   requestId: string;
   progress: ProviderLoginProgress;
   scenario: Scenario;
+  choice?: string;
   settled?: ((state: "succeeded" | "failed" | "cancelled") => void) | undefined;
   terminalOwner?: (message: ServerMessage) => void;
 }
@@ -65,7 +66,12 @@ export class FakeProviderLogin {
   }
   finishTerminal(session: string): void {
     const job = this.jobs.get(session);
-    if (!job?.progress.manual || job.progress.state !== "failed") return;
+    if (!job?.progress.manual) return;
+    if (job.progress.provider === "pi" && job.progress.state === "awaiting_input") {
+      this.complete(session);
+      return;
+    }
+    if (job.progress.state !== "failed") return;
     job.settled?.("succeeded");
     job.settled = undefined;
     this.changed(
@@ -123,12 +129,14 @@ export class FakeProviderLogin {
     }
     if (
       job.scenario === "device_code" ||
-      ["codex", "opencode", "pi"].includes(job.progress.provider)
+      ["codex", "opencode"].includes(job.progress.provider) ||
+      (job.progress.provider === "pi" && job.choice !== "anthropic")
     )
       this.update(job, {
         state: "awaiting_code_entry",
         url:
-          job.progress.provider === "codex"
+          job.progress.provider === "codex" ||
+          (job.progress.provider === "pi" && job.choice === "openai-codex")
             ? "https://auth.openai.com/codex/device"
             : "https://github.com/login/device",
         userCode: "ACEF-2048",
@@ -138,7 +146,8 @@ export class FakeProviderLogin {
       this.update(job, {
         state: "awaiting_browser",
         url:
-          job.progress.provider === "claude"
+          job.progress.provider === "claude" ||
+          (job.progress.provider === "pi" && job.choice === "anthropic")
             ? "https://claude.ai/oauth/authorize?client_id=ace-fake"
             : job.progress.provider === "acp" || job.progress.provider === "antigravity"
               ? "https://accounts.google.com/o/oauth2/v2/auth?client_id=ace-fake"
@@ -268,14 +277,16 @@ export class FakeProviderLogin {
           prompt: "Choose the account provider.",
           choices: [
             { id: "github-copilot", label: "GitHub Copilot" },
-            { id: "openai", label: "OpenAI / ChatGPT" },
+            input.provider === "pi"
+              ? { id: "openai-codex", label: "ChatGPT / Codex" }
+              : { id: "openai", label: "OpenAI / ChatGPT" },
             { id: "anthropic", label: "Claude" },
             ...(input.provider === "opencode"
               ? [
                   { id: "opencode-go", label: "OpenCode Go" },
                   { id: "opencode", label: "OpenCode Zen" },
                 ]
-              : []),
+              : [{ id: "other", label: "Other provider" }]),
           ],
         });
       else this.challenge(job);
@@ -333,12 +344,37 @@ export class FakeProviderLogin {
           error("invalid_input");
           return true;
         }
-        if (["opencode-go", "opencode", "anthropic"].includes(input.input.choice)) {
+        job.choice = choiceId;
+        if (job.progress.provider === "pi") {
+          if (choiceId === "other") {
+            this.update(job, {
+              state: "awaiting_input",
+              manual: {
+                action: "open_terminal",
+                command: "pi",
+                instruction:
+                  "Type /login, choose your provider, then finish its prompts. Exit Pi when you're done.",
+              },
+            });
+            const terminalId = this.openTerminal(job.progress, push);
+            job.terminalOwner = push;
+            this.update(job, {
+              state: "awaiting_input",
+              manual: {
+                action: "open_terminal",
+                command: "pi",
+                instruction:
+                  "Type /login, choose your provider, then finish its prompts. Exit Pi when you're done.",
+                terminalId,
+              },
+            });
+          } else this.challenge(job);
+        } else if (["opencode-go", "opencode", "anthropic"].includes(input.input.choice)) {
           this.update(job, {
             state: "failed",
             manual: {
               action: "open_terminal",
-              command: job.progress.provider === "pi" ? "pi" : "opencode auth login",
+              command: "opencode auth login",
               instruction:
                 "Complete this provider's credential entry directly in the CLI terminal.",
             },

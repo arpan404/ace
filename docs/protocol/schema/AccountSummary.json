@@ -18,6 +18,9 @@
     "availability": {
       "$ref": "https://ace.local/protocol/v1/AccountAvailability.json"
     },
+    "badgeColor": {
+      "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
+    },
     "blockedUntil": {
       "anyOf": [
         {
@@ -77,6 +80,9 @@
     },
     "quota": {
       "$ref": "https://ace.local/protocol/v1/AccountQuota.json"
+    },
+    "shortLabel": {
+      "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
     },
     "signedInAs": {
       "maxLength": 256,

@@ -27,6 +27,7 @@
     "@ace/settings": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "@ace/usage": "workspace:*",
+    "@ace/workspace": "workspace:*",
     "image-size": "^2.0.2",
     "zod": "^4.6.5"
   },

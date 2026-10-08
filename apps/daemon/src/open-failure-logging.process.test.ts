@@ -134,7 +134,7 @@ else process.exit(9);
       if (!thread) throw new Error("Missing thread");
       expect(engine.queue(thread.id)).toMatchObject({
         paused: true,
-        reason: "manual",
+        reason: "model_unavailable",
         messages: [{ state: "queued" }],
       });
       const snapshot = daemon.store.snapshotThread(thread.id);

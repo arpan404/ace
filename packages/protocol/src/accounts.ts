@@ -5,6 +5,10 @@ import { AccountId, AccountInstanceId } from "./account-ids.ts";
 
 export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
+export const AccountBadgeColor = z.enum(["neutral", "blue", "green", "amber", "rose", "violet"]);
+export type AccountBadgeColor = z.infer<typeof AccountBadgeColor>;
+export const AccountShortLabel = z.string().regex(/^\S{1,3}$/u);
+
 export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor", "pi"]);
 export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
 export const AccountAssignment = z.object({
@@ -45,6 +49,8 @@ export const ProviderInstance = z
     installationVersion: z.string().max(256).optional(),
     provider: AccountProvider,
     label: z.string().min(1).max(128),
+    shortLabel: AccountShortLabel.optional(),
+    badgeColor: AccountBadgeColor.optional(),
     homeDir: AccountDirectory,
     env: z.partialRecord(AccountEnvKey, AccountDirectory),
   })
@@ -157,6 +163,8 @@ export const AccountSummary = z.object({
   installationVersion: z.string().max(256).optional(),
   provider: AccountProvider,
   label: z.string().max(128),
+  shortLabel: AccountShortLabel.optional(),
+  badgeColor: AccountBadgeColor.optional(),
   quota: AccountQuota,
   availability: AccountAvailability,
   blockedUntil: z.number().finite().nonnegative().nullable().optional(),
@@ -190,6 +198,8 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
     requestId: z.string().max(128),
     instanceId: AccountInstanceId,
     label: z.string().min(1).max(128).regex(/\S/),
+    shortLabel: AccountShortLabel.optional(),
+    badgeColor: AccountBadgeColor.nullable().optional(),
   }),
   z.object({
     type: z.literal("accounts.remove"),

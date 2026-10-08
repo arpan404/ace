@@ -15,9 +15,9 @@ const letters: Record<ChangedFile["status"], { letter: string; label: string }> 
   untracked: { letter: "U", label: "Untracked" },
 };
 
-/** Untracked files are left out until picked: they are often scratch files or secrets. */
+/** Start with the whole change selected; the person can leave individual files out. */
 export const pickedByDefault = (files: readonly ChangedFile[]): ReadonlySet<string> =>
-  new Set(files.filter((file) => file.status !== "untracked").map((file) => file.path));
+  new Set(files.map((file) => file.path));
 
 /** The paths a commit of `picked` names: a rename's old path too, so its removal goes with it. */
 export const pathsOf = (files: readonly ChangedFile[], picked: ReadonlySet<string>): string[] => [

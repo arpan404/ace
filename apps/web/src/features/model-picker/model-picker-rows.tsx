@@ -1,10 +1,18 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { ModelProblem, PickerGroup, PickerModel } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
-import { CaretRightIcon, CheckIcon, StarIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import {
+  CaretRightIcon,
+  CheckIcon,
+  MagnifyingGlassIcon,
+  StarIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { useAccountViews } from "@/lib/account-views.ts";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { cn } from "@/lib/cn.ts";
@@ -46,12 +54,14 @@ export function ModelRow(props: {
   onStar(): void;
 }) {
   const { model } = props;
+  const accounts = useAccountViews();
+  const account = accounts.data?.find((entry) => entry.id === model.instance);
   const detail = rowDetail(model);
   const marker = model.isDefault ? (model.userDefault ? "Your choice" : "Recommended") : undefined;
   const subtitle = [
-    props.mixed ? origin(model) : undefined,
+    props.mixed ? [origin(model), account?.label].filter(Boolean).join(" · ") : undefined,
     props.mixed && model.legacy ? "Legacy" : undefined,
-    model.unavailable,
+    props.mixed ? model.unavailable : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -60,6 +70,7 @@ export function ModelRow(props: {
     model.free ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
+    props.mixed ? undefined : model.unavailable,
     subtitle || providerNames[model.provider],
   ]
     .filter(Boolean)
@@ -100,6 +111,9 @@ export function ModelRow(props: {
                 {detail}
               </span>
             )}
+            {!props.mixed && model.unavailable && (
+              <span className="shrink-0 text-xs text-status-failed">{model.unavailable}</span>
+            )}
             {model.isNew && (
               <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-link">
                 NEW
@@ -109,7 +123,13 @@ export function ModelRow(props: {
           </span>
           {subtitle && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
-              {props.mixed && <ProviderIcon provider={model.provider} size={12} decorative />}
+              {props.mixed && (
+                <ProviderAccountIcon
+                  provider={model.provider}
+                  instance={model.instance}
+                  size={14}
+                />
+              )}
               <span className="truncate">{subtitle}</span>
             </span>
           )}
@@ -120,19 +140,21 @@ export function ModelRow(props: {
           <Kbd keys={`mod+${props.number}`} className="tabular-nums" />
         )}
       </div>
-      <button
-        type="button"
-        aria-label={`${props.starred ? "Remove" : "Add"} ${model.label} ${props.starred ? "from" : "to"} favorites`}
-        aria-pressed={props.starred}
-        tabIndex={props.highlighted ? 0 : -1}
-        onClick={props.onStar}
-        className={cn(
-          "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-full text-subtle-foreground outline-none transition-[color,opacity] duration-(--dur-1) hover:text-foreground focus-visible:opacity-100 focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:text-foreground",
-          !props.starred && !props.highlighted && "opacity-0",
-        )}
-      >
-        <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />
-      </button>
+      <Tip label={`${props.starred ? "Remove from" : "Add to"} favorites`}>
+        <button
+          type="button"
+          aria-label={`${props.starred ? "Remove" : "Add"} ${model.label} ${props.starred ? "from" : "to"} favorites`}
+          aria-pressed={props.starred}
+          tabIndex={props.highlighted ? 0 : -1}
+          onClick={props.onStar}
+          className={cn(
+            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-full text-subtle-foreground outline-none transition-[color,opacity] duration-(--dur-1) hover:text-foreground focus-visible:opacity-100 focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:text-foreground",
+            !props.starred && !props.highlighted && "opacity-0",
+          )}
+        >
+          <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />
+        </button>
+      </Tip>
     </div>
   );
 }
@@ -226,5 +248,28 @@ export function GroupProblem(props: { problem: ModelProblem; id: string; provide
         </SignInButton>
       )}
     </p>
+  );
+}
+
+/** What an empty list says: nothing matched, nothing starred yet, or nothing listed. */
+export function PickerEmpty(props: { query: string; favorites: boolean }) {
+  const [title, hint] = props.query.trim()
+    ? [`No models match “${props.query}”`, "Search looks across every provider"]
+    : props.favorites
+      ? ["No favorites yet", "Star a model to keep it here"]
+      : ["No models", "This provider lists no models yet"];
+  return (
+    <div
+      role="status"
+      className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center"
+    >
+      {props.favorites && !props.query.trim() ? (
+        <StarIcon aria-hidden size={20} className="mb-1 text-subtle-foreground" />
+      ) : (
+        <MagnifyingGlassIcon aria-hidden size={20} className="mb-1 text-subtle-foreground" />
+      )}
+      <p className="text-ui text-foreground">{title}</p>
+      <p className="text-xs text-subtle-foreground">{hint}</p>
+    </div>
   );
 }

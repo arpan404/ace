@@ -100,7 +100,9 @@ test("opening Simulator leaves computer use off; approval is scoped to the threa
   const device = await openDevice(panel, "iPhone 16 Pro");
   expect(app.daemon.screen.access.enabled).toBe(false);
   expect(app.daemon.screen.access.list()).toEqual([]);
-  expect(within(device).getByText(/shares Simulator with this thread only/)).toBeTruthy();
+  expect(within(device).getByText(/You can watch without approving/)).toBeTruthy();
+  expect(await within(device).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+  expect(app.daemon.screen.access.list()).toEqual([]);
   await userEvent.click(within(device).getByRole("button", { name: "Approve" }));
   await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
   expect(app.daemon.screen.access.list()).toEqual([

@@ -1,3 +1,4 @@
+import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
@@ -67,6 +68,8 @@ export class IntentDelivery {
         };
         await this.dependencies.transitions.execute(actor, intent);
         if (intent.kind === "thread.switch") {
+          const queue = this.dependencies.repo.queue.get(actor.id);
+          if (queue.reason === "model_unavailable") this.dependencies.recovery.automatic(actor.id);
           this.dependencies.invalidateContext(actor.id);
           if (
             binding.provider !== this.dependencies.repo.requireState(actor.id).config.provider ||
@@ -137,8 +140,20 @@ export class IntentDelivery {
               detail: openingFailure.detail,
             }
           : undefined;
-        if (undelivered) this.retainInput(intent, message, details);
-        else
+        const unavailable =
+          error instanceof ModelSelectionError ||
+          details?.code === "model_unavailable" ||
+          /(?:^|[\s:])model_unavailable(?:$|[\s:])/.test(details?.detail ?? message);
+        if (undelivered) this.retainInput(intent, message, unavailable, details);
+        else if (continuation && unavailable) {
+          this.dependencies.repo.mark(intent, "failed", message);
+          this.dependencies.releaseGuards(intent);
+          this.dependencies.repo.queue.set(
+            actor.id,
+            { paused: true, reason: "model_unavailable", resumeAt: null, timerAction: null },
+            this.dependencies.clock.now(),
+          );
+        } else
           this.fail(
             intent,
             message,
@@ -224,17 +239,27 @@ export class IntentDelivery {
       this.reportFailure(intent, message, code, details);
     });
   }
-  private retainInput(intent: IntentHeader, message: string, details?: ProviderErrorDetails): void {
+  private retainInput(
+    intent: IntentHeader,
+    message: string,
+    unavailable: boolean,
+    details?: ProviderErrorDetails,
+  ): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.queue.clearUncertain(intent.id);
       this.dependencies.repo.mark(intent, "queued", message);
       this.dependencies.repo.beginSend(intent, undefined);
       this.dependencies.repo.queue.set(
         intent.threadId,
-        { paused: true, reason: "manual" },
+        {
+          paused: true,
+          reason: unavailable ? "model_unavailable" : "not_sent",
+          resumeAt: null,
+          timerAction: null,
+        },
         this.dependencies.clock.now(),
       );
-      this.reportFailure(intent, message, undefined, details);
+      this.reportFailure(intent, message, "input_queued", details);
     });
   }
   private reportFailure(
@@ -275,26 +300,30 @@ export class IntentDelivery {
       item: `intent:${intent.id}`,
       draft: {
         type: "notice",
-        level: "error",
+        level: code === "input_queued" ? "info" : "error",
         text:
-          code === "delivery_uncertain"
-            ? "This message may have run"
-            : code.startsWith("interaction_")
-              ? message
-              : ["thread.send", "thread.create"].includes(intent.kind)
-                ? "Message not sent"
-                : "Action failed",
+          code === "input_queued"
+            ? "Message kept in queue"
+            : code === "delivery_uncertain"
+              ? "This message may have run"
+              : code.startsWith("interaction_")
+                ? message
+                : ["thread.send", "thread.create"].includes(intent.kind)
+                  ? "Message not sent"
+                  : "Action failed",
         commandId: intent.commandId,
         ...(intent.resolutionId ? { interactionId: intent.resolutionId } : {}),
         code,
         title:
-          code === "delivery_uncertain"
-            ? "This message may have run"
-            : code.startsWith("interaction_")
-              ? "This question is no longer active"
-              : intent.kind === "thread.send" || intent.kind === "thread.create"
-                ? "Not sent"
-                : "Action failed",
+          code === "input_queued"
+            ? "Message kept in queue"
+            : code === "delivery_uncertain"
+              ? "This message may have run"
+              : code.startsWith("interaction_")
+                ? "This question is no longer active"
+                : intent.kind === "thread.send" || intent.kind === "thread.create"
+                  ? "Not sent"
+                  : "Action failed",
         detail: message.slice(0, 4096),
         complete: true,
         raw: [

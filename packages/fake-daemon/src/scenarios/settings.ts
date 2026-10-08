@@ -297,9 +297,10 @@ export function modelCatalog(): CatalogModel[] {
   }
   for (const instance of ["codex-personal", "codex-team"]) {
     for (const id of [
+      ...(instance === "codex-team" ? ["gpt-6.2-sol"] : []),
       "gpt-6",
       "gpt-6.1-sol",
-      "gpt-6-luna",
+      ...(instance === "codex-personal" ? ["gpt-6-luna"] : []),
       "gpt-5.6-sol",
       "gpt-6-sol",
       "gpt-5.5",
@@ -308,6 +309,7 @@ export function modelCatalog(): CatalogModel[] {
     ]) {
       rows.push(
         model("codex", instance, id, modelDisplayName(id).displayName, {
+          isNew: id === "gpt-6.2-sol",
           contextWindow: 400_000,
           efforts: ["minimal", "low", "medium", "high"],
           defaultEffort: "medium",
@@ -353,7 +355,9 @@ export function modelCatalog(): CatalogModel[] {
   ] satisfies NonNullable<CatalogModel["source"]>[]) {
     for (const id of ["claude-opus-5-5", "claude-opus-4-8", "claude-haiku-4-5"])
       rows.push(
-        model("pi", "pi", `${source.id}/${id}`, modelDisplayName(id).displayName, { source }),
+        model("pi", "pi-cli-default", `${source.id}/${id}`, modelDisplayName(id).displayName, {
+          source,
+        }),
       );
   }
   for (const id of ["auto", "composer-2.5", "composer-2", "claude-opus-5-5", "claude-opus-4-8"])

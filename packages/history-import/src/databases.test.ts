@@ -81,6 +81,11 @@ test("OpenCode databases import ordered messages, tool outputs and child session
   expect(text(items)).toContain("OpenCode prompt");
   expect(items.some((i) => i.type === "notice" && i.text.includes("file content"))).toBe(true);
   expect(text(items)).toContain("OpenCode answer");
+  expect(items.find((item) => item.type === "message" && item.role === "user")?.createdAt).toBe(1);
+  expect(
+    items.find((item) => item.type === "message" && item.role === "assistant")?.createdAt,
+  ).toBe(2);
+  expect(items.find((item) => item.type === "tool_call")?.createdAt).toBe(2);
   expect(items.some((i) => i.type === "tool_call" && i.call.title === "read")).toBe(true);
   expect(await service.importedAgents(init(root.id).threadId)).toHaveLength(2);
   expect(await readFile(path)).toEqual(before);
@@ -157,7 +162,7 @@ test("unknown database schemas return unsupported without rewriting provider byt
   expect((await service.scan()).unsupported[0]?.reason).toContain("schema");
   expect(await readFile(path)).toEqual(before);
 });
-test("OpenCode v2 history is explicitly unsupported rather than an empty successful import", async () => {
+test("Unknown OpenCode message schemas are refused rather than imported as an empty conversation", async () => {
   const { start, home, db } = await database();
   db.exec(
     "CREATE TABLE session_message(session_id TEXT);INSERT INTO session_message VALUES('session-root')",
@@ -170,7 +175,7 @@ test("OpenCode v2 history is explicitly unsupported rather than an empty success
   );
   expect(s?.support).toMatchObject({
     status: "unsupported",
-    reason: expect.stringContaining("v2"),
+    reason: expect.stringContaining("not recognized"),
   });
 });
 test("fixture-derived OpenCode parts retain observed text and tool results", async () => {
@@ -216,7 +221,10 @@ test("fixture-derived Codex response items retain assistant text", async () => {
   const home = join(env.root, "codex"),
     path = join(home, "sessions/2026/01/01/rollout.jsonl");
   const fixtures = new URL("../../../fixtures", import.meta.url).pathname;
-  const records: unknown[] = [{ type: "session_meta", payload: { id: nativeId, cwd } }];
+  const records: unknown[] = [
+    { type: "session_meta", payload: { id: nativeId, cwd } },
+    ...codexRecords().slice(2, 3),
+  ];
   const expected: string[] = [];
   for await (const record of readJsonLines(
     fixtures,
@@ -342,9 +350,11 @@ test("legacy storage follows message timestamps rather than directory creation o
   const s = (await service.list({ type: "history.list", cwd })).sessions[0];
   if (!s) throw new Error("missing");
   await service.importSession(init(s.id));
-  expect(text((await service.itemsPage({ threadId: init(s.id).threadId })).items)).toBe(
-    "earlier later",
-  );
+  const items = (await service.itemsPage({ threadId: init(s.id).threadId })).items;
+  expect(text(items)).toBe("earlier later");
+  expect(items.filter((item) => item.type === "message").map((item) => item.createdAt)).toEqual([
+    10, 20,
+  ]);
 });
 
 test("an oversized Codex title does not hide other sessions or restart the scan", async () => {

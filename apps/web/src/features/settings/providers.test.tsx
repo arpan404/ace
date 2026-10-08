@@ -83,8 +83,9 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
     { name: "OpenCode services" },
     { timeout: 10_000 },
   );
-  expect(within(services).getAllByText("Connection needs attention")).toHaveLength(2);
-  expect(within(services).getAllByText("Connected · API key").length).toBeGreaterThan(0);
+  expect(within(services).getAllByText("Needs attention")).toHaveLength(2);
+  expect(within(services).getAllByText("Connected").length).toBeGreaterThan(0);
+  expect(within(services).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
   // Local runtimes need no sign-in; they're named once.
   expect(screen.getByText(/models running on this computer: LM Studio, Ollama/)).toBeTruthy();
 
@@ -247,4 +248,35 @@ test("a provider with one available model labels it in the singular", async () =
   const models = await screen.findByRole("region", { name: "Models" });
   expect(await within(models).findByText("1 model")).toBeTruthy();
   expect(within(models).queryByText("1 models")).toBeNull();
+});
+
+test("a vanished saved default stays unavailable until the person picks its recommended replacement", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({
+    "providers.configuration": [
+      { provider: "opencode", defaultModel: "opencode-go/muse-spark-1.3-contributor" },
+    ],
+  });
+  app.daemon.services.models = app.daemon.services.models.filter(
+    (row) => row.id !== "opencode-go/muse-spark-1.3-contributor",
+  );
+  await app.open("/settings/providers/opencode");
+  const models = await screen.findByRole("region", { name: "Models" });
+  await userEvent.click(
+    await within(models).findByRole("button", {
+      name: "Default model: Muse Spark 1.3 Contributor, Unavailable",
+    }),
+  );
+  const picker = await screen.findByRole("listbox", { name: "Models" });
+  const missing = within(picker).getByRole("option", {
+    name: /Muse Spark 1.3 Contributor, Unavailable/,
+  });
+  expect(missing.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(within(picker).getByRole("option", { name: /Opus 5.5, recommended/ }));
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("providers.configuration")).toEqual([
+      { provider: "opencode", defaultModel: "anthropic/claude-opus-5-5" },
+    ]),
+  );
+  expect(within(models).queryByRole("button", { name: /Unavailable/ })).toBeNull();
 });

@@ -1,3 +1,4 @@
+import { sessionTitle, userPrompt } from "./user-text.ts";
 import { basename } from "node:path";
 import {
   ClaudeSessionMeta,
@@ -19,10 +20,12 @@ export function summary(
   records: unknown[],
   exact: boolean,
   mtime: number,
+  firstPrompt?: string,
 ): HistorySession {
   let nativeId = basename(path, ".jsonl");
   let cwd = "";
   let title = "";
+  let prompt = firstPrompt ?? "";
   let model: string | undefined;
   let parent: string | undefined;
   let count = 0;
@@ -38,16 +41,30 @@ export function summary(
       const meta = CodexSessionMeta.safeParse(r).data;
       if (meta) {
         nativeId = meta.payload.id;
-        parent = meta.payload.parent_thread_id ?? undefined;
+        const spawned = object(object(meta.payload.source).subagent);
+        parent =
+          meta.payload.parent_thread_id ?? string(object(spawned.thread_spawn).parent_thread_id);
         if (
-          (meta.payload.history_mode && meta.payload.history_mode !== "legacy") ||
+          Object.keys(spawned).length ||
+          ["exec", "mcp"].includes(String(meta.payload.source)) ||
+          Object.keys(object(object(meta.payload.source).internal)).length > 0 ||
+          ["subagent", "guardian_review", "memory_consolidation"].includes(
+            String(meta.payload.thread_source),
+          )
+        )
+          parent ??= "non-interactive";
+        if (
+          (meta.payload.history_mode &&
+            !["legacy", "paginated"].includes(meta.payload.history_mode)) ||
           meta.payload.history_base != null
         )
-          reason = "Paginated Codex history requires provider-owned materialization";
+          reason =
+            "This session refers to history in another file. Export it from Codex to open the complete conversation.";
       }
     } else if (instance.provider === "claude") {
       const meta = ClaudeSessionMeta.safeParse(r).data;
       if (meta) nativeId = meta.sessionId;
+      if (r.isSidechain === true) parent ??= "sidechain";
     }
     if (r.type === "ai-title") title = string(r.aiTitle) ?? string(r.title) ?? title;
     if (typeof r.customTitle === "string") title = r.customTitle;
@@ -59,15 +76,7 @@ export function summary(
     )
       count++;
     if (r.type === "user" || r.type === "assistant") count++;
-    const content = message.content ?? payload.content;
-    if (!title && (r.type === "user" || payload.role === "user")) {
-      if (typeof content === "string") title = content.slice(0, 120);
-      else if (Array.isArray(content))
-        title = content
-          .map((p) => string(object(p).text) ?? "")
-          .join(" ")
-          .slice(0, 120);
-    }
+    if (firstPrompt === undefined) prompt ||= userPrompt(r);
     lastActivity = Math.max(lastActivity, timestamp(r.timestamp) ?? 0);
   }
   if (instance.provider === "codex" && !records.some((r) => CodexSessionMeta.safeParse(r).success))
@@ -79,7 +88,7 @@ export function summary(
     provider: instance.provider,
     nativeId,
     cwd,
-    title: (title || nativeId).slice(0, 256),
+    title: sessionTitle(title === nativeId ? "" : title, prompt, lastActivity),
     ...(model ? { model: model.slice(0, 512) } : {}),
     ...(parent ? { parentNativeId: parent } : {}),
     lastActivity,
@@ -88,3 +97,5 @@ export function summary(
     support: reason ? { status: "unsupported", reason } : { status: "supported" },
   });
 }
+
+export { userPrompt } from "./user-text.ts";

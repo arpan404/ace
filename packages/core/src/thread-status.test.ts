@@ -145,3 +145,11 @@ it("activity clears a transient retry while quota recovery requires explicit evi
   h.send({ type: "limit.cleared", agent: "root" });
   expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
 });
+
+for (const deliberate of [false, true])
+  it(`exited providers with kept input wait on the queue instead of working (deliberate=${deliberate})`, () => {
+    const h = activeRoot();
+    h.send({ type: "queue.changed", count: 1 });
+    h.send({ type: "process.exited", deliberate });
+    expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "queue" });
+  });

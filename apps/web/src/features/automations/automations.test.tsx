@@ -285,7 +285,7 @@ test("the model is picked by name from the agent's models, its default chosen an
   ).toEqual([
     "Opus 5.5, recommended, Claude Code",
     "Sonnet 5.5, Claude Code",
-    "Haiku 4.5, 20251001, Claude Code",
+    "Haiku 4.5, Claude Code",
     "Legacy models, 6",
   ]);
   expect(list.textContent).not.toMatch(/claude-|Agent's default/);

@@ -132,7 +132,8 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   await userEvent.type(message, "Then add a metric{Enter}");
   await waitFor(() => expect(pills()).toHaveLength(1));
 
-  await userEvent.click(within(notice).getByRole("button", { name: "Snooze until reset" }));
+  await userEvent.click(within(notice).getByRole("button", { name: "Limit actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze until reset" }));
   const snoozed = await screen.findByRole("region", { name: "Snoozed until the limit resets" });
   expect(within(feed).queryByText("Then add a metric")).toBeNull();
 

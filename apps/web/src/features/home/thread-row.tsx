@@ -112,7 +112,16 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                     <RowMeta card={card} />
                   </span>
                 ) : (
-                  <RowDetail card={card} />
+                  <RowDetail
+                    card={card}
+                    instance={
+                      (entry.switch?.state === "queued"
+                        ? entry.switch.selection.instanceId
+                        : undefined) ??
+                      entry.live?.account ??
+                      entry.execution?.instanceId
+                    }
+                  />
                 )}
               </span>
             </Link>

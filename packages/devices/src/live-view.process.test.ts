@@ -595,19 +595,37 @@ it("lease expiry posts mouse-up at the native boundary without another client co
   expect(deviceState(client)?.controller).toBe("none");
 });
 
-it("opening and starting an unapproved Simulator cannot enable computer use or grant app access", async () => {
+it("an unapproved Simulator streams to a person while computer use stays off and agents are refused", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
   await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
-  await expect(client.request({ op: "start", deviceId, fps: 10 })).rejects.toBeInstanceOf(
-    DeviceClientError,
-  );
+  const shown: string[] = [];
+  client.watchFrames(deviceId, async (frame) => {
+    shown.push(Buffer.from(frame.payload).toString());
+  });
+  await client.request({ op: "start", deviceId, fps: 10 });
+  await client.request({ op: "subscribe", deviceId });
+  await waitFor(() => expect(shown).toContain("simulator:home"));
+  expect(deviceState(client)).toMatchObject({ lifecycle: "live", approved: false });
   expect(f.screen.isEnabled()).toBe(false);
   expect(f.screen.approvals()).toEqual([]);
-  expect(f.screen.states()).toEqual([]);
+  await expect(
+    client.request({
+      op: "controller",
+      deviceId,
+      controller: "agent",
+      threadId: ThreadId.parse("thread-1"),
+      agentId: AgentId.parse("root"),
+    }),
+  ).rejects.toBeInstanceOf(DeviceClientError);
+  const state = f.screen.states()[0];
+  if (!state) throw new Error("Missing live view");
+  expect(() =>
+    f.screen.delegateAgent(state.sessionId, { threadId: "thread-1", agentId: "root" }),
+  ).toThrow();
 });
 
 it("turning devices off while approval is opening computer use leaves no Simulator grant", async () => {

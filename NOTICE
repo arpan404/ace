@@ -43,3 +43,8 @@ Attachment previews use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and contr
 Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
 These dependencies and their bundled notices/licenses are accepted for bounded previews.
 Original uploads and provider images are never re-encoded.
+
+The OpenCode mark is drawn from the official favicon at https://opencode.ai/brand
+and https://github.com/anomalyco/opencode (packages/ui/src/assets/favicon/favicon-v3.svg).
+Copyright OpenCode contributors, MIT. The mark is its owner's trademark. ace crops
+the backdrop and renders its two ink tones in the active theme.

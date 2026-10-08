@@ -1,8 +1,7 @@
 /**
  * The model picker on its own: one panel for every place a model is chosen (the composer's
  * chip, Settings' default model, an automation's model), with its source groups, Legacy models,
- * discovery errors and Refresh models. It reads only the catalog, never accounts, so any slice
- * can use it.
+ * discovery errors and Refresh models. Its account rail shares the same labels and quota as the composer.
  */
 export { ModelPickerPanel } from "./model-picker-panel.tsx";
 /** One provider's model as a form field, opening the same picker; its code loads on render. */

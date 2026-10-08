@@ -51,7 +51,8 @@ test.each(providers)(
     const dialog = await screen.findByRole("dialog", { name: `Sign in to ${name}` });
     if (provider === "opencode" || provider === "pi") {
       await userEvent.click(await within(dialog).findByRole("button", { name: "GitHub Copilot" }));
-      await userEvent.click(await within(dialog).findByRole("button", { name: "Continue" }));
+      if (provider === "opencode")
+        await userEvent.click(await within(dialog).findByRole("button", { name: "Continue" }));
     }
     if (provider === "codex" || provider === "opencode" || provider === "pi")
       await within(dialog).findByLabelText("Sign-in code");

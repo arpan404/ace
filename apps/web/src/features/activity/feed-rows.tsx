@@ -9,6 +9,7 @@ import {
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { useNow } from "@/lib/time.ts";
+import { useSidebarInline } from "@/lib/breakpoints.ts";
 import { approvalCopy, formatAge, privateBrowserGate } from "@ace/ui-core";
 import { interactionKey, useActivityState } from "./activity-state.tsx";
 import { FeedRow } from "./feed-row.tsx";
@@ -35,7 +36,8 @@ export function ThreadNeedsRows(props: { threadId: string }) {
 function InteractionRow(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
   const thread = useSidebarThread(props.threadId);
-  const { focused, setFocused } = useActivityState();
+  const { focused, setFocused, selectItem } = useActivityState();
+  const wide = useSidebarInline();
   const now = useNow();
   const projectName = useProjectName();
   if (!interaction || interaction.state !== "pending") return null;
@@ -47,6 +49,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
       : undefined;
   return (
     <FeedRow
+      threadId={props.threadId}
       icon={glyph(requestIcons[request.kind])}
       title={
         copy
@@ -59,7 +62,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
       age={formatAge(interaction.createdAt, now)}
       mark="needs-you"
       selected={focused === key}
-      onSelect={() => setFocused(key)}
+      onSelect={() => (wide ? setFocused(key) : selectItem(key))}
     />
   );
 }

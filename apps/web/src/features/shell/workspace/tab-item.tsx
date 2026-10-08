@@ -26,31 +26,14 @@ export const tabChrome = (closeRoom: boolean) => 8 + 14 + 6 + (closeRoom ? 28 : 
 const badgeGap = 6;
 /** A folded tab's badge dot: just off the top right of its centred 14px icon. */
 const dotPlace = { top: 3, left: "calc(50% + 5px)" };
-/** Fewer title pixels than this read as noise: the tab folds to its icon instead. */
-const leastTitle = 64;
-
-/** A badge's dot, drawn in its place when the strip is a little short. */
-const dotWidth = 6;
-
-/**
- * A tab's natural and least labelled widths, read however narrow it is drawn now, and what
- * its badge frees by giving way to its dot.
- */
-export function measureTab(element: HTMLElement): {
-  natural: number;
-  least: number;
-  badge: number;
-} {
+/** A tab's natural width, independent of its current rendered width. */
+export function measureTab(element: HTMLElement): number {
   const title = element.querySelector<HTMLElement>("[data-tab-title]")?.scrollWidth ?? 0;
   const badge = element.querySelector<HTMLElement>("[data-tab-badge]")?.scrollWidth ?? 0;
   // +1: scrollWidth rounds, and half a pixel short would ellipsize the showing tab's title.
   const fixed =
     1 + tabChrome(element.dataset.closeRoom === "true") + (badge > 0 ? badgeGap + badge : 0);
-  return {
-    natural: fixed + title,
-    least: fixed + (element.dataset.tabTool === "true" ? title : Math.min(title, leastTitle)),
-    badge: Math.max(0, badge - dotWidth),
-  };
+  return fixed + title;
 }
 
 /**
@@ -89,8 +72,6 @@ export function TabItem(props: {
   const iconOnly = props.iconOnly;
   const badgeDot = props.badgeDot && !iconOnly;
   const closeLabel = kind?.closeLabel ?? "Close";
-  // Pinned per-thread tools (Changes, Agents) fold to icons first, and together (`fitTabs`).
-  const tool = !!kind?.singleton && !!kind.pinned && !!tab.pinned;
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -98,7 +79,6 @@ export function TabItem(props: {
           <div
             data-tab-key={tab.key}
             data-close-room={closable && props.active}
-            data-tab-tool={tool}
             draggable
             style={props.width === undefined ? undefined : { width: props.width }}
             onDragStart={(event) => {

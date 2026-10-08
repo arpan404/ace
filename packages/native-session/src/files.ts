@@ -87,7 +87,8 @@ export async function readHeadTail(home: string, path: string, signal?: AbortSig
         : [head, tail.subarray(Math.max(0, tail.indexOf(10) + 1))];
     const records: unknown[] = [];
     let decodeFailed = false;
-    for (const bytes of windows) {
+    let headCount = 0;
+    for (const [index, bytes] of windows.entries()) {
       for (const line of bytes.toString("utf8").split("\n")) {
         if (!line.trim()) continue;
         try {
@@ -96,6 +97,7 @@ export async function readHeadTail(home: string, path: string, signal?: AbortSig
           decodeFailed = true;
         }
       }
+      if (index === 0) headCount = records.length;
     }
     if (records.length === 0 && size <= 128 * 1024) {
       try {
@@ -107,6 +109,7 @@ export async function readHeadTail(home: string, path: string, signal?: AbortSig
     }
     return {
       records,
+      headCount,
       exact: size <= 128 * 1024 && !decodeFailed,
       bytes: head.length + tail.length,
       fingerprint: fingerprint(before),

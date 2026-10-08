@@ -1,11 +1,13 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { layers, menuItem, popupSurface } from "./menu-styles.ts";
 
 export interface SelectOption<T extends string> {
   value: T;
   label: string;
+  icon?: ReactNode;
   disabled?: boolean | undefined;
 }
 
@@ -40,7 +42,10 @@ function Select<T extends string>(props: {
           props.className ?? "min-w-36",
         )}
       >
-        <SelectPrimitive.Value className="truncate" />
+        <span className="inline-flex min-w-0 items-center gap-2">
+          {props.options.find((option) => option.value === props.value)?.icon}
+          <SelectPrimitive.Value className="truncate" />
+        </span>
         <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--dur-2) ease-spring in-data-popup-open:rotate-180">
           <CaretDownIcon aria-hidden size={12} />
         </SelectPrimitive.Icon>
@@ -57,9 +62,11 @@ function Select<T extends string>(props: {
                 <SelectPrimitive.Item
                   key={option.value}
                   value={option.value}
+                  aria-label={option.label}
                   disabled={option.disabled}
                   className={menuItem}
                 >
+                  {option.icon}
                   <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
                     {option.label}
                   </SelectPrimitive.ItemText>

@@ -9,12 +9,21 @@ import { useQueue } from "./use-queue.ts";
  * as pills, including ones just sent that the daemon's queue doesn't list yet (UX audit SY-7).
  * Loads after the thread has painted, with the rest of the composer's parts.
  */
-export function QueueArea(props: { threadId: string; status: ThreadStatus | undefined }) {
+export function QueueArea(props: {
+  threadId: string;
+  status: ThreadStatus | undefined;
+  onChooseModel(): void;
+}) {
   const queue = useQueue(props.threadId);
   const pending = useQueuedPending(props.threadId, queue.page);
   return (
     <>
-      <QueueNotice threadId={props.threadId} status={props.status} queue={queue} />
+      <QueueNotice
+        threadId={props.threadId}
+        status={props.status}
+        queue={queue}
+        onChooseModel={props.onChooseModel}
+      />
       {(queue.messages.length > 0 || pending.length > 0) && (
         <QueuedPills queue={queue} pending={pending} />
       )}

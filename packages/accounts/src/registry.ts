@@ -1,3 +1,4 @@
+import { accountShortLabel } from "./labels.ts";
 import { cursorInstanceId, cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
@@ -24,7 +25,7 @@ const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanc
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
-  const parsed = ProviderInstance.parse(input);
+  const parsed = ProviderInstance.parse({ ...input, shortLabel: accountShortLabel(input) });
   instanceEnv(parsed, {});
   if (parsed.implicit) return parsed;
   // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
@@ -48,6 +49,8 @@ function summarize(
     implicit: instance.implicit ?? false,
     provider: instance.provider,
     label: instance.label,
+    shortLabel: accountShortLabel(instance),
+    badgeColor: instance.badgeColor,
     authMethod: instance.authMethod ?? "unknown",
     ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
@@ -312,7 +315,12 @@ export class AccountRegistry {
         if (!current) throw new Error("Instance changed during canonicalization");
         this.upsert.run(
           instance.id,
-          JSON.stringify({ ...instance, label: current.instance.label }),
+          JSON.stringify({
+            ...instance,
+            label: current.instance.label,
+            shortLabel: current.instance.shortLabel,
+            badgeColor: current.instance.badgeColor,
+          }),
           JSON.stringify(current.quota),
         );
       }
@@ -425,14 +433,33 @@ export class AccountRegistry {
     this.setSelection.run(`provider:${provider}`, id);
     if (provider === "cursor") this.clearSelection.run("cursor-sdk");
   }
-  rename(id: string, label: string): void {
+  rename(
+    id: string,
+    label: string,
+    badge: {
+      shortLabel?: string | undefined;
+      badgeColor?: ProviderInstance["badgeColor"] | null | undefined;
+    } = {},
+  ): void {
     const account = this.get(id);
     if (!account || account.instance.implicit) throw new Error("Account is immutable");
     this.upsert.run(
       id,
-      JSON.stringify(ProviderInstance.parse({ ...account.instance, label })),
+      JSON.stringify(
+        ProviderInstance.parse({
+          ...account.instance,
+          label,
+          shortLabel:
+            badge.shortLabel ?? account.instance.shortLabel ?? accountShortLabel({ label }),
+          badgeColor:
+            badge.badgeColor === null
+              ? undefined
+              : (badge.badgeColor ?? account.instance.badgeColor),
+        }),
+      ),
       JSON.stringify(account.quota),
     );
+    for (const listener of this.quotaListeners) listener(id);
   }
   unregister(id: string): void {
     const account = this.get(id);

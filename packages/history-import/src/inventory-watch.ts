@@ -42,6 +42,10 @@ export class InventoryWatch {
               this.invalidate();
               return;
             }
+            if (instance.provider === "codex" && name === "session_index.jsonl") {
+              this.invalidate();
+              return;
+            }
             if (instance.provider === "opencode") {
               // Legacy part changes cannot be mapped to sessions without its source inventory.
               if (name.startsWith("storage/")) {

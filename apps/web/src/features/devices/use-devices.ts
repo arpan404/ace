@@ -110,7 +110,6 @@ export function useDevices(threadId: string, deviceId?: string) {
     connected &&
     enabled &&
     selected?.running === true &&
-    (selected.platform !== "ios" || state?.threadId === threadId) &&
     (state === undefined || state.lifecycle === "idle")
       ? selected.id
       : undefined;
@@ -182,9 +181,10 @@ export function useDevices(threadId: string, deviceId?: string) {
       }),
     approve: (allowed: boolean) =>
       target &&
-      act(() =>
-        run({ op: "approve", deviceId: target, threadId: ThreadId.parse(threadId), allowed }),
-      ),
+      act(async () => {
+        await run({ op: "approve", deviceId: target, threadId: ThreadId.parse(threadId), allowed });
+        if (selected?.running) await run({ op: "start", deviceId: target, fps: 60 });
+      }),
     /** Boot, then show its screen: booting is how a person asks to see the device. */
     boot: () =>
       target &&

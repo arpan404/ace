@@ -77,9 +77,9 @@ test("a message queued behind busy subagents is named with what settles it", () 
   );
 });
 
-test("a question waiting for you comes first", () => {
+test("a request waiting for you comes first", () => {
   const why = whyNotDone(input({ state: "needs_you", interactions: 1 }, { waitingOnYou: 1 }));
-  expect(why.body).toBe("One question is waiting for you. The thread settles when you answer it.");
+  expect(why.body).toBe("One request is waiting for you. The thread settles when you answer it.");
 });
 
 test("a queued message holds an otherwise idle thread open", () => {
@@ -122,4 +122,25 @@ test("a failed thread names the agent and its error", () => {
     title: "Failed",
     body: "migration-tester failed: Context window exceeded.",
   });
+});
+
+test("pending requests are counted by kind instead of calling every request a question", () => {
+  const why = whyNotDone(
+    input(
+      { state: "needs_you", interactions: 5 },
+      {
+        waitingOnYou: 5,
+        requests: [
+          { request: { kind: "approval", title: "Push", options: [] } },
+          { request: { kind: "approval", title: "Clean", options: [] } },
+          { request: { kind: "question", questions: [] } },
+          { request: { kind: "plan_review", markdown: "Review" } },
+          { request: { kind: "elicitation", server: "mcp", message: "Input", schema: {} } },
+        ],
+      },
+    ),
+  );
+  expect(why.body).toContain(
+    "Two approvals are waiting for you, one question is waiting for you, one plan review is waiting for you and one input request is waiting for you.",
+  );
 });

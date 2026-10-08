@@ -16,7 +16,8 @@ async function openReplay(through = "finding") {
 }
 
 test("tool work collapses into one line that opens to its steps and their output", async () => {
-  const { feed } = await openReplay("answered");
+  const { app, feed } = await openReplay("answered");
+  act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
   const summary = await within(feed).findByRole("button", { name: /^Worked for/ });
   expect(summary.textContent).toContain(
     "Explored 3 files · 1 search · Ran 2 commands · Edited 2 files",

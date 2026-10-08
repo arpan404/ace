@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountShortLabel.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "pattern": "^\\S{1,3}$",
+  "type": "string"
+}

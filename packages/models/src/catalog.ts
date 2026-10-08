@@ -6,7 +6,7 @@ import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
-import { freezeCatalogModel } from "./freeze.ts";
+import { ModelMetadataPool } from "./model-pool.ts";
 import type { ProviderConfigurations } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import { normalizeAcp } from "./normalize.ts";
@@ -136,6 +136,7 @@ export type CatalogOptions = {
 };
 export class ModelCatalog implements ModelCatalogApi {
   readonly #options: CatalogOptions;
+  readonly #metadata = new ModelMetadataPool();
   readonly #states = new Map<string, State>();
   readonly #providers = new Map<string, Set<string>>();
   readonly #persisted = new Map<string, CacheEntry>();
@@ -176,7 +177,7 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#persisted.set(parsed.instance, {
         ...parsed,
         ...refreshedSources(
-          cleanCatalog(parsed.models).map(freezeCatalogModel),
+          cleanCatalog(parsed.models).map((model) => this.#metadata.intern(model)),
           parsed.sources,
           undefined,
           parsed.refreshedAt,
@@ -947,6 +948,7 @@ export class ModelCatalog implements ModelCatalogApi {
             models: cleanCatalog(combined.models),
             permissionModes: state.permissionModes ?? state.entry?.permissionModes,
           });
+          entry.models = entry.models.map((model) => this.#metadata.intern(model));
           try {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain
             // their durable slots; SQLite admission still refuses actual overflow.
@@ -1091,6 +1093,7 @@ export class ModelCatalog implements ModelCatalogApi {
       await Promise.allSettled(this.#removals.values());
       await this.#deletions.flush();
       await this.#options.storage.close();
+      this.#metadata.clear();
     })();
     this.#closing = closing;
     // A failed durable deletion must remain retryable with the storage still open.

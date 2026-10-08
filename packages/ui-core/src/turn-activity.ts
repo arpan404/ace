@@ -140,6 +140,8 @@ function readActivity(
   options: ActivityOptions,
   watch: string[],
 ): TurnActivity | undefined {
+  const threadStatus = options.threadStatus ?? reader.thread?.status;
+  if (threadStatus?.state === "waiting" && threadStatus.on === "queue") return undefined;
   const agent = reader.agent(rootId);
   const status = agent?.status;
   if (!status) return undefined;

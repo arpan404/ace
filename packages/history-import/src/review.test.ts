@@ -203,6 +203,12 @@ test("closing a paused SQLite import removes every private transcript copy", asy
       i,
       JSON.stringify({ role: "user", content: "paused" }),
     );
+  for (let i = 0; i < 100; i++)
+    db.prepare("INSERT INTO part VALUES(?,?,?)").run(
+      "p" + i,
+      "m" + i,
+      JSON.stringify({ type: "text", text: "paused" }),
+    );
   db.close();
   const service = await env.start([{ id: "oc", provider: "opencode", homeDir: home }]);
   await service.scan();

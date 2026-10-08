@@ -43,7 +43,7 @@ import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } fro
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
-import { useWatched, type Watched } from "./use-watched.ts";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];
@@ -152,7 +152,7 @@ export interface FeedProps {
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
   liveNewest: string | undefined;
-  /** A card docked above the transcript (the catch-up card): it pushes the rows down. */
+  /** An inline card after live activity, sharing the transcript's scroll flow. */
   overlay?: ReactNode;
 }
 
@@ -461,9 +461,6 @@ export function Feed(props: FeedProps) {
   const dividerRow = divider && rows.find((row) => row.key === divider)?.key;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      <div ref={dock} className="flex flex-none justify-center px-4 pt-3 empty:hidden">
-        {!window && props.overlay}
-      </div>
       {/* The rows and the bars that float over their top (search, the jump bar). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
@@ -575,6 +572,9 @@ export function Feed(props: FeedProps) {
                 activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
               />
             )}
+            <div ref={dock} className="mt-4 empty:hidden">
+              {!window && props.overlay}
+            </div>
             {!detached && (
               <Suspense fallback={null}>
                 <DeferredLocalSends.Component threadId={threadId} />

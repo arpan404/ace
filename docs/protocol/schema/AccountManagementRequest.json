@@ -32,6 +32,16 @@
     },
     {
       "properties": {
+        "badgeColor": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "instanceId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -44,6 +54,9 @@
         "requestId": {
           "maxLength": 128,
           "type": "string"
+        },
+        "shortLabel": {
+          "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
         },
         "type": {
           "const": "accounts.rename",

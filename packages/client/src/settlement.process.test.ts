@@ -127,7 +127,7 @@ test("oversized rejected drafts are never published or retained and storage fail
   stop();
 });
 
-test("a real provider delivery failure correlates to the accepted draft and retains its original input", async () => {
+test("a pre-delivery provider failure keeps one correlated original input in the durable queue across reload", async () => {
   const registry = new AdapterRegistry();
   const adapter = createTurnProvider({
     provider: "codex",
@@ -159,21 +159,40 @@ test("a real provider delivery failure correlates to the accepted draft and reta
   expect(result.ok).toBe(true);
   if (!result.threadId) throw new Error("Expected admitted thread");
   const lease = client.thread(result.threadId);
-  await when(client.intent("delivery-failed"), (value) => value?.state === "failed");
+  await when(
+    lease.store.select(["queue"], (reader) => reader.queue?.reason),
+    (reason) => reason === "not_sent",
+  );
+  await when(client.intent("delivery-failed"), (value) => value?.state === "acked");
   expect(client.pendingSends(result.threadId).getSnapshot()).toContainEqual(
     expect.objectContaining({
       commandId: "delivery-failed",
-      state: "failed",
+      state: "delivered",
       payload: expect.objectContaining({ input }),
-      error: expect.stringContaining("Scripted provider unavailable"),
     }),
   );
+  const kept = { id: "delivery-failed", input, state: "queued" };
+  const queue = await client.queuePage({ threadId: result.threadId });
+  expect(queue).toMatchObject({ paused: true, reason: "not_sent", messages: [kept] });
+  expect(queue.messages).toHaveLength(1);
   const page = await client.itemsPage({ threadId: result.threadId, limit: 100 });
   expect(page.items).toContainEqual(
-    expect.objectContaining({ type: "notice", commandId: "delivery-failed", level: "error" }),
+    expect.objectContaining({
+      type: "notice",
+      commandId: "delivery-failed",
+      level: "info",
+      code: "input_queued",
+    }),
   );
   expect(await storage.load()).toBe("[]");
   lease.release();
+  await client.close();
+  const second = h.make({ storage }).client;
+  await ready(second);
+  expect(second.pendingSends().getSnapshot()).toEqual([]);
+  const reloaded = await second.queuePage({ threadId: result.threadId });
+  expect(reloaded).toMatchObject({ paused: true, reason: "not_sent", messages: [kept] });
+  expect(reloaded.messages).toHaveLength(1);
 });
 
 test("an aggregate save cannot persist another draft before its own write succeeds", async () => {

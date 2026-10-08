@@ -37,6 +37,9 @@
       ],
       "type": "string"
     },
+    "badgeColor": {
+      "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
+    },
     "env": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
@@ -93,6 +96,9 @@
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+    },
+    "shortLabel": {
+      "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
     },
     "signedInAs": {
       "maxLength": 256,

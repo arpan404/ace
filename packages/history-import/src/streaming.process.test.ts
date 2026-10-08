@@ -163,9 +163,25 @@ test("fork lineage is not imported as a child agent", async () => {
   const home = join(env.root, "codex");
   await jsonl(join(home, "sessions/2026/01/01/root.jsonl"), [
     { type: "session_meta", payload: { id: nativeId, cwd } },
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Review root" }],
+      },
+    },
   ]);
   await jsonl(join(home, "sessions/2026/01/01/fork.jsonl"), [
     { type: "session_meta", payload: { id: otherId, cwd, forked_from_id: nativeId } },
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Review fork" }],
+      },
+    },
   ]);
   const service = await env.start([{ id: "cx", provider: "codex", homeDir: home }]);
   await service.scan();
@@ -194,6 +210,7 @@ test("historical tools with no completion retain unresolved status", async () =>
   cleanup.push(env.close);
   const home = join(env.root, "home");
   await jsonl(join(home, "projects/p", nativeId + ".jsonl"), [
+    { type: "user", sessionId: nativeId, cwd, message: { role: "user", content: "Run the build" } },
     {
       type: "assistant",
       sessionId: nativeId,

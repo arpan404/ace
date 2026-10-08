@@ -1,3 +1,4 @@
+import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
 import { threadMoveError, threadMoveEvents } from "@ace/projection";
@@ -287,7 +288,8 @@ export class FakeDaemon implements Host {
             setTimeout(callback, 0);
           }),
         createThread: (input) => this.createThread(input),
-        apply: (id, facts) => this.apply(id, facts),
+        apply: (id, facts, at) =>
+          this.apply(id, facts, at === undefined ? 0 : options.clock() - at),
         thread: (id) => {
           const host = this.threads.get(id);
           return host?.view.thread.deletedAt === undefined ? host?.view : undefined;
@@ -352,6 +354,26 @@ export class FakeDaemon implements Host {
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }
+  /** Simulate a pre-delivery failure without contacting any provider. Queued input is retained. */
+  sessionOpenFailed(threadId: string, reason: "model_unavailable" | "not_sent"): void {
+    const host = this.thread(threadId);
+    const now = this.options.clock();
+    this.append(host, host.fold({ type: "process.exited", deliberate: false }, now), now);
+    this.holdQueue(threadId, reason);
+  }
+
+  /** Stage a persisted queue hold as a restarted daemon would publish it. */
+  holdQueue(
+    threadId: string,
+    reason: NonNullable<import("@ace/protocol").QueueSnapshot["reason"]>,
+  ): void {
+    const host = this.thread(threadId);
+    host.queue.paused = true;
+    host.queue.reason = reason;
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
+
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -538,6 +560,14 @@ export class FakeDaemon implements Host {
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);
+    if (
+      follow.some(
+        (event) => event.type === "thread.updated" && event.switch?.state === "applied",
+      ) &&
+      host.queued.length &&
+      !host.queue.paused
+    )
+      this.apply(host.id, []);
     this.settle(host, now);
   }
   private append(host: ThreadHost, payloads: EventPayload[], now: number): void {
@@ -742,26 +772,7 @@ export class FakeDaemon implements Host {
           return true;
         }
         connection.push({ type: "terminal.result", requestId: message.requestId, ok: true });
-        if (op.op === "subscribe") {
-          const data = "Complete the provider's own sign-in flow.\r\n";
-          connection.push({
-            type: "terminal.output",
-            subscriptionId: op.subscriptionId,
-            event: {
-              type: "data",
-              offset: 0,
-              endOffset: data.length,
-              data,
-              truncatedBefore: false,
-            },
-          });
-          this.services.completeAuthTerminal(op.terminalId);
-          connection.push({
-            type: "terminal.output",
-            subscriptionId: op.subscriptionId,
-            event: { type: "exit", status: { code: 0, signal: null }, nextOffset: data.length },
-          });
-        }
+        authTerminalOutput(flow, op, () => this.services.completeAuthTerminal(op.terminalId));
         if (op.op === "close") this.services.authTerminals.delete(op.terminalId);
         return true;
       }
@@ -1306,7 +1317,7 @@ export class FakeDaemon implements Host {
       case "thread.prepare": {
         if (this.threads.has(payload.threadId))
           return { commandId, ok: false, error: "thread_exists" };
-        const base = fakeWorktreeBase(payload, payload.threadId, this.remoteReachable);
+        const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
         this.createThread({
           id: payload.threadId,
@@ -1329,7 +1340,8 @@ export class FakeDaemon implements Host {
         // No provider is contacted; the host may schedule a fixture completion.
         const id = payload.threadId ?? `thread-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
-        const base = fakeWorktreeBase(payload, id, this.remoteReachable);
+        const started = startedThread(id, payload, commandId);
+        const base = fakeWorktreeBase(payload, started.thread.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
         if (payload.context?.draftId)
           this.servicesWire.context.validateDraft(
@@ -1338,7 +1350,6 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        const started = startedThread(id, payload, commandId);
         this.createThread({
           ...started.thread,
           ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),

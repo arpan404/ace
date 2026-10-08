@@ -279,7 +279,7 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
           expect.objectContaining({
             provider: "pi",
             auth: "unknown",
-            error: "Pi settings or readiness probe unavailable",
+            error: "Pi auth status is unsupported for this version",
           }),
         ]),
       },

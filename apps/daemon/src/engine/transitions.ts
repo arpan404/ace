@@ -104,6 +104,21 @@ export class ThreadTransitions {
       options: {},
       ...metadata,
     };
+    const held = this.repo.queue.get(actor.id);
+    // A catalog disappearance may precede the first failed send on a saved thread.
+    let missingModel = false;
+    if (current.model && held.paused && !held.limited && held.reason !== "uncertain") {
+      try {
+        this.models.select(
+          current.provider,
+          current.model,
+          current.instanceId,
+          this.models.identity(actor.id),
+        );
+      } catch {
+        missingModel = true;
+      }
+    }
     const requested = this.repo.transitions.selection(actor.id, current, p.selection);
     const selection = await this.models.prepare(requested, this.models.identity(actor.id));
     const crossProvider = selection.provider !== current.provider;
@@ -183,6 +198,8 @@ export class ThreadTransitions {
     }
     try {
       this.repo.store.atomic((db) => {
+        if (missingModel)
+          this.repo.queue.set(actor.id, { reason: "model_unavailable" }, this.now());
         if (crossProvider) this.repo.resetAdmission(actor.id);
         this.repo.transitions.remember(actor.id, selection);
         const currentState = this.repo.requireState(actor.id);

@@ -229,3 +229,11 @@ test("when usage by model can't be read, the page says so and reads it again on 
   const table = await screen.findByRole("table", { name: "Usage by model" }, { timeout: 4000 });
   await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(7));
 });
+
+test("usage rows show a known provider mark beside its readable name", async () => {
+  await openWeek({ sources: [claude, opencode] });
+  const table = await screen.findByRole("table", { name: "Usage by model" });
+  expect(await within(table).findByRole("img", { name: "Claude Code" })).toBeTruthy();
+  expect(await within(table).findByRole("img", { name: "OpenCode" })).toBeTruthy();
+  expect(within(table).getByRole("cell", { name: "OpenCode" })).toBeTruthy();
+});

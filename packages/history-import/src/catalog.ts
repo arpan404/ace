@@ -1,3 +1,4 @@
+import { catalogDisplay, blockedDescendant } from "./catalog-display.ts";
 import { contains } from "@ace/native-session";
 import { setImmediate } from "node:timers/promises";
 import type { ProviderHome } from "./contracts.ts";
@@ -14,6 +15,7 @@ export const Source = z.object({
   fingerprint: z.string(),
   kind: z.enum(["jsonl", "database", "storage"]),
   instanceId: z.string(),
+  hidden: z.boolean().default(false),
 });
 export type Source = z.infer<typeof Source>;
 export class Catalog {
@@ -25,6 +27,8 @@ export class Catalog {
   readonly updates: ScanUpdates;
   private registryKey = "";
   private needsCleanup = true;
+  private displaySummary: (json: string) => HistorySession = (json) =>
+    HistorySession.parse(JSON.parse(json));
   constructor(path: string) {
     this.scratchRoot = dirname(path);
     this.db = new DatabaseSync(path);
@@ -42,6 +46,19 @@ export class Catalog {
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS catalog_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     );
+    const columns = this.db.prepare("PRAGMA table_info(sources)").all();
+    if (!columns.some((r) => r.name === "hidden"))
+      this.db.exec("ALTER TABLE sources ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS native_titles(instance TEXT,native TEXT,title TEXT,origin TEXT NOT NULL,PRIMARY KEY(instance,native))",
+    );
+    if (
+      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "2"
+    ) {
+      this.db.exec(
+        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','2')",
+      );
+    }
     this.updates = new ScanUpdates(this.db);
     this.reader = new DatabaseSync(path, { readOnly: true });
     this.reader.exec(
@@ -91,6 +108,10 @@ export class Catalog {
         WHERE json_extract(summary,'$.provider')=r.provider
         AND history_home_contains(r.home,path)=1`);
     }
+    this.db.exec(
+      "DELETE FROM native_titles WHERE instance IN (SELECT f.instance FROM files f LEFT JOIN registered_instances r ON f.instance=r.id WHERE r.id IS NULL OR r.home<>f.home OR r.provider<>f.provider)",
+    );
+    this.displaySummary = catalogDisplay(this.reader);
   }
   async cleanup(signal: AbortSignal): Promise<void> {
     if (!this.needsCleanup) return;
@@ -184,7 +205,7 @@ export class Catalog {
     const s = source.summary;
     this.updates.source(source.instanceId, s.nativeId, s.parentNativeId);
     this.statement(
-      "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fingerprint=excluded.fingerprint,cwd=excluded.cwd,activity=excluded.activity,parent=excluded.parent,summary=excluded.summary,epoch=excluded.epoch,own_activity=excluded.own_activity",
+      "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fingerprint=excluded.fingerprint,cwd=excluded.cwd,activity=excluded.activity,parent=excluded.parent,summary=excluded.summary,epoch=excluded.epoch,own_activity=excluded.own_activity,hidden=excluded.hidden",
     ).run(
       s.id,
       source.instanceId,
@@ -198,6 +219,7 @@ export class Catalog {
       JSON.stringify(s),
       epoch,
       s.lastActivity,
+      source.hidden ? 1 : 0,
     );
   }
   updateCount(id: string, count: number, accuracy: "exact" | "sampled"): void {
@@ -272,32 +294,55 @@ export class Catalog {
         await setImmediate();
       }
     }
+    for (;;) {
+      signal.throwIfAborted();
+      const removed = this.statement(
+        "DELETE FROM native_titles WHERE rowid IN (SELECT t.rowid FROM native_titles t WHERE t.instance=? AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.instance=t.instance AND s.native=t.native) LIMIT 256)",
+      ).run(instance);
+      if (!Number(removed.changes)) break;
+      await setImmediate();
+    }
     return changed;
   }
   get(id: string): Source | undefined {
     const row = this.readStatement("SELECT * FROM visible_sources WHERE id=?").get(id);
     return row
       ? Source.parse({
-          summary: JSON.parse(String(row.summary)),
+          summary: this.displaySummary(String(row.summary)),
           path: row.path,
           fingerprint: row.fingerprint,
           kind: row.kind,
           instanceId: row.instance,
+          hidden: Number(row.hidden) === 1,
         })
       : undefined;
   }
+  setNativeTitle(
+    instance: string,
+    native: string,
+    title: string,
+    origin: "index" | "database",
+  ): void {
+    this.statement(
+      "INSERT INTO native_titles SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM sources WHERE instance=? AND native=?) ON CONFLICT(instance,native) DO UPDATE SET title=excluded.title,origin=excluded.origin WHERE excluded.origin='index' OR native_titles.origin<>'index'",
+    ).run(instance, native, title, origin, instance, native);
+  }
   list(input: z.infer<typeof HistoryListRequest>) {
-    const { cwd, limit, before } = HistoryListRequest.parse(input);
-    const rows = before
-      ? this.readStatement(
-          "SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
-        ).all(cwd, before.lastActivity, before.lastActivity, before.id, limit + 1)
-      : this.readStatement(
-          "SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) ORDER BY activity DESC,id DESC LIMIT ?",
-        ).all(cwd, limit + 1);
+    const { cwd, limit, before, search, openableOnly } = HistoryListRequest.parse(input);
+    const cursor = before ? " AND (activity<? OR (activity=? AND id<?))" : "";
+    const rows = this.readStatement(
+      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl'))${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
+    ).all(
+      cwd,
+      openableOnly ? 1 : 0,
+      search ?? "",
+      search ?? "",
+      ...(before ? [before.lastActivity, before.lastActivity, before.id] : []),
+      limit + 1,
+    );
     const sessions = rows.slice(0, limit).map((r) =>
       HistorySession.parse({
-        ...HistorySession.parse(JSON.parse(String(r.summary))),
+        ...this.displaySummary(String(r.summary)),
         lastActivity: z.number().int().nonnegative().parse(r.activity),
       }),
     );

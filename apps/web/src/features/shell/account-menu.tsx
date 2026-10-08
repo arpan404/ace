@@ -60,11 +60,6 @@ export function AccountMenu() {
           </span>
           <span aria-hidden className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-ui font-medium text-foreground">{shown}</span>
-            {state !== "ready" && (
-              <span className="truncate text-xs text-muted-foreground">
-                ace {connectionLabels[state].toLowerCase()}
-              </span>
-            )}
           </span>
         </button>
       }

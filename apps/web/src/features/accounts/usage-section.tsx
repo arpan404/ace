@@ -1,5 +1,6 @@
 import type { UsageTotals } from "@ace/protocol";
 import { useMemo, useState, type ReactNode } from "react";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -43,6 +44,7 @@ interface ModelRow {
   /** The model, or the account when grouped by account. */
   model: string;
   provider: string;
+  providerId: string | null;
   tokens: string;
   /** What the provider reported per step, or where its cost is reported instead. */
   reported: string;
@@ -55,7 +57,21 @@ const groups = [
 ] as const satisfies readonly { value: Group; label: string }[];
 const columnsFor = (group: Group): DataColumns<ModelRow> => [
   { accessorKey: "model", header: group === "model" ? "Model" : "Account" },
-  { accessorKey: "provider", header: "Provider" },
+  {
+    accessorKey: "provider",
+    header: "Provider",
+    cell: ({ row }) => {
+      const provider = ProviderKind.safeParse(row.original.providerId);
+      return (
+        <span className="inline-flex items-center gap-2">
+          {provider.success && (
+            <ProviderIcon provider={provider.data} label={row.original.provider} size={14} />
+          )}
+          <span aria-hidden={provider.success}>{row.original.provider}</span>
+        </span>
+      );
+    },
+  },
   { accessorKey: "tokens", header: "Tokens" },
   { accessorKey: "reported", header: "Reported" },
   { accessorKey: "apiPrice", header: "At API prices" },
@@ -136,6 +152,7 @@ export function UsageSection() {
               ? (labels.get(account) ?? "Other account")
               : "Not attributed",
         provider: providerLabel(provider),
+        providerId: provider,
         tokens: formatTokens(cost.tokens),
         reported:
           cost.perStep > 0

@@ -1,3 +1,4 @@
+import { accountShortLabel } from "@ace/accounts/labels";
 import { liveWindow } from "@ace/accounts/availability";
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
@@ -25,6 +26,8 @@ export interface AccountView {
   /** CLI version discovery reported, if any. */
   version: string | undefined;
   label: string;
+  shortLabel?: string | undefined;
+  badgeColor?: Summary["badgeColor"] | undefined;
   authMethod?: Summary["authMethod"] | undefined;
   signedInAs?: string | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
@@ -91,6 +94,8 @@ export function accountView(summary: Summary): AccountView {
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: accountDisplayName(summary),
+    shortLabel: accountShortLabel(summary),
+    badgeColor: summary.badgeColor,
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
     ...(summary.implicit ? { implicit: true } : {}),

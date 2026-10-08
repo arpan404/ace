@@ -60,6 +60,7 @@ export function AgentComposer(props: {
       await client.enqueue(payload, id);
       return true;
     } catch {
+      setSent(undefined);
       toast.add({
         title: "Couldn't send the follow-up",
         description: "It is still in the composer.",

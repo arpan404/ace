@@ -85,8 +85,12 @@ test("a model id two providers share starts the thread on the provider it was pi
     await screen.findByRole("dialog", { name: "Model and effort" }),
   );
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
-  expect(within(picker).getByRole("option", { name: "GPT-6, Codex" }).ariaSelected).toBe("false");
-  expect(within(picker).getByRole("option", { name: "GPT-6, Cursor" }).ariaSelected).toBe("true");
+  expect(within(picker).getByRole("option", { name: "GPT-6, Codex · Personal" }).ariaSelected).toBe(
+    "false",
+  );
+  expect(
+    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your CLI login" }).ariaSelected,
+  ).toBe("true");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
@@ -146,7 +150,17 @@ test("picking the work account launches the work account's own default, not the 
   await made.open("/new?project=relay");
 
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
-  await chooseAccount(popover, "Work");
+  const models = await openModelPicker(popover);
+  await userEvent.click(within(popover).getByRole("tab", { name: "Claude Code · Work" }));
+  await userEvent.type(
+    within(popover).getByRole("combobox", { name: "Search models" }),
+    "Sonnet 4.5",
+  );
+  await userEvent.click(
+    within(models).getByRole("option", {
+      name: /^Sonnet 4\.5, your choice, Claude Code · Work/,
+    }),
+  );
   await closeModelControl();
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, Work/ })).toBeTruthy();
 

@@ -415,3 +415,5 @@ export class HistoryService {
 
 export { openArchiveReader, type ArchiveReader } from "./archive-reader.ts";
 export { ProviderHome as ProviderHomeSchema } from "./contracts.ts";
+
+export { sanitizeUserText } from "./user-text.ts";

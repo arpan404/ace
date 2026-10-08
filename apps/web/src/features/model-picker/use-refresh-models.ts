@@ -10,7 +10,7 @@ import { catalogKey } from "@/lib/model-catalog.ts";
 /** What the Refresh models control can do now. */
 export interface RefreshModels {
   /** Discover one provider's models again (every provider's without one). */
-  refresh(provider: ProviderKind | undefined): void;
+  refresh(provider: ProviderKind | undefined, instance?: string): void;
   /** A refresh this window asked for is running. */
   pending: boolean;
   /** Why it can't refresh: offline, or this device may only read. */
@@ -33,8 +33,8 @@ export function useRefreshModels(): RefreshModels {
   const toast = useToast();
   const [forbidden, setForbidden] = useState(() => refused.has(client));
   const mutation = useMutation({
-    mutationFn: (provider: ProviderKind | undefined) =>
-      client.request({ type: "models.refresh", filter: provider ? { provider } : {} }),
+    mutationFn: (filter: { provider?: ProviderKind | undefined; instance?: string | undefined }) =>
+      client.request({ type: "models.refresh", filter }),
     onError: (error) => {
       const code = daemonErrorCode(error);
       if (code !== "forbidden")
@@ -49,8 +49,8 @@ export function useRefreshModels(): RefreshModels {
     onSettled: () => queryClient.invalidateQueries({ queryKey: catalogKey }),
   });
   return {
-    refresh: (provider) => {
-      if (daemon.ready && !forbidden) mutation.mutate(provider);
+    refresh: (provider, instance) => {
+      if (daemon.ready && !forbidden) mutation.mutate({ provider, instance });
     },
     pending: mutation.isPending,
     reason: forbidden ? readOnly : daemon.reason,

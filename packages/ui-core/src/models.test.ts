@@ -1,6 +1,7 @@
 import { CatalogModel, type ProviderKind } from "@ace/protocol";
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
+import { unavailableSelection } from "./model-availability.ts";
 import { accountView } from "./accounts.ts";
 import {
   choiceLine,
@@ -82,8 +83,8 @@ test("each model is offered on the account that serves it, with that account's u
   );
 
   expect(choices.map((c) => [c.model, c.account, c.note, c.used])).toEqual([
-    ["opus", "personal", "62% of 5-hour window used", 0.62],
-    ["opus", "work", "23% of 5-hour window used", 0.23],
+    ["Opus", "personal", "62% of 5-hour window used", 0.62],
+    ["Opus", "work", "23% of 5-hour window used", 0.23],
   ]);
 });
 
@@ -145,7 +146,7 @@ test("New thread offers only installed CLIs and makes up no default model for an
     ],
   );
 
-  expect(options.models.map((m) => [m.provider, m.label])).toEqual([["cursor", "auto"]]);
+  expect(options.models.map((m) => [m.provider, m.label])).toEqual([["cursor", "Auto"]]);
 });
 
 test("New thread picks the account first, then that account's own default", () => {
@@ -249,10 +250,8 @@ test("a thread's picker shows what it runs on, or the switch waiting for its nex
   expect(currentModelChoice(choices, { provider: "codex", model: "gpt-5" })?.id).toBe(
     "codex-team:gpt-5",
   );
-  // A model the catalog no longer lists falls back to the provider's default.
-  expect(currentModelChoice(choices, { provider: "claude", model: "retired" })?.provider).toBe(
-    "claude",
-  );
+  // An explicit vanished model stays unavailable, rather than silently naming a default.
+  expect(currentModelChoice(choices, { provider: "claude", model: "retired" })).toBeUndefined();
   const work = choices.find((choice) => choice.id === "claude-work:opus");
   expect(work && choiceSelection(work)).toEqual({
     provider: "claude",
@@ -320,7 +319,7 @@ test("a model without effort levels says so instead of offering a choice", () =>
       capabilities: { sessionOptions: true, launchOptions: ["effort"] },
       current: undefined,
     }).reason,
-  ).toBe("gpt-5 has no effort levels");
+  ).toBe("GPT-5 has no effort levels");
 });
 
 test("only a string effort in execution options counts", () => {
@@ -349,4 +348,29 @@ test("offline, a thread's model reads from its own record, claiming no account o
   });
   expect(recordedChoice({ provider: "claude" })?.model).toBe("Unknown model");
   expect(recordedChoice(undefined)).toBeUndefined();
+});
+
+test("a missing account model stays unavailable and offers that account's recommendation", () => {
+  const rows = [
+    model("opencode", "work", "opencode-go/muse-spark-1.3-contributor"),
+    model("opencode", "personal", "anthropic/claude-opus-5-5", true),
+    model("opencode", "work", "openai/gpt-6.1-sol", true),
+  ];
+  const selection = {
+    provider: "opencode" as const,
+    model: "opencode-go/muse-spark-1.3-contributor",
+    instanceId: "personal",
+  };
+  expect(currentModelChoice(modelChoices(rows, [], 0), selection)).toBeUndefined();
+  const missing = unavailableSelection(rows, selection);
+  expect(missing?.label).toBe("Muse Spark 1.3 Contributor");
+  expect(missing?.replacement?.id).toBe("anthropic/claude-opus-5-5");
+  expect(unavailableSelection(rows, { ...selection, instanceId: "work" })).toBeUndefined();
+});
+
+test("a provider-default sentinel uses the recommended model and is not a disappeared model", () => {
+  const rows = [model("claude", "personal", "claude-opus-5-5", true)];
+  const selection = { provider: "claude" as const, model: "default" };
+  expect(currentModelChoice(modelChoices(rows, [], 0), selection)?.model).toBe("Opus 5.5");
+  expect(unavailableSelection(rows, selection)).toBeUndefined();
 });

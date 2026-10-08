@@ -2,7 +2,9 @@ import { pluralCount } from "@ace/ui-core";
 import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
 import {
   modelKey,
+  unavailableSelection,
   modelName,
+  unavailablePickerModel,
   newThreadOptions,
   pickerModel,
   pickerGroups,
@@ -55,7 +57,11 @@ export function ProviderModels(props: { provider: ProviderKind }) {
           />
         )),
       )}
-      <DefaultModel provider={props.provider} models={models} />
+      <DefaultModel
+        provider={props.provider}
+        models={models}
+        catalog={catalog === undefined ? undefined : rows}
+      />
       <SettingRow title="Hide deprecated models" htmlFor="hide-deprecated" inline>
         <Switch
           id="hide-deprecated"
@@ -122,6 +128,7 @@ export function ProviderModels(props: { provider: ProviderKind }) {
 }
 function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): void }) {
   const { model } = props;
+  const label = modelName(model.provider, model.displayName, model.id);
   const preferences = useProviderConfiguration(model.provider);
   const hidden =
     preferences.value?.hiddenModels?.includes(model.id) === true ||
@@ -130,9 +137,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
     model.visibilityReason === "provider_hidden";
   return (
     <li className="flex min-h-9 items-center gap-2 text-ui">
-      <span className="min-w-0 flex-1 truncate">
-        {modelName(model.provider, model.displayName)}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       {model.source?.label && (
         <span className="text-xs text-muted-foreground">{model.source.label}</span>
       )}
@@ -141,7 +146,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
       {model.custom && <span className="text-xs text-muted-foreground">Custom</span>}
       <IconButton
         icon={StarIcon}
-        label={`${props.starred ? "Unstar" : "Star"} ${model.displayName}`}
+        label={`${props.starred ? "Unstar" : "Star"} ${label}`}
         pressed={props.starred}
         size="sm"
         disabled={preferences.disabled}
@@ -149,7 +154,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
       />
       <IconButton
         icon={hidden ? EyeSlashIcon : EyeIcon}
-        label={`${hidden ? "Show" : "Hide"} ${model.displayName}`}
+        label={`${hidden ? "Show" : "Hide"} ${label}`}
         size="sm"
         disabled={preferences.disabled}
         onClick={() =>
@@ -245,17 +250,26 @@ function CustomModel(props: { provider: ProviderKind }) {
   );
 }
 
-function DefaultModel(props: { provider: ProviderKind; models: readonly PickerModel[] }) {
+function DefaultModel(props: {
+  provider: ProviderKind;
+  models: readonly PickerModel[];
+  catalog: readonly CatalogModel[] | undefined;
+}) {
   const preferences = useProviderConfiguration(props.provider);
   // One row per model: the default is the provider's, whichever account lists it.
   const seen = new Set<string>();
-  const models = props.models.flatMap((model) => {
+  const models: PickerModel[] = props.models.flatMap((model) => {
     if (seen.has(model.key)) return [];
     seen.add(model.key);
     const account = !model.source || model.source.kind === "account";
     return [{ ...model, instance: undefined, ...(account ? { source: undefined } : {}) }];
   });
+  const saved = preferences.value?.defaultModel;
+  const missing =
+    !!saved && !!unavailableSelection(props.catalog, { provider: props.provider, model: saved });
+  if (missing) models.unshift(unavailablePickerModel({ provider: props.provider, model: saved }));
   const current =
+    (missing ? models[0] : undefined) ??
     props.models.find((model) => model.isDefault && model.userDefault) ??
     props.models.find((model) => model.isDefault);
   if (!models.length) return null;
@@ -269,12 +283,12 @@ function DefaultModel(props: { provider: ProviderKind; models: readonly PickerMo
         models={models}
         current={current?.key}
         value={current?.label ?? "None"}
-        note={current?.userDefault ? "Your choice" : undefined}
+        note={missing ? "Unavailable" : current?.userDefault ? "Your choice" : undefined}
         disabled={preferences.disabled}
         className="max-w-56"
         onPick={(key) => void choose(key.slice(key.indexOf("\u0000") + 1))}
       />
-      {current?.userDefault && (
+      {(current?.userDefault || missing) && (
         <Button
           size="sm"
           variant="ghost"

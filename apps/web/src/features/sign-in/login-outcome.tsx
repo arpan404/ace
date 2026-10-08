@@ -1,3 +1,5 @@
+import { useEffect, useEffectEvent } from "react";
+import type { LoginView } from "./login-controller.ts";
 import { WarningIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Actions, StepTitle, useFocusOnShow } from "./login-parts.tsx";
@@ -53,4 +55,13 @@ export function Problem(props: {
       </Actions>
     </>
   );
+}
+
+/** Cancellation dismisses either sign-in surface without a success or failure message. */
+export function useCloseCancelled(view: LoginView, onClose: () => void) {
+  const cancelled = view.kind === "progress" && view.progress.state === "cancelled";
+  const close = useEffectEvent(onClose);
+  useEffect(() => {
+    if (cancelled) close();
+  }, [cancelled]);
 }

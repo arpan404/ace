@@ -52,9 +52,12 @@ export const HistoryListRequest = z.object({
   type: z.literal("history.list"),
   requestId: z.string().min(1).max(256).optional(),
   cwd: z.string(),
+  search: z.string().max(256).optional(),
+  openableOnly: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   before: z.object({ lastActivity: Timestamp, id: z.string() }).optional(),
 });
+export type HistoryListRequest = z.infer<typeof HistoryListRequest>;
 export const HistoryListResponse = z.object({
   type: z.literal("history.list"),
   requestId: z.string().min(1).max(256).optional(),

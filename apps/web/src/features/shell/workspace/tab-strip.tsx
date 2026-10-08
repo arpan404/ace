@@ -17,8 +17,8 @@ import { useRevealShown, useTabFit } from "./use-tab-layout.ts";
 /**
  * The side panel's tabs: one tab stop (arrows move between tabs and show them, Home/End jump,
  * Delete closes, Alt+Shift+arrows reorder), drag to reorder, a + for a new tab and, once the
- * tabs no longer fit, a menu of all of them. Short of room, the other tabs narrow
- * and then fold to their icons while the showing tab keeps its title; only then does the strip
+ * tabs no longer fit, a menu of all of them. Labels scroll at normal panel widths;
+ * only a truly narrow strip folds the other tabs to icons. The strip
  * scroll, fading the edge it clips.
  */
 export function TabStrip(props: {

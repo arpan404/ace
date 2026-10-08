@@ -1,3 +1,4 @@
+export { isDefaultSelection } from "./catalog-cleanup.ts";
 import { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { ModelRoleSpec, type CatalogModel, type ModelResolution } from "@ace/protocol";
 

@@ -1,3 +1,4 @@
+import { sanitizeUserText } from "./user-text.ts";
 import { historyToolDetail } from "./tool-detail.ts";
 import { Item, ItemId, type AgentId, type RawPayload } from "@ace/protocol";
 import { object, string, timestamp } from "@ace/native-session";
@@ -50,6 +51,10 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     text: string,
     isMessage: boolean,
   ): Generator<Mapped> {
+    if (role === "user") {
+      text = sanitizeUserText(text);
+      if (!text) return;
+    }
     // Bounded text items also bound event and page sizes after importing a large native block.
     for (let offset = 0; offset < text.length || offset === 0; offset += 4096) {
       const chunk = text.slice(offset, offset + 4096);
@@ -148,11 +153,16 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     return;
   }
   if (ctx.provider === "opencode" && p.type === "text") {
-    yield* texts("message", string(p.text) ?? "", false);
+    if (p.synthetic !== true) yield* texts("message", string(p.text) ?? "", false);
     return;
   }
-  let content = message.content ?? p.content;
-  if (ctx.provider === "opencode" && role && content === undefined) {
+  if (role === "user" && (p.isMeta === true || p.synthetic === true)) return;
+  let content = message.content ?? p.content ?? (role === "user" ? p.text : undefined);
+  if (
+    ctx.provider === "opencode" &&
+    (role === "user" || role === "assistant") &&
+    content === undefined
+  ) {
     const entry = notice("Native message");
     entry.message = true;
     yield entry;
@@ -174,6 +184,20 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
         ) {
           yield* texts("message", text, !counted);
           counted = true;
+        } else if (block.type === "reasoning")
+          yield* texts("reasoning", string(block.text) ?? "", false);
+        else if (block.type === "tool") {
+          const call = tool(block);
+          yield call;
+          linkedCall = call.item.id;
+          const state = object(block.state);
+          const output = string(state.output);
+          if (output) yield* texts("notice", output, false);
+          for (const result of Array.isArray(state.content) ? state.content : []) {
+            const resultText = string(object(result).text);
+            if (resultText) yield* texts("notice", resultText, false);
+            else yield notice(`Native tool content: ${string(object(result).type) ?? "unknown"}`);
+          }
         } else if (block.type === "thinking")
           yield* texts("reasoning", string(block.thinking) ?? "", false);
         else if (block.type === "tool_use") yield tool(block);
@@ -193,6 +217,10 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
       }
       return;
     }
+  }
+  if (ctx.provider === "opencode" && p.type === "compaction") {
+    yield { item: Item.parse({ ...base(), type: "compaction" }), message: false };
+    return;
   }
   if (ctx.provider === "claude" && p.type === "system" && p.subtype === "compact_boundary") {
     yield { item: Item.parse({ ...base(), type: "compaction" }), message: false };

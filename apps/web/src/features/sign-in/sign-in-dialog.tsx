@@ -1,3 +1,5 @@
+import { signInSuccess } from "./success-copy.ts";
+import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +16,7 @@ import {
 import { refreshProviders, useProviderReadiness } from "@/lib/provider-readiness.ts";
 import { isFinished, type LoginController, type LoginView } from "./login-controller.ts";
 import { LoginBody } from "./login-steps.tsx";
+import { useCloseCancelled } from "./login-outcome.tsx";
 
 /** Waiting on the CLI or on the person elsewhere: the mark breathes meanwhile. */
 function waiting(view: LoginView): boolean {
@@ -43,19 +46,22 @@ export function SignInDialog(props: {
   const view = useSyncExternalStore(login.subscribe, login.getView);
   const readiness = useProviderReadiness();
   const toast = useToast();
+  const accounts = useAccountViews();
   const queryClient = useQueryClient();
   const { provider, action, service, choice } = login.target;
   const name = login.target.name ?? providerNames[provider];
   const row = readiness.data?.find((entry) => entry.provider === provider);
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
   const finish = useEffectEvent(() => {
-    toast.add({
-      title: service
-        ? `${service} is ${action === "logout" ? "disconnected" : "connected"}`
-        : action === "logout"
-          ? `Signed out of ${name}`
-          : `Signed in to ${name}${login.target.newAccount ? ` · ${login.target.newAccount}` : ""}`,
-    });
+    if (login.claimCompletion())
+      toast.add({
+        kind: "provider-auth",
+        eventId: view.kind === "progress" ? view.progress.session : undefined,
+        title: signInSuccess(
+          login.target,
+          accounts.data?.find((account) => account.id === login.target.instance)?.label,
+        ),
+      });
     props.onClose();
   });
   useEffect(() => {
@@ -65,6 +71,7 @@ export function SignInDialog(props: {
     void queryClient.invalidateQueries({ queryKey: ["accounts"] });
     finish();
   }, [succeeded, queryClient]);
+  useCloseCancelled(view, props.onClose);
   const running = view.kind === "progress" && !isFinished(view.progress);
   const logout = action === "logout";
   const title = service

@@ -20,12 +20,13 @@ async function fork() {
   await userEvent.type(title, "Try another model");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Fork model:/ }));
   const picker = await screen.findByRole("dialog", { name: "Fork model" });
+  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex · Personal" }));
   await userEvent.type(
     within(picker).getByRole("combobox", { name: "Search models" }),
     "GPT-5 Codex",
   );
   await userEvent.click(
-    await within(picker).findByRole("option", { name: /^GPT-5 Codex,.*Codex$/ }),
+    await within(picker).findByRole("option", { name: /^GPT-5 Codex,.*Codex · Personal/ }),
   );
   await userEvent.type(
     within(dialog).getByRole("textbox", { name: "First message of the fork" }),
@@ -75,6 +76,7 @@ test("a named fork runs on the chosen model and links back to its parent", async
   const { app, child } = await fork();
   expect(child.provider).toBe("codex");
   expect(child.execution?.model).toBe("gpt-5-codex");
+  expect(child.execution?.instanceId).toBe("codex-personal");
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ })).toBeTruthy();
   const parent = screen.getByRole("link", { name: "Document the router" });
   await userEvent.click(parent);

@@ -27,6 +27,8 @@ export interface ModelControlView {
   label: string | undefined;
   /** What the chip says without a model ("Loading models…"). */
   placeholder: string;
+  unavailable?: string | undefined;
+  pickerRequest?: number | undefined;
   /** The chip's accessible name and tooltip. */
   ariaLabel: string;
   tip: string;

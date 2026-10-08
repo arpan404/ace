@@ -115,7 +115,8 @@ test("a turn is one log: a note between steps reads inside it, and it carries th
   act(() => script.runThrough("answered"));
   const answer = await within(feed).findByText("The config reads the lockfile path.");
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
-  expect(follows(within(feed).getByRole("button", { name: /^Worked for/ }), answer)).toBe(true);
+  expect(follows(within(feed).getByRole("button", { name: /^Work so far/ }), answer)).toBe(true);
+  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(await screen.findByRole("status", { name: "Working" })).toBeTruthy();
 });
 
@@ -282,7 +283,7 @@ test("the subagents line opens to the agents started, with their model, and open
   const tree = within(feed).getByRole("tree", { name: "Subagents" });
   const [row] = within(tree).getAllByRole("treeitem");
   expect(row?.getAttribute("aria-label")).toMatch(/^protocol-docs: /);
-  expect(row?.textContent).toContain("Codex · gpt-5.5-codex");
+  expect(row?.textContent).toContain("Codex · GPT-5.5 Codex");
 
   await userEvent.click(within(tree).getByRole("link", { name: "Open protocol-docs's thread" }));
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
@@ -296,7 +297,7 @@ test("a usage-limit pause marks where the turn stopped, and stays there after th
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const pause = await within(feed).findByRole("note", {
-    name: "Paused · Codex usage limit · reset time unknown",
+    name: "Paused · Codex usage limit",
   });
   const ask = within(feed).getByText("Remove the legacy feature-flag reader");
   expect(follows(ask, pause)).toBe(true);
@@ -426,7 +427,7 @@ test("the step in flight on the live line follows the step's own updates", async
   expect(await within(feed).findByText("Running bun run build apps/web")).toBeTruthy();
 });
 
-test("a finished log's time is fixed when the agent moved on, whatever settles later", async () => {
+test("an open turn shows one live timer; its closed log becomes timed history only when the turn settles", async () => {
   let now = 1_000;
   const app = harness({ clock: () => now });
   const script = app.play({
@@ -451,7 +452,7 @@ test("a finished log's time is fixed when the agent moved on, whatever settles l
         label: "spoke",
         facts: [message("root", "note", "assistant", "The build runs; meanwhile, the docs.")],
       },
-      { kind: "facts", label: "settled", facts: [toolDone("root", "build")] },
+      { kind: "facts", label: "settled", facts: [toolDone("root", "build"), endTurn("root")] },
     ],
   });
   script.runThrough("started");
@@ -459,7 +460,11 @@ test("a finished log's time is fixed when the agent moved on, whatever settles l
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(await within(feed).findByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
+  expect(await screen.findByRole("status", { name: "Working" })).toBeTruthy();
+  const timers = screen.getAllByText(/^Working for/);
+  expect(timers).toHaveLength(1);
 
   now = 101_000;
   act(() => script.runThrough("settled"));
@@ -528,4 +533,61 @@ test("a question still waiting in an old turn keeps that turn open in a long thr
     await within(feed).findByRole("group", { name: "Question: Keep the legacy flag reader?" }),
   ).toBeTruthy();
   expect(within(feed).getByText("Answer 1")).toBeTruthy();
+});
+
+test("a finished child with no spawn link does not claim the active parent's turn has worked", async () => {
+  let now = 1000;
+  const app = harness({ clock: () => now });
+  const script = app.play({
+    thread: {
+      id: "thread-unlinked",
+      workspaceId: "ace",
+      provider: "claude",
+      title: "Partial subagent stream",
+    },
+    steps: [
+      {
+        kind: "facts",
+        label: "started",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          {
+            type: "agent.seen",
+            agent: "child",
+            parent: "root",
+            origin: "provider_subagent",
+            fidelity: "full",
+            native: { provider: "claude", nativeId: "child" },
+            cwd: "/fake/ace",
+          },
+          turn("child"),
+          tool("child", "read", {
+            kind: "file.read",
+            title: "Read policy.ts",
+            detail: { kind: "file.read", path: "policy.ts" },
+          }),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "child-finished",
+        facts: [
+          toolDone("child", "read"),
+          message("child", "answer", "assistant", "Policy checked."),
+          endTurn("child"),
+        ],
+      },
+    ],
+  });
+  script.runThrough("started");
+  now = 5000;
+  script.runThrough("child-finished");
+  await app.open("/t/thread-unlinked");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
+  expect(await screen.findByRole("status", { name: "Working" })).toBeTruthy();
+  act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));
+  expect(await within(feed).findByRole("button", { name: /^Worked for 4s/ })).toBeTruthy();
 });

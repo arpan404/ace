@@ -180,22 +180,28 @@ test("unknown native records survive as canonical raw notices", async () => {
     ),
   ).toBe(true);
 });
-test("paginated Codex sessions explain why full file import is unsupported", async () => {
+test("Codex forks referencing another history file explain why a complete import is refused", async () => {
   const { service, path } = await setup("codex");
   await jsonl(path, [
     {
       type: "session_meta",
-      payload: { id: nativeId, cwd, history_mode: "paginated", history_base: {} },
+      payload: {
+        id: nativeId,
+        cwd,
+        history_mode: "paginated",
+        history_base: { thread_id: otherId, ordinal: 10 },
+      },
     },
+    ...codexRecords().slice(1),
   ]);
   await service.scan();
   const s = (await service.list({ type: "history.list", cwd })).sessions[0];
   expect(s?.support).toMatchObject({
     status: "unsupported",
-    reason: expect.stringContaining("materialization"),
+    reason: expect.stringContaining("another file"),
   });
   if (!s) throw new Error("missing source");
-  await expect(service.importSession(init(s.id))).rejects.toThrow("materialization");
+  await expect(service.importSession(init(s.id))).rejects.toThrow("another file");
 });
 test("Cursor discovery reports the missing full-history and ACP contracts", async () => {
   const env = await environment();

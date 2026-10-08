@@ -64,7 +64,20 @@ test("a commit after snapshot acquisition keeps its consistent metadata and refr
     "CREATE TABLE session(id TEXT,directory TEXT,title TEXT,time_updated INTEGER,parent_id TEXT);CREATE TABLE message(id TEXT,session_id TEXT,time_created INTEGER,data TEXT);CREATE TABLE part(id TEXT,message_id TEXT,data TEXT)",
   );
   const insert = db.prepare("INSERT INTO session VALUES(?,?,?,?,NULL)");
-  for (let i = 0; i < 96; i++) insert.run("s" + i, cwd, "before", 1);
+  for (let i = 0; i < 96; i++) {
+    insert.run("s" + i, cwd, "before", 1);
+    db.prepare("INSERT INTO message VALUES(?,?,?,?)").run(
+      "m" + i,
+      "s" + i,
+      1,
+      JSON.stringify({ role: "user" }),
+    );
+    db.prepare("INSERT INTO part VALUES(?,?,?)").run(
+      "p" + i,
+      "m" + i,
+      JSON.stringify({ type: "text", text: "Inspect the snapshot" }),
+    );
+  }
   const service = await env.start([{ id: "oc", provider: "opencode", homeDir: home }]);
   let changed = false;
   const scan = await service.scan(undefined, async () => {

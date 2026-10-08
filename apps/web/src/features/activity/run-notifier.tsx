@@ -47,6 +47,7 @@ export default function RunNotifier() {
       }
       toasts.add({
         id: `run:${run.id}`,
+        eventId: `run:${run.id}`,
         title,
         description: run.result ?? "",
         ...(run.status === "failed" ? { timeout: failedTimeout } : {}),

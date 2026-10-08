@@ -1,4 +1,5 @@
 import { useLiveConnection } from "@/lib/live-connection.ts";
+import { threadIsRunning } from "@ace/ui-core";
 import { useThreadMeta } from "@ace/client-react";
 
 /** Cached agent facts remain visible during reconnect, but cannot claim live work. */
@@ -10,7 +11,7 @@ export function useThreadLiveState(threadId: string) {
   return {
     fresh,
     paused,
-    canStop: fresh && !paused,
+    canStop: fresh && threadIsRunning(status),
     staleLabel,
   };
 }

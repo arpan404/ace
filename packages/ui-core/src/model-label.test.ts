@@ -3,6 +3,11 @@ import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel } from "./providers.ts";
 
 test("model ids read the way the model pickers name them", () => {
+  expect(modelLabel("opencode-go/muse-spark-1.3-contributor")).toBe("Muse Spark 1.3 Contributor");
+  expect(
+    modelName("opencode", "muse spark 1.3 contributor", "opencode-go/muse-spark-1.3-contributor"),
+  ).toBe("Muse Spark 1.3 Contributor");
+  expect(modelLabel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
   expect(modelLabel("sonnet-4.6")).toBe("Sonnet 4.6");
   expect(modelLabel("claude-sonnet-4-6")).toBe("Sonnet 4.6");
   expect(modelLabel("claude-opus-4-1")).toBe("Opus 4.1");

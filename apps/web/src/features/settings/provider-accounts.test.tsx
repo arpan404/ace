@@ -45,7 +45,7 @@ test("an account's menu renames it, makes it the default and removes it after as
   await app.open("/settings/providers/claude");
   const work = await account("Work");
   await userEvent.click(within(work).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
   const field = within(work).getByRole("textbox", { name: "Account name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Client work{Enter}");
@@ -100,8 +100,9 @@ test("cancelling browser sign-in never leaves a named account behind", async () 
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));
-  await within(dialog).findByText("Sign-in cancelled");
-  await userEvent.click(within(dialog).getByText("Close", { selector: "button" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
   expect(within(await accounts()).queryByText("Client")).toBeNull();
   expect(
     (await app.client.request({ type: "accounts.list" })).accounts.some(

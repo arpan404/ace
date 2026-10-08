@@ -1,6 +1,6 @@
 import { useIntent } from "@ace/client-react";
 import type { CommandPayload } from "@ace/protocol";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { sendFailure } from "../items/send-failure.ts";
 import { draftOf } from "./returned-draft.ts";
@@ -16,17 +16,21 @@ export function AgentSendWatch(props: {
   draftKey: string;
 }) {
   const toast = useToast();
+  const announced = useRef<string | undefined>(undefined);
   const intent = useIntent(props.commandId);
   const failed = intent?.state === "failed";
   const error = intent?.error;
   const { payload, draftKey } = props;
   useEffect(() => {
-    if (!failed) return;
+    if (!failed || announced.current === props.commandId) return;
+    announced.current = props.commandId;
     toast.add({
+      eventId: `send-failed:${props.commandId}`,
+      kind: "send-failed",
       title: "Follow-up not sent",
       description: sendFailure(error, payload),
       actionProps: { children: "Edit", onClick: () => returnDraft(draftKey, draftOf(payload)) },
     });
-  }, [failed, error, payload, draftKey, toast]);
+  }, [failed, error, payload, draftKey, toast, props.commandId]);
   return null;
 }

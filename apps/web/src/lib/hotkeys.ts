@@ -65,11 +65,15 @@ function sequenceMatcher(keys: string) {
 export function useHotkey(
   keys: string,
   handler: (event: KeyboardEvent) => void,
-  options: { enabled?: boolean; id?: KeymapId } = {},
+  options: {
+    enabled?: boolean;
+    id?: KeymapId;
+    when?: (event: KeyboardEvent) => boolean;
+  } = {},
 ): void {
-  const latest = useRef(handler);
+  const latest = useRef({ handler, when: options.when });
   useEffect(() => {
-    latest.current = handler;
+    latest.current = { handler, when: options.when };
   });
   const enabled = options.enabled ?? true;
   const bindings = useHotkeyBindings(keys, options.id);
@@ -78,11 +82,12 @@ export function useHotkey(
     const matchers = bindings.map(sequenceMatcher);
     const listener = (event: KeyboardEvent) => {
       if (event.repeat || event.defaultPrevented || modifierKeys.has(event.key)) return;
+      if (latest.current.when && !latest.current.when(event)) return;
       // Every matcher sees every key, so a sequence in progress isn't lost to another binding.
       const hits = matchers.map((matches) => matches(event));
       if (!hits.some(Boolean)) return;
       event.preventDefault();
-      latest.current(event);
+      latest.current.handler(event);
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);

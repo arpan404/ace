@@ -208,6 +208,10 @@ export class AccountManagement {
       return changed(instanceId);
     }
     const instance = this.editable(request.instanceId);
+    if (request.type === "accounts.rename") {
+      registry.rename(instance.id, request.label, request);
+      return changed(instance.id);
+    }
     if (instance.provider === "cursor" && this.options.cursor?.()?.busy(instance.id))
       throw new Error("Instance is busy");
     const release = accounts.reserveAccountChange(instance.id);
@@ -241,16 +245,12 @@ export class AccountManagement {
       }
     }
     try {
-      if (request.type === "accounts.rename") registry.rename(instance.id, request.label);
-      else {
-        if (instance.provider === "cursor") await this.options.cursor?.()?.fence(instance.id);
-        // Catalog cancellation completes before a private home can be removed.
-        await this.options.models()?.removeInstance(instance.id);
-        if (request.deleteHome) await deleteManagedHome(this.options.dataDir, instance);
-        registry.unregister(instance.id);
-        return changed();
-      }
-      return changed(instance.id);
+      if (instance.provider === "cursor") await this.options.cursor?.()?.fence(instance.id);
+      // Catalog cancellation completes before a private home can be removed.
+      await this.options.models()?.removeInstance(instance.id);
+      if (request.deleteHome) await deleteManagedHome(this.options.dataDir, instance);
+      registry.unregister(instance.id);
+      return changed();
     } finally {
       release();
     }

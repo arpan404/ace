@@ -10,7 +10,8 @@ import type { FakeServiceContext } from "./service-context.ts";
 /** Fixture-only history, using the same import/continue wire operations as local history. */
 export class FakeHistory {
   private sessions: HistorySession[] = [];
-  private transcripts: Record<string, { role: "user" | "assistant"; text: string }[]> = {};
+  private transcripts: Record<string, { role: "user" | "assistant"; text: string; at?: number }[]> =
+    {};
   private imported = new Map<string, ThreadId>();
   private host: FakeServiceContext;
   constructor(host: FakeServiceContext) {
@@ -28,7 +29,13 @@ export class FakeHistory {
     };
     if (message.type === "history.list") {
       const sessions = this.sessions
-        .filter((session) => session.cwd === message.cwd)
+        .filter(
+          (session) =>
+            session.cwd === message.cwd &&
+            !session.parentNativeId &&
+            (!message.openableOnly || session.support.status === "supported") &&
+            (!message.search || session.title.toLowerCase().includes(message.search.toLowerCase())),
+        )
         .toSorted((a, b) => b.lastActivity - a.lastActivity || b.id.localeCompare(a.id))
         .filter(
           (session) =>
@@ -108,12 +115,16 @@ export class FakeHistory {
         this.imported.set(session.id, id);
         const root = rootAgent(session.provider, session.cwd);
         if (root.type === "agent.seen") root.native.nativeId = session.nativeId;
-        this.host.apply?.(id, [
-          root,
-          ...(this.transcripts[session.id] ?? []).map((entry, index) =>
-            transcriptMessage("root", `saved-${index}`, entry.role, entry.text),
+        const transcript = this.transcripts[session.id] ?? [];
+        this.host.apply?.(id, [root], transcript[0]?.at ?? session.lastActivity);
+        const importedId = id;
+        transcript.forEach((entry, index) =>
+          this.host.apply?.(
+            importedId,
+            [transcriptMessage("root", `saved-${index}`, entry.role, entry.text)],
+            entry.at ?? session.lastActivity,
           ),
-        ]);
+        );
       }
       progress("completed");
       send({

@@ -271,7 +271,7 @@ function OpenRequest(props: {
     if (!decision || event.metaKey || event.ctrlKey || event.altKey) return;
     event.preventDefault();
     // A default-to-no request is approved only by a click (or Enter on its focused button).
-    if (request.kind === "approval" && !approvalByKey(request, decision.option))
+    if (request.kind === "approval" && !approvalByKey(request, decision.option, copy?.risk))
       return setNudged(decision.label);
     answer({ kind: "approval", optionId: decision.option.id });
   };
@@ -306,7 +306,7 @@ function OpenRequest(props: {
             review={interaction.review}
             disabled={sending}
             numbered
-            keyed={(option) => approvalByKey(request, option)}
+            keyed={(option) => approvalByKey(request, option, copy.risk)}
             onAnswer={(picked) => answer({ kind: "approval", optionId: picked.option.id })}
             answered={
               chosen && (
@@ -323,7 +323,7 @@ function OpenRequest(props: {
           />
           {nudged && !chosen && (
             <p role="status" className="mt-2 text-xs text-subtle-foreground">
-              This request defaults to no: click {nudged} to allow it.
+              Read the request, then click {nudged} to allow it.
             </p>
           )}
         </>

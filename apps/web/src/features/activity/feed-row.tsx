@@ -1,3 +1,5 @@
+import { useSidebarThread } from "@ace/client-react";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -14,6 +16,7 @@ import { useArrival } from "@/lib/arrival.tsx";
 export function FeedRow(props: {
   /** A 16px glyph, or a spinner for running work. */
   icon: ReactNode;
+  threadId?: string | undefined;
   title: string;
   description: string;
   age: string;
@@ -30,6 +33,7 @@ export function FeedRow(props: {
   readId?: string;
 }) {
   const arrival = useArrival();
+  const thread = useSidebarThread(props.threadId ?? "");
   const button = (
     <button
       type="button"
@@ -48,7 +52,7 @@ export function FeedRow(props: {
       }}
       className={cn(
         compactViewRowClass,
-        "h-9 items-center pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
+        "h-9 items-center justify-start text-left pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
       )}
     >
       <span
@@ -63,6 +67,17 @@ export function FeedRow(props: {
       >
         {props.picked ? <Icon icon={CheckIcon} size={14} /> : props.icon}
       </span>
+      {thread && (
+        <ProviderAccountIcon
+          provider={thread.provider}
+          instance={
+            (thread.switch?.state === "queued" ? thread.switch.selection.instanceId : undefined) ??
+            thread.live?.account ??
+            thread.execution?.instanceId
+          }
+          size={14}
+        />
+      )}
       <span className="min-w-0 flex-1">
         <span
           className={cn(

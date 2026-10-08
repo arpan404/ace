@@ -23,6 +23,11 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
   const pending = host.view.thread.switch;
   if (pending?.state !== "queued" || busy(host)) return [];
   const { selection } = pending;
+  if (host.queue.reason === "model_unavailable") {
+    host.queue.paused = false;
+    host.queue.reason = null;
+    host.queueDirty = true;
+  }
   return [
     {
       type: "thread.updated",

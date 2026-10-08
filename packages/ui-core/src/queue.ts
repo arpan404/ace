@@ -1,4 +1,6 @@
 import type { ContextMeter, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import { unavailableModelNotice } from "./model-availability.ts";
+import type { ExecutionSelection } from "@ace/protocol";
 import type { LimitContext } from "./limits.ts";
 import { describeWake } from "./snooze.ts";
 import { formatCountdown } from "./time.ts";
@@ -19,10 +21,19 @@ export type QueueAction =
       /** The account it moves to, when one is named. */ instanceId?: string;
     }
   | { id: "resume"; label: string }
-  | { id: "hold"; label: string };
+  | { id: "hold"; label: string }
+  | { id: "choose_model"; label: string };
 
 export interface QueueNotice {
-  kind: "limited" | "resuming" | "snoozed" | "restart" | "uncertain" | "paused";
+  kind:
+    | "limited"
+    | "resuming"
+    | "snoozed"
+    | "restart"
+    | "uncertain"
+    | "paused"
+    | "model"
+    | "not_sent";
   title: string;
   detail: string;
   /** In order of prominence; the first is the primary action. */
@@ -41,7 +52,15 @@ export function queueNotice(
   now: number,
   locale?: string,
   account?: LimitContext,
+  unavailable?: { provider: ExecutionSelection["provider"]; model: string },
 ): QueueNotice | undefined {
+  if (unavailable)
+    return {
+      kind: "model",
+      title: unavailableModelNotice(unavailable),
+      detail: "",
+      actions: [{ id: "choose_model", label: "Pick another model" }],
+    };
   const reason = queue?.paused ? queue.reason : null;
   const resumeAt = queue?.resumeAt ?? null;
   if (reason === "limit" && resumeAt !== null)
@@ -101,6 +120,20 @@ export function queueNotice(
     };
   }
   switch (reason) {
+    case "not_sent":
+      return {
+        kind: "not_sent",
+        title: "Message not sent",
+        detail: "Your message is kept in the queue. Try sending it again.",
+        actions: [{ id: "resume", label: "Try again" }],
+      };
+    case "stopped":
+      return {
+        kind: "paused",
+        title: "Agent stopped",
+        detail: "Your queued messages are kept until you continue.",
+        actions: [{ id: "resume", label: "Continue" }],
+      };
     case "restart":
       return {
         kind: "restart",

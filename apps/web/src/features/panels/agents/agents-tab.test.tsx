@@ -301,3 +301,39 @@ test("in the tree, Stop on an agent with subagents asks the same question, and a
   ).toBeTruthy();
   expect(within(panel).getByRole("treeitem", { name: "resume-sweep: Interrupted" })).toBeTruthy();
 });
+
+test("a reusable subagent gets its duration from the finished run and shows one status", async () => {
+  let now = 1000;
+  const app = harness({ clock: () => now });
+  app.daemon.createThread({
+    id: "timed-child",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Review changes",
+  });
+  app.daemon.apply("timed-child", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.subagent("claude", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer"),
+    facts.tool("reviewer", "read", {
+      kind: "file.read",
+      title: "Read config",
+      detail: { kind: "file.read", path: "config.ts" },
+    }),
+  ]);
+  const panel = await openAgents(app, "/t/timed-child");
+  await userEvent.click(await within(panel).findByRole("treeitem", { name: /^Reviewer:/ }));
+  await within(panel).findByRole("heading", { name: "Reviewer" });
+  now = 122000;
+  act(() =>
+    app.daemon.apply("timed-child", [
+      facts.toolDone("reviewer", "read"),
+      facts.endTurn("reviewer"),
+    ]),
+  );
+  expect(await within(panel).findByText(/ran for 2m 1s/)).toBeTruthy();
+  expect(within(panel).getAllByText("Done", { exact: true })).toHaveLength(1);
+  expect(within(panel).queryByText("Idle", { exact: true })).toBeNull();
+  expect(within(panel).queryByText(/ran for 0s/)).toBeNull();
+});

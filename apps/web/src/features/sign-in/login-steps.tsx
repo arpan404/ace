@@ -1,5 +1,5 @@
 import type { ProviderLoginProgress } from "@ace/protocol";
-import { serviceInfo, signInSteps, apiKeyServiceLabel } from "@ace/ui-core";
+import { signInSteps, apiKeyServiceLabel } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { ProviderTile } from "@/components/provider-tile.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -133,6 +133,7 @@ export function LoginBody(props: {
           <AgentLoginTerminal
             id={progress.manual.terminalId}
             name={name}
+            instruction={progress.manual.instruction}
             cancel={() => login.cancel()}
           />
         );
@@ -160,17 +161,7 @@ export function LoginBody(props: {
     case "succeeded":
       return null;
     case "cancelled":
-      return (
-        <Step key={key}>
-          <Problem
-            title={context.logout ? "Sign-out cancelled" : "Sign-in cancelled"}
-            hint="Nothing changed."
-            onClose={props.onClose}
-            onRetry={props.onRetry}
-            quiet
-          />
-        </Step>
-      );
+      return null;
     case "failed":
       if (progress.manual)
         return (
@@ -240,39 +231,28 @@ function Choices(props: {
   return (
     <>
       <StepTitle title={title} line={props.upstreams ? "You can add more later." : undefined} />
-      <ul
-        role="group"
-        aria-label={title}
-        className="flex flex-col overflow-hidden rounded-card border bg-card"
-      >
+      <ul role="group" aria-label={title} className="flex flex-col">
         {choices.map((choice, at) => {
-          const description = serviceInfo(choice.id).description;
           return (
-            <li key={choice.id} className="border-t first:border-t-0">
+            <li key={choice.id}>
               <button
                 ref={at === 0 ? primary : undefined}
                 type="button"
                 aria-label={choice.label}
                 disabled={props.disabled}
                 onClick={() => props.onChoose(choice.id)}
-                className="group flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors duration-(--dur-1) focus-ring-inset hover:bg-accent disabled:opacity-50"
+                className="flex w-full items-center h-9 gap-2 rounded-md px-2 text-left transition-colors duration-(--dur-1) focus-ring-inset hover:bg-accent disabled:opacity-50"
               >
                 <ProviderTile
                   provider={props.provider}
                   service={{ id: choice.id, label: choice.label }}
                   size="sm"
+                  className="size-6 bg-transparent shadow-none"
                 />
-                <span className="flex min-w-0 flex-1 flex-col">
+                <span className="min-w-0 flex-1">
                   <span className="truncate font-medium text-foreground">{choice.label}</span>
-                  {description && (
-                    <span className="truncate text-sm text-muted-foreground">{description}</span>
-                  )}
                 </span>
-                <CaretRightIcon
-                  aria-hidden
-                  size={14}
-                  className="text-subtle-foreground transition-transform duration-(--dur-1) group-hover:translate-x-0.5 group-hover:text-foreground"
-                />
+                <CaretRightIcon aria-hidden size={14} className="text-subtle-foreground" />
               </button>
             </li>
           );

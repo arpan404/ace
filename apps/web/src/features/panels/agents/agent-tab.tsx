@@ -5,7 +5,7 @@ import {
   agentStatusLabel,
   describeActivity,
   formatAgo,
-  formatSpan,
+  formatElapsed,
   isRunning,
   providerNames,
 } from "@ace/ui-core";
@@ -21,7 +21,8 @@ import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
-import { AgentStatusMark } from "./agent-status.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { useAgentEnd } from "./use-agent-end.ts";
 import { StopAgent } from "./stop-agent.tsx";
 import { countSubagents, findAgentNode } from "./subagents.ts";
 import { useThreadParts } from "./thread-parts.ts";
@@ -94,7 +95,8 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
   );
   const status = agentStatusLabel(agent.status);
   const running = isRunning(agent);
-  const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
+  const ended = useAgentEnd(props.threadId, agent);
+  const end = running ? Math.max(now, agent.createdAt) : ended;
   const activity = describeActivity(
     agent.status,
     tool?.type === "tool_call" ? tool.call.title : undefined,
@@ -103,7 +105,9 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
     agent.model,
     agent.role && agent.role !== agent.name ? agent.role : undefined,
     `started ${formatAgo(agent.createdAt, Math.max(now, agent.createdAt))}`,
-    `${running ? "running for" : "ran for"} ${formatSpan(agent.createdAt, end)}`,
+    end === undefined
+      ? undefined
+      : `${running ? "running for" : "ran for"} ${formatElapsed(Math.max(0, end - agent.createdAt))}`,
     agent.background ? "in the background" : undefined,
   ].filter(Boolean);
   const fidelity = fidelityNotes[agent.fidelity];
@@ -120,19 +124,21 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
                 className="shrink-0"
               />
               <h2 className="min-w-0 truncate text-md font-medium">{agentName(agent)}</h2>
-              <span className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
-                <AgentStatusMark status={agent.status} />
-                {status.label}
-              </span>
+              <StatusLabel
+                tone={status.tone}
+                label={agent.status.state === "idle" && ended !== undefined ? "Done" : status.label}
+              />
             </div>
-            <p
-              className={cn(
-                "text-sm text-muted-foreground",
-                agent.status.state === "failed" && "text-status-failed",
-              )}
-            >
-              {activity.charAt(0).toUpperCase() + activity.slice(1)}
-            </p>
+            {(tool || agent.status.state === "failed") && (
+              <p
+                className={cn(
+                  "text-sm text-muted-foreground",
+                  agent.status.state === "failed" && "text-status-failed",
+                )}
+              >
+                {activity.charAt(0).toUpperCase() + activity.slice(1)}
+              </p>
+            )}
             <p className="text-xs text-subtle-foreground tabular-nums">{facts.join(" · ")}</p>
           </header>
           {agent.origin !== "root" && <Delegation threadId={props.threadId} agent={agent} />}

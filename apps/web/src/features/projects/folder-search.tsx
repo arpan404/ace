@@ -311,13 +311,13 @@ export function FolderSearchBox(props: {
             ? `${displayPath(highlighted.path, home?.path)}${props.several ? ` · ${highlighted.machine.name}` : ""}`
             : ""}
         </span>
-        <KeyHints mode={mode} path={query.kind === "path"} />
+        <KeyHints mode={mode} />
       </div>
     </div>
   );
 }
 
-function KeyHints(props: { mode: SearchMode; path: boolean }) {
+function KeyHints(props: { mode: SearchMode }) {
   return (
     <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
       <span className="inline-flex items-center gap-1">
@@ -326,14 +326,8 @@ function KeyHints(props: { mode: SearchMode; path: boolean }) {
       </span>
       <span className="inline-flex items-center gap-1">
         <Kbd>tab</Kbd>
-        {props.path ? "complete" : "browse"}
+        complete
       </span>
-      {props.path && (
-        <span className="inline-flex items-center gap-1">
-          <Kbd keys="mod+arrowup" />
-          up
-        </span>
-      )}
     </span>
   );
 }

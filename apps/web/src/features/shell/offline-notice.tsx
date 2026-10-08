@@ -45,7 +45,10 @@ export function OfflineNotice(props: { words: string }) {
   const words = props.words;
   return (
     <div className="fx-view-in shrink-0 border-b text-sm text-muted-foreground">
-      <div role="status" className="flex h-8 items-center justify-center gap-2">
+      <div
+        role="status"
+        className="flex min-h-8 items-center justify-center gap-2 px-3 py-1 text-center"
+      >
         {waiting.length ? (
           <button
             type="button"

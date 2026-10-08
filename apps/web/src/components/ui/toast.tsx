@@ -1,6 +1,6 @@
 import { Toast } from "@base-ui/react/toast";
 import { WarningCircleIcon, XIcon } from "@phosphor-icons/react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { buttonVariants } from "./button.tsx";
 import { Tip } from "./tooltip.tsx";
@@ -19,22 +19,31 @@ const limit = 3;
  * (`useToastClearance`), of open panels and of the phone's tab bar, never over an input.
  * F6 moves focus to them (Base UI); hovering or focusing one pauses every timer.
  */
+interface ToastLedger {
+  kinds: Map<string, string>;
+  events: Map<string, string>;
+}
+const Ledger = createContext<ToastLedger | null>(null);
+
 function ToastProvider(props: { children: ReactNode }) {
+  const [ledger] = useState<ToastLedger>(() => ({ kinds: new Map(), events: new Map() }));
   return (
-    <Toast.Provider limit={limit} timeout={toastTimeouts.plain}>
-      {props.children}
-      <Toast.Portal>
-        <Toast.Viewport
-          data-slot="toast-viewport"
-          className={cn(
-            layers.toast,
-            "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2",
-          )}
-        >
-          <ToastList />
-        </Toast.Viewport>
-      </Toast.Portal>
-    </Toast.Provider>
+    <Ledger.Provider value={ledger}>
+      <Toast.Provider limit={limit} timeout={toastTimeouts.plain}>
+        {props.children}
+        <Toast.Portal>
+          <Toast.Viewport
+            data-slot="toast-viewport"
+            className={cn(
+              layers.toast,
+              "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2",
+            )}
+          >
+            <ToastList />
+          </Toast.Viewport>
+        </Toast.Portal>
+      </Toast.Provider>
+    </Ledger.Provider>
   );
 }
 
@@ -107,9 +116,15 @@ function ToastList() {
 }
 
 type Manager = ReturnType<typeof Toast.useToastManager>;
-type AddOptions = Parameters<Manager["add"]>[0];
+type AddOptions = Parameters<Manager["add"]>[0] & {
+  /** Newer notices of this kind replace the visible one. */
+  kind?: string | undefined;
+  /** Retries of one event never announce twice, bounded to the latest 256 events. */
+  eventId?: string | undefined;
+};
 
-export interface ToastApi extends Manager {
+export interface ToastApi extends Omit<Manager, "add"> {
+  add(options: AddOptions): string;
   /** A failure or refusal: a warning glyph, announced at once (`role=alertdialog`). */
   error(options: Omit<AddOptions, "type" | "priority">): string;
 }
@@ -117,34 +132,52 @@ export interface ToastApi extends Manager {
 /** The toast queue: Base UI's manager, with default timeouts and `error()`. */
 function useToast(): ToastApi {
   const manager = Toast.useToastManager();
+  const ledger = useContext(Ledger);
   return useMemo(() => {
     const add = (options: AddOptions) => {
-      // A full stack makes room by closing its oldest toast that offers nothing to do, so an
-      // Undo isn't pushed out of sight by a plain confirmation.
-      const shown = manager.toasts.filter(
-        (toast) => toast.transitionStatus !== "ending" && !toast.limited,
-      );
-      if (shown.length >= limit) {
-        const oldest = shown.toReversed().find((toast) => !toast.actionProps);
-        if (oldest) manager.close(oldest.id);
+      const { kind: specified, eventId, ...input } = options;
+      const kind =
+        specified ?? input.id ?? (typeof input.title === "string" ? input.title : undefined);
+      const seen = eventId && ledger?.events.get(eventId);
+      if (seen) return seen;
+      const existing = kind && ledger?.kinds.get(kind);
+      const timeout =
+        input.timeout ??
+        (input.type === "error"
+          ? toastTimeouts.error
+          : input.actionProps
+            ? toastTimeouts.action
+            : toastTimeouts.plain);
+      let id = existing || input.id;
+      const next = {
+        ...input,
+        timeout,
+        onClose: () => {
+          if (kind && ledger && ledger.kinds.get(kind) === id) ledger.kinds.delete(kind);
+          input.onClose?.();
+        },
+      };
+      let added: string;
+      if (existing) {
+        manager.update(existing, next);
+        added = existing;
+      } else {
+        added = manager.add({ ...next, ...(id ? { id } : {}) });
       }
-      return manager.add({
-        ...options,
-        timeout:
-          options.timeout ??
-          (options.type === "error"
-            ? toastTimeouts.error
-            : options.actionProps
-              ? toastTimeouts.action
-              : toastTimeouts.plain),
-      });
+      id = added;
+      if (kind) ledger?.kinds.set(kind, added);
+      if (eventId && ledger) {
+        ledger.events.set(eventId, added);
+        if (ledger.events.size > 256) ledger.events.delete(ledger.events.keys().next().value ?? "");
+      }
+      return added;
     };
     return {
       ...manager,
       add,
       error: (options) => add({ ...options, type: "error", priority: "high" }),
     };
-  }, [manager]);
+  }, [manager, ledger]);
 }
 
 export { ToastProvider, useToast };

@@ -210,7 +210,7 @@ test("missing context preparation holds the complete message instead of sending 
   expect(sends(h.adapter)).toHaveLength(0);
   expect(h.engine.queue(id)).toMatchObject({
     paused: true,
-    reason: "manual",
+    reason: "not_sent",
     messages: [{ input: text("read the attachment"), context, state: "queued" }],
   });
   expect(
