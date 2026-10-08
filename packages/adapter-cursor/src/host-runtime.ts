@@ -1,3 +1,4 @@
+import { cursorToolGuidance } from "./tool-guidance.ts";
 import { ShellStreams } from "./shell-streams.ts";
 import { streamSdkBody } from "./body-stream.ts";
 import type { LocalAgentStore } from "@cursor/sdk";
@@ -24,6 +25,7 @@ import { sdkInput } from "./sdk-input.ts";
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
 export class HostRuntime {
+  private toolGuidance: Awaited<ReturnType<typeof cursorToolGuidance>> | undefined;
   private sandboxRelease: (() => Promise<void>) | undefined;
   private agent: SdkAgentBoundary | undefined;
   private run: SdkRunBoundary | undefined;
@@ -248,7 +250,8 @@ export class HostRuntime {
         },
         (runId) => journal.afterObserve(runId),
       );
-      const agentOptions = nativeCursorOptions(options, this.store);
+      if (options.mcp) this.toolGuidance = await cursorToolGuidance();
+      const agentOptions = nativeCursorOptions(options, this.store, this.toolGuidance?.directory);
       let sandboxSupported = false;
       if (agentOptions.local?.sandboxOptions?.enabled) {
         if (this.sdk.sandboxSupport) {
@@ -297,7 +300,12 @@ export class HostRuntime {
           message: `${this.errorMessage(error)} Preserve the checkpoint and inspect this thread before retrying.`,
         });
       } finally {
-        await this.releaseSandbox();
+        try {
+          await this.releaseSandbox();
+        } finally {
+          await this.toolGuidance?.close();
+          this.toolGuidance = undefined;
+        }
       }
       throw new Error("SDK setup failed", { cause: error });
     } finally {
@@ -428,7 +436,12 @@ export class HostRuntime {
         try {
           await this.journal?.close();
         } finally {
-          await this.storeOwner?.close();
+          try {
+            await this.storeOwner?.close();
+          } finally {
+            await this.toolGuidance?.close();
+            this.toolGuidance = undefined;
+          }
         }
       }
       this.storeOwner = undefined;

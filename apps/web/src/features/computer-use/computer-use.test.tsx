@@ -310,3 +310,35 @@ test("permissions refused because computer use is off point at turning it on, an
   await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
   await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
 });
+
+test("a person grants Safari's native UI for one thread from Computer use, then can revoke it", async () => {
+  const { app } = await openSettings();
+  app.daemon.screen.access.enabled = true;
+  await app.open("/t/thread-checkout");
+  await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  const tools = await within(panel).findByRole("list", { name: "Tools" });
+  await userEvent.click(within(tools).getByRole("button", { name: /^Computer use/ }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Approve an app" }));
+  await userEvent.click(await within(panel).findByRole("combobox", { name: "App to approve" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Safari" }));
+  expect(within(panel).queryByRole("button", { name: /Always/ })).toBeNull();
+  await userEvent.click(within(panel).getByRole("button", { name: "Allow for this thread" }));
+  await waitFor(() =>
+    expect(app.daemon.screen.access.list("thread-checkout")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bundleId: "com.apple.Safari",
+          scope: "thread",
+          threadId: "thread-checkout",
+        }),
+      ]),
+    ),
+  );
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Revoke Safari (This thread)" }),
+  );
+  await waitFor(() => expect(app.daemon.screen.access.list("thread-checkout")).toEqual([]));
+});

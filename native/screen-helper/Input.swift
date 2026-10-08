@@ -11,26 +11,27 @@ extension Capture {
         let candidates = try await content().windows.filter { $0.owningApplication?.bundleIdentifier == bundle }
         guard let window = candidates.first(where: { $0.windowID == target.windowId }) else { throw HelperError("Target no longer available", code: "target_gone") }
         if mode == "foreground" { try await foregroundWindow(window) }
-        guard let app = window.owningApplication else { throw HelperError("App unavailable", code: "target_gone") }
-        let matches = axWindows(AXUIElementCreateApplication(app.processID)).filter {
-            let actual = axBounds($0).rect, expected = window.frame
-            return abs(actual.minX - expected.minX) < 1 && abs(actual.minY - expected.minY) < 1 && abs(actual.width - expected.width) < 1 && abs(actual.height - expected.height) < 1
-        }
-        guard matches.count == 1, let element = matches.first else { throw HelperError("Cannot resolve target AX window", code: "not_supported") }
+        let element = try resolver.resolve(window)
         guard let button = windowButton(element, named: name, clock: runtime.nanos) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
+        dispatched = true
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { throw HelperError("Could not press \(name)", code: "internal") }
+        deliveryConfirmed = true
     }
     func foregroundWindow(_ window: SCWindow) async throws {
         guard mode == "foreground", let pid = window.owningApplication?.processID, let app = NSRunningApplication(processIdentifier: pid) else { throw HelperError("Foreground approval required", code: "foreground_required") }
+        // Resolve and validate before any activation, including before a Space switch.
+        let element = try resolver.resolve(window)
+        _ = try currentWindowBounds(window)
+        guard axAttribute(element, kAXMinimizedAttribute) as? Bool != true else { throw HelperError("Target window is minimized", code: "window_minimized") }
         app.unhide()
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
+        if keyboardApplicationPID() != pid {
             _ = app.activate(options: [])
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { throw HelperError("Could not activate approved target", code: "foreground_required") }
-        let bounds = try currentWindowBounds(window)
-        let matches = axWindows(AXUIElementCreateApplication(pid)).filter { axBounds($0).rect == bounds }
-        guard matches.count == 1, let element = matches.first, AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success else { throw HelperError("Could not raise approved window", code: "not_supported") }
+        guard keyboardApplicationPID() == pid else { throw HelperError("Could not activate approved target", code: "foreground_required") }
+        guard AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success else { throw HelperError("Could not raise approved window", code: "not_supported") }
+        let (focused, _) = try appFocusedWindow(pid)
+        try resolver.requireDestination(focused, window: window)
     }
     func inject(_ action: Action) async throws {
         if action.kind == "down", pointerAction != nil { try releasePointer() }
@@ -38,7 +39,7 @@ extension Capture {
         // asynchronous focus/discovery. Avoid duplicating the TCC query on the pointer path.
         guard let target, target.kind != "display", let bundle = target.bundleId, allowed.contains(bundle) else { throw HelperError("Approved controllable target required", code: "permission_denied") }
         let candidates: [SCWindow]
-        if target.kind == "window", ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind), let captureWindow {
+        if target.kind == "window", let captureWindow {
             // Capture owns this SCWindow. Bounds/owner/overlap are verified from live CG rows
             // below; enumerating ScreenCaptureKit targets on every pointer event stalls input.
             candidates = [captureWindow]
@@ -48,7 +49,10 @@ extension Capture {
         else { window = try appInputWindow(candidates.filter { $0.windowLayer == 0 }) }
         guard let window, window.owningApplication != nil else { throw HelperError("Target no longer available", code: "target_gone") }
         guard candidates.count <= 128 else { throw HelperError("Input window limit reached; use semantic actions", code: "busy") }
-        if mode == "foreground" { try await foregroundWindow(window) }
+        if mode == "foreground" {
+            if ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind) { try requireForegroundPointerDisplay(window) }
+            try await foregroundWindow(window)
+        }
         var location = CGPoint.zero
         var inputWindow = window
         var pointerBounds: CGRect?
@@ -81,10 +85,6 @@ extension Capture {
            keyboardApplicationPID() != window.owningApplication?.processID {
             throw HelperError("Background Simulator typing requires native idb HID", code: "foreground_required")
         }
-        // Background keyboard follows the app's own AX focus, never changes system focus.
-        if target.kind == "window" && ["type", "key", "paste"].contains(action.kind) && !humanDeviceInput {
-            try requireFocusedWindow(window, candidates: candidates)
-        }
         func post(_ event: CGEvent?) throws {
             guard let event else { throw HelperError("Cannot create input event") }
             if ["click", "scroll", "move", "down", "drag", "up"].contains(action.kind) {
@@ -92,14 +92,19 @@ extension Capture {
                 event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(inputWindow.windowID))
                 if action.kind == "click" { event.setIntegerValueField(.mouseEventClickState, value: 1) }
             }
-            guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
+            guard runtime.inputAllowed(), let pid = inputWindow.owningApplication?.processID, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == bundle else { throw HelperError("macOS permission denied or target unavailable", code: "permission_denied") }
             if ["type", "key", "paste"].contains(action.kind) { try destination().requireConsent(secureInputAllowed) }
-            synthesizedInput = true
-            if humanDeviceInput && ["type", "key", "paste"].contains(action.kind), keyboardApplicationPID() != pid {
-                throw HelperError("Human focus changed during Simulator keyboard input", code: "foreground_required")
+            if mode == "background", ["type", "key", "paste"].contains(action.kind), !humanDeviceInput {
+                try requireProcessKeyboardDestination(inputWindow, resolver: resolver)
             }
             try deliverInput(event, mode: mode, pid: pid, permission: runtime.inputAllowed) { event, destination in
+                if destination == .foreground, ["type", "key", "paste"].contains(action.kind) {
+                    let (focused, _) = try appFocusedWindow(pid)
+                    let actualWindow = try self.resolver.identity(focused, pid: pid)
+                    try verifyKeyboardDestination(expectedPID: pid, expectedWindow: inputWindow.windowID, actualPID: keyboardApplicationPID(), actualWindow: actualWindow)
+                }
                 self.measurementInputMark?()
+                self.synthesizedInput = true; self.dispatched = true
                 switch destination {
                 case .foreground: event.location = location; event.post(tap: .cghidEventTap)
                 case let .process(targetPid): event.postToPid(targetPid)
@@ -114,19 +119,34 @@ extension Capture {
             guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: runtime.uptime(), windowNumber: Int(inputWindow.windowID), context: nil, eventNumber: 0, clickCount: 1, pressure: 1)?.cgEvent else { throw HelperError("Cannot create targeted pointer event") }
             return event
         }
+        var keyboardField: TextDestination?
         func destination() throws -> TextDestination {
-            guard let pid = inputWindow.owningApplication?.processID,
-                  let value = axAttribute(AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute),
-                  CFGetTypeID(value) == AXUIElementGetTypeID() else { throw HelperError("Cannot inspect focused text destination", code: "secure_input_required") }
-            let focused = value as! AXUIElement
-            return TextDestination(element: focused, security: textSecurity(focused))
+            if let field = keyboardField, axAttribute(field.element, kAXFocusedAttribute) as? Bool == true {
+                try resolver.requireDestination(field.element, window: inputWindow)
+                return TextDestination(element: field.element, security: textSecurity(field.element))
+            }
+            let field = try windowTextDestination(inputWindow, resolver: resolver, foreground: mode == "foreground", clock: runtime.nanos)
+            keyboardField = field
+            return field
         }
-        if ["key", "type", "paste"].contains(action.kind) { try destination().requireConsent(secureInputAllowed) }
+        if ["key", "type", "paste"].contains(action.kind) {
+            guard runtime.inputAllowed() else { throw HelperError("Input permission denied", code: "permission_denied") }
+            let field = try destination(); try field.requireConsent(secureInputAllowed)
+            let before = destinationState(field.element)
+            deliveryProbe = {
+                guard let current = try? destination(), CFEqual(current.element, field.element),
+                      (try? current.requireConsent(self.secureInputAllowed)) != nil else { return false }
+                let after = destinationState(current.element)
+                if action.kind == "type" || action.kind == "paste", let count = before.count, let range = before.selection,
+                   let text = action.text { return after.count == count - range.length + text.utf16.count }
+                return after != before
+            }
+        }
         switch action.kind {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
             let right = action.button == "right"
-            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction], beforeDispatch: measurementInputMark) { return }
+            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction], beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
             for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
                 try post(try pointer(type))
             }
@@ -146,7 +166,9 @@ extension Capture {
                 // Simulator's macOS AX destination is not the UIKit text field.
                 if bundle == "com.apple.iphonesimulator" { return false }
                 self.measurementInputMark?()
-                return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, value as CFString) == .success
+                let success = try replaceAXSelection(element, text: value)
+                if success { self.dispatched = true; self.deliveryConfirmed = true }
+                return success
             }, postCharacter: { character in
                 let units = Array(String(character).utf16)
                 let key = usKeys[character]
@@ -172,28 +194,38 @@ extension Capture {
                     }
                     try post(event)
                 }
-            })
+            }, clock: runtime.nanos)
             // The event boundary also rechecks key-down/key-up and modifier events so a
             // destination switch during a character cannot send the remainder to a password.
             try typing.type(text, secureAllowed: secureInputAllowed)
         case "paste":
             guard let text = action.text, text.utf16.count <= 4096 else { throw HelperError("Text exceeds limit", code: "bounds") }
+            let field = try destination(); try field.requireConsent(secureInputAllowed)
+            if try replaceAXSelection(field.element, text: text) { dispatched = true; deliveryConfirmed = true; return }
+            guard mode == "foreground" else { throw HelperError("Destination does not support background paste; use text.type or ui.act setValue", code: "not_supported") }
             try await clipboardPaste(text) {
                 for down in [true, false] {
-                    let event = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: down)
-                    event?.flags = .maskCommand; try post(event)
+                    let event = try windowKeyEvent(down ? .keyDown : .keyUp, windowId: inputWindow.windowID, character: "v", keyCode: 9, modifiers: [.command], timestamp: self.runtime.uptime())
+                    event.flags = .maskCommand; try post(event)
                 }
             }
         case "key":
             guard let code = action.keyCode, code <= 127, let modifiers = action.modifiers, modifiers.count <= 4 else { throw HelperError("Invalid key", code: "bounds") }
+            if mode == "background", !humanDeviceInput {
+                let field = try destination()
+                if try performAXKey(field.element, code: code, modifiers: modifiers, beforeDispatch: { self.measurementInputMark?() }) {
+                    dispatched = true; deliveryConfirmed = true; return
+                }
+                try requireProcessKeyboardDestination(inputWindow, resolver: resolver)
+            }
             var flags = CGEventFlags()
             for modifier in modifiers {
                 switch modifier {
-                case "command": flags.insert(.maskCommand)
+                case "command", "meta", "super": flags.insert(.maskCommand)
                 case "shift": flags.insert(.maskShift)
-                case "option": flags.insert(.maskAlternate)
+                case "option", "alt": flags.insert(.maskAlternate)
                 case "control": flags.insert(.maskControl)
-                default: throw HelperError("Invalid modifier", code: "bounds")
+                default: throw HelperError("Unsupported modifier", code: "modifier_unsupported")
                 }
             }
             for down in [true, false] {
@@ -205,7 +237,7 @@ extension Capture {
             guard let dx = action.deltaX, let dy = action.deltaY, abs(Int(dx)) <= 1000, abs(Int(dy)) <= 1000 else { throw HelperError("Invalid scroll", code: "bounds") }
             if dx != 0 || dy != 0 {
                 let name = abs(Int(dx)) > abs(Int(dy)) ? (dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : (dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage")
-                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name], beforeDispatch: measurementInputMark) { return }
+                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name], beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
             }
             let event = try pointer(.leftMouseDown)
             event.type = .scrollWheel

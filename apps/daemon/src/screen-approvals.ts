@@ -11,10 +11,11 @@ import {
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import type { Engine } from "./engine/index.ts";
+import { browserApp } from "@ace/screen/sensitive-app";
 import { ScreenGrants, sensitiveApp } from "./screen-grants.ts";
 
 class ScreenApprovalError extends Error {
-  readonly code: "screen_disabled" | "denied" | "timeout" | "read_only";
+  readonly code: "screen_disabled" | "denied" | "timeout" | "read_only" | "approval_required";
   constructor(code: ScreenApprovalError["code"], message: string) {
     super(message);
     this.code = code;
@@ -70,6 +71,11 @@ export class ScreenApprovals {
   async request(bundleId: string, reason: string, caller: ScreenAgentScope, signal: AbortSignal) {
     if (!this.options.grants.enabled())
       throw new ScreenApprovalError("screen_disabled", "Screen access is disabled");
+    if (browserApp(bundleId) && !this.options.grants.allows(bundleId, caller))
+      throw new ScreenApprovalError(
+        "approval_required",
+        "Web browsers must be granted by the person from ace's UI; use ace_browser_open for websites",
+      );
     if (!sensitiveApp(bundleId) && this.options.grants.allows(bundleId, caller)) return;
     await this.ask("app", bundleId, reason, caller, signal);
   }
@@ -125,7 +131,9 @@ export class ScreenApprovals {
                 kind: "allow_session" as const,
                 label: "Allow for this thread",
               },
-              { id: "allow_always", kind: "allow_always" as const, label: "Always" },
+              ...(!browserApp(bundleId)
+                ? [{ id: "allow_always", kind: "allow_always" as const, label: "Always" }]
+                : []),
             ]
           : []),
         { id: "deny", kind: "deny", label: "Deny" },

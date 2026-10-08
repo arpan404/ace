@@ -87,6 +87,15 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
     const initialized = await h.wait(
       (frame) => obj(obj(obj(frame.data)["params"])["aceConnection"])["authenticated"] === true,
     );
+    const started = h.frames.find(
+      (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/start",
+    );
+    expect(obj(obj(started?.data)["params"])["developerInstructions"]).toContain(
+      "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+    );
+    expect(
+      obj(obj(obj(obj(started?.data)["params"])["config"])["mcp_servers.ace"])["http_headers"],
+    ).toMatchObject({ "X-Ace-Instructions": "native", "X-Ace-Notifications": "stream" });
     expect(obj(obj(initialized.data)["params"])["aceConnection"]).toEqual({
       url,
       authenticated: true,

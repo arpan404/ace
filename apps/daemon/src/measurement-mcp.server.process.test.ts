@@ -79,12 +79,10 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
       expect(response.status).toBe(200);
       return z.object({ result: z.unknown() }).parse(await response.json()).result;
     }
-    const tools = z
-      .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
+    const disabled = z
+      .object({ tools: z.array(z.object({ name: z.string() })) })
       .parse(await request(lease.bearer, "tools/list"));
-    expect(
-      tools.tools.find((tool) => tool.name === "screen_measure_interaction")?.inputSchema,
-    ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
+    expect(disabled.tools.map((tool) => tool.name)).not.toContain("screen_measure_interaction");
     expect(
       await request(lease.bearer, "tools/call", "screen_measure_interaction", {}),
     ).toMatchObject({ isError: true });
@@ -94,6 +92,12 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
       ).toMatchObject({ isError: true });
     await screen.enable(true);
     await screen.approve("dev.ace.test", true);
+    const tools = z
+      .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
+      .parse(await request(lease.bearer, "tools/list"));
+    expect(
+      tools.tools.find((tool) => tool.name === "screen_measure_interaction")?.inputSchema,
+    ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
     const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
     screen.configureAccess({
       enabled: () => true,

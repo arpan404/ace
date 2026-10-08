@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentId, BackgroundTaskId, ItemId, Timestamp } from "./ids.ts";
+import { Attachment } from "./context.ts";
 import { RawPayload } from "./provider.ts";
 
 export const ToolKind = z.enum([
@@ -126,6 +127,37 @@ export const ToolDetail = z.discriminatedUnion("kind", [
 ]);
 export type ToolDetail = z.infer<typeof ToolDetail>;
 
+/** Daemon-captured ace results; images use thread-owned attachment endpoints. */
+export const ToolResult = z.object({
+  isError: z.boolean(),
+  content: z
+    .array(
+      z.discriminatedUnion("type", [
+        z.object({ type: z.literal("text"), text: z.string().max(32_768) }),
+        z.object({ type: z.literal("image"), attachment: Attachment }),
+      ]),
+    )
+    .max(16),
+  structuredContent: z.unknown().optional(),
+  durationMs: z.number().finite().nonnegative(),
+  target: z
+    .object({
+      bundleId: z.string().max(256),
+      windowId: z.number().int().nonnegative().optional(),
+      displayName: z.string().max(256),
+    })
+    .optional(),
+  mode: z.enum(["background", "foreground"]).optional(),
+  scale: z.number().positive().finite().optional(),
+  size: z
+    .object({
+      width: z.number().int().positive().max(16_384),
+      height: z.number().int().positive().max(16_384),
+    })
+    .optional(),
+});
+export type ToolResult = z.infer<typeof ToolResult>;
+
 export const ToolCall = z.object({
   id: ItemId,
   agentId: AgentId,
@@ -137,6 +169,7 @@ export const ToolCall = z.object({
   /** Set when the call outlives the turn (background shell, background subagent). */
   backgroundTaskId: BackgroundTaskId.optional(),
   error: z.string().optional(),
+  result: ToolResult.optional(),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
   /** Complete native call and result, verbatim. */

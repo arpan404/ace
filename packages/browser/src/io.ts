@@ -28,7 +28,8 @@ export const launchContext: ContextLauncher = async (profile, options) => {
     };
     return context;
   } catch (error) {
-    await guardian.close();
+    // Playwright owns failed launches. Keep their cause if guardian teardown also fails.
+    await guardian.close().catch(() => {});
     throw error;
   }
 };

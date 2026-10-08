@@ -1,4 +1,6 @@
+import { aceToolRows } from "./ace-tool-results.ts";
 import { uxAudit } from "./ux-audit.ts";
+import { aceTools } from "./ace-tools.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
@@ -31,6 +33,7 @@ const minute = 60_000;
  */
 export function devWorld(): WorldThread[] {
   return withAccounts([
+    ...aceToolRows().map((scenario) => ({ scenario, agoMs: 2 * minute })),
     ...uxAudit().map((scenario) => ({ scenario, agoMs: 10 * minute })),
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },
@@ -43,6 +46,8 @@ export function devWorld(): WorldThread[] {
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
+    // Agents using ace's own tools: computer use, the browser and a simulator.
+    ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);

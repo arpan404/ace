@@ -5,6 +5,7 @@ import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
+import { appIdentities, systemApplication } from "./os/app-identity.ts";
 import { editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
@@ -42,6 +43,10 @@ export function createHandlers(options: {
     },
     process.platform,
   );
+  const appIdentity = appIdentities({
+    application: (bundleId) => systemApplication(bundleId, process.platform),
+    icon: (path) => app.getFileIcon(path, { size: "normal" }),
+  });
   const requireWindow = () => {
     const window = options.window();
     if (!window) throw new Error("No window");
@@ -63,6 +68,7 @@ export function createHandlers(options: {
     "system.toolchains": () => detectToolchains(options.env),
     "shell.openInEditor": (request) => openInEditor(request),
     "shell.reveal": (request) => reveal(request.path),
+    "shell.appIdentity": (request) => appIdentity(request.bundleId),
     "shell.editorIcon": (request) => editorIcon(request.editor),
     "shell.openExternal": async (url) => {
       await shell.openExternal(url);

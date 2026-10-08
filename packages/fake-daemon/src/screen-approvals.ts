@@ -1,5 +1,5 @@
 import { type ScreenAgentScope, type ScreenState, type InteractionResolution } from "@ace/protocol";
-import { sensitiveApp } from "@ace/screen/sensitive-app";
+import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
 import type { FakeServiceContext } from "./service-context.ts";
 import { FakeScreenAccess, FakeScreenError } from "./screen-access.ts";
 
@@ -50,6 +50,11 @@ export class FakeScreenApprovals {
   ): Promise<void> {
     if (!this.options.access.enabled)
       throw new FakeScreenError("screen_disabled", "Screen access is disabled");
+    if (browserApp(bundleId) && !this.options.access.allows(bundleId, caller))
+      throw new FakeScreenError(
+        "approval_required",
+        "Web browsers must be granted by the person from ace's UI",
+      );
     if (!sensitiveApp(bundleId) && this.options.access.allows(bundleId, caller)) return;
     await this.ask("app", bundleId, reason, caller, signal);
   }

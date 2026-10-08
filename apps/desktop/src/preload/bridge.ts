@@ -93,6 +93,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       /** An installed editor's icon as the OS draws it (a PNG data URL), or null. */
       editorIcon: (editor: RequestOf<"shell.editorIcon">["editor"]) =>
         call("shell.editorIcon", { editor }),
+      appIdentity: (bundleId: string) => call("shell.appIdentity", { bundleId }),
       openExternal: (url: string) => call("shell.openExternal", url),
     },
     dialogs: {

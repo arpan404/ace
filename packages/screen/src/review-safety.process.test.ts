@@ -1,48 +1,36 @@
 import { helperGate } from "./testing/gate.ts";
 import { expect, it, onTestFinished } from "vitest";
-import { createServer } from "node:net";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { manager, ready, target, deferred } from "./testing/support.ts";
 
-it("takeover discards another app's input waiting behind an acknowledged native gesture", async () => {
-  const blocked = deferred<void>(),
-    released = deferred<void>();
-  const server = createServer((socket) => {
-    socket.once("data", () => blocked.resolve());
-    void released.promise.then(() => socket.end("release\n"));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing gate endpoint");
-  const h = await manager({ FAKE_V2: "1", ACTION_GATE_PORT: String(address.port) });
+it("takeover discards input queued behind the same session's acknowledged gesture", async () => {
+  const gate = await helperGate();
+  const h = await manager({ FAKE_V2: "1", ACTION_GATE_PORT: gate.port });
   onTestFinished(async () => {
-    released.resolve();
+    gate.release();
     await h.close();
-    server.close();
+    await gate.close();
   });
-  const a = await ready(h.screen);
-  const other = { ...target, bundleId: "dev.ace.other", windowId: 2 };
-  await h.screen.approve(other.bundleId, true);
-  const b = await h.screen.start(other);
-  h.screen.controller(a.sessionId, "agent", "a");
-  h.screen.controller(b.sessionId, "agent", "b");
+  const state = await ready(h.screen);
+  h.screen.controller(state.sessionId, "agent", "agent");
   const drag = h.screen.input(
-    a.sessionId,
+    state.sessionId,
     "agent",
     { kind: "pointer.drag", x: 1, y: 2, toX: 3, toY: 4 },
-    "a",
+    "agent",
   );
+  await gate.reached;
   const queued = expect(
-    h.screen.input(b.sessionId, "agent", { kind: "text.type", text: "stale" }, "b"),
+    h.screen.input(state.sessionId, "agent", { kind: "text.type", text: "stale" }, "agent"),
   ).rejects.toThrow("Controller changed");
-  await blocked.promise;
-  h.screen.controller(b.sessionId, "human");
-  released.resolve();
+  h.screen.controller(state.sessionId, "human");
+  gate.release();
   await drag;
   await queued;
-  const observed = await h.screen.uiFind(b.sessionId, { query: { name: "Name" } });
-  expect(observed.nodes[0]?.value).toBe("0");
+  expect(
+    (await h.screen.uiFind(state.sessionId, { query: { name: "Name" } })).nodes[0]?.value,
+  ).toBe("1");
 });
 
 for (const shutdown of ["revoke", "disable", "stop"] as const) {
@@ -115,7 +103,7 @@ it("concurrent starts reserve an app before helper startup finishes", async () =
   expect((await first).lifecycle).toBe("live");
 });
 
-it("takeover cancels an action queued behind a native observation after permissions passed", async () => {
+it("takeover cancels an action queued behind this session's native observation", async () => {
   const gate = await helperGate();
   const h = await manager({ FAKE_V2: "1", READ_GATE_PORT: gate.port });
   onTestFinished(async () => {
@@ -125,17 +113,14 @@ it("takeover cancels an action queued behind a native observation after permissi
   });
   const state = await ready(h.screen);
   h.screen.controller(state.sessionId, "agent", "agent");
-  let observation: Promise<unknown> | undefined;
-  const unwatch = h.screen.watch((next) => {
-    if (next.sessionId === state.sessionId && !observation)
-      observation = h.screen.uiTree(state.sessionId, {});
-  });
+  const observation = expect(h.screen.uiTree(state.sessionId, {})).rejects.toThrow(
+    "Controller ownership changed",
+  );
+  await gate.reached;
   const action = expect(
     h.screen.input(state.sessionId, "agent", { kind: "text.type", text: "stale" }, "agent"),
   ).rejects.toThrow("Controller changed");
-  await gate.reached;
   h.screen.controller(state.sessionId, "human");
-  unwatch();
   gate.release();
   await observation;
   await action;

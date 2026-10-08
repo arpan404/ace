@@ -11,7 +11,7 @@ it("delivers Codex authority only in native thread configuration", () => {
   const result = codexInjection(connection);
   expect(result.config["mcp_servers.ace"]).toMatchObject({
     url: connection.url,
-    http_headers: { Authorization: `Bearer ${connection.bearer}` },
+    http_headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     tool_timeout_sec: 300,
   });
 });
@@ -21,7 +21,7 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
     ace: {
       type: "http",
       url: connection.url,
-      headers: { Authorization: `Bearer ${connection.bearer}` },
+      headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     },
   });
   expect(result.developerInstructions).toContain("mcp__ace__*");
@@ -35,7 +35,7 @@ it("exposes OpenCode tools directly through the v2 runtime server configuration"
     disabled: false,
     codemode: false,
     timeout: { execution: 300000 },
-    headers: { Authorization: `Bearer ${connection.bearer}` },
+    headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
   });
 });
 for (const provider of ["cursor", "antigravity", "acp"] as const) {
@@ -46,7 +46,10 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         type: "http",
         name: "ace",
         url: connection.url,
-        headers: [{ name: "Authorization", value: `Bearer ${connection.bearer}` }],
+        headers: [
+          { name: "Authorization", value: `Bearer ${connection.bearer}` },
+          { name: "X-Ace-Notifications", value: "stream" },
+        ],
       },
     ]);
     expect(result.developerInstructions).toContain("live status");
@@ -73,7 +76,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
     ace: {
       type: "http",
       url: connection.url,
-      headers: { Authorization: `Bearer ${connection.bearer}` },
+      headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     },
   });
   expect(result.developerInstructions).toContain("live status");

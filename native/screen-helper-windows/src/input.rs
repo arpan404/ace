@@ -136,10 +136,22 @@ pub fn plan(action: &Action) -> Result<Vec<Event>> {
                     "control" => Ok(0x11),
                     "shift" => Ok(0x10),
                     "alt" | "option" => Ok(0x12),
-                    "meta" | "command" => Ok(0x5b),
-                    _ => Err(Error::new(Code::Bounds, "Invalid modifier")),
+                    "meta" | "super" | "command" => Ok(0x5b),
+                    _ => Err(
+                        Error::new(Code::ModifierUnsupported, "Unsupported modifier")
+                            .phase("rejected-before-dispatch"),
+                    ),
                 })
                 .collect::<Result<Vec<u16>>>()?;
+            let mut mods = mods;
+            if action
+                .key
+                .as_deref()
+                .is_some_and(|name| "!@#$%^&*()_+{}|:\"<>?~".contains(name) && name.len() == 1)
+                && !mods.contains(&0x10)
+            {
+                mods.push(0x10);
+            }
             for modifier in &mods {
                 events.push(key(*modifier, false));
             }
@@ -184,17 +196,38 @@ fn virtual_key(name: &str) -> Result<u16> {
         }
     }
     Ok(match upper.as_str() {
-        "ENTER" => 0x0d,
+        "=" | "+" => 0xbb,
+        "-" | "_" => 0xbd,
+        "[" | "{" => 0xdb,
+        "]" | "}" => 0xdd,
+        ";" | ":" => 0xba,
+        "'" | "\"" => 0xde,
+        "\\" | "|" => 0xdc,
+        "," | "<" => 0xbc,
+        "." | ">" => 0xbe,
+        "/" | "?" => 0xbf,
+        "`" | "~" => 0xc0,
+        "!" => 0x31,
+        "@" => 0x32,
+        "#" => 0x33,
+        "$" => 0x34,
+        "%" => 0x35,
+        "^" => 0x36,
+        "&" => 0x37,
+        "*" => 0x38,
+        "(" => 0x39,
+        ")" => 0x30,
+        "ENTER" | "RETURN" => 0x0d,
         "TAB" => 0x09,
-        "ESCAPE" => 0x1b,
+        "ESCAPE" | "ESC" => 0x1b,
         "SPACE" => 0x20,
         "BACKSPACE" => 0x08,
         "DELETE" => 0x2e,
         "INSERT" => 0x2d,
-        "ARROWLEFT" => 0x25,
-        "ARROWRIGHT" => 0x27,
-        "ARROWUP" => 0x26,
-        "ARROWDOWN" => 0x28,
+        "ARROWLEFT" | "LEFT" => 0x25,
+        "ARROWRIGHT" | "RIGHT" => 0x27,
+        "ARROWUP" | "UP" => 0x26,
+        "ARROWDOWN" | "DOWN" => 0x28,
         "HOME" => 0x24,
         "END" => 0x23,
         "PAGEUP" => 0x21,
@@ -207,10 +240,10 @@ fn virtual_key(name: &str) -> Result<u16> {
             {
                 0x70 + number - 1
             } else {
-                return Err(Error::new(
-                    Code::NotSupported,
-                    "Use a named key or Unicode text",
-                ));
+                return Err(
+                    Error::new(Code::KeyUnsupported, "Unsupported key; use Unicode text")
+                        .phase("rejected-before-dispatch"),
+                );
             }
         }
     })
@@ -256,7 +289,7 @@ fn legacy_key(code: u16) -> Result<u16> {
             return Err(Error::new(
                 Code::NotSupported,
                 "Legacy key code has no portable mapping; use key.press",
-            ))
+            ));
         }
     };
     virtual_key(name)

@@ -15,7 +15,7 @@ use crate::{
 };
 use capture::Capture;
 use pipe::Writer;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use target::Target;
 use uia::Automation;
@@ -180,6 +180,11 @@ impl Host {
                 input::inject(self.target()?, &action)?;
                 Ok(Value::Null)
             }
+            "open.url" | "menu.press" => Err(Error::new(
+                Code::NotSupported,
+                "Background app operations are unavailable on Windows",
+            )
+            .phase("rejected-before-dispatch")),
             _ => Err(Error::new(Code::NotSupported, "Unknown command")),
         }
     }

@@ -1,21 +1,24 @@
-import type { Interaction } from "@ace/protocol";
+import type { Interaction, Item } from "@ace/protocol";
 import { approvalOutcome, type ApprovalOutcome } from "./approvals.ts";
-import { middleTruncate } from "./step-display.ts";
+import {
+  aceToolSpec,
+  aceToolView,
+  aceToolWords,
+  screenStep,
+  screenStepView,
+  aceCallOf,
+  type AceToolContext,
+  type AceToolFamily,
+  type AceToolView,
+} from "./ace-tools.ts";
+import { humanize } from "./tool-names.ts";
 
 /*
  * Tool steps named for what they did (A4): ace's own tools by their action and key argument,
  * computer use as "the computer", other MCP servers as "server › tool". Pure.
  */
 
-/** "browser_open" → "browser open". */
-export function humanize(name: string): string {
-  return name
-    .replace(/^mcp__/, "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_\-.]+/g, " ")
-    .trim()
-    .toLowerCase();
-}
+export { humanize } from "./tool-names.ts";
 
 /**
  * A failure's one-line reason for a row's note (A4): its first line, without a provider tag's
@@ -117,17 +120,7 @@ function oneLine(text: string | undefined, max = 72): string | undefined {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
-/** "https://www.youtube.com/watch?v=1" → "youtube.com/watch". */
-export function shortUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.host.replace(/^www\./, "");
-    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
-    return middleTruncate(host + path, 48);
-  } catch {
-    return middleTruncate(url, 48);
-  }
-}
+export { shortUrl } from "./ace-tool-specs.ts";
 
 const label = (
   icon: ToolLabel["icon"],
@@ -137,169 +130,21 @@ const label = (
   target?: string,
 ): ToolLabel => ({ icon, verb, running, awaiting, target });
 
-/** ace's own browser tools, keyed by action. */
-function browserLabel(action: string, args: unknown): ToolLabel {
-  const url = stringArgument(args, ["url"]);
-  const where = url ? shortUrl(url) : undefined;
-  switch (action) {
-    case "open":
-      return label("web", "Opened", "Opening", "Open", where ?? "a browser tab");
-    case "navigate":
-      return label("web", "Went to", "Going to", "Go to", where);
-    case "close":
-      return label(
-        "web",
-        "Closed the browser tab",
-        "Closing the browser tab",
-        "Close the browser tab",
-      );
-    case "snapshot":
-      return label("web", "Read the page", "Reading the page", "Read the page");
-    case "screenshot":
-      return label("web", "Took a screenshot", "Taking a screenshot", "Take a screenshot");
-    case "click":
-      return label(
-        "web",
-        "Clicked",
-        "Clicking",
-        "Click",
-        oneLine(stringArgument(args, ["text", "selector", "ref", "element"]), 48),
-      );
-    case "type":
-      return label("web", "Typed", "Typing", "Type", oneLine(stringArgument(args, ["text"]), 48));
-    case "scroll":
-      return label("web", "Scrolled the page", "Scrolling the page", "Scroll the page");
-    case "measure_interaction":
-      return label("web", ...measuring);
-    default:
-      return label(
-        "web",
-        "Used the browser",
-        "Using the browser",
-        "Use the browser",
-        humanize(action),
-      );
-  }
-}
-
-const measuring: [string, string, string] = [
-  "Measured smoothness",
-  "Measuring smoothness",
-  "Measure smoothness",
-];
-
-const screenTools: Record<string, [string, string, string]> = {
-  screenshot: ["Took a screenshot", "Taking a screenshot", "Take a screenshot"],
-  click: ["Clicked on the screen", "Clicking on the screen", "Click on the screen"],
-  type: ["Typed on the screen", "Typing on the screen", "Type on the screen"],
-  key: ["Pressed a key", "Pressing a key", "Press a key"],
-  scroll: ["Scrolled the screen", "Scrolling the screen", "Scroll the screen"],
-  ui_tree: ["Read the screen", "Reading the screen", "Read the screen"],
-  ui_find: ["Searched the screen", "Searching the screen", "Search the screen"],
-  ui_act: ["Used an app on screen", "Using an app on screen", "Use an app on screen"],
-  measure_interaction: measuring,
+const familyIcons: Record<AceToolFamily, ToolLabel["icon"]> = {
+  screen: "tool",
+  browser: "web",
+  device: "tool",
+  agents: "agent",
+  threads: "read",
+  ace: "note",
 };
 
-/** ace's own tools (ace_*), named for what they do with their key argument (A4). */
-function aceToolLabel(name: string, args: unknown): ToolLabel | undefined {
-  const browser = /^ace_browser_(.+)$/.exec(name);
-  if (browser) return browserLabel(browser[1]!, args);
-  const screen = /^screen_(.+)$/.exec(name);
-  if (screen) {
-    const forms = screenTools[screen[1]!];
-    return forms ? label("tool", ...forms) : undefined;
-  }
-  const arg = (keys: readonly string[]) => oneLine(stringArgument(args, keys), 56);
-  switch (name) {
-    case "ace_thread_info":
-      return label(
-        "read",
-        "Read this thread's details",
-        "Reading this thread's details",
-        "Read this thread's details",
-      );
-    case "ace_thread_read":
-    case "ace_thread_read_output":
-      return label(
-        "read",
-        "Read thread",
-        "Reading thread",
-        "Read thread",
-        arg(["threadId", "title"]),
-      );
-    case "ace_list_agents":
-      return label("agent", "Listed agents", "Listing agents", "List agents");
-    case "ace_spawn_agent":
-    case "ace_spawn":
-      return label(
-        "agent",
-        "Started a subagent",
-        "Starting a subagent",
-        "Start a subagent",
-        arg(["name", "role", "title"]),
-      );
-    case "ace_notify_user":
-      return label(
-        "note",
-        "Notified you",
-        "Notifying you",
-        "Notify you",
-        arg(["title", "message", "text"]),
-      );
-    case "ace_read_handoff":
-    case "ace_read_handoff_chunk":
-      return label(
-        "read",
-        "Read the handoff history",
-        "Reading the handoff history",
-        "Read the handoff history",
-      );
-    case "ace_wait":
-      return label("agent", "Waited for subagents", "Waiting for subagents", "Wait for subagents");
-    case "ace_thread_create":
-      return label(
-        "agent",
-        "Created a thread",
-        "Creating a thread",
-        "Create a thread",
-        arg(["title", "name"]),
-      );
-    case "ace_thread_message":
-      return label(
-        "agent",
-        "Messaged a thread",
-        "Messaging a thread",
-        "Message a thread",
-        arg(["message", "text"]),
-      );
-    case "ace_thread_interrupt":
-      return label(
-        "agent",
-        "Stopped a thread",
-        "Stopping a thread",
-        "Stop a thread",
-        arg(["threadId"]),
-      );
-    case "ace_question_answer":
-      return label("note", "Answered a question", "Answering a question", "Answer a question");
-    case "ace_project_read":
-      return label("read", "Read project", "Reading project", "Read project", arg(["path"]));
-    case "ace_automation_manage":
-      return label(
-        "tool",
-        "Updated an automation",
-        "Updating an automation",
-        "Update an automation",
-        arg(["name", "title"]),
-      );
-    case "ace_context_usage":
-      return label("note", "Checked context use", "Checking context use", "Check context use");
-    case "ace_models":
-      return label("note", "Listed models", "Listing models", "List models");
-    default:
-      if (!name.startsWith("ace_")) return undefined;
-      return label("tool", "Used ace", "Using ace", "Use ace", humanize(name.slice(4)));
-  }
+/** ace's own tools (ace_*, screen_*, device_*), by the registry's words (A4). */
+function aceToolLabel(server: string, tool: string, args: unknown): ToolLabel | undefined {
+  const spec = aceToolSpec(server, tool);
+  const words = spec && aceToolWords(server, tool, args);
+  if (!spec || !words) return undefined;
+  return label(familyIcons[spec.family], words.past, words.running, words.awaiting, words.target);
 }
 
 const computerUse = /^(cua|computer[-_ ]?use|computer)(?:[-_]|$)/i;
@@ -309,9 +154,7 @@ const computerUse = /^(cua|computer[-_ ]?use|computer)(?:[-_]|$)/i;
  * any other server as "server › tool" with its key argument. Never "ace.ace_browser_open".
  */
 export function mcpToolLabel(server: string, tool: string, args?: unknown): ToolLabel {
-  const own =
-    aceToolLabel(tool, args) ??
-    (/^ace$|^ace[-_]/.test(server) ? aceToolLabel(`ace_${tool}`, args) : undefined);
+  const own = aceToolLabel(server, tool, args);
   if (own) return own;
   if (computerUse.test(server) || computerUse.test(tool)) {
     if (/repl|js|python|script|exec/i.test(`${server} ${tool}`))
@@ -357,6 +200,16 @@ export interface StepLabels {
   ): ApprovalOutcome;
   /** A failure's reason, short enough for the row's note. */
   error(text: string | undefined): string | undefined;
+  /** One of ace's own steps (a call, or the daemon's audit of one) as its row reads it. */
+  ace(item: Item, context?: AceToolContext): AceToolView | undefined;
+}
+
+/** ace's own step: its call against the registry, or the daemon's audit of one on its own. */
+export function aceStep(item: Item, context?: AceToolContext): AceToolView | undefined {
+  const step = screenStep(item);
+  if (step) return screenStepView(step);
+  const call = aceCallOf(item);
+  return call && aceToolView(call, context);
 }
 
 /** Tool and approval wording for `describeStep`'s context (loaded after first paint). */
@@ -365,4 +218,5 @@ export const stepLabels: StepLabels = {
   named: namedToolLabel,
   approval: approvalOutcome,
   error: errorNote,
+  ace: aceStep,
 };

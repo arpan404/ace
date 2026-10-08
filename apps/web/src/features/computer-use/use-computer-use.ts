@@ -74,7 +74,7 @@ export function useComputerUse() {
     setPending((count) => count + 1);
     if (options.sessionId) setProblem(options.sessionId, undefined);
     try {
-      return await session.request(operation, options.timeoutMs);
+      return (await session.request(operation, options.timeoutMs)) ?? null;
     } catch (error) {
       const problem = describeProblem(error);
       if (options.sessionId) setProblem(options.sessionId, problem);
@@ -142,6 +142,11 @@ export function useComputerUse() {
       ),
     stop: (sessionId: string) =>
       run({ op: "stop", sessionId }, { failure: "Couldn't stop it", sessionId }),
+    approveApp: (bundleId: string, threadId: string) =>
+      run(
+        { op: "approve", bundleId, allowed: true, scope: "thread", threadId },
+        { failure: "Couldn't approve this app" },
+      ),
     revoke: (grant: Pick<ScreenGrant, "bundleId" | "scope" | "threadId">) =>
       run(
         {

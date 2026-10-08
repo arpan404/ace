@@ -8,6 +8,7 @@ import {
   ProviderHomeSchema,
   type HistoryOptions,
   type HistoryService,
+  type HistoryRuntime,
 } from "@ace/history-import";
 import { HistoryScanStatus } from "@ace/protocol/history";
 import { ThreadId, AgentId, type ClientMessage, type ServerMessage } from "@ace/protocol";
@@ -22,6 +23,8 @@ export type HistoryRequest = Extract<
 export interface DaemonHistoryOptions {
   signal?: AbortSignal;
   spawnWorker?: Parameters<typeof openHistory>[1];
+  historyRuntime?: HistoryRuntime;
+  scheduleScan?: (run: () => void, milliseconds: number) => () => void;
   instances: HistoryOptions["instances"];
   adapters?: HistoryAdapterPort;
   now?: () => number;
@@ -71,6 +74,7 @@ export async function openDaemonHistory(
   const service = await openHistory(
     { indexPath, instances: options.instances },
     options.spawnWorker,
+    options.historyRuntime,
   );
   try {
     options.signal?.throwIfAborted();
@@ -96,7 +100,9 @@ export class DaemonHistory {
   private scanController: AbortController | undefined;
   private scanning: Promise<void> | undefined;
   private changesQueued = false;
-  private changeScan: NodeJS.Immediate | undefined;
+  private changeScan: (() => void) | undefined;
+  private nextChangeScanAt = 0;
+  private scheduleScan: NonNullable<DaemonHistoryOptions["scheduleScan"]>;
   private unsubscribeChanges: () => void;
   private scanState: HistoryScanStatus = {
     state: "idle",
@@ -121,13 +127,16 @@ export class DaemonHistory {
   private scheduleChanges(): void {
     this.changesQueued = true;
     if (this.changeScan || this.scanning || this.active || this.lifetime.signal.aborted) return;
-    this.changeScan = setImmediate(() => {
-      this.changeScan = undefined;
-      if (this.scanning || this.active || this.lifetime.signal.aborted) return;
-      this.changesQueued = false;
-      void this.runScan((signal, progress) => this.service.scanChanges(signal, progress));
-    });
-    this.changeScan.unref();
+    this.changeScan = this.scheduleScan(
+      () => {
+        this.changeScan = undefined;
+        if (this.scanning || this.active || this.lifetime.signal.aborted) return;
+        this.changesQueued = false;
+        this.nextChangeScanAt = this.now() + 5000;
+        void this.runScan((signal, progress) => this.service.scanChanges(signal, progress));
+      },
+      Math.max(1000, this.nextChangeScanAt - this.now()),
+    );
   }
   private runScan(scan: HistoryService["scan"]): Promise<void> {
     if (this.scanning) return this.scanning;
@@ -189,6 +198,13 @@ export class DaemonHistory {
     this.dataDir = dataDir;
     this.indexPath = indexPath;
     this.now = options.now ?? Date.now;
+    this.scheduleScan =
+      options.scheduleScan ??
+      ((run, milliseconds) => {
+        const timer = setTimeout(run, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      });
     this.nextId = options.nextId ?? randomUUID;
     this.unsubscribeChanges = service.subscribeChanges(() => this.scheduleChanges());
     this.continuation = new HistoryContinuation(
@@ -323,7 +339,7 @@ export class DaemonHistory {
   }
   async close() {
     this.unsubscribeChanges();
-    if (this.changeScan) clearImmediate(this.changeScan);
+    this.changeScan?.();
     this.lifetime.abort();
     await this.stopScan();
     this.listeners.clear();

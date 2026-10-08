@@ -46,6 +46,10 @@ test("stdio MCP forwards scoped tools over loopback and an ended lease cannot ca
     name: "synthetic-stdio-mcp",
   });
   const rpc = new JsonRpcPeer(proc);
+  const changed = Promise.withResolvers<void>();
+  rpc.onNotification = (message) => {
+    if (message.method === "notifications/tools/list_changed") changed.resolve();
+  };
   try {
     await rpc.request("initialize", {
       protocolVersion: "2025-11-25",
@@ -53,6 +57,9 @@ test("stdio MCP forwards scoped tools over loopback and an ended lease cannot ca
       clientInfo: { name: "synthetic", version: "1" },
     });
     await rpc.notify("notifications/initialized");
+    await rpc.request("tools/list", {});
+    server.toolsChanged();
+    await changed.promise;
     const result = await rpc.request("tools/call", {
       name: "ace_echo",
       arguments: { echo: "from stdio" },

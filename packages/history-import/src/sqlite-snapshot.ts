@@ -22,12 +22,12 @@ export async function copySqliteSnapshot(
   const base = await safeOpen(home, source);
   try {
     const before = fingerprint(await base.stat());
-    await copy(base, target, signal);
+    await copyDatabase(base, target, signal);
     if (walPath) {
       const journal = await safeOpen(home, walPath);
       try {
         const size = (await journal.stat()).size;
-        const copied = await copy(journal, target + "-wal", signal, size);
+        const copied = await copyWal(journal, target + "-wal", signal, size);
         // Compare only copied bytes. Later commits need not stop the history scanner.
         const hash = createHash("sha256");
         const stream =
@@ -62,13 +62,35 @@ export async function copySqliteSnapshot(
     await base.close();
   }
 }
-async function copy(
+/** The database fingerprint fences writes. Only WAL prefixes need a content digest. */
+async function copyDatabase(
   file: Awaited<ReturnType<typeof safeOpen>>,
   target: string,
   signal: AbortSignal,
-  size?: number,
+): Promise<void> {
+  const length = (await file.stat()).size;
+  if (length === 0) {
+    signal.throwIfAborted();
+    await writeFile(target, "", { flag: "wx", mode: 0o600 });
+    return;
+  }
+  await pipeline(
+    file.createReadStream({
+      autoClose: false,
+      highWaterMark: 64 * 1024,
+      start: 0,
+      end: length - 1,
+    }),
+    createWriteStream(target, { flags: "wx", mode: 0o600 }),
+    { signal },
+  );
+}
+async function copyWal(
+  file: Awaited<ReturnType<typeof safeOpen>>,
+  target: string,
+  signal: AbortSignal,
+  length: number,
 ): Promise<string> {
-  const length = size ?? (await file.stat()).size;
   const hash = createHash("sha256");
   if (length === 0) {
     signal.throwIfAborted();

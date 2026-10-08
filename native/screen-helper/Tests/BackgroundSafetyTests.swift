@@ -3,30 +3,32 @@ import ApplicationServices
 @testable import ScreenHelper
 
 final class BackgroundSafetyTests: XCTestCase {
-    @MainActor func testChangingTheHumansFocusedFieldIsReportedAndRestored() throws {
-        let first = AXUIElementCreateApplication(42), second = AXUIElementCreateApplication(43)
-        let original = FocusState(pid: 42, cursor: CGPoint(x: 10, y: 20), window: first, element: first)
-        var desktop = original
-        let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }, restore: { before, _ in desktop = before }))
-        desktop = FocusState(pid: 42, cursor: original.cursor, window: first, element: second)
-        XCTAssertThrowsError(try guardState.verify())
-        XCTAssertEqual(desktop, original)
-    }
-    @MainActor func testActivationAndCursorWarpAreRestoredAfterAnAction() throws {
-        let original = FocusState(pid: 42, cursor: CGPoint(x: 10, y: 20))
-        var desktop = original
-        let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }, restore: { before, _ in desktop = before }))
-        desktop = FocusState(pid: 99, cursor: CGPoint(x: 50, y: 60))
-        XCTAssertThrowsError(try guardState.verify())
-        XCTAssertEqual(desktop, original)
-    }
-    @MainActor func testConcurrentHumanInputIsNeverUndoneByRestoration() throws {
+    @MainActor func testHumanCursorAndUnrelatedFocusChangesDoNotTurnSuccessIntoFailure() {
         var desktop = FocusState(pid: 42, cursor: .zero)
-        let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in true }, restore: { before, _ in desktop = before }))
-        let human = FocusState(pid: 99, cursor: CGPoint(x: 10, y: 20))
-        desktop = human
-        XCTAssertThrowsError(try guardState.verify())
-        XCTAssertEqual(desktop, human)
+        let guardState = FocusGuard(targetPID: 99, runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }))
+        desktop = FocusState(pid: 43, cursor: CGPoint(x: 10, y: 20))
+        XCTAssertNil(guardState.warning())
+    }
+    @MainActor func testAceTargetActivationWarnsWithoutRestoringTheDesktop() {
+        var desktop = FocusState(pid: 42, cursor: .zero)
+        let guardState = FocusGuard(targetPID: 99, runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }))
+        desktop = FocusState(pid: 99, cursor: CGPoint(x: 10, y: 20))
+        XCTAssertNotNil(guardState.warning())
+        XCTAssertEqual(desktop.pid, 99)
+    }
+    @MainActor func testConcurrentHumanActivationIsNeverAttributedToAce() {
+        var desktop = FocusState(pid: 42, cursor: .zero)
+        let guardState = FocusGuard(targetPID: 99, runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in true }))
+        desktop = FocusState(pid: 99, cursor: CGPoint(x: 10, y: 20))
+        XCTAssertNil(guardState.warning())
+        XCTAssertEqual(desktop.pid, 99)
+    }
+    @MainActor func testRaisingTheTargetWindowWithinTheFrontmostAppWarns() {
+        let first = AXUIElementCreateApplication(42), target = AXUIElementCreateApplication(43)
+        var desktop = FocusState(pid: 42, cursor: .zero, window: first)
+        let guardState = FocusGuard(targetPID: 42, targetWindow: target, runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }))
+        desktop = FocusState(pid: 42, cursor: .zero, window: target)
+        XCTAssertNotNil(guardState.warning())
     }
     @MainActor func testPasteExposesTextThenRestoresEveryClipboardRepresentation() async throws {
         let original = [ClipboardItem(types: ["text": Data("old".utf8), "custom": Data([1, 2, 3])])]

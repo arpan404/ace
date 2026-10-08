@@ -1,3 +1,4 @@
+import { ApproveApp } from "./approve-app.tsx";
 import type { ScreenGrant } from "@ace/protocol";
 import {
   grantRows,
@@ -145,39 +146,48 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
   const grants = read?.grants;
   if (grants === undefined) return null;
   const rows = grantRows(grants);
+  const picker = threadId ? (
+    <ApproveApp use={use} threadId={threadId} onApproved={() => setVersion((value) => value + 1)} />
+  ) : null;
   if (rows.length === 0)
     return (
-      <EmptyState
-        variant="inline"
-        title="No apps approved yet."
-        description="An agent asks before it uses an app; you choose this turn, this thread or always."
-      />
+      <>
+        {picker}
+        <EmptyState
+          variant="inline"
+          title="No apps approved yet."
+          description="An agent asks before it uses a native app. Browser computer use needs your approval in the thread’s Computer use panel."
+        />
+      </>
     );
   return (
-    <ul aria-label="Approved apps" className="flex flex-col">
-      {rows.map((row) => (
-        <li key={row.key} className="flex items-center gap-2.5 border-b py-2 last:border-b-0">
-          <AppMark name={row.app} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-ui">{row.app}</p>
-            <p className="truncate text-xs text-subtle-foreground">
-              {row.scopeLabel}
-              {row.sensitive && " · asks every turn"}
-              <span className="font-mono"> · {row.bundleId}</span>
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`Revoke ${row.app} (${row.scopeLabel})`}
-            disabled={use.pending}
-            onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
-          >
-            Revoke
-          </Button>
-        </li>
-      ))}
-    </ul>
+    <>
+      {picker}
+      <ul aria-label="Approved apps" className="flex flex-col">
+        {rows.map((row) => (
+          <li key={row.key} className="flex items-center gap-2.5 border-b py-2 last:border-b-0">
+            <AppMark name={row.app} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-ui">{row.app}</p>
+              <p className="truncate text-xs text-subtle-foreground">
+                {row.scopeLabel}
+                {row.sensitive && " · asks every turn"}
+                <span className="font-mono"> · {row.bundleId}</span>
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Revoke ${row.app} (${row.scopeLabel})`}
+              disabled={use.pending}
+              onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
+            >
+              Revoke
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

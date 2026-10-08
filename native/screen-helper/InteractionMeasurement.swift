@@ -122,8 +122,6 @@ final class MeasurementOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unch
         if let duration = input?.durationMs {
             guard (0...10_000).contains(duration), duration <= 10_000 - observeMs else { throw HelperError("Action and observation exceed 10000 ms", code: "bounds") }
         }
-        var observation = request
-        observation.maxNodes = 64; observation.maxDepth = 6
         let available = try await content()
         guard let window = available.windows.first(where: { $0.windowID == target.windowId && $0.owningApplication?.bundleIdentifier == bundle }) else { throw unavailableWindow(target) }
         try validateCaptureWindow(window, displays: available.displays)
@@ -151,25 +149,23 @@ final class MeasurementOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unch
             try await output.ready()
             let started = output.begin()
             stop.arm(afterMs: started + recordingLimit - measurementHostMs(), onDeadline: { [weak output] in output?.deadlineReached() })
-            let focus = input != nil && mode == "background" ? FocusGuard() : nil
-            let fingerprint = JSONEncoder(); fingerprint.outputFormatting = .sortedKeys
-            let before = input == nil ? nil : try? fingerprint.encode(accessibility.tree(observation))
-            synthesizedInput = false
+            let focus = input != nil && mode == "background" ? FocusGuard(targetPID: window.owningApplication?.processID, targetWindow: try? resolver.resolve(window)) : nil
+            synthesizedInput = false; dispatched = false; deliveryConfirmed = false; deliveryProbe = nil
+            defer { deliveryProbe = nil }
             measurementInputMark = { output.markInput() }
             defer { measurementInputMark = nil }
             var actionError: Error?
             var injectedAt = started
-            var after: Data?
             if let input {
                 guard measurementHostMs() < started + recordingLimit else {
                     throw HelperError("Recording allowance elapsed before input dispatch", code: "timeout")
                 }
                 do { try await injectV2(input) } catch { actionError = error }
                 injectedAt = measurementHostMs()
-                do { after = try fingerprint.encode(await accessibility.settle(observation)) }
-                catch { if actionError == nil { actionError = error } }
-                try focus?.verify()
-                if let actionError { throw actionError }
+                if let actionError {
+                    let fault = actionError as? HelperError
+                    throw HelperError(String(describing: actionError), code: fault?.code ?? "internal", phase: dispatched ? "partial" : fault?.phase ?? "rejected-before-dispatch", candidates: fault?.candidates ?? [])
+                }
             }
             let deadline = min(started + recordingLimit, injectedAt + Double(observeMs))
             let remaining = max(0, deadline - measurementHostMs())
@@ -179,17 +175,15 @@ final class MeasurementOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unch
             if ended >= started + recordingLimit { output.deadlineReached() }
             let recordedEnd = stop.deadlineReached || ended >= started + recordingLimit ? started + recordingLimit : ended
             let (evidence, frames) = try await output.finish(windowMs: recordedEnd - started)
-            let inputOffset = evidence["actionAtMs"] as? Double ?? 0
-            let visualResponse = (evidence["updatesMs"] as? [Double] ?? []).contains { $0 >= inputOffset }
-            if input != nil, mode == "background", synthesizedInput,
-               (before == nil || after == nil || before == after), !visualResponse {
-                throw HelperError("Posted input produced no observable UI change; foreground approval may be required", code: "foreground_required")
+            if input != nil, mode == "background", synthesizedInput, !deliveryConfirmed, deliveryProbe?() != true {
+                throw HelperError("Input destination did not acknowledge delivery; do not retry automatically", code: "delivery_unconfirmed", phase: "dispatched")
             }
             var data = evidence
             var loads = [Double](repeating: 0, count: 3)
             if getloadavg(&loads, 3) > 0 { data["hostLoad"] = loads[0] }
             data["hostCores"] = ProcessInfo.processInfo.activeProcessorCount
             var notes = data["notes"] as? [String] ?? []
+            if let warning = focus?.warning() { notes.append(warning) }
             if reported <= 0 { data["refreshAssumed"] = true; notes.append("Display refresh rate unavailable; assumed 60 Hz.") }
             if request.filmstrip == true {
                 if let jpeg = measurementFilmstrip(frames) { data["filmstrip"] = ["type": "image", "data": jpeg.base64EncodedString(), "mimeType": "image/jpeg"] }

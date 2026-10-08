@@ -22,7 +22,18 @@ const input = config.parse(JSON.parse(first.value ?? "null"));
 const write = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
 async function emit(frames: z.infer<typeof frame>[], result?: unknown) {
   for (const native of frames) {
-    const encoded = JSON.stringify(native).replaceAll('"$RESULT"', JSON.stringify(result ?? null));
+    const resultData = z
+      .object({
+        content: z.unknown().optional(),
+        isError: z.boolean().optional(),
+        structuredContent: z.unknown().optional(),
+      })
+      .safeParse(result).data;
+    const encoded = JSON.stringify(native)
+      .replaceAll('"$RESULT"', JSON.stringify(result ?? null))
+      .replaceAll('"$CONTENT"', JSON.stringify(resultData?.content ?? []))
+      .replaceAll('"$IS_ERROR"', JSON.stringify(resultData?.isError ?? false))
+      .replaceAll('"$STRUCTURED"', JSON.stringify(resultData?.structuredContent ?? null));
     write({ kind: "frame", frame: JSON.parse(encoded) });
     await lines.next(); // The daemon acknowledges committed facts, never a sleep.
   }

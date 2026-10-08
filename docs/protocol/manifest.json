@@ -21,8 +21,8 @@
       "sha256": "5f8629b4b8f0275948b30bf617db6b76409081e059c2bbf936bc5008e2831605"
     },
     "mcp.md": {
-      "bytes": 106324,
-      "sha256": "4e202a6e463a1975528164a7345a6bd443a4b896be421c062003294c9369a4a8"
+      "bytes": 110086,
+      "sha256": "3d20af257351c03802a20012b7fc00659df0d80a11c096ffd5658b77207e3f30"
     },
     "models.md": {
       "bytes": 14366,
@@ -33,8 +33,8 @@
       "sha256": "4609a929b4f274e203a05fc0ca64ed53661a7f632720cfc1b9bf045fd2c76d5d"
     },
     "push.md": {
-      "bytes": 69947,
-      "sha256": "5919392dfa0dd4af8b2e04f141b669c9a432b8122d30d353ff8617c8f7dfa5e5"
+      "bytes": 70049,
+      "sha256": "c7c3cebd5b022c03edfc311ba23e0921b0b09e9a72ac8b610f7a03bdfeb69723"
     },
     "requests.md": {
       "bytes": 63203,
@@ -1756,13 +1756,21 @@
       "bytes": 408,
       "sha256": "32e703573bde555bf2f66667ed777cf13fadde2999f53aab5afe23bdc4198dce"
     },
+    "schema/ScreenAppURL.json": {
+      "bytes": 332,
+      "sha256": "f5a64a724b183e983e21e6cb41cb8076c976c006939d897cef8a13686621843f"
+    },
+    "schema/ScreenAppWindows.json": {
+      "bytes": 1698,
+      "sha256": "cee32bd57e93bff57ad45e7d9620cbb19542998f371fd7dcaa26ba75c5ff5e47"
+    },
     "schema/ScreenBundle.json": {
       "bytes": 182,
       "sha256": "435ad6b1b235ba83fff65811da4ed2455ce5e6427ea99d3489817fe9ec541340"
     },
     "schema/ScreenCapabilities.json": {
-      "bytes": 2558,
-      "sha256": "d246ad4ee0c5072b6661d9a1a5e5efdb06327c8581a71873032c680b6b3edb1c"
+      "bytes": 2671,
+      "sha256": "3afd8d6a7709b8977cfd658daad17579e347a918803a20d30804c1f68e024544"
     },
     "schema/ScreenClientMessage.json": {
       "bytes": 495,
@@ -1773,8 +1781,8 @@
       "sha256": "6add5d3b2df6e9a6ebaa28c2eaa5984273f2f8d9708f35c91d2c8838cf13bffa"
     },
     "schema/ScreenError.json": {
-      "bytes": 815,
-      "sha256": "7a018e2d0f82b148887bc33398b648035a0dbe61d2a2f11a656f3f9ba6159c72"
+      "bytes": 2186,
+      "sha256": "644bfacba23d85bff1fedb3df77b2f5021a6b40d064fa406e4978ad09c4b3dac"
     },
     "schema/ScreenFrameHeader.json": {
       "bytes": 318,
@@ -1805,32 +1813,40 @@
       "sha256": "d400b85444823c2e45099f7f7381a03afafad5742767a811ee22f5e7cd103930"
     },
     "schema/ScreenHelperRequest.json": {
-      "bytes": 22911,
-      "sha256": "cf6b8dfb0ca91a487a779a850be386407034ce4eb4a741cd195012be781cb6fc"
+      "bytes": 27816,
+      "sha256": "efdb8b67a8212e6a214c6604d485b1b3a055bfbf874e7a0ac772e52495f2a5b4"
     },
     "schema/ScreenHelperRequestV2.json": {
-      "bytes": 12429,
-      "sha256": "64f3bf323e14b346daea2e725a84c31f22484020b938857ff1932a384dfb6a11"
+      "bytes": 14000,
+      "sha256": "890b00285c0d4b07f89a4ed96ab1c405c3e824067d65be6789080b0cbbab0fe7"
     },
     "schema/ScreenId.json": {
       "bytes": 178,
       "sha256": "378176895ad33e3175205b51a2e5877418acb8af2a623d8cf26319303aa51df9"
     },
     "schema/ScreenInput.json": {
-      "bytes": 4759,
-      "sha256": "388e5af3604c064b515148849face113e8d60c973ab093f62d63319c5795c6a3"
+      "bytes": 4480,
+      "sha256": "6d979c7e187195eb459e33ded22e80f88d1748bc69cd7bcdf81df8a6f56c393d"
     },
     "schema/ScreenInventory.json": {
       "bytes": 2501,
       "sha256": "5f51fe7ff026c91f41f48c64274b5b196491df861637bf0c1a4b0646b4290b7e"
+    },
+    "schema/ScreenKey.json": {
+      "bytes": 1975,
+      "sha256": "d0f4ab7f5bb3fd68c70ce2a42c0f394b6f0b727877e45552c7c4f70280632b88"
+    },
+    "schema/ScreenKeyModifiers.json": {
+      "bytes": 349,
+      "sha256": "6541cfdb7867f028fec1ca9658dcd958f1f5ec1bc5f3007cfd0616951c34e9d5"
     },
     "schema/ScreenLegacyFrameHeader.json": {
       "bytes": 1377,
       "sha256": "143c0b6eea88048880866eedc63b835ddd56a7e0c15d23d2ce4da691246c1100"
     },
     "schema/ScreenMeasurementAction.json": {
-      "bytes": 3427,
-      "sha256": "79a10b9df16219a95d008350c2a617fbee26db62f6016b4a3bf0013f5d0fb5ec"
+      "bytes": 3148,
+      "sha256": "89a836201c7525504fa0b2709679ff0fac5b61a4d1b49d9643a93faa42461eb5"
     },
     "schema/ScreenMeasurementOptions.json": {
       "bytes": 606,
@@ -1841,8 +1857,8 @@
       "sha256": "b370bf3757920246143f8fabc458ed731c89c7a8b3f6f5c180eb444156a7c54b"
     },
     "schema/ScreenNamedKey.json": {
-      "bytes": 591,
-      "sha256": "f24c14306212e723e217d22f08e5014695865d63ae7fac0d8012b776f4519dec"
+      "bytes": 376,
+      "sha256": "afbe00a3f9027b96e8150d08a44d9a0403ef83b2eff71b030eee9519c47fbf50"
     },
     "schema/ScreenOpenedApp.json": {
       "bytes": 498,
@@ -1865,8 +1881,8 @@
       "sha256": "f1145efb132f4d9b69b4678b74bb3145be8ffdd85e84822df6d4eef7ace7e769"
     },
     "schema/ScreenServerMessage.json": {
-      "bytes": 2234,
-      "sha256": "908e86c979aa655d3562598636a5d8efabafd1f746fd2aaf344a17e286ea6917"
+      "bytes": 2398,
+      "sha256": "c2f06a1617dcfb5eeaf8697d5d5ad23ae69be73a667277c992559a83f4fc07a9"
     },
     "schema/ScreenState.json": {
       "bytes": 1354,
@@ -1897,8 +1913,8 @@
       "sha256": "d9aa2aa3583e7d30d47b1f65219d46f96b2c21bf832680ad56aab1eb9b53bcc0"
     },
     "schema/ScreenUIActResult.json": {
-      "bytes": 774,
-      "sha256": "f81cc327b75f0dc36bcc82be8e34f32463fd9be15792d528a260f03cf454a12c"
+      "bytes": 1209,
+      "sha256": "56610191d2980c3b9bda48a39efdb51c7fdcef0d248b9511706a30a19a56a0f9"
     },
     "schema/ScreenUIAction.json": {
       "bytes": 294,
@@ -2005,8 +2021,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 33265,
-      "sha256": "3b06d57136568fd04c06039378e8ddf71b5d07fcdd1020fad1fe6dd1ea8c91bf"
+      "bytes": 33429,
+      "sha256": "71dd1e71c7bc274de7e20667dcefd420307d4c066f1db199e86ab49a1611a01e"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -2245,8 +2261,8 @@
       "sha256": "c9002116f66416eb0ca06cc233d0dfa78e8e24a3816c31ff2c619664fe1be9b4"
     },
     "schema/ToolCall.json": {
-      "bytes": 1194,
-      "sha256": "bd431dde9e434deb7eef2fe45aab6474668131c0b9866b7c02c3c0f7f36bb967"
+      "bytes": 1279,
+      "sha256": "462ef5dd3b1c78d13d175059e4d5510bb7cc4551516a587e51adef7932f79751"
     },
     "schema/ToolDetail.json": {
       "bytes": 5608,
@@ -2255,6 +2271,10 @@
     "schema/ToolKind.json": {
       "bytes": 455,
       "sha256": "950dd4c471c6d614662fb30389ee29599ec191cb847f886278a812bc8358c2cb"
+    },
+    "schema/ToolResult.json": {
+      "bytes": 2323,
+      "sha256": "a0069e9e0ee691578dc767dc8d7c63002d02beacae74f1c1d8d01b56561ac4d4"
     },
     "schema/ToolStatus.json": {
       "bytes": 277,
@@ -2489,8 +2509,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 160681,
-      "sha256": "7ce8bc425b8fedd67f33e9e3547f7c4d96f164c48355e618cb3bebd38b66d363"
+      "bytes": 182147,
+      "sha256": "ad64670ad25948357213aff5b031ef3fc2fccf07d0771113a69302a6db934351"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2661,10 +2681,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 569490,
-      "sha256": "0527b4ccc048f1e140462e2fb0b6525264f1fc0447c41599fea9882ee2f16aed"
+      "bytes": 579594,
+      "sha256": "9605fb0fcf3f6e3a6ecf949c15a74d685f1af7a8d8e6c249cf7d65e06971c751"
     }
   },
-  "input": "4821c023aae0723d91caef583e361f84afdabcac7c8a81c2a78b8116e6bdd394",
+  "input": "13289c8813165d627a4af15fb9d159f49f2d7b781d0ae45f58c7119a5302eafa",
   "version": 1
 }

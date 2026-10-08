@@ -4,6 +4,12 @@ export interface PiExtensionApi {
     message: { customType: string; content: string; display: boolean; details: unknown },
     options: { triggerTurn: boolean; deliverAs: "followUp" },
   ): void;
+  setActiveTools?(names: string[]): void;
+  getActiveTools?(): string[];
+  on(
+    event: "before_agent_start",
+    handler: (event: { systemPrompt: string }) => { systemPrompt: string },
+  ): void;
   appendEntry(customType: string, data: unknown): void;
   registerCommand(
     name: string,

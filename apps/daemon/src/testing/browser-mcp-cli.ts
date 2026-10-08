@@ -195,6 +195,14 @@ if (mode === "opencode") {
         });
       } else if (path === "/api/session" && request.method === "POST") {
         reply({ data: { id: "native", projectID: "test", location: body.location } });
+      } else if (
+        path === "/api/experimental/session/native/instructions/entries/ace.tool-guidance" &&
+        request.method === "PUT"
+      ) {
+        const entry = z.object({ value: z.string() }).parse(body);
+        if (!entry.value.includes("ace_browser_") || !entry.value.includes("screen_"))
+          throw new Error("Native tool guidance is missing");
+        response.writeHead(204).end();
       } else if (path === "/api/session/native/prompt") {
         reply({ data: { id: body.id, sessionID: "native" } });
       } else if (path === "/api/session/native/interrupt") reply({ interrupted: true });

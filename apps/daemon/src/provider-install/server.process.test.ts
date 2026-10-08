@@ -19,6 +19,7 @@ test("operate clients receive installer progress, can poll after reconnect, and 
   const server = await fixture({ providerInstalls: f.installs, providerStatuses: f.statuses });
   try {
     const client = await server.connect();
+    client.receiveCatalogPushes = true;
     await client.next();
     client.send({
       type: "provider.install.plan",

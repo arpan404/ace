@@ -1,3 +1,4 @@
+import { helperGate } from "./testing/gate.ts";
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, type Frame } from "./index.ts";
 import { deferred, manager, ready, target } from "./testing/support.ts";
@@ -53,6 +54,7 @@ it("live screenshots and MCP actions use the approved session and human takeover
   expect(firstFrame.payload.toString()).toBe("jpeg-0");
   const screenshot = await tool("screen_screenshot", {});
   expect(screenshot).toEqual({
+    _meta: { "ace/screen": { mode: "background", scale: 1, size: { width: 100, height: 100 } } },
     content: [
       {
         type: "image",
@@ -148,25 +150,19 @@ it("frames delivered during startup remain available after the session becomes l
   expect((await first.promise).payload.toString()).toBe("jpeg-0");
   expect(screen.screenshot(state.sessionId).payload.toString()).toBe("jpeg-0");
 });
-it("takeover while permission inspection completes prevents the pending input effect", async () => {
-  const screen = await setup();
+it("takeover during permission inspection prevents the pending input effect", async () => {
+  const gate = await helperGate();
+  cleanups.push(gate.close);
+  const screen = await setup({ PERMISSION_GATE_PORT: gate.port });
   const state = await ready(screen);
   screen.controller(state.sessionId, "agent", "agent");
-  const inspected = deferred<void>();
-  const unwatch = screen.watch((value) => {
-    if (value.sessionId === state.sessionId && value.controller === "agent") {
-      screen.controller(state.sessionId, "human", "human");
-      inspected.resolve();
-    }
-  });
-  try {
-    await expect(
-      screen.action(state.sessionId, "agent", { kind: "type", text: "denied" }, "agent"),
-    ).rejects.toThrow("Controller changed");
-    await inspected.promise;
-    expect(screen.state(state.sessionId).controller).toBe("human");
-    expect(() => screen.screenshot(state.sessionId)).toThrow("No captured frame");
-  } finally {
-    unwatch();
-  }
+  const action = expect(
+    screen.action(state.sessionId, "agent", { kind: "type", text: "denied" }, "agent"),
+  ).rejects.toThrow("Controller changed");
+  await gate.reached;
+  screen.controller(state.sessionId, "human", "human");
+  gate.release();
+  await action;
+  expect(screen.state(state.sessionId).controller).toBe("human");
+  expect(() => screen.screenshot(state.sessionId)).toThrow("No captured frame");
 });

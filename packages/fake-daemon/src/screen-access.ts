@@ -4,7 +4,7 @@ import {
   type ScreenError,
   type ThreadView,
 } from "@ace/protocol";
-import { sensitiveApp } from "@ace/screen/sensitive-app";
+import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
 
 export class FakeScreenError extends Error {
   readonly code: ScreenError["code"];
@@ -54,6 +54,11 @@ export class FakeScreenAccess {
     scope: ScreenGrant["scope"] = "always",
     threadId?: string,
   ): void {
+    if (allowed && scope === "always" && browserApp(bundleId))
+      throw new FakeScreenError(
+        "approval_required",
+        "Web browsers require a turn or thread grant from the person in ace's UI",
+      );
     const thread = scope === "always" ? undefined : threadId;
     if (scope !== "always" && (!thread || !this.thread(thread)))
       throw new FakeScreenError("approval_required", "Screen approval thread unavailable");
@@ -87,7 +92,8 @@ export class FakeScreenAccess {
         grant.bundleId === bundleId &&
         (caller && sensitiveApp(bundleId)
           ? grant.scope === "turn" && grant.threadId === caller.threadId
-          : grant.scope === "always" || (caller && grant.threadId === caller.threadId)),
+          : (grant.scope === "always" && !browserApp(bundleId)) ||
+            (caller && grant.threadId === caller.threadId)),
     );
   }
   require(bundleId: string, caller?: ScreenAgentScope): void {
