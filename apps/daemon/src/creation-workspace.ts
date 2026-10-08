@@ -144,8 +144,8 @@ export class WorkspaceCreations {
       }
       try {
         await this.cleanup(resource, ranSetup ? { force: true } : {});
-      } catch {
-        throw new Error("workspace_cleanup_required");
+      } catch (error) {
+        throw new Error("workspace_cleanup_required", { cause: error });
       }
       throw error;
     }
@@ -218,5 +218,7 @@ export class WorkspaceCreations {
     await Promise.all(
       results.map((result) => (result.status === "fulfilled" ? result.value.release() : undefined)),
     );
+    // Failed preparation drops its live promise, but its durable cleanup ownership remains.
+    await this.recover();
   }
 }

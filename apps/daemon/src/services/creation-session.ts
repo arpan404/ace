@@ -129,6 +129,12 @@ export function createEngineSession(context: SocketContext): SocketService {
         }),
       );
     } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "workspace_cleanup_required" &&
+        error.cause !== undefined
+      )
+        options.log?.(error.cause);
       cleanupComplete =
         !isMutationUnavailable(error) &&
         !(error instanceof Error && error.message === "workspace_cleanup_required");
