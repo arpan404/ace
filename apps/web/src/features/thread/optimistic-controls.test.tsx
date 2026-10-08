@@ -45,19 +45,18 @@ async function chooseApprovals(from: string, mode: string) {
 test("an approval mode chosen offline shows at once and reaches the daemon once it's back", async () => {
   const app = await open();
   await offline(app);
-  await chooseApprovals("Auto-review", "Full access");
+  await chooseApprovals("Provider default", "Bypass permissions");
 
-  // The icon keeps the mode in effect and names the one waiting.
   await screen.findByRole("button", {
-    name: "Approvals: Auto-review, Full access will apply when reconnected",
+    name: "Approvals: Provider default, Bypass permissions will apply when reconnected",
   });
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
-  await waitFor(() => expect(thread(app)?.permission?.override).toBe("full-access"));
+  await waitFor(() => expect(thread(app)?.permission?.override).toBe("bypassPermissions"));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Auto-review, Full access applies at the agent's next turn",
+      name: "Approvals: Provider default, Bypass permissions applies at the agent's next turn",
     }),
   ).toBeTruthy();
 });
@@ -65,11 +64,11 @@ test("an approval mode chosen offline shows at once and reaches the daemon once 
 test("an approval mode the daemon refuses goes back to the one in effect, with a toast", async () => {
   const app = await open();
   app.daemon.refuseCommands("forbidden", "thread.permission.set");
-  await chooseApprovals("Auto-review", "Read only");
+  await chooseApprovals("Provider default", "Plan");
 
   expect(await screen.findByText("Couldn't change approvals")).toBeTruthy();
   expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
-  expect(await screen.findByRole("button", { name: "Approvals: Auto-review" })).toBeTruthy();
+  await screen.findByRole("button", { name: "Approvals: Provider default" });
   expect(thread(app)?.permission?.override).toBeNull();
 });
 
@@ -84,7 +83,7 @@ test("offline, the model popover still changes effort and the account, which go 
   await closeModelControl();
 
   // The chip names the new account at once and says the switch is waiting.
-  const chip = await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
+  await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
   expect(chip.getAttribute("aria-description")).toBe(
     "Switches from Opus 5.5 on personal · Will apply when reconnected",
   );
@@ -113,7 +112,7 @@ test("a model switch shows the model it leaves until the agent's next turn", asy
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
 
-  const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
+  await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
   expect(chip.textContent).toContain("Opus 5.5 →GPT-5 Codex");
   expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on personal · /);
 });

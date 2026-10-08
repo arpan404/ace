@@ -45,7 +45,8 @@ export const Open = z.strictObject({
   model: identity.optional(),
   nativeSessionId: identity.optional(),
   afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
-  policy: z.enum(["restricted", "full-access"]),
+  policy: z.enum(["restricted", "full-access"]).optional(),
+  permissionMode: z.string().min(1).max(4096).optional(),
   limits: Limits,
   readOnly: z.boolean().default(false),
   // Legacy sandbox hint for injected hosts; production uses SDK executor admission.

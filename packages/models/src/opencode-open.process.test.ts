@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 for (const empty of [false, true])
-  test.each(["auto-review", "ask", "read-only", "full-access"] as const)(
+  test.each(["allow", "ask", "deny"] as const)(
     `OpenCode catalog selection opens without sending input (%s, fallback=${empty})`,
     async (permissionMode) => {
       const work = await workspace();
@@ -71,7 +71,7 @@ for (const empty of [false, true])
               {
                 action: "*",
                 resource: "*",
-                effect: permissionMode === "full-access" ? "allow" : "ask",
+                effect: permissionMode,
               },
             ],
           },

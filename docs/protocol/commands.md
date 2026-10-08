@@ -1158,23 +1158,23 @@ Example:
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 9,
-        "durationMs": 8,
-        "maxAttempts": 1,
+        "cost": 8,
+        "durationMs": 2,
+        "maxAttempts": 8,
         "maxDepth": 0,
-        "maxLanes": 6,
-        "tokens": 2
+        "maxLanes": 2,
+        "tokens": 9
       },
       "checks": {
         "command": [
           "example"
-        ],
-        "review": "example"
+        ]
       },
       "kind": "pipeline",
       "lanes": [
         {
           "model": "example",
+          "permissionMode": "example",
           "provider": "pi"
         }
       ]
@@ -1196,7 +1196,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "SApdvYCk",
+  "orchestrationId": "OpdvY",
   "type": "orchestration.cancel"
 }
 ```
@@ -1214,8 +1214,8 @@ Example:
 
 ```json
 {
-  "laneId": "SYqLiKPSDn",
-  "orchestrationId": "eLwe4e-",
+  "laneId": "Iwe4e-U",
+  "orchestrationId": "Ae",
   "type": "orchestration.pick"
 }
 ```
@@ -1250,10 +1250,11 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "context": {
-    "mentions": []
+  "base": {
+    "ref": "example"
   },
+  "baseBranch": "example",
+  "handoffFrom": "example",
   "input": [
     {
       "mimeType": "example",
@@ -1261,9 +1262,8 @@ Example:
       "url": "example"
     }
   ],
-  "model": "example",
-  "options": {},
-  "provider": "pi",
+  "installationId": "example",
+  "provider": "antigravity",
   "threadId": "example",
   "type": "thread.create",
   "workspaceId": "example"
@@ -1288,15 +1288,11 @@ Example:
 
 ```json
 {
-  "context": {
-    "attachments": []
-  },
-  "delivery": "queue",
   "input": [
     {
       "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "path": "example",
+      "type": "file"
     }
   ],
   "model": "example",
@@ -1319,7 +1315,7 @@ Example:
 
 ```json
 {
-  "agentId": "example",
+  "runId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1391,8 +1387,9 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "action": "decline",
-    "kind": "elicitation"
+    "answers": {},
+    "feedback": "example",
+    "kind": "question"
   },
   "type": "interaction.resolve"
 }
@@ -1443,65 +1440,29 @@ Example:
 
 ```json
 {
-  "alive": {
-    "agentsRunning": 6,
-    "operationsRunning": 7,
-    "terminalsOpen": 1
-  },
   "code": "example",
   "commandId": "example",
+  "commit": "a0fd82e583617594f2f202cf5f19e43fd28595e3ce68428",
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
+    },
+    "path": "example"
+  },
   "forkThreadId": "example",
   "ok": false,
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": false,
-      "sessionId": "example",
-      "suggestion": "example",
-      "text": "example"
-    },
-    "comments": [],
-    "intentId": "example",
-    "nextCursor": "example"
+  "pr": {
+    "number": 2,
+    "repository": {
+      "forge": "gitlab",
+      "host": "NzMzWIpL6a",
+      "name": "47NHa",
+      "owner": "gUhS6p2o/hUC/i-huV/.t3IM4-AIgC/1dX/fO1EZCHIn/1u3WUFEwXqj/jqNHH1guiCJ/UEHCyU/UBvL"
+    }
   },
-  "terminalId": "example"
+  "terminalId": "example",
+  "title": "example"
 }
 ```

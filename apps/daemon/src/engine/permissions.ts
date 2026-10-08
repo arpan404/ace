@@ -1,8 +1,9 @@
+import { ThreadId as importThreadId } from "@ace/protocol";
+import { migratePermissionMode, nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import {
   Command,
   PermissionMode,
   type PermissionState,
-  ThreadId as ThreadIdSchema,
   type ThreadId,
   type CommandResult,
   type Capabilities,
@@ -10,9 +11,6 @@ import {
   type PermissionReview,
 } from "@ace/protocol";
 import {
-  limitPermissionMode,
-  permissionAuthority,
-  resolvePermissionMode,
   reviewPermission,
   permissionDecisionOption,
   supportsPermissionMode,
@@ -25,11 +23,11 @@ import { permissionPaths, permissionShells, permissionCommands } from "./permiss
 
 const Record = z.object({
   override: PermissionMode.nullable(),
-  effective: PermissionMode,
+  effective: PermissionMode.nullable(),
   parent: z.string().nullable(),
 });
 type Record = z.infer<typeof Record>;
-export type PermissionSettings = (id: ThreadId) => Promise<PermissionMode>;
+export type PermissionSettings = (id: ThreadId) => Promise<PermissionMode | null>;
 /** Durable policy ownership, independent of native provider settings and delegation journals. */
 export class Permissions {
   private repo: EngineRepository;
@@ -38,13 +36,67 @@ export class Permissions {
     repo.store.atomic((db) =>
       db.exec(`
       CREATE TABLE IF NOT EXISTS engine_permissions (
-        thread_id TEXT PRIMARY KEY, override TEXT, effective TEXT NOT NULL, parent TEXT
+        thread_id TEXT PRIMARY KEY, override TEXT, effective TEXT, parent TEXT
       );
       CREATE TABLE IF NOT EXISTS engine_permission_reviews (
         interaction_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, review TEXT NOT NULL
       );
     `),
     );
+    repo.store.atomic((db) => {
+      const columns = z
+        .array(z.object({ name: z.string(), notnull: z.number() }))
+        .parse(db.prepare("PRAGMA table_info(engine_permissions)").all());
+      if (columns.some((column) => column.name === "effective" && column.notnull === 1))
+        db.exec(`ALTER TABLE engine_permissions RENAME TO engine_permissions_legacy;
+        CREATE TABLE engine_permissions(thread_id TEXT PRIMARY KEY, override TEXT, effective TEXT, parent TEXT);
+        INSERT INTO engine_permissions SELECT * FROM engine_permissions_legacy;
+        DROP TABLE engine_permissions_legacy;`);
+      for (const value of db.prepare("SELECT thread_id FROM engine_permissions").iterate()) {
+        const row = z.object({ thread_id: z.string() }).parse(value);
+        const id = importThreadId.parse(row.thread_id);
+        const thread = repo.store.getThread(id);
+        if (!thread) continue;
+        const permission = this.state(id);
+        const native = nativePermissionModes(thread.provider);
+        const refresh = (capabilities: Capabilities | undefined): Capabilities | undefined => {
+          if (!capabilities || capabilities.permissionModes) return capabilities;
+          return {
+            ...capabilities,
+            permissionModes: native,
+            ...(capabilities.permissions
+              ? {
+                  permissions: {
+                    ...capabilities.permissions,
+                    permissionModes: native,
+                    modes: native.map((mode) => mode.id),
+                    guarantees: undefined,
+                  },
+                }
+              : {}),
+          };
+        };
+        const capabilities = refresh(thread.capabilities);
+        const effectiveCapabilities = refresh(thread.effectiveCapabilities);
+        if (
+          JSON.stringify(thread.permission) !== JSON.stringify(permission) ||
+          capabilities !== thread.capabilities ||
+          effectiveCapabilities !== thread.effectiveCapabilities
+        )
+          repo.store.appendEvents(
+            id,
+            [
+              {
+                type: "thread.updated",
+                permission,
+                ...(capabilities ? { capabilities } : {}),
+                ...(effectiveCapabilities ? { effectiveCapabilities } : {}),
+              },
+            ],
+            thread.updatedAt,
+          );
+      }
+    });
   }
   private read(id: ThreadId): Record {
     const row = this.repo.store.atomic((db) =>
@@ -52,62 +104,59 @@ export class Permissions {
         .prepare("SELECT override,effective,parent FROM engine_permissions WHERE thread_id=?")
         .get(id),
     );
-    return row ? Record.parse(row) : { override: null, effective: "auto-review", parent: null };
+    const record = row ? Record.parse(row) : { override: null, effective: null, parent: null };
+    const provider =
+      this.repo.state(id)?.config.provider ?? this.repo.store.getThread(id)?.provider;
+    if (!provider) return record;
+    const thread = this.repo.store.getThread(id);
+    const advertised = (thread?.effectiveCapabilities ?? thread?.capabilities)?.permissionModes;
+    const override = migratePermissionMode(provider, record.override, advertised);
+    const effective = migratePermissionMode(provider, record.effective, advertised);
+    if (override !== record.override || effective !== record.effective)
+      this.repo.store.atomic((db) =>
+        db
+          .prepare("UPDATE engine_permissions SET override=?,effective=? WHERE thread_id=?")
+          .run(override, effective, id),
+      );
+    return { ...record, override, effective };
   }
-  ensure(id: ThreadId, override?: PermissionMode): PermissionState {
+  ensure(
+    id: ThreadId,
+    override?: PermissionMode,
+    provider?: import("@ace/protocol").ProviderKind,
+    advertised?: import("@ace/protocol").NativePermissionMode[],
+  ): PermissionState {
+    const native = provider
+      ? migratePermissionMode(provider, override, advertised)
+      : (override ?? null);
     this.repo.store.atomic((db) =>
       db
         .prepare("INSERT OR IGNORE INTO engine_permissions VALUES (?,?,?,NULL)")
-        .run(id, override ?? null, override ?? "auto-review"),
+        .run(id, native, native),
     );
     return this.state(id);
   }
-  effective(id: ThreadId): PermissionMode {
+  effective(id: ThreadId): PermissionMode | null {
     return this.read(id).effective;
   }
-  authority(id: ThreadId): PermissionMode {
-    return permissionAuthority(id, (key) => this.read(ThreadIdSchema.parse(key)));
+  /** ace-owned Mac tools have their own manual consent, independent of the harness mode. */
+  authority(_id: ThreadId): PermissionMode {
+    return "ask";
   }
   state(id: ThreadId): PermissionState {
     const record = this.read(id);
     return {
       override: record.override,
       effective: record.effective,
-      pending:
-        record.override !== null &&
-        limitPermissionMode(record.override, this.ceiling(id)) !== record.effective,
+      pending: record.override !== record.effective,
     };
   }
-  /** Host-only relationship. Never accept parent identity from an ordinary wire command. */
-  parent(child: ThreadId, parent: ThreadId, at: number): void {
+  parent(child: ThreadId, parent: ThreadId, _at: number): void {
     if (child === parent) throw new Error("Permission ancestry cycle");
-    let ancestor: string | null = parent;
-    for (let depth = 0; ancestor !== null; depth++) {
-      if (depth >= 64 || ancestor === child)
-        throw new Error("Permission ancestry cycle or depth exceeded");
-      ancestor = this.read(ThreadIdSchema.parse(ancestor)).parent;
-    }
     this.ensure(child);
-    const record = this.read(child);
-    const ceiling = this.authority(parent);
-    const effective = this.repo.state(child)?.hasRun
-      ? limitPermissionMode(record.effective, ceiling)
-      : resolvePermissionMode({ override: record.override, setting: ceiling, parent: ceiling });
     this.repo.store.atomic((db) =>
-      db
-        .prepare("UPDATE engine_permissions SET parent=?,effective=? WHERE thread_id=?")
-        .run(parent, effective, child),
+      db.prepare("UPDATE engine_permissions SET parent=? WHERE thread_id=?").run(parent, child),
     );
-    if (this.repo.store.getThread(child))
-      this.repo.store.appendEvents(
-        child,
-        [{ type: "thread.updated", permission: this.state(child) }],
-        at,
-      );
-  }
-  private ceiling(id: ThreadId): PermissionMode | undefined {
-    const parent = this.read(id).parent;
-    return parent ? this.authority(ThreadIdSchema.parse(parent)) : undefined;
   }
   set(
     id: ThreadId,
@@ -115,8 +164,11 @@ export class Permissions {
     capabilities: Capabilities,
     at: number,
   ): string | undefined {
-    const parent = this.ceiling(id);
-    if (mode && limitPermissionMode(mode, parent) !== mode) return "permission_exceeds_parent";
+    mode = migratePermissionMode(
+      this.repo.requireState(id).config.provider,
+      mode,
+      capabilities.permissionModes,
+    );
     if (mode && !supportsPermissionMode(capabilities.permissions, mode))
       return "permission_mode_unsupported";
     this.ensure(id);
@@ -158,18 +210,37 @@ export class Permissions {
       );
     return undefined;
   }
-  async resolve(id: ThreadId, settings?: PermissionSettings): Promise<PermissionMode> {
-    const settingValue = await settings?.(id);
+  async resolve(
+    id: ThreadId,
+    settings?: PermissionSettings,
+    nativeCapabilities?: Capabilities,
+  ): Promise<PermissionMode | null> {
+    const state = this.repo.requireState(id);
+    const provider = state.config.provider;
+    const configured = await settings?.(id);
     const record = this.read(id);
-    const parent = this.ceiling(id);
-    const setting = parent ?? settingValue;
-    return resolvePermissionMode({
-      override: record.override,
-      ...(setting ? { setting } : {}),
-      ...(parent ? { parent } : {}),
-    });
+    const thread = this.repo.store.getThread(id);
+    let selected = migratePermissionMode(
+      provider,
+      record.override ?? configured,
+      (nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities)
+        ?.permissionModes,
+    );
+    const capabilities =
+      nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities;
+    let remapped = false;
+    if (selected && !supportsPermissionMode(capabilities?.permissions, selected)) {
+      remapped = true;
+      selected = migratePermissionMode(provider, configured, capabilities?.permissionModes);
+      if (!supportsPermissionMode(capabilities?.permissions, selected)) selected = null;
+    }
+    if (record.override && (selected === null || remapped))
+      this.repo.store.atomic((db) =>
+        db.prepare("UPDATE engine_permissions SET override=NULL WHERE thread_id=?").run(id),
+      );
+    return selected;
   }
-  applied(id: ThreadId, mode: PermissionMode, at: number): void {
+  applied(id: ThreadId, mode: PermissionMode | null, at: number): void {
     this.ensure(id);
     this.repo.store.atomic(() => {
       this.repo.store.atomic((db) =>
@@ -193,25 +264,10 @@ export class Permissions {
       // than walking every pending approval for each newly opened approval.
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
       if (key === undefined || state.interactions[key]?.state !== "pending") continue;
-      const attributed = interaction.raw.find((raw) => raw.type === "ace.permission-policy");
-      const parsed = z
-        .object({ mode: PermissionMode })
-        .safeParse(attributed && "data" in attributed ? attributed.data : undefined);
-      // Only adapter-owned attribution can grant Full access to a Codex approval.
-      const mode =
-        state.config.provider === "codex"
-          ? limitPermissionMode(
-              parsed.success ? parsed.data.mode : "ask",
-              this.ceiling(state.threadId),
-            )
-          : this.effective(state.threadId);
       const target =
         interaction.request.kind === "approval" ? interaction.request.target : undefined;
-      if (
-        (mode === "full-access" && state.config.provider !== "codex") ||
-        (mode === "ask" && (target?.origin !== "ace" || target.riskClass !== "read-only"))
-      )
-        continue;
+      if (target?.origin !== "ace") continue;
+      const mode = "ask";
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
         db
@@ -254,10 +310,7 @@ export class Permissions {
         draft: {
           type: "notice",
           level: decision.decision === "approve" ? "info" : "warning",
-          text:
-            mode === "full-access" && decision.decision === "approve"
-              ? "Approved · Full access"
-              : `Permission review ${decision.decision}: ${decision.reason}`,
+          text: `ace tool consent ${decision.decision}: ${decision.reason}`,
           complete: true,
           raw: [{ type: "permission.reviewed", data: review }],
         },

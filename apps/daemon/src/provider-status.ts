@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { providerReadiness, onboardingChecklist } from "@ace/core";
 import { providerStatusRow } from "./provider-status-row.ts";
 import { type ProviderStatus as Status } from "@ace/protocol";
@@ -64,6 +65,9 @@ export class ProviderStatuses {
       return providerReadiness({
         ...observation,
         ...(available ? { modelsAvailable: true } : { state, actionId }),
+        instanceId:
+          row.runtime === "cursor-sdk" ? "cursor-sdk-default" : `${row.provider}-cli-default`,
+        permissionModes: nativePermissionModes(row.provider),
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: this.options.configuration?.(row.provider).enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,

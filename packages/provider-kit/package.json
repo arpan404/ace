@@ -4,6 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
+    "./permission-modes": "./src/permission-modes.ts",
     "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",
     "./sdk": "./src/sdk.ts",
@@ -31,6 +32,7 @@
     "doctor": "node src/doctor.ts"
   },
   "dependencies": {
+    "@ace/protocol": "workspace:*",
     "@ace/redaction": "workspace:*",
     "zod": "^4.6.5"
   },

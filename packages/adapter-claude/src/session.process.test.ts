@@ -203,7 +203,7 @@ test("resume initializes the requested native session before any input is sent",
     await h.session.close("shutdown");
   }
 });
-test("approving a plan returns permission and resets the CLI permission mode", async () => {
+test("approving a plan returns the native allow answer without overriding the harness mode", async () => {
   const h = await harness();
   try {
     await h.session.send([{ type: "text", text: "plan" }], "queue");
@@ -214,12 +214,13 @@ test("approving a plan returns permission and resets the CLI permission mode", a
       object(object((await h.wait(subtype("fake_resolution"))).data)["response"])["response"],
     );
     expect(response["behavior"]).toBe("allow");
-    const mode = await h.wait(
-      (f) =>
-        subtype("fake_control")(f) &&
-        object(object(f.data)["request"])["subtype"] === "set_permission_mode",
-    );
-    expect(object(object(mode.data)["request"])["mode"]).toBe("default");
+    expect(
+      h.frames.filter(
+        (f) =>
+          f.dir === "send" &&
+          object(object(f.data)["request"])["subtype"] === "set_permission_mode",
+      ),
+    ).toEqual([]);
   } finally {
     await h.session.close("shutdown");
   }

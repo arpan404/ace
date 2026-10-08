@@ -19,6 +19,7 @@
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/screen": "workspace:*",
     "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",

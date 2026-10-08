@@ -1,6 +1,6 @@
 import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
-import { PermissionState } from "./permissions.ts";
+import { PermissionState, PermissionMode } from "./permissions.ts";
 import { ThreadClientFields } from "./thread-client.ts";
 import {
   ThreadLineage,
@@ -35,6 +35,9 @@ export type RunTrigger = z.infer<typeof RunTrigger>;
 
 /** One turn of one agent: from its first output to the provider's turn end. */
 export const Run = z.object({
+  /** Native selection acknowledged for this turn; null retains the harness default. */
+  permissionMode: PermissionMode.nullable().optional(),
+  provider: ProviderKind.optional(),
   id: RunId,
   threadId: ThreadId,
   agentId: AgentId,

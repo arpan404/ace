@@ -144,13 +144,17 @@ export class OpenCodeSession implements ProviderSession {
               title: "ace",
               location: { directory: ctx.cwd },
               model: selectedModel(ctx.model),
-              permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
+              ...(ctx.permissionMode
+                ? { permissions: opencodePermissionRules(ctx.permissionMode) }
+                : {}),
             }),
       );
       if (ctx.resume) {
         await s.client.session.update({
           sessionID: info.id,
-          permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
+          ...(ctx.permissionMode
+            ? { permissions: opencodePermissionRules(ctx.permissionMode) }
+            : {}),
         });
         const model = selectedModel(ctx.model);
         const previous = z.object({ providerID: z.string(), id: z.string() }).safeParse(info.model);

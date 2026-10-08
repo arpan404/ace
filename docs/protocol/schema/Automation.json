@@ -32,6 +32,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "permissionMode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
     "prompt": {
       "maxLength": 32768,
       "minLength": 1,

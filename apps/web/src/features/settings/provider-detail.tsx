@@ -1,3 +1,4 @@
+import { ProviderPermissions } from "./provider-permissions.tsx";
 import { CaretLeftIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, type ReactNode } from "react";
@@ -83,6 +84,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       lede={status}
     >
       <div className="fx-view-in">
+        <ProviderPermissions provider={install.kind} />
         {view?.primary && row && (
           <Callout
             tone={view.tone === "problem" ? "problem" : "action"}

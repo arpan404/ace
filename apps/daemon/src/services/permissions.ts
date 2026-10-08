@@ -12,7 +12,7 @@ export function createPermissionsSession(context: SocketContext): SocketService 
       try {
         const engine = context.options.engine;
         if (!engine) throw new Error("Permission metadata unavailable");
-        const permissions = engine.capabilities(
+        let permissions = engine.capabilities(
           message.provider,
           message.provider === "cursor"
             ? "cursor-sdk"
@@ -20,6 +20,21 @@ export function createPermissionsSession(context: SocketContext): SocketService 
               ? undefined
               : message.backend,
         ).permissions;
+        const instance =
+          message.instanceId &&
+          context.options.models
+            ?.list({
+              provider: message.provider,
+            })
+            .instances.find(
+              (row) => row.instance === message.instanceId || row.instanceId === message.instanceId,
+            );
+        if (instance && instance.permissionModes && permissions)
+          permissions = {
+            ...permissions,
+            permissionModes: instance.permissionModes,
+            modes: instance.permissionModes.map((mode) => mode.id),
+          };
         context.send({
           type: "permissions.capabilities.result",
           requestId: message.requestId,

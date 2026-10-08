@@ -1,10 +1,5 @@
 import { expect, it } from "vitest";
-import {
-  discoverCursorSdk,
-  localPolicy,
-  cursorSdkEnvironment,
-  createCursorAdapter,
-} from "./index.ts";
+import { discoverCursorSdk, cursorSdkEnvironment, createCursorAdapter } from "./index.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ThreadId } from "@ace/protocol";
@@ -63,20 +58,6 @@ it("distinguishes absent SDK from a broken installation and refuses Windows supe
       },
     }),
   ).toMatchObject({ installed: true, supported: false });
-});
-it("maps verified sandbox support and disables unsupported sandbox requests", () => {
-  expect(localPolicy("full-access", false)).toMatchObject({
-    sandboxOptions: { enabled: false },
-    autoReview: false,
-  });
-  expect(localPolicy("restricted", true)).toMatchObject({
-    sandboxOptions: { enabled: true },
-    autoReview: true,
-  });
-  expect(localPolicy("restricted", false)).toMatchObject({
-    sandboxOptions: { enabled: false },
-    autoReview: false,
-  });
 });
 it("uses the isolated SDK default home and inherits only the Cursor SDK environment auth choice", () => {
   const env = cursorSdkEnvironment(
