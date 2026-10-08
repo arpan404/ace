@@ -22,8 +22,8 @@ import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 function Fact(props: { term: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-11 items-center gap-4 px-4 py-2.5">
-      <dt className="w-36 shrink-0 text-muted-foreground">{props.term}</dt>
+    <div className="flex min-h-9 items-center gap-4 py-0.5">
+      <dt className="w-24 shrink-0 text-muted-foreground">{props.term}</dt>
       <dd className="min-w-0 flex-1 text-right break-words">{props.children}</dd>
     </div>
   );
@@ -200,7 +200,7 @@ function DangerRow(props: { title: string; detail: string; children: ReactNode }
   return (
     <section
       aria-label={props.title}
-      className="mt-7 flex items-center gap-4 rounded-card border px-4 py-3.5"
+      className="mt-7 flex min-h-9 items-center gap-4 border-t py-1.5"
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium">{props.title}</p>

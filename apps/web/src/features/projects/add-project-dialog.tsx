@@ -111,7 +111,7 @@ export function AddProjectDialog(props: {
         >
           <TabsList aria-label="How to add a project">
             {tabs.map((tab, index) => (
-              <TabsTab key={tab.value} value={tab.value}>
+              <TabsTab key={tab.value} value={tab.value} className="px-2 sm:px-2.5">
                 <Icon icon={tab.icon} size={14} />
                 {tab.label}
                 <Kbd
@@ -128,7 +128,7 @@ export function AddProjectDialog(props: {
               {removed
                 ? `${machine.name} was removed from your machines. Choose a machine to carry on.`
                 : machine.primary
-                  ? "Reconnecting to ace… Folders and actions come back once it answers."
+                  ? "Reconnecting… Folders and actions come back once connected."
                   : `${machine.name} isn't connected. Folders and actions come back once it is.`}
             </p>
           )}

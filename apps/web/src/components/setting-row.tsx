@@ -16,9 +16,8 @@ import { cn } from "@/lib/cn.ts";
 const InCard = createContext(false);
 
 /**
- * Settings-style row: title and description on the left, the control on the right. Inside a
- * `SettingSection card` the card draws hairlines between rows; elsewhere rows rule off from
- * each other. Narrow (below 30rem of row width) the control drops under the text and wide
+ * Settings-style row: title and description on the left, the control on the right. Hairlines
+ * separate rows. Below 30rem of row width the control drops under the text and wide
  * controls take the full width, unless `inline` (switches, small buttons). `id` makes the row
  * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
  */
@@ -142,18 +141,18 @@ export type SettingScope = "daemon" | "device" | "computer";
 const scopes: Record<SettingScope, { label: string; tip: string }> = {
   daemon: {
     label: "All devices",
-    tip: "Stored by ace; every paired device follows it",
+    tip: "Every paired device follows these settings",
   },
   device: { label: "This device", tip: "Kept in this browser or app only" },
   computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
 };
 
 /**
- * A labelled group of rows. `card` groups them on one surface with hairlines between rows
- * (Settings); without it, rows sit on the page. `scope` says where its settings live.
+ * A labelled group of rows. `scope` says where its settings live.
  */
 export function SettingSection(props: {
   label: string;
+  anchor?: string;
   children: ReactNode;
   card?: boolean;
   scope?: SettingScope | undefined;
@@ -165,7 +164,7 @@ export function SettingSection(props: {
   const id = useId();
   const scope = props.scope ? scopes[props.scope] : undefined;
   return (
-    <section className="mt-7" aria-labelledby={id}>
+    <section id={props.anchor} className="mt-7" aria-labelledby={id}>
       <div className="mb-2 flex items-center gap-2">
         <h3 id={id} className="text-sm font-medium text-muted-foreground">
           {props.label}

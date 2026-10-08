@@ -92,3 +92,14 @@ export class ProjectPaths {
     return target;
   }
 }
+
+/** Validate a new allowlist before it can replace the working one. */
+export async function canonicalProjectRoots(roots: readonly string[]): Promise<string[]> {
+  return Promise.all(
+    [...new Set(roots)].map(async (root) => {
+      absoluteProjectPath(root);
+      const target = await realpath(root);
+      return ProjectPaths.snapshot([target]).directory(target);
+    }),
+  );
+}

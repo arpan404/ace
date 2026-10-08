@@ -73,13 +73,17 @@ export function RefusedNotice(props: {
   home: string | undefined;
   onGo(path: string): void;
   onRetry(): void;
+  allow?: ReactNode;
 }) {
   return (
     <Notice
       icon={props.problem.denied ? LockSimpleIcon : FolderSimpleIcon}
       action={
         props.problem.denied ? (
-          <AllowedPlaces roots={props.roots} home={props.home} onGo={props.onGo} />
+          <>
+            {props.allow}
+            <AllowedPlaces roots={props.roots} home={props.home} onGo={props.onGo} />
+          </>
         ) : (
           <Button size="sm" onClick={props.onRetry}>
             Try again

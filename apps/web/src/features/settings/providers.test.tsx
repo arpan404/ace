@@ -151,18 +151,14 @@ test("a CLI that isn't installed says how to install it on its page", async () =
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
 }, 30_000);
 
-test("Show models lists a provider's models by name, older ones folded away", async () => {
+test("Show models offers named controls for current and older models without repeating accounts", async () => {
   await harness().open("/settings/providers/codex");
   const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
   await userEvent.click(await within(models).findByRole("button", { name: /^Show models/ }));
   const shown = await within(models).findByRole("list", { name: "Models" });
-  const personal = await within(shown).findByRole("group", { name: "Personal" });
-  expect(within(personal).getByText("GPT-6.1 Sol")).toBeTruthy();
-  // Names only: no raw ids, and the older models wait behind Legacy models.
+  expect(within(shown).getByRole("button", { name: "Star GPT-6.1 Sol" })).toBeTruthy();
+  expect(within(shown).getByRole("button", { name: "Hide GPT-5.5" })).toBeTruthy();
   expect(shown.textContent).not.toMatch(/gpt-6\.1-sol|gpt-5-codex/);
-  expect(within(personal).queryByText("GPT-5.5")).toBeNull();
-  await userEvent.click(within(personal).getByRole("button", { name: "Legacy models (4)" }));
-  expect(within(personal).getByText("GPT-5.5")).toBeTruthy();
 }, 30_000);
 
 test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {

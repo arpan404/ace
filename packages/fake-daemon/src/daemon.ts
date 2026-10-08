@@ -262,6 +262,10 @@ export class FakeDaemon implements Host {
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
+        projectRoots: () =>
+          SettingsValues.shape["projects.roots"].parse(
+            this.services.settings.get("projects.roots"),
+          ),
         canManageProjects: (device) => this.canManageProjects(device),
         scheduleProject:
           options.projectScheduler ??

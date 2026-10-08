@@ -874,7 +874,7 @@ Example:
 
 ```json
 {
-  "key": "notifications.onApproval",
+  "key": "browser.backendLoss",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -921,7 +921,7 @@ Example:
 ```json
 {
   "keys": [
-    "automations.maxConcurrent"
+    "remote.relayUrl"
   ],
   "requestId": "example",
   "scope": {

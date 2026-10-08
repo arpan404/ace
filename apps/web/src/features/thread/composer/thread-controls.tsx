@@ -83,16 +83,19 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
         value: wanted ?? undefined,
         loading: loading || (!meta?.permission && !failed),
         unavailable:
-          failed && !meta?.permission ? "ace didn't say how this thread is approved" : undefined,
+          failed && !meta?.permission
+            ? "Couldn't load this thread's permissions. Reconnect and try again."
+            : undefined,
         coverage: permissionCoverageNote(
           capabilities,
           meta ? providerNames[meta.provider] : "This provider",
           wanted,
         ),
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
-        reset: !summary?.inherited
-          ? { label: permissionLabel(defaultMode, capabilities) }
-          : undefined,
+        reset:
+          summary && !summary.inherited
+            ? { label: permissionLabel(defaultMode, capabilities) }
+            : undefined,
       }}
       onChange={setCurrentId}
     />
@@ -100,7 +103,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
 }
 
 /** Offline, changes still go: effort and speed with the next message, a switch from the outbox. */
-const offlineNote = "Offline: changes apply when ace is back";
+const offlineNote = "Offline: changes apply when reconnected";
 const clock = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
   minute: "2-digit",

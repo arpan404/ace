@@ -375,11 +375,6 @@ export function modelCatalog(): CatalogModel[] {
 export function settingsValues(): Partial<SettingsValues> & Record<string, unknown> {
   return {
     "providers.default": "claude",
-    "notifications.enabled": true,
-    "notifications.sound": true,
-    "notifications.onCompletion": true,
-    "notifications.onApproval": true,
-    "notifications.suppressWhenActive": true,
     "remote.enabled": true,
     "remote.transport": "tailscale",
   };

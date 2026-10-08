@@ -258,7 +258,7 @@ export function NewThreadPage(props: {
                   value: admitted.mode,
                   loading: !!provider && (permissions.loading || defaultMode === undefined),
                   unavailable: permissions.failed
-                    ? "ace couldn't say what this provider can gate"
+                    ? "Couldn't load permission modes. Reconnect and try again."
                     : undefined,
                   coverage: permissionCoverageNote(
                     permissions.capabilities,

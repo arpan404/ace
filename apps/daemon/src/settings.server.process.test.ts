@@ -33,8 +33,14 @@ async function setup(
   const { token, Client } = await import("./socket-test-support.ts");
   const { once } = await import("node:events");
   const { DeviceId } = await import("@ace/protocol");
+  const { Projects } = await import("./projects.ts");
+  const projects = new Projects(f.store, () => 1000, {
+    home: f.home,
+    roots: async () => (await settings.get("projects.roots")).value,
+  });
   const server = await startServer({
     settings,
+    projects,
     pressure,
     store: f.store,
     handler: stubHandler(),
@@ -49,11 +55,68 @@ async function setup(
   cleanups.push(async () => {
     await client.close();
     await server.close();
+    await projects.close();
     await settings.close();
     await f.close();
   });
   return { ...f, client, settings };
 }
+
+test("saved folder access takes effect immediately and invalid roots preserve the working allowlist", async () => {
+  const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const f = await setup();
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "ace-extra-projects-")));
+  cleanups.push(() => rm(outside, { recursive: true, force: true }));
+  const browse = async () => {
+    f.client.send({
+      type: "projects.request",
+      requestId: "browse",
+      operation: { op: "fs.browse", path: outside, limit: 100, showHidden: false },
+    });
+    return f.client.next();
+  };
+  expect(await browse()).toMatchObject({
+    result: { kind: "error", code: "outside_project_roots" },
+  });
+  f.client.send({
+    type: "settings.set",
+    requestId: "allow",
+    key: "projects.roots",
+    value: [f.home, outside],
+    layer: { kind: "global" },
+  });
+  expect(await f.client.next()).toMatchObject({
+    ok: true,
+    entries: [{ value: [await realpath(f.home), outside] }],
+  });
+  expect(await browse()).toMatchObject({ result: { kind: "directories" } });
+  for (const root of ["relative", join(outside, "missing"), "/etc"]) {
+    f.client.send({
+      type: "settings.set",
+      requestId: "invalid-root",
+      key: "projects.roots",
+      value: [root],
+      layer: { kind: "global" },
+    });
+    expect(await f.client.next()).toMatchObject({
+      ok: false,
+      diagnostics: [{ code: "validation" }],
+    });
+    expect(await browse()).toMatchObject({ result: { kind: "directories" } });
+  }
+  f.client.send({
+    type: "settings.set",
+    requestId: "remove",
+    key: "projects.roots",
+    value: [],
+    layer: { kind: "global" },
+  });
+  expect(await f.client.next()).toMatchObject({ ok: true });
+  expect(await browse()).toMatchObject({
+    result: { kind: "error", code: "outside_project_roots" },
+  });
+});
 
 test("authenticated settings requests assign, resolve and stream only selected changes", async () => {
   const f = await setup();
@@ -61,7 +124,7 @@ test("authenticated settings requests assign, resolve and stream only selected c
     type: "settings.subscribe",
     requestId: "sub",
     subscriptionId: "prefs",
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: {},
   });
   expect(await f.client.next()).toMatchObject({
@@ -85,14 +148,14 @@ test("authenticated settings requests assign, resolve and stream only selected c
   f.client.send({
     type: "settings.set",
     requestId: "sound",
-    key: "notifications.sound",
+    key: "threads.settleOnClose",
     value: true,
     layer: { kind: "global" },
   });
   expect(await f.client.next()).toMatchObject({
     type: "settings.changed",
     subscriptionId: "prefs",
-    entries: [{ key: "notifications.sound", value: true, provenance: "global" }],
+    entries: [{ key: "threads.settleOnClose", value: true, provenance: "global" }],
   });
   expect(await f.client.next()).toMatchObject({
     type: "settings.result",
@@ -103,7 +166,7 @@ test("authenticated settings requests assign, resolve and stream only selected c
   f.client.send({
     type: "settings.set",
     requestId: "after",
-    key: "notifications.sound",
+    key: "threads.settleOnClose",
     value: false,
     layer: { kind: "global" },
   });
@@ -119,7 +182,7 @@ test("wire settings reject secret values and unknown scopes with typed diagnosti
   f.client.send({
     type: "settings.set",
     requestId: "secret",
-    key: "plugins.preferences",
+    key: "clients.theme",
     value: { apiToken: "sensitive" },
     layer: { kind: "global" },
   });
@@ -145,7 +208,7 @@ test("wire settings reject secret values and unknown scopes with typed diagnosti
   f.client.send({
     type: "settings.get",
     requestId: "scope",
-    key: "notifications.sound",
+    key: "threads.settleOnClose",
     scope: { workspaceId: WorkspaceId.parse("unknown") },
   });
   expect(await f.client.next()).toMatchObject({
@@ -157,7 +220,7 @@ test("wire settings reject secret values and unknown scopes with typed diagnosti
   f.client.send({
     type: "settings.set",
     requestId: "invalid",
-    key: "automations.maxConcurrent",
+    key: "threads.unresponsiveAfter",
     value: -1,
     layer: { kind: "global" },
   });
@@ -179,39 +242,39 @@ test("thread wire scopes inherit their daemon-owned workspace and reject mismatc
   f.client.send({
     type: "settings.set",
     requestId: "workspace",
-    key: "automations.maxConcurrent",
-    value: 8,
+    key: "threads.unresponsiveAfter",
+    value: "2m",
     layer: { kind: "workspace", workspaceId },
   });
   expect(await f.client.next()).toMatchObject({
     ok: true,
-    entries: [{ value: 8, provenance: "workspace" }],
+    entries: [{ value: "2m", provenance: "workspace" }],
   });
   f.client.send({
     type: "settings.get",
     requestId: "thread",
-    key: "automations.maxConcurrent",
+    key: "threads.unresponsiveAfter",
     scope: { threadId: thread.id },
   });
   expect(await f.client.next()).toMatchObject({
     ok: true,
-    entries: [{ value: 8, provenance: "workspace" }],
+    entries: [{ value: "2m", provenance: "workspace" }],
   });
   f.client.send({
     type: "settings.set",
     requestId: "override",
-    key: "automations.maxConcurrent",
-    value: 9,
+    key: "threads.unresponsiveAfter",
+    value: "15m",
     layer: { kind: "thread", threadId: thread.id },
   });
   expect(await f.client.next()).toMatchObject({
     ok: true,
-    entries: [{ value: 9, provenance: "thread" }],
+    entries: [{ value: "15m", provenance: "thread" }],
   });
   f.client.send({
     type: "settings.get",
     requestId: "mismatch",
-    key: "automations.maxConcurrent",
+    key: "threads.unresponsiveAfter",
     scope: { threadId: thread.id, workspaceId: f.workspace },
   });
   expect(await f.client.next()).toMatchObject({ ok: false, diagnostics: [{ code: "validation" }] });
@@ -223,7 +286,7 @@ test("invalid edits reach subscribed sockets as diagnostics while reads retain t
     type: "settings.subscribe",
     requestId: "watch",
     subscriptionId: "watch",
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: {},
   });
   await f.client.next();
@@ -234,7 +297,12 @@ test("invalid edits reach subscribed sockets as diagnostics while reads retain t
     subscriptionId: "watch",
     diagnostic: { code: "parse" },
   });
-  f.client.send({ type: "settings.get", requestId: "read", key: "notifications.sound", scope: {} });
+  f.client.send({
+    type: "settings.get",
+    requestId: "read",
+    key: "threads.settleOnClose",
+    scope: {},
+  });
   expect(await f.client.next()).toMatchObject({
     type: "settings.result",
     ok: true,
@@ -247,7 +315,12 @@ test("settings requests require the existing authenticated hello", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   const client = await f.open();
-  client.send({ type: "settings.get", requestId: "unauth", key: "notifications.sound", scope: {} });
+  client.send({
+    type: "settings.get",
+    requestId: "unauth",
+    key: "threads.settleOnClose",
+    scope: {},
+  });
   expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
 });
 
@@ -276,7 +349,7 @@ test("daemon startup exposes the same settings service used by its sockets and c
     await rm(dataDir, { recursive: true, force: true });
   });
   await once(client.socket, "open");
-  await daemon.settings.set("notifications.sound", true, { kind: "global" });
+  await daemon.settings.set("threads.settleOnClose", true, { kind: "global" });
   client.send({
     type: "hello",
     protocolVersion: 1,
@@ -284,7 +357,12 @@ test("daemon startup exposes the same settings service used by its sockets and c
     token: (await readFile(daemon.tokenPath, "utf8")).trim(),
   });
   await client.next();
-  client.send({ type: "settings.get", requestId: "daemon", key: "notifications.sound", scope: {} });
+  client.send({
+    type: "settings.get",
+    requestId: "daemon",
+    key: "threads.settleOnClose",
+    scope: {},
+  });
   expect(await client.next()).toMatchObject({
     type: "settings.result",
     ok: true,
@@ -292,7 +370,7 @@ test("daemon startup exposes the same settings service used by its sockets and c
   });
   await client.close();
   await daemon.close();
-  await expect(daemon.settings.get("notifications.sound")).rejects.toThrow("closed");
+  await expect(daemon.settings.get("threads.settleOnClose")).rejects.toThrow("closed");
 });
 
 test("settings deliveries exceeding the socket byte cap request a reconnect", async () => {
@@ -303,7 +381,7 @@ test("settings deliveries exceeding the socket byte cap request a reconnect", as
   client.send({
     type: "settings.get",
     requestId: "oversized",
-    key: "notifications.sound",
+    key: "threads.settleOnClose",
     scope: {},
   });
   const first = await Promise.race([

@@ -237,7 +237,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
-  expect(await screen.findByText("Offline: changes apply when ace is back")).toBeTruthy();
+  expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
 });
 
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {

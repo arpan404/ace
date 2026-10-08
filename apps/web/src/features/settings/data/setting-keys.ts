@@ -38,6 +38,7 @@ export const settingKeys = {
   worktree: setting("threads.useWorktree", z.boolean(), true),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
+  settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   continueAfterRestart: setting("threads.continueAfterRestart", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),

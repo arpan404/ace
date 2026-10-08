@@ -13,8 +13,10 @@ import {
   type SettingsDiagnostic,
   SettingsProvenance,
   SettingsKey,
+  SettingsValues,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { canonicalProjectRoots } from "./project-policy.ts";
 
 export function settingsScope(store: Store, scope: SettingsScope): Scope {
   let workspaceId = scope.workspaceId;
@@ -124,10 +126,23 @@ export function settingsSession(options: {
                     : { kind: "global" };
             // Validation remains in the service, including recursive secret checks.
             const assignment = validateAssignment(request.key, request.value);
+            let value = assignment.value;
+            if (assignment.key === "projects.roots") {
+              try {
+                value = await canonicalProjectRoots(
+                  SettingsValues.shape["projects.roots"].parse(value),
+                );
+              } catch {
+                throw new SettingsError(
+                  "validation",
+                  "Choose an existing, accessible project folder outside system folders",
+                );
+              }
+            }
             const commit = async () => {
-              await service.set(assignment.key, assignment.value, layer);
+              await service.set(assignment.key, value, layer);
             };
-            if (options.set) await options.set(assignment.key, assignment.value, commit);
+            if (options.set) await options.set(assignment.key, value, commit);
             else await commit();
           }
           const selector = {

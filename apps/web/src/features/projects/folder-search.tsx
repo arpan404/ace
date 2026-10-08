@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
+import { AllowFolder } from "./allow-folder.tsx";
 import { Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
 import type { FolderRow, FolderSearch, SearchMode } from "./use-folder-search.ts";
 
@@ -166,6 +167,11 @@ export function FolderSearchBox(props: {
         home={home?.path}
         onGo={browse}
         onRetry={search.retry}
+        allow={
+          search.failure.canAllow && query.kind === "path" ? (
+            <AllowFolder client={search.client} path={query.directory} onAllowed={search.retry} />
+          ) : undefined
+        }
       />
     );
   else if (!rows.length && search.loading)
@@ -313,7 +319,7 @@ export function FolderSearchBox(props: {
 
 function KeyHints(props: { mode: SearchMode; path: boolean }) {
   return (
-    <span aria-hidden className="flex shrink-0 items-center gap-2.5">
+    <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
       <span className="inline-flex items-center gap-1">
         <Kbd>↵</Kbd>
         {props.mode === "open" ? "open" : "go in"}

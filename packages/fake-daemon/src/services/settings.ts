@@ -98,6 +98,22 @@ export class FakeSettings {
           : this.global.has(key)
             ? (["global", this.global.get(key)] as const)
             : (["defaults", Reflect.get(defaults, key)] as const);
+      if (key === "permissions.providerModes") {
+        const modes = SettingsValues.shape["permissions.providerModes"];
+        const local = scope.threadId ? thread : scope.workspaceId ? workspace : this.global;
+        return [
+          {
+            key: parsed.data,
+            provenance,
+            localValue: modes.parse(local?.get(key) ?? {}),
+            value: {
+              ...modes.parse(this.global.get(key) ?? {}),
+              ...modes.parse(workspace?.get(key) ?? {}),
+              ...modes.parse(thread?.get(key) ?? {}),
+            },
+          },
+        ];
+      }
       return [{ key: parsed.data, value: z.json().parse(value ?? null), provenance }];
     });
   }
@@ -149,7 +165,9 @@ export class FakeSettings {
               ? `thread:${layer.threadId}`
               : `workspace:${layer.workspaceId}`;
         if (
-          (key.data === "browser.allowedOrigins" || key.data === "providers.configuration") &&
+          (key.data === "browser.allowedOrigins" ||
+            key.data === "providers.configuration" ||
+            key.data === "projects.roots") &&
           layer.kind !== "global"
         )
           return {
@@ -158,7 +176,7 @@ export class FakeSettings {
               {
                 layer: layer.kind,
                 code: "validation",
-                message: "Browser allowlist is a global user setting",
+                message: "This preference is a global user setting",
               },
             ],
           };

@@ -23,16 +23,16 @@ test("inactive thread scopes share native watch capacity and closing a peer keep
   try {
     for (let index = 0; index < 100; index++) {
       const value = await first.read({
-        keys: ["notifications.sound"],
+        keys: ["threads.settleOnClose"],
         scope: { thread: `closed-${index}` },
       });
       expect(value.diagnostics).toEqual([]);
       expect(value.entries[0]?.value).toBe(false);
     }
     const notice = Promise.withResolvers<unknown>();
-    await second.subscribe({ keys: ["notifications.sound"], scope: {} }, notice.resolve);
+    await second.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, notice.resolve);
     await first.close();
-    await writeFile(env.globalPath, '{"version":2,"settings":{"notifications.sound":true}}');
+    await writeFile(env.globalPath, '{"version":2,"settings":{"threads.settleOnClose":true}}');
     if (!source) throw new Error("Peer lost its native notification source");
     source("settings.json");
     expect(await notice.promise).toMatchObject({ type: "changed", entries: [{ value: true }] });

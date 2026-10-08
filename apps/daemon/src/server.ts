@@ -573,7 +573,7 @@ export async function startServer(options: ServerOptions): Promise<{
             break;
           }
           if (!maintenance.admitCommand(message.command)) {
-            refuse("maintenance", "Daemon is draining for an update", true);
+            refuse("maintenance", "New work is paused. Resume new work in ace to continue.", true);
             break;
           }
           try {
