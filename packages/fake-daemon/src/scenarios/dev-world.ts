@@ -1,3 +1,4 @@
+import { aceToolRows } from "./ace-tools.ts";
 import { uxAudit } from "./ux-audit.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
@@ -32,6 +33,7 @@ const minute = 60_000;
  */
 export function devWorld(): WorldThread[] {
   return withAccounts([
+    ...aceToolRows().map((scenario) => ({ scenario, agoMs: 2 * minute })),
     ...uxAudit().map((scenario) => ({ scenario, agoMs: 10 * minute })),
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },

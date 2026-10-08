@@ -75,3 +75,5 @@ export { fixtureImage } from "./attachment-fixture.ts";
 export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";
 
 export { FakeScreen, type FakeScreenOptions } from "./screen.ts";
+
+export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tools.ts";
