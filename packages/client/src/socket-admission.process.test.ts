@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { DevicesService, DevicePlatform } from "@ace/devices";
-import { setup, ready, when } from "./test-support.ts";
+import { setup, when } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
