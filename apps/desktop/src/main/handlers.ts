@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { app, BrowserWindow, dialog, nativeTheme, type OpenDialogOptions } from "electron";
 import { shell } from "electron";
 import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
