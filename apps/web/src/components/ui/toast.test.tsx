@@ -1,13 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TooltipProvider } from "./tooltip.tsx";
 import { afterEach, expect, test, vi } from "vitest";
 import { ToastProvider, useToast } from "./toast.tsx";
 
 afterEach(() => {
   vi.useRealTimers();
 });
-
-let retried = () => {};
 
 function Buttons() {
   const toast = useToast();
@@ -44,7 +43,7 @@ function Buttons() {
         onClick={() =>
           toast.error({
             title: "Couldn't save",
-            actionProps: { children: "Retry", onClick: () => retried() },
+            actionProps: { children: "Retry", onClick: () => toast.add({ title: "Saved" }) },
           })
         }
       >
@@ -56,9 +55,11 @@ function Buttons() {
 
 const setup = () =>
   render(
-    <ToastProvider>
-      <Buttons />
-    </ToastProvider>,
+    <TooltipProvider delay={0}>
+      <ToastProvider>
+        <Buttons />
+      </ToastProvider>
+    </TooltipProvider>,
   );
 
 test("an error toast is announced at once, apart from plain confirmations", async () => {
@@ -74,8 +75,6 @@ test("an error toast is announced at once, apart from plain confirmations", asyn
 test("every toast has a Dismiss button that closes it", async () => {
   setup();
   await userEvent.click(screen.getByRole("button", { name: "Archive" }));
-  // Hovering the stack (or F6) expands it; then its controls can be reached.
-  await userEvent.hover(await screen.findByText("Archived"));
   await userEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   await vi.waitFor(() => expect(screen.queryByText("Archived")).toBeNull());
 });
@@ -110,12 +109,10 @@ test("an Undo waiting behind a full stack keeps its whole time for when it shows
 });
 
 test("an error toast's Retry and Dismiss can be found by role and used", async () => {
-  const retry = vi.fn();
-  retried = retry;
   setup();
   await userEvent.click(screen.getByRole("button", { name: "Fail with retry" }));
   const card = await screen.findByRole("alertdialog");
   await userEvent.click(within(card).getByRole("button", { name: "Retry" }));
-  expect(retry).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText("Saved")).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Dismiss", hidden: false })).toBeTruthy();
 });

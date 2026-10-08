@@ -3,6 +3,7 @@ import { WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { buttonVariants } from "./button.tsx";
+import { Tip } from "./tooltip.tsx";
 import { layers } from "./menu-styles.ts";
 
 /** How long a toast stays: plain confirmations go quickly, anything to act on or read stays. */
@@ -26,7 +27,7 @@ function ToastProvider(props: { children: ReactNode }) {
         <Toast.Viewport
           className={cn(
             layers.toast,
-            "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2 max-sm:items-center",
+            "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2",
           )}
         >
           <ToastList />
@@ -88,15 +89,18 @@ function ToastList() {
         </div>
         <Toast.Action className={cn(buttonVariants({ size: "sm" }), "ml-1.5 empty:hidden")} />
       </Toast.Content>
-      <Toast.Close
-        aria-label="Dismiss"
-        className={cn(
-          "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
-          "group-hover/toast:opacity-100 group-focus-within/toast:opacity-100 hover:bg-accent hover:text-foreground pointer-coarse:opacity-100",
-        )}
-      >
-        <XIcon aria-hidden size={14} />
-      </Toast.Close>
+      <Tip label="Dismiss notification">
+        <Toast.Close
+          aria-label="Dismiss"
+          aria-hidden={false}
+          className={cn(
+            "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
+            "hover:bg-accent hover:text-foreground",
+          )}
+        >
+          <XIcon aria-hidden size={14} />
+        </Toast.Close>
+      </Tip>
     </Toast.Root>
   ));
 }

@@ -1,16 +1,18 @@
-@import "tailwindcss";
+@import "tailwindcss" source("../");
 @import "./shadcn.css";
 @import "./tokens.css";
 @import "./motion.css";
 
 /*
- * Tailwind turns every class-like string it scans into CSS. Generated merge tables hold class
- * names as data, not markup; tests, their helpers, docs and build scripts never ship, and test
+ * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
+ * merge tables hold class names as data, not markup; tests, their helpers, docs and build scripts never ship, and test
  * strings such as `[codex:not_signed_in]` read as arbitrary properties.
  */
 @source not "../lib/cn-tables.gen.ts";
 @source not "../**/*.test.{ts,tsx}";
 @source not "../test";
+@source not "../**/*.fixture.{ts,tsx}";
+@source not "../boot/fixtures";
 @source not "../../*.{md,ts,json}";
 @source not "../../scripts";
 
@@ -215,6 +217,11 @@
 }
 
 @layer components {
+  /* One fixed blur avoids Tailwind's full backdrop-filter property set for sheet scrims. */
+  .sheet-scrim {
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
     background: var(--glass-bg);
