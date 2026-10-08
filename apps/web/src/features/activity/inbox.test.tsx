@@ -1,4 +1,5 @@
 import { workbench, workbenchServices } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -43,6 +44,25 @@ test("choosing a mention shows the whole comment in Activity instead of leaving 
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
   expect(within(rowOf(feed, mention)).queryByText("Unread")).toBeNull();
   expect(rowOf(feed, mention).getAttribute("aria-current")).toBe("page");
+});
+
+test("a review comment that mentions you is answered from its page, on the pull request", async () => {
+  const { app, feed } = await openActivity();
+  await userEvent.click(feed.getByText(mention));
+  const detail = await main().findByRole("article", { name: "mira mentioned you" });
+  await userEvent.type(
+    within(detail).getByRole("textbox", { name: "Reply to mira" }),
+    "Port 4390, unless ACE_PORT says otherwise{Enter}",
+  );
+  expect(await screen.findByText("Replied to mira")).toBeTruthy();
+  const reply = await app.client.request({
+    type: "workspace.request",
+    operation: { op: "pr.status", threadId: ThreadId.parse("thread-install-page") },
+  });
+  const status = reply.result.kind === "pr" ? reply.result.status : null;
+  expect(status?.comments).toContainEqual(
+    expect.objectContaining({ body: "Port 4390, unless ACE_PORT says otherwise", replyTo: 1 }),
+  );
 });
 
 test("a CI failure and an automation run each have their own page", async () => {

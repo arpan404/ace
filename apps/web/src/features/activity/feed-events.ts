@@ -1,4 +1,4 @@
-import type { ForgePrStatus, ThreadListEntry } from "@ace/protocol";
+import type { ForgePrRef, ForgePrStatus, ThreadListEntry } from "@ace/protocol";
 
 /*
  * Feed events from daemon facts: a thread's linked pull request (`details.linkedPr`, its
@@ -37,7 +37,14 @@ export interface FeedEvent {
 }
 
 export type FeedDetail =
-  | { kind: "mention"; author: string; body: string; pr: PrRef }
+  | {
+      kind: "mention";
+      author: string;
+      body: string;
+      pr: PrRef;
+      /** An inline review comment can be answered in its thread on the forge. */
+      reply?: { threadId: string; pr: ForgePrRef; commentId: number };
+    }
   | { kind: "ci"; checks: { name: string; conclusion: string; url: string | null }[]; pr: PrRef }
   | { kind: "pr"; state: "merged" | "closed"; pr: PrRef };
 export interface PrRef {
@@ -133,6 +140,9 @@ function mentions(thread: LinkedThread, status: ForgePrStatus): FeedEvent[] {
         author: comment.author,
         body: comment.body,
         pr: { number: status.ref.number, title: status.title, url: status.url },
+        ...(comment.kind === "inline"
+          ? { reply: { threadId: thread.id, pr: status.ref, commentId: comment.id } }
+          : {}),
       },
     }));
 }

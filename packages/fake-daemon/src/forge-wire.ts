@@ -13,6 +13,8 @@ export class FakeForgeWire {
   private links = new Map<string, ForgePrStatus>();
   private sequence = 0;
   private publications = new Map<string, ForgePrStatus>();
+  /** Threads whose PR merges as soon as its checks pass (`forge.pr.auto-merge`). */
+  private autoMerge = new Set<string>();
   constructor(context: FakeServiceContext) {
     this.context = context;
   }
@@ -23,7 +25,9 @@ export class FakeForgeWire {
   seed(threadId: string, status: ForgePrStatus): void {
     if (!this.context.thread(threadId)) throw new Error(`No thread ${threadId} to link`);
     this.sequence = Math.max(this.sequence, status.ref.number);
-    this.publish(threadId, ForgePrStatus.parse(status));
+    const next = ForgePrStatus.parse(status);
+    // As GitHub does, a PR with auto-merge on merges once its checks pass.
+    this.publish(threadId, this.autoMerge.has(threadId) && ready(next) ? merged(next) : next);
   }
   private publish(id: string, status: ForgePrStatus): void {
     this.links.set(id, status);
@@ -122,8 +126,9 @@ export class FakeForgeWire {
     if (p.type === "forge.pr.status") return { ok: true, prStatus: status };
     if (p.type === "forge.pr.merge" || p.type === "forge.pr.auto-merge") {
       if (p.headSha !== status.headSha) return { ok: false, error: "forge_conflict" };
-      if (p.type === "forge.pr.merge")
-        this.publish(ThreadId.parse(id), { ...status, state: "merged" });
+      if (p.type === "forge.pr.merge" || ready(status))
+        this.publish(ThreadId.parse(id), merged(status));
+      else this.autoMerge.add(id);
     }
     if (p.type === "forge.comment.reply") {
       if (status.comments.length >= 64) return { ok: false, error: "forge_limit" };
@@ -147,3 +152,7 @@ export class FakeForgeWire {
     return { ok: true, pr: status.ref, prStatus: this.links.get(id) };
   }
 }
+
+const ready = (status: ForgePrStatus) =>
+  status.state === "open" && status.ci === "success" && status.mergeability === "mergeable";
+const merged = (status: ForgePrStatus): ForgePrStatus => ({ ...status, state: "merged" });

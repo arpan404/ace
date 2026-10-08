@@ -11,6 +11,8 @@ export * from "./attachment-fit.ts";
 export * from "./catalog-ids.ts";
 export * from "./changed-files.ts";
 export * from "./checkout.ts";
+export * from "./action-errors.ts";
+export * from "./pull-request.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
 export * from "./content-hash.ts";

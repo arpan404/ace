@@ -4,7 +4,10 @@ import { expect, test } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
 import { LocalStore } from "../store.ts";
 import { refreshDrafts, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
-import { daemonWorkspaceSource } from "@/features/thread/sources/workspace-source.ts";
+import {
+  daemonWorkspaceSource,
+  WorkspaceError,
+} from "@/features/thread/sources/workspace-source.ts";
 
 async function fixture() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
@@ -90,26 +93,28 @@ test("checkout errors keep their code and tell the person how to recover", async
     const source = daemonWorkspaceSource(f.client);
     const thread = { id: "thread-cold-start", workspaceId: "ace", title: "Review" };
     for (const [code, fix] of [
-      ["git_hook_failed", /hook.*terminal/],
-      ["git_auth_failed", /Sign in/],
-      ["git_conflicts", /Resolve/],
-      ["git_head_moved", /Refresh/],
-      ["git_remote_unreachable", /connection/],
-      ["git_quarantined", /cleanup/],
-      ["forge_not_found", /Check/],
-      ["forge_forbidden", /permissions/],
-      ["forge_rate_limit", /Wait/],
-      ["forge_cli", /gh auth login/],
-      ["forge_auth", /gh auth login/],
-      ["forge_unsupported", /website/],
-      ["forge_conflict", /Refresh/],
+      ["git_hook_failed", /^A Git hook rejected the change: fix what the hook reports/],
+      ["git_auth_failed", /run `gh auth login`/],
+      ["git_conflicts", /resolve them in the checkout/],
+      ["git_head_moved", /refresh the changes/],
+      ["git_remote_unreachable", /check your connection/],
+      ["git_quarantined", /cleanup is still pending/],
+      ["forge_not_found", /check its number/],
+      ["forge_forbidden", /permissions on the repository/],
+      ["forge_rate_limit", /wait a few minutes/],
+      ["forge_cli", /install `gh` and run `gh auth login`/],
+      ["forge_auth", /^Sign in to GitHub: run `gh auth login`/],
+      ["forge_unsupported", /open the pull request on its website/],
+      ["forge_conflict", /Refresh, then retry/],
     ] as const) {
       f.daemon.refuseCommands(code, "git.push");
-      await expect(source.push(thread)).rejects.toMatchObject({
-        name: "WorkspaceError",
-        code,
-        message: fix,
-      });
+      const error = await source.push(thread).then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+      expect(error).toBeInstanceOf(WorkspaceError);
+      expect(error).toMatchObject({ code });
+      expect(error instanceof Error ? error.message : "").toMatch(fix);
     }
   } finally {
     await f.client.close();

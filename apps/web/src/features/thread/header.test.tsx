@@ -370,7 +370,9 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
   expect(await screen.findByText(/^Pull request #1 opened$/)).toBeTruthy();
 
   const prs = within(await openCard()).getByRole("region", { name: "Pull requests" });
-  await userEvent.click(await within(prs).findByRole("button", { name: /^Open pull request #1/ }));
+  await userEvent.click(await within(prs).findByRole("button", { name: /^Pull request #1/ }));
+  const popover = await screen.findByRole("dialog", { name: "Pull request #1" });
+  await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/billing-api/pull/1",
     "_blank",
@@ -507,7 +509,9 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
   const prs = within(screen.getByRole("dialog", { name: "Work card" })).getByRole("region", {
     name: "Pull requests",
   });
-  await userEvent.click(within(prs).getByRole("button", { name: /^Open pull request #188/ }));
+  await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
+  const popover = await screen.findByRole("dialog", { name: "Pull request #188" });
+  await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/api/pull/188",
     "_blank",

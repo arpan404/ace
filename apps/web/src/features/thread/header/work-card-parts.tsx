@@ -28,7 +28,7 @@ export function RowButton({ className, ...props }: ComponentProps<"button">) {
 }
 
 /** A row that only says something ("No pull request yet"). */
-export function RowNote(props: { children: ReactNode; className?: string }) {
+export function RowNote(props: { children: ReactNode; className?: string | undefined }) {
   return <p className={cn(row, "text-subtle-foreground", props.className)}>{props.children}</p>;
 }
 
