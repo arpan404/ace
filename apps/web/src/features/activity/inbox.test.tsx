@@ -72,10 +72,10 @@ test("a CI failure and an automation run each have their own page", async () => 
   expect(within(checks).getAllByRole("listitem").length).toBeGreaterThan(0);
 
   await userEvent.click(screen.getByRole("tab", { name: "Runs" }));
-  await userEvent.click(feed.getByText("Failed: npm registry timeout, retried once"));
+  await userEvent.click(feed.getByTitle("Failed: npm registry timeout, retried once"));
   const run = await main().findByRole("article", { name: "Nightly dependency audit" });
   expect(within(run).getByText("Took")).toBeTruthy();
-  expect(within(run).getByRole("button", { name: /Open automation/ })).toBeTruthy();
+  expect(within(run).getByRole("link", { name: /Open automation/ })).toBeTruthy();
 });
 
 test("a link to an item opens it on its own", async () => {
@@ -84,11 +84,21 @@ test("a link to an item opens it on its own", async () => {
   expect(main().getByText("Nothing flaky across 3 runs")).toBeTruthy();
 });
 
-test("Mentions and Runs ask for a choice rather than showing the request cards", async () => {
-  const { sidebar } = await openActivity();
+test("every tab selects its first item and clears the previous tab's detail", async () => {
+  const { sidebar, feed } = await openActivity();
+  expect((await main().findAllByRole("article"))[0]?.getAttribute("aria-current")).toBe("true");
   await userEvent.click(within(sidebar).getByRole("tab", { name: "Mentions" }));
-  expect(await main().findByText("Select an item to see it here")).toBeTruthy();
-  expect(main().queryByRole("article", { name: "Install @fontsource/noto-sans-jp?" })).toBeNull();
+  expect(await main().findByRole("article", { name: "mira mentioned you" })).toBeTruthy();
+  await userEvent.click(within(sidebar).getByRole("tab", { name: "Runs" }));
+  await waitFor(() =>
+    expect(feed.getAllByRole("button")[0]?.getAttribute("aria-current")).toBe("page"),
+  );
+  expect(main().getAllByRole("article")).toHaveLength(1);
+  await userEvent.click(within(sidebar).getByRole("tab", { name: /Needs you/ }));
+  await waitFor(() =>
+    expect(main().getAllByRole("article")[0]?.getAttribute("aria-current")).toBe("true"),
+  );
+  expect(main().queryByRole("article", { name: "mira mentioned you" })).toBeNull();
 });
 
 test("read marks go to the daemon, and another device's marks arrive at once", async () => {
@@ -313,7 +323,7 @@ test("a mark the daemon couldn't take is kept and sent with the next one", async
   );
   app.daemon.restoreRequests();
   await userEvent.click(screen.getByRole("tab", { name: "Runs" }));
-  await userEvent.click(feed.getByText("Nothing flaky across 3 runs"));
+  await userEvent.click(feed.getByText("Flaky test triage"));
   await waitFor(() => {
     const read = app.daemon.services.activityReads.get().read.map((entry) => entry.id);
     expect(read).toContain("run-flaky-1");
@@ -380,4 +390,18 @@ test("a rebound Next key moves between cards", async () => {
     await userEvent.keyboard("n");
     expect(main().getAllByRole("article")[1]?.getAttribute("aria-current")).toBe("true");
   });
+});
+
+test("All opens the first run when nothing needs you, and empty tabs clear that detail", async () => {
+  const app = harness();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  await app.open("/activity");
+  await screen.findByRole("main");
+  expect(await main().findByRole("article", { name: "Review pull requests on open" })).toBeTruthy();
+  const sidebar = within(screen.getByRole("complementary", { name: "Activity" }));
+  await userEvent.click(sidebar.getByRole("tab", { name: "Mentions" }));
+  expect(await main().findByText("No mentions")).toBeTruthy();
+  expect(main().queryByRole("article")).toBeNull();
+  await userEvent.click(sidebar.getByRole("tab", { name: /Needs you/ }));
+  expect(await main().findByText("You're all caught up")).toBeTruthy();
 });

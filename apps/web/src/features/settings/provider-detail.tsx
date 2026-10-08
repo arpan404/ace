@@ -48,14 +48,17 @@ export function ProviderDetail(props: { id: string }) {
   const entry = entries?.find((candidate) => candidate.id === props.id);
   if (!entry)
     return (
-      <SettingsBody page="Providers" back={back}>
+      <SettingsBody
+        page={query.isPending || query.isError ? "Providers" : "Provider not found"}
+        back={back}
+      >
         {query.isPending ? (
           <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
             {query.isError
-              ? `Couldn't list providers. ${query.error.message}`
-              : "This provider isn't on this computer."}
+              ? "Couldn't load providers. Return to Providers and try again."
+              : "This provider page doesn't exist. Choose a provider from the list."}
           </p>
         )}
       </SettingsBody>

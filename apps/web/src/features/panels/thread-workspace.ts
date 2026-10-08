@@ -18,7 +18,6 @@ export const threadWorkspace = defineWorkspace({
     changes: "changes",
     terminal: "terminal",
     files: "files",
-    "side-chat": "sideChat",
     browser: "browser",
     preview: "preview",
     devices: "devices",

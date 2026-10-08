@@ -1,3 +1,4 @@
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import {
   BellSimpleIcon,
   BrowserIcon,
@@ -111,7 +112,10 @@ export function SourcesSection(props: { thread: ThreadRef; onClose(): void }) {
   const workspace = useWorkspaceActions(props.thread.id);
   const navigate = useNavigate();
   const [all, setAll] = useState(false);
-  const shown = all ? toolSources : toolSources.slice(0, firstFew);
+  const available = toolSources.filter(
+    (source) => source.id !== "notify" || hasDesktopPreferences(),
+  );
+  const shown = all ? available : available.slice(0, firstFew);
   const open = (source: ToolSource) => {
     if (source.kind) workspace.open({ kind: source.kind });
     else if (source.page) void navigate({ to: source.page });

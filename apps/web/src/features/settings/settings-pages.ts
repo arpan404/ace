@@ -1,3 +1,4 @@
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import {
   BellIcon,
   CodeIcon,
@@ -30,3 +31,10 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/advanced", title: "Advanced", icon: CodeIcon },
 ];
+
+/** Only the desktop app can edit its system notification settings. */
+export function visibleSettingsPages() {
+  return settingsPages.filter(
+    (page) => page.to !== "/settings/notifications" || hasDesktopPreferences(),
+  );
+}

@@ -1,4 +1,4 @@
-import { settingsPages, type SettingsPath } from "./settings-pages.ts";
+import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
  * Every setting a person might look for, by page: the palette's Settings group and the
@@ -196,7 +196,10 @@ function matches(entry: SettingEntry, query: string): boolean {
 export function searchSettings(query: string): SettingEntry[] {
   const text = query.trim().toLowerCase();
   if (!text) return [];
-  const found = settingsIndex.filter((entry) => matches(entry, text));
+  const visible = visibleSettingsPages();
+  const found = settingsIndex.filter(
+    (entry) => visible.some((page) => page.to === entry.page) && matches(entry, text),
+  );
   return found.toSorted(
     (a, b) =>
       Number(!a.title.toLowerCase().startsWith(text)) -

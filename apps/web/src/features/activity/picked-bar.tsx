@@ -15,7 +15,7 @@ import { useNow } from "@/lib/time.ts";
 import { snoozePresets } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
 import { useFeedSource } from "./feed-source.ts";
-import { readIdOf } from "./item-keys.ts";
+import { readIdOf } from "@/lib/activity-item-keys.ts";
 
 /**
  * What to do with the picked items at once: mark the events and runs read, or snooze the

@@ -1,3 +1,4 @@
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 import { AdvancedSettings } from "./advanced-page.tsx";
@@ -82,6 +83,7 @@ export function RemoteSettingsScreen() {
 }
 
 export function NotificationSettingsScreen() {
+  if (!hasDesktopPreferences()) return <Navigate to="/settings/general" replace />;
   return (
     <SettingsBody page="Notifications">
       <NotificationSettings />

@@ -2,7 +2,6 @@ import type { AutomationRun } from "@ace/protocol";
 import {
   ArrowSquareOutIcon,
   AtIcon,
-  CheckIcon,
   EnvelopeOpenIcon,
   EnvelopeSimpleIcon,
   GitMergeIcon,
@@ -14,9 +13,9 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { automationRunSummary } from "@/features/automations/index.ts";
+import { automationRunSummary, automationRunTone } from "@/features/automations/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
@@ -104,7 +103,7 @@ export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
       description={`${projectName(event.project)} · ${event.context}`}
       age={formatAge(event.at, now)}
       mark={props.read ? undefined : "unread"}
-      selected={state.item === key}
+      selected={(state.item ?? state.focused) === key}
       onSelect={select}
       picked={state.picked.has(key)}
       onPick={() => state.togglePicked(key)}
@@ -125,18 +124,12 @@ export function RunItemRow(props: { run: AutomationRun; read: boolean }) {
   const key = runKey(run.id);
   return (
     <FeedRow
-      icon={
-        run.status === "running" ? (
-          <Spinner />
-        ) : (
-          <Icon icon={run.status === "failed" ? WarningIcon : CheckIcon} size={16} />
-        )
-      }
+      icon={<Dot tone={automationRunTone(run)} label={run.status} />}
       title={run.title}
       description={automationRunSummary(run)}
       age={formatAge(run.finishedAt ?? run.startedAt, now)}
       mark={props.read ? undefined : "unread"}
-      selected={state.item === key}
+      selected={(state.item ?? state.focused) === key}
       onSelect={() => {
         source.markRead([run.id]);
         state.selectItem(key);

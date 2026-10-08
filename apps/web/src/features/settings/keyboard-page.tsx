@@ -58,7 +58,6 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "pinThread",
       "archiveThread",
       "workCard",
-      "sideChat",
     ],
   },
   {

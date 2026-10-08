@@ -10,13 +10,7 @@ import {
 import { viewRowClass } from "@/components/ui/view-row.tsx";
 import { useArrival } from "@/lib/arrival.tsx";
 
-/**
- * One Activity sidebar row: a 26px icon tile, the title (13/500) with its context under it,
- * the age at the bottom right, and optional inline actions. Read rows drop to the muted
- * grey; the selected row carries the 7% ink fill. The row is a `data-view-row` of the list's
- * roving focus (`useViewListKeys`); Shift-click or X picks it for a batch action, and a
- * right-click opens its `menu`.
- */
+/** One compact Activity row. Decisions belong to the detail, with context in its tooltip. */
 export function FeedRow(props: {
   /** A 16px glyph, or a spinner for running work. */
   icon: ReactNode;
@@ -27,7 +21,6 @@ export function FeedRow(props: {
   mark: "needs-you" | "unread" | undefined;
   selected?: boolean;
   onSelect(): void;
-  actions?: ReactNode;
   /** Context-menu items: Mark read or unread, Open thread, Copy link. */
   menu?: ReactNode;
   /** Picked for a batch action. */
@@ -40,6 +33,7 @@ export function FeedRow(props: {
   const button = (
     <button
       type="button"
+      title={props.description}
       data-view-row=""
       data-read-id={props.readId}
       aria-current={props.selected ? "page" : undefined}
@@ -54,14 +48,14 @@ export function FeedRow(props: {
       }}
       className={cn(
         viewRowClass,
-        "pt-[9px] pr-12 pb-2 hover:bg-transparent aria-[current=page]:bg-transparent",
+        "h-9 items-center pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
       )}
     >
       <span
         data-tone={!props.picked && props.mark === "needs-you" ? "needs-you" : undefined}
         className={cn(
-          "mt-px grid size-6.5 place-items-center rounded-sm",
-          props.picked ? "bg-primary text-primary-foreground" : "bg-secondary",
+          "grid size-4 shrink-0 place-items-center",
+          props.picked && "text-primary",
           !props.picked && props.mark === "needs-you" && "text-(--tone-text)",
           !props.picked && props.mark === "unread" && "text-foreground",
           !props.picked && !props.mark && "text-muted-foreground",
@@ -69,10 +63,10 @@ export function FeedRow(props: {
       >
         {props.picked ? <Icon icon={CheckIcon} size={14} /> : props.icon}
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span
           className={cn(
-            "block text-ui leading-[1.3]",
+            "block truncate text-ui",
             props.mark ? "font-medium text-foreground" : "text-muted-foreground",
           )}
         >
@@ -82,16 +76,13 @@ export function FeedRow(props: {
           <span className="sr-only">{props.mark === "needs-you" ? "Needs you" : "Unread"}</span>
         )}
         {props.picked && <span className="sr-only">Picked</span>}
-        <span className="mt-0.5 line-clamp-2 text-sm leading-[1.35] text-muted-foreground">
-          {props.description}
-        </span>
       </span>
     </button>
   );
   return (
     <li
       className={cn(
-        "relative rounded-card transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
+        "relative rounded-sm transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
         arrival,
         props.selected && "bg-foreground/8 hover:bg-foreground/8",
       )}
@@ -104,8 +95,7 @@ export function FeedRow(props: {
       ) : (
         button
       )}
-      {props.actions && <div className="flex gap-1.5 pb-2.5 pl-[47px]">{props.actions}</div>}
-      <span className="pointer-events-none absolute right-[11px] bottom-[9px] text-xs text-muted-foreground tabular-nums">
+      <span className="pointer-events-none absolute right-[11px] top-1/2 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
         {props.age}
       </span>
     </li>

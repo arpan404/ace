@@ -67,7 +67,6 @@ export const keymap = {
     scope: "terminal",
     fixed: true,
   },
-  sideChat: { keys: "alt+mod+s", label: "Side chat" },
   renameThread: { keys: "alt+mod+r", label: "Rename the thread" },
   pinThread: { keys: "alt+mod+p", label: "Pin or unpin the thread" },
   archiveThread: {

@@ -12,7 +12,7 @@ const ActivityView = z.object({
 });
 
 // Card keys live in a module of their own, light enough for the shell's notifier.
-export { eventKey, interactionKey, readIdOf, runKey } from "./item-keys.ts";
+export { eventKey, interactionKey, readIdOf, runKey } from "@/lib/activity-item-keys.ts";
 
 interface ActivityState {
   tab: ActivityTab;
@@ -68,10 +68,17 @@ export function ActivityProvider(props: { children: ReactNode }) {
   const value = useMemo<ActivityState>(
     () => ({
       tab: view.tab,
-      setTab: (tab) => save({ ...view, tab }),
+      setTab: (tab) => {
+        save({ ...view, tab });
+        focusCard(undefined);
+        selectItem(undefined);
+      },
       project: view.project,
-      setProject: (project) =>
-        save(project === undefined ? { tab: view.tab } : { tab: view.tab, project }),
+      setProject: (project) => {
+        save(project === undefined ? { tab: view.tab } : { tab: view.tab, project });
+        focusCard(undefined);
+        selectItem(undefined);
+      },
       focused,
       focusCard,
       setFocused(key) {

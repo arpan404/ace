@@ -28,7 +28,7 @@ const tabs: { id: ActivityTab; label: string; empty: string }[] = [
 
 /**
  * Activity's list in the sidebar: the feed. What needs you comes first, oldest first (the
- * approvals answerable inline), then mentions, CI and pull-request events and automation runs,
+ * approvals answerable in the detail), then mentions, CI and pull-request events and automation runs,
  * newest first under Today, Yesterday, This week and Older.
  */
 export function ActivitySidebar() {
@@ -168,7 +168,7 @@ function FeedList(props: { id: string }) {
     <div {...panel}>
       {readMode === "refused" && (
         <p className="px-[11px] pt-1 pb-2 text-sm text-muted-foreground">
-          This device can't change read marks on the daemon, so they last only until you leave.
+          This device can't change read marks on this computer, so they last only until you leave.
         </p>
       )}
       <ul {...keys} onKeyDown={onKeyDown} aria-label="Activity" className="flex flex-col gap-px">

@@ -743,12 +743,11 @@ test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archiv
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
 
-test("New side chat in the ⋯ menu says it isn't available yet and promises no shortcut", async () => {
+test("the thread menu offers working thread actions without Side chat", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  const item = await screen.findByRole("menuitem", { name: /^New side chat/ });
-  expect(item.getAttribute("aria-disabled")).toBe("true");
-  expect(item.textContent).toBe("New side chatNot available yet");
+  expect(await screen.findByRole("menuitem", { name: /Open agent tree/ })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /side chat/i })).toBeNull();
 });
 
 test("Fork says why it is unavailable before the first turn has finished", async () => {

@@ -253,7 +253,6 @@ const screens: Record<string, Setup> = {
     await address.press("Enter");
     await panel.getByRole("img", { name: "Live view of https://docs.example.com/guide" }).waitFor();
   },
-  "thread-side-chat": rightTab("/t/thread-cold-start", "Side chat"),
   // The composer: its + menu, approvals and model menus, three lines, and an attachment.
   "composer-add-menu": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);

@@ -1,11 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import {
-  ChatCircleTextIcon,
-  ChatsCircleIcon,
-  MagnifyingGlassIcon,
-  TreeStructureIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, MagnifyingGlassIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
@@ -25,7 +20,7 @@ import { useThreadNav } from "../long/nav.tsx";
 
 /**
  * The header's ⋯ menu: the same thread actions as the Home row's context menu, with the open
- * thread's shortcuts, plus a side chat and the agent tree, then the long-thread tools (search
+ * thread's shortcuts, plus the agent tree, then the long-thread tools (search
  * and turns). Archiving or deleting steps back to Home. Dialogs belong to the caller, since the
  * menu closes on choosing.
  */
@@ -53,14 +48,6 @@ export function ThreadMenuItems(props: {
       onLeave={() => void navigate({ to: "/" })}
       extra={
         <>
-          {/* Side chat has no daemon support yet (PN-07): no shortcut to promise, no tab to open. */}
-          <MenuItem
-            icon={<ChatsCircleIcon aria-hidden size={16} />}
-            disabled
-            reason="Not available yet"
-          >
-            New side chat
-          </MenuItem>
           <MenuItem
             icon={<TreeStructureIcon aria-hidden size={16} />}
             keys={keymap.agents.keys}

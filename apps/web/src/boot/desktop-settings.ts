@@ -57,6 +57,11 @@ function bridgeOf(scope: object): Bridge | undefined {
   return settings as Bridge;
 }
 
+/** Whether this window can edit the desktop's preferences. */
+export function hasDesktopPreferences(scope: object = globalThis): boolean {
+  return bridgeOf(scope) !== undefined;
+}
+
 const stores = new WeakMap<object, DesktopPreferencesStore>();
 
 /**

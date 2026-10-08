@@ -13,7 +13,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { notifyInBrowser, useTitleCount } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
-import { interactionKey } from "./item-keys.ts";
+import { interactionKey } from "@/lib/activity-item-keys.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { requestTitle } from "./request-title.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
