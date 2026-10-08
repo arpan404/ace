@@ -1,69 +1,143 @@
+import type { SidebarReader } from "@ace/client";
+import { useConnectionState, useSidebarAll } from "@ace/client-react";
+import type { CatalogEntry } from "@ace/protocol";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { matchCommands } from "../sources/command-source.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Trigger } from "./draft.ts";
 
 export interface Suggestion {
-  /** Text inserted in place of the token, e.g. "@src/app.tsx" or "/review". */
   insert: string;
   label: string;
   detail?: string | undefined;
   kind: Trigger["kind"];
+  group: string;
   path?: string | undefined;
+  threadId?: string | undefined;
+  entry?: CatalogEntry | undefined;
 }
-
-/** What the list above the composer shows for the token being typed. */
 export type Suggestions =
   | { state: "closed" }
   | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[] }
   | { state: "loading" | "empty" | "failed"; kind: Trigger["kind"]; query: string };
-
-const closed: Suggestions = { state: "closed" };
-
-/**
- * File paths for `@`, slash commands for a leading `/`. One-off reads, cached briefly. A bare `@`
- * lists the files mentioned lately in this project first.
- */
+const groups = {
+  builtin: "Add",
+  plugin: "Plugins",
+  skill: "Skills",
+  command: "Commands",
+  agent: "Agents",
+  workflow: "Workflows",
+  "mcp-tool": "Tools",
+};
+const groupOrder = ["Add", "Plugins", "Skills", "Commands", "Agents", "Workflows", "Tools"];
+const threadsOf = (reader: SidebarReader) =>
+  reader.ids.slice(0, 1000).flatMap((id) => {
+    const thread = reader.thread(id);
+    return thread ? [{ id, title: thread.title, workspaceId: thread.workspaceId }] : [];
+  });
+const sameThreads = (a: ReturnType<typeof threadsOf>, b: ReturnType<typeof threadsOf>) =>
+  a.length === b.length &&
+  a.every(
+    (t, i) => t.id === b[i]?.id && t.title === b[i]?.title && t.workspaceId === b[i]?.workspaceId,
+  );
 export function useSuggestions(
   thread: ThreadRef,
   trigger: Trigger | undefined,
   recent: () => readonly string[],
 ): Suggestions {
   const sources = useThreadSources();
-  // A draft the daemon hasn't granted a scope yet has nothing to search.
+  const ready = useConnectionState() === "ready";
+  const threads = useSidebarAll(threadsOf, sameThreads) ?? [];
+  const { id, title, provider, instanceId, workspaceId, draft } = thread;
+  const reference = useMemo(
+    () => ({ id, title, provider, instanceId, workspaceId, draft }),
+    [id, title, provider, instanceId, workspaceId, draft],
+  );
+  const [catalog, setCatalog] = useState<{
+    reference: typeof reference;
+    entries: readonly CatalogEntry[];
+    failed: boolean;
+  }>();
   const scoped = !thread.draft || !!thread.id;
+  const slash = trigger?.kind === "command";
+  useEffect(() => {
+    if (!slash || !scoped || !ready) return;
+    return sources.commands.watch(
+      reference,
+      (entries) => setCatalog({ reference, entries, failed: false }),
+      () => setCatalog({ reference, entries: [], failed: true }),
+    );
+  }, [sources, slash, scoped, ready, reference]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
-    enabled: scoped && trigger?.kind === "mention",
+    enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
   });
-  const commands = useQuery({
-    queryKey: ["thread", "slash-commands", thread.id, thread.provider, thread.instanceId],
-    queryFn: ({ signal }) => sources.commands.commands(thread, signal),
-    enabled: scoped && trigger?.kind === "command",
-    staleTime: 60_000,
-  });
-  if (!trigger) return closed;
+  if (!trigger) return { state: "closed" };
   const { kind, query } = trigger;
-  const read = kind === "mention" ? mentions : commands;
-  if (!scoped || read.isPending) return { state: "loading", kind, query };
-  if (read.isError) return { state: "failed", kind, query };
-  const lately = kind === "mention" && !query ? recent() : [];
-  const items: Suggestion[] =
-    kind === "mention"
-      ? [...new Set([...lately, ...(mentions.data ?? [])])].map((path) => ({
+  if (!scoped || !ready) return { state: "loading", kind, query };
+  const q = query.toLowerCase();
+  let items: Suggestion[];
+  if (kind === "mention") {
+    const lately = !query ? recent() : [];
+    items = [...new Set([...lately, ...(mentions.data ?? [])])].map((path) => ({
+      kind,
+      group: "Files",
+      insert: `@${path}`,
+      label: path.slice(path.lastIndexOf("/") + 1),
+      detail: path,
+      path,
+    }));
+    items.push(
+      ...threads
+        .filter(
+          (t) =>
+            t.id !== thread.id &&
+            t.workspaceId === thread.workspaceId &&
+            t.title.toLowerCase().includes(q),
+        )
+        .slice(0, 8)
+        .map((t) => ({
           kind,
-          insert: `@${path}`,
-          label: path.slice(path.lastIndexOf("/") + 1),
-          detail: lately.includes(path) ? `${path} · recent` : path,
-          path,
-        }))
-      : matchCommands(commands.data ?? [], query).map((command) => ({
-          kind,
-          insert: `/${command.name}`,
-          label: `/${command.name}`,
-          detail: command.description,
-        }));
+          group: "Threads",
+          insert: `@${t.title}`,
+          label: t.title,
+          detail: "Conversation in this project",
+          threadId: t.id,
+        })),
+    );
+    if (!items.length && mentions.isPending) return { state: "loading", kind, query };
+    if (!items.length && mentions.isError) return { state: "failed", kind, query };
+  } else {
+    if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
+    if (catalog.failed) return { state: "failed", kind, query };
+    const entries = thread.draft
+      ? catalog.entries
+      : [
+          ...catalog.entries,
+          {
+            id: "ace:attachments",
+            kind: "builtin",
+            name: "Attachments",
+            description: "Manage files stored for this thread",
+            source: { provider: "ace", scope: "ace" },
+            invocation: { type: "action", action: "attachments" },
+          } satisfies CatalogEntry,
+        ];
+    const named = entries.filter((entry) => entry.name.toLowerCase().includes(q));
+    items = (
+      named.length ? named : entries.filter((entry) => entry.description.toLowerCase().includes(q))
+    )
+      .map((entry) => ({
+        kind,
+        group: groups[entry.kind],
+        insert: entry.name,
+        label: entry.name,
+        detail: entry.description,
+        entry,
+      }))
+      .toSorted((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+  }
   return items.length ? { state: "ready", kind, items } : { state: "empty", kind, query };
 }

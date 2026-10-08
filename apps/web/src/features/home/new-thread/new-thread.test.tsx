@@ -202,7 +202,7 @@ test("Shift+Enter writes a new line instead of sending", async () => {
   await made.open("/new");
   const field = await prompt();
   await userEvent.type(field, "First line{Shift>}{Enter}{/Shift}second line");
-  expect((field as HTMLTextAreaElement).value).toBe("First line\nsecond line");
+  expect((field as HTMLDivElement).textContent).toBe("First line\nsecond line");
   expect(listed(made)).toHaveLength(workbench().length);
 });
 
@@ -359,7 +359,7 @@ test("files and @ mentions work before the thread exists and arrive with it", as
   await made.open("/new?project=relay");
   const field = await prompt();
   await userEvent.type(field, "Explain @replay");
-  const files = await screen.findByRole("listbox", { name: "Files" });
+  const files = await screen.findByRole("listbox", { name: "Files and threads" });
   expect(within(files).getAllByRole("option")[0]?.textContent).toContain("replay.ts");
   await userEvent.keyboard("{Enter}");
 
@@ -389,11 +389,9 @@ test("slash commands are offered before the thread exists, for the chosen provid
   await app().open("/new?project=relay");
   const field = await prompt();
   await userEvent.type(field, "/");
-  const commands = await screen.findByRole("listbox", { name: "Commands" });
-  const first = within(commands).getAllByRole("option")[0];
-  expect(first?.textContent).toMatch(/^\//);
-  await userEvent.keyboard("{Tab}");
-  expect((field as HTMLTextAreaElement).value).toMatch(/^\/\S+ $/);
+  const commands = await screen.findByRole("listbox", { name: "Add and commands" });
+  await userEvent.click(within(commands).getByRole("option", { name: /writing/ }));
+  expect(field.textContent).toBe("writing ");
 });
 
 test("native approvals chosen for a new thread are the ones it starts with", async () => {
@@ -431,13 +429,13 @@ test("an unsent New thread draft waits for the next visit, and goes once the thr
 
   await app({ storage }).open("/new?project=relay");
   const field = await prompt();
-  expect((field as HTMLTextAreaElement).value).toBe("Trace the reconnect storm");
+  expect((field as HTMLDivElement).textContent).toBe("Trace the reconnect storm");
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
   cleanup();
 
   await app({ storage }).open("/new?project=relay");
-  expect(((await prompt()) as HTMLTextAreaElement).value).toBe("");
+  expect(((await prompt()) as HTMLDivElement).textContent).toBe("");
 });
 
 test("the speed toggle starts the thread on the model's faster tier", async () => {

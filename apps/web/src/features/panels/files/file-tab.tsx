@@ -1,3 +1,4 @@
+import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { CaretDownIcon, CaretUpIcon, XIcon } from "@phosphor-icons/react";
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -246,6 +247,7 @@ export function FileTab(props: TabViewProps) {
                 source={data.source === true}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
+                onMention={(mention) => mentionInComposer(threadId, mention)}
                 onRetry={() => void content.refetch()}
                 onDownload={() => void fileActions.save(path)}
                 onFind={() => quickOpen.set(() => threadId)}

@@ -16,6 +16,8 @@ import type { ThreadRef } from "./workspace-source.ts";
 export interface ContextSource {
   /** Paths in the thread's checkout matching `query`, best first. */
   complete(thread: ThreadRef, query: string, signal: AbortSignal): Promise<readonly string[]>;
+  list(thread: ThreadRef, signal?: AbortSignal): Promise<readonly Attachment[]>;
+  release(thread: ThreadRef, sha256: string): Promise<void>;
   /** Upload a file or image into the thread's context. `progress` is 0..1. */
   upload(thread: ThreadRef, file: File, progress: (fraction: number) => void): Promise<Attachment>;
 }
@@ -23,7 +25,7 @@ export interface ContextSource {
 type Result = ContextResult["result"];
 
 const messages: Partial<Record<Extract<Result, { kind: "error" }>["code"], string>> = {
-  busy: "The daemon is busy with other uploads. Try again in a moment.",
+  busy: "Other files are uploading. Try again in a moment.",
   invalid_image: "That image can't be read.",
   forbidden: "This device may not add files to the thread.",
   not_found: "The thread is gone.",
@@ -46,7 +48,7 @@ const is = <K extends Result["kind"]>(
 
 function expect<K extends Result["kind"]>(result: Result, kind: K): Extract<Result, { kind: K }> {
   if (result.kind === "error") throw new ContextError(messages[result.code] ?? result.message);
-  if (!is(result, kind)) throw new ContextError("The daemon answered something unexpected.");
+  if (!is(result, kind)) throw new ContextError("Couldn't read the response. Try again.");
   return result;
 }
 
@@ -69,6 +71,26 @@ export function daemonContextSource(client: ClientApi): ContextSource {
   const ask = async (operation: ContextOperation, signal?: AbortSignal) =>
     (await client.request({ type: "context.request", operation }, signal ? { signal } : {})).result;
   return {
+    async list(thread, signal) {
+      return expect(
+        await ask({ op: "attachment.list", threadId: ThreadId.parse(thread.id) }, signal),
+        "attachments",
+      ).attachments;
+    },
+    async release(thread, hash) {
+      if (thread.draft) return;
+      const result = await ask({
+        op: "attachment.release",
+        threadId: ThreadId.parse(thread.id),
+        sha256: hash,
+      });
+      if (result.kind === "error")
+        throw new ContextError(
+          result.code === "busy"
+            ? "A queued message still uses this file. Remove that message first."
+            : "Couldn't remove the file. Reconnect and try again.",
+        );
+    },
     async complete(thread, query, signal) {
       // A draft whose scope the daemon hasn't granted yet has nothing to complete against.
       if (thread.draft && !thread.id) return [];
@@ -82,7 +104,7 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     },
     async upload(thread, file, progress) {
       if (thread.draft && !thread.id)
-        throw new ContextError("The daemon isn't ready for files yet. Try again in a moment.");
+        throw new ContextError("This project isn't ready for files yet. Try again in a moment.");
       const target = {
         sha256: await sha256(file),
         bytes: file.size,

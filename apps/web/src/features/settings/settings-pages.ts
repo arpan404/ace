@@ -1,4 +1,5 @@
 import {
+  FileTextIcon,
   BellIcon,
   CodeIcon,
   CursorClickIcon,
@@ -11,6 +12,7 @@ import {
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
+  | "/settings/prompts"
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/providers"
@@ -23,6 +25,7 @@ export type SettingsPath =
 export const settingsPages: readonly { to: SettingsPath; title: string; icon: IconGlyph }[] = [
   { to: "/settings/general", title: "General", icon: SlidersHorizontalIcon },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon },
+  { to: "/settings/prompts", title: "Prompts", icon: FileTextIcon },
   { to: "/settings/providers", title: "Providers", icon: PlugIcon },
   { to: "/settings/notifications", title: "Notifications", icon: BellIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },

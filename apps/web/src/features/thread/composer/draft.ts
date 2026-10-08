@@ -1,9 +1,11 @@
-import type { Mention } from "@ace/protocol";
+import type { Mention, ContentPart, ThreadRefContextItem } from "@ace/protocol";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message the composer hands over on Enter. */
 export interface Draft {
   text: string;
+  input?: ContentPart[] | undefined;
+  threadRefs?: ThreadRefContextItem[] | undefined;
   mentions: Mention[];
   /** Files the daemon already holds. */
   attachments: { sha256: string }[];
@@ -25,7 +27,7 @@ export interface Draft {
   opposite: boolean;
 }
 
-/** The `@file` or leading `/command` being typed at the caret, if any. Pure. */
+/** The `@file` or `/command` being typed at the caret, if any. Pure. */
 export interface Trigger {
   kind: "mention" | "command";
   query: string;
@@ -41,8 +43,7 @@ export function triggerAt(text: string, caret: number): Trigger | undefined {
   const word = text.slice(start, caret);
   if (word.startsWith("@") && !word.slice(1).includes("@"))
     return { kind: "mention", query: word.slice(1), start, end: caret };
-  // Commands only at the very start of the message, as provider CLIs read them.
-  if (word.startsWith("/") && start === 0 && !word.slice(1).includes("/"))
+  if (word.startsWith("/") && !word.slice(1).includes("/"))
     return { kind: "command", query: word.slice(1), start, end: caret };
   return undefined;
 }

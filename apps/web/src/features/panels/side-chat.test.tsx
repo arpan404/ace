@@ -14,12 +14,12 @@ test("Side chat says it isn't available yet, offers a fork instead, and keeps th
   expect(within(panel).getByRole("tab", { name: "Side chat", selected: true })).toBeTruthy();
 
   const box = await within(panel).findByRole("combobox", { name: "Side chat message" });
-  expect(box.hasAttribute("disabled")).toBe(true);
+  expect(box.getAttribute("aria-disabled")).toBe("true");
   const reason = document.getElementById(box.getAttribute("aria-describedby") ?? "");
   expect(reason?.textContent).toBe(
     "Side chats aren't available yet. To explore without changing this thread, fork it.",
   );
-  expect(box.getAttribute("placeholder")).toBe("Side chats aren't available yet");
+  expect(box.getAttribute("aria-placeholder")).toBe("Side chats aren't available yet");
   // The same send button as the thread's composer, saying why it can't send.
   const send = within(panel).getByRole("button", { name: "Send" });
   expect(send.getAttribute("aria-disabled")).toBe("true");

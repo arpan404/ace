@@ -18,85 +18,60 @@ async function open(
   else app.play(replayCursor()).runThrough("finding");
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  const message = (await screen.findByRole("combobox", { name: "Message" })) as HTMLTextAreaElement;
+  const message = await screen.findByRole("combobox", { name: "Message" });
   return { app, message };
 }
 const thread = (app: ReturnType<typeof harness>, id: string) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
   return view?.kind === "thread" ? view.thread : undefined;
 };
-test("+ offers files, images, a mention and a command instead of a bare file dialog", async () => {
+test("+ opens the same grouped catalog as slash and files open the @ picker", async () => {
   const { message } = await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  const menu = await screen.findByRole("menu");
-  for (const name of ["Files", "Images", "Mention a file", "Command"])
-    expect(within(menu).getByRole("menuitem", { name: new RegExp(`^${name}`) })).toBeTruthy();
-
-  await userEvent.click(within(menu).getByRole("menuitem", { name: /^Mention a file/ }));
-  expect(message.value).toBe("@");
-  expect(await screen.findByRole("listbox", { name: "Files" })).toBeTruthy();
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  expect(within(menu).getByText("Add")).toBeTruthy();
+  expect(within(menu).getByText("Skills")).toBeTruthy();
+  await userEvent.click(within(menu).getByRole("option", { name: /Files and folders/ }));
+  await waitFor(() => expect(message.textContent).toBe("@ "));
+  expect(await screen.findByRole("listbox", { name: "Files and threads" })).toBeTruthy();
 });
 
-test("+ rows carry no descriptions; only a row that can't be used says why", async () => {
-  await open("idle");
-  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  const menu = await screen.findByRole("menu");
-  const rows = within(menu).getAllByRole("menuitem");
-  expect(rows.map((row) => row.textContent)).toEqual([
-    "Files",
-    "Images",
-    "Mention a file@",
-    "Command/",
-    "Plan firstOpenCode has no native plan mode",
-    "An open pageOpen a page in the Browser first",
-  ]);
-  // Nothing is open in the thread's workspace yet: the page row says what it needs.
-  const page = within(menu).getByRole("menuitem", { name: /^An open page/ });
-  expect(page.getAttribute("aria-disabled")).toBe("true");
-});
-
-test("Plan first explains when the provider has no native plan selector", async () => {
-  const { app } = await open("idle");
-  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  const plan = await screen.findByRole("menuitem", { name: /^Plan first/ });
-  expect(plan.getAttribute("aria-disabled")).toBe("true");
-  expect(plan.textContent).toContain("OpenCode has no native plan mode");
+test("providers without native plan mode do not offer it in the catalog", async () => {
+  const { app, message } = await open("idle");
+  await userEvent.type(message, "/");
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  expect(within(menu).queryByRole("option", { name: /Plan mode/ })).toBeNull();
   expect(thread(app, "thread-router")?.permission?.override).toBeNull();
 });
 
-test("a file mentioned once comes first when + › Mention a file opens the list", async () => {
+test("Plan mode changes Claude's next turn through the native approval control", async () => {
+  const { app, message } = await open("busy");
+  await userEvent.type(message, "/plan");
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  await userEvent.click(within(menu).getByRole("option", { name: /Plan mode/ }));
+  await waitFor(() =>
+    expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("plan"),
+  );
+});
+
+test("a file mentioned once comes first in the next @ picker", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "Look at @check");
-  await screen.findByRole("listbox", { name: "Files" });
+  await screen.findByRole("listbox", { name: "Files and threads" });
   await userEvent.keyboard("{ArrowDown}{Enter}");
-  const picked = message.value.trim().slice("Look at @".length);
+  const picked = (message.textContent ?? "").trim().slice("Look at @".length);
   await userEvent.clear(message);
-
-  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Mention a file/ }));
-  const files = await screen.findByRole("listbox", { name: "Files" });
-  const first = within(files).getAllByRole("option")[0];
-  if (!first) throw new Error("no files listed");
-  expect(first.textContent).toContain(`${picked} · recent`);
-  await userEvent.click(first);
-  expect(message.value).toBe(`@${picked} `);
+  await userEvent.type(message, "@");
+  const files = await screen.findByRole("listbox", { name: "Files and threads" });
+  expect(within(files).getAllByRole("option")[0]?.textContent).toContain(picked);
 });
 
-test("Command waits for an empty message, and says so", async () => {
-  const { message } = await open("idle");
-  await userEvent.type(message, "Already writing");
-  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  const command = await screen.findByRole("menuitem", { name: /^Command/ });
-  expect(command.getAttribute("aria-disabled")).toBe("true");
-  expect(command.textContent).toContain("Commands go at the start of an empty message");
-});
-
-test("a search that finds nothing says so instead of closing", async () => {
+test("a file query that matches nothing says so until Escape dismisses it", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "@zzqqxx");
-  expect(await screen.findByText("No files match “zzqqxx”")).toBeTruthy();
+  expect(await screen.findByText("No matching suggestions")).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  expect(screen.queryByText("No files match “zzqqxx”")).toBeNull();
+  expect(screen.queryByText("No matching suggestions")).toBeNull();
 });
 
 test("permission picker offers Claude native modes", async () => {

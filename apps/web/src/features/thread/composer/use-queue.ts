@@ -1,3 +1,4 @@
+import { composerInput, editComposerTokens, tokensFromInput } from "@ace/ui-core";
 import { useClient } from "@ace/client-react";
 import {
   CommandId,
@@ -17,11 +18,15 @@ import { dismissSend } from "./dismissed-sends.ts";
 
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
-  message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+  tokensFromInput(message.input).text;
 
 /** Replace the text, keep files and images. */
 function withText(input: readonly ContentPart[], text: string): ContentPart[] {
-  return [{ type: "text", text }, ...input.filter((part) => part.type !== "text")];
+  const original = tokensFromInput(input);
+  return [
+    ...composerInput(text, editComposerTokens(original.text, text, original.tokens)),
+    ...input.filter((part) => part.type !== "text" && part.type !== "mention"),
+  ];
 }
 
 /**
@@ -75,6 +80,7 @@ export interface QueueControls {
   acting: boolean;
   refresh(): void;
   remove(message: QueuedMessage): void;
+  resend(message: QueuedMessage): void;
   move(index: number, step: -1 | 1): void;
   /** Deliver into the running turn now instead of waiting. */
   sendNow(message: QueuedMessage): void;
@@ -144,6 +150,13 @@ export function useQueue(threadId: string): QueueControls {
     },
     acting,
     refresh,
+    resend: (message) =>
+      void change(
+        message.id,
+        { kind: "gone", revision, settled: false },
+        target && { type: "queue.resend", ...target, messageId: message.id },
+        "send the message again",
+      ).then(() => refresh()),
     remove: (message) =>
       void change(
         message.id,

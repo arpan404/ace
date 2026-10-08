@@ -167,7 +167,8 @@ export function ThreadComposer({
   const [shown, setShown] = useState<string>();
   const environment = shown === props.thread.id;
   const environmentId = useId();
-  const toMessage = () => box.current?.querySelector("textarea")?.focus();
+  const toMessage = () =>
+    box.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
   const [focusOnOpen] = useState(wideEnoughToFocus);
   const asked = useRef(false);
   useEffect(() => {

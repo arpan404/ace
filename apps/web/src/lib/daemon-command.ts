@@ -25,7 +25,11 @@ const refusals: Record<string, string> = {
   snooze_in_past: "That time has already passed.",
   queue_conflict: "Another device changed the queue. Here is the latest.",
   message_already_claimed: "The agent already took that message.",
-  uncertain_delivery: "A message may have reached the agent. Remove it before continuing.",
+  uncertain_delivery:
+    "A message may have reached the agent. Send it again or remove it before continuing.",
+  message_not_uncertain:
+    "That message already changed. Review the latest queue before trying again.",
+  no_agent: "This conversation has no agent yet. Start a new thread to send your message.",
   reset_time_unknown: "The provider didn't say when the limit resets.",
   migration_unavailable: "There's no other account to move to.",
   recovery_in_progress: "The thread is already resuming.",
@@ -41,13 +45,13 @@ const refusals: Record<string, string> = {
   worktree_base_unreachable:
     "The remote couldn't be reached and that branch was never fetched. Check the connection, or start from a local branch.",
   workspace_changed: "That project just changed; try again.",
-  thread_move_failed: "The daemon couldn't move it. Try again.",
+  thread_move_failed: "The project could not be moved. Try again.",
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",
   fork_point_unavailable: "That turn can't be forked.",
   provider_unavailable: "That provider isn't installed or signed in.",
-  not_implemented: "This daemon can't do that yet.",
+  not_implemented: "This action isn't available yet. Try another action.",
   forbidden: "This device isn't allowed to do that.",
 };
 
@@ -71,7 +75,10 @@ function aliveMessage(alive: NonNullable<CommandResult["alive"]>): string {
 }
 
 export function refusalMessage(code: string): string {
-  return refusals[code] ?? `The daemon refused (${code}).`;
+  return (
+    refusals[code] ??
+    "This action couldn't be completed. Try again; if it keeps failing, reconnect."
+  );
 }
 
 /*

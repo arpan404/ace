@@ -28,9 +28,11 @@ async function open(scenario: "idle" | "busy") {
 
 test("a message sent to a settled thread lands in the transcript and the agent starts work", async () => {
   const { feed, message } = await open("idle");
-  await userEvent.type(message, "Add a route for /settings{Enter}");
+  await userEvent.type(message, "Add a route for /settings");
+  expect(message.textContent).toBe("Add a route for /settings");
+  await userEvent.keyboard("{Enter}");
   expect(await within(feed).findByText("Add a route for /settings")).toBeTruthy();
-  expect((message as HTMLTextAreaElement).value).toBe("");
+  expect(message.textContent).toBe("");
   // The agent is busy now: the composer's tab says so and offers Stop.
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
@@ -64,34 +66,37 @@ test("⌘↵ steers the running turn instead of queueing", async () => {
 test("@ completes files from the checkout and the pick is sent with the message", async () => {
   const { feed, message } = await open("idle");
   await userEvent.type(message, "Look at @check");
-  const files = await screen.findByRole("listbox", { name: "Files" });
+  const files = await screen.findByRole("listbox", { name: "Files and threads" });
   expect(within(files).getAllByRole("option")[0]?.textContent).toContain(
     "src/checkout/checkout.spec.ts",
   );
   await userEvent.keyboard("{ArrowDown}{Enter}");
-  expect((message as HTMLTextAreaElement).value).toBe("Look at @src/checkout/payment-poller.ts ");
-  expect(screen.queryByRole("listbox", { name: "Files" })).toBeNull();
+  expect(message.textContent).toBe("Look at @src/checkout/payment-poller.ts ");
+  expect(screen.queryByRole("listbox", { name: "Files and threads" })).toBeNull();
 
   await userEvent.type(message, "first{Enter}");
   expect(
-    await within(feed).findByText("Look at @src/checkout/payment-poller.ts first"),
+    await waitFor(() => {
+      expect(feed.textContent).toContain("Look at @src/checkout/payment-poller.ts first");
+      return true;
+    }),
   ).toBeTruthy();
 });
 
 test("a leading / lists commands; Escape dismisses the list", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "/re");
-  const commands = await screen.findByRole("listbox", { name: "Commands" });
-  expect(within(commands).getByRole("option", { selected: true }).textContent).toContain("/review");
+  const commands = await screen.findByRole("listbox", { name: "Add and commands" });
+  expect(within(commands).getByRole("option", { selected: true }).textContent).toContain("review");
   await userEvent.keyboard("{Tab}");
-  expect((message as HTMLTextAreaElement).value).toBe("/review ");
+  expect(message.textContent).toBe("review ");
 
   await userEvent.clear(message);
   await userEvent.type(message, "/p");
-  await screen.findByRole("listbox", { name: "Commands" });
+  await screen.findByRole("listbox", { name: "Add and commands" });
   await userEvent.keyboard("{Escape}");
-  expect(screen.queryByRole("listbox", { name: "Commands" })).toBeNull();
-  expect((message as HTMLTextAreaElement).value).toBe("/p");
+  expect(screen.queryByRole("listbox", { name: "Add and commands" })).toBeNull();
+  expect(message.textContent).toBe("/p");
 });
 
 test("attached files upload before sending and can be removed", async () => {
@@ -199,13 +204,15 @@ test("the composer carries no context or usage meter, whatever the provider repo
 test("a composer squeezed by an open panel keeps its hint to one short line", async () => {
   layoutWidth(500);
   const { message } = await open("idle");
-  expect(message.getAttribute("placeholder")).toBe("Ask anything");
+  expect(message.getAttribute("aria-placeholder")).toBe("Ask anything");
 });
 
 test("a wide composer spells out the @ and / hints", async () => {
   layoutWidth(900);
   const { message } = await open("idle");
-  expect(message.getAttribute("placeholder")).toBe("Ask anything, @ to mention, / for commands");
+  expect(message.getAttribute("aria-placeholder")).toBe(
+    "Ask anything, @ to mention, / for commands",
+  );
 });
 
 test("approvals show as an icon alone, the mode kept in its name; a phone drops the model's effort", async () => {

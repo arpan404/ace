@@ -8,13 +8,24 @@ import {
   type DraftEntries,
   type KeyValueStorage,
 } from "@ace/ui-core";
+import { CatalogMention, Mention, ThreadRefContextItem } from "@ace/protocol";
+import { z as classic } from "zod";
 import * as z from "zod/mini";
 
 /*
  * Unsent drafts and recently mentioned files, kept on this device. Each write reads the stored
  * list again first, so two tabs editing different threads never drop each other's drafts.
  */
+const Token = classic.object({
+  start: classic.number().int().nonnegative(),
+  end: classic.number().int().positive(),
+  label: classic.string(),
+  catalog: CatalogMention.optional(),
+  file: Mention.optional(),
+  thread: ThreadRefContextItem.optional(),
+});
 const Draft = z.object({
+  tokens: z.optional(z.array(Token)),
   text: z.string(),
   mentions: z.array(z.string()),
   attachments: z.array(z.object({ sha256: z.string(), name: z.string() })),

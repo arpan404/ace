@@ -1,3 +1,4 @@
+import { MentionSelection } from "./mention-selection.tsx";
 // oxlint-disable react/no-array-index-key -- skeleton lines have no identity; position is it.
 import {
   DownloadSimpleIcon,
@@ -94,6 +95,7 @@ export function FileViewer(props: {
   source: boolean;
   find: { query: string; hit: FindHit | undefined } | undefined;
   line: number | undefined;
+  onMention?: ((mention: import("@ace/protocol").Mention) => void) | undefined;
   onRetry(): void;
   onDownload(): void;
   onFind(): void;
@@ -183,7 +185,7 @@ export function FileViewer(props: {
             description={`${name} has no content.`}
           />
         );
-      return (
+      const source = (
         <SourceView
           text={content.text}
           lang={fileLanguage(props.path)}
@@ -192,6 +194,13 @@ export function FileViewer(props: {
           line={props.line}
           label={`Source of ${props.path}`}
         />
+      );
+      return props.onMention ? (
+        <MentionSelection path={props.path} onMention={props.onMention}>
+          {source}
+        </MentionSelection>
+      ) : (
+        source
       );
   }
 }

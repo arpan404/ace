@@ -138,3 +138,14 @@ export function SettingsIndexScreen() {
     </Screen>
   );
 }
+
+const Prompts = lazy(() =>
+  import("./prompts-page.tsx").then((module) => ({ default: module.PromptsSettingsScreen })),
+);
+export function PromptsSettingsScreen() {
+  return (
+    <Suspense fallback={null}>
+      <Prompts />
+    </Suspense>
+  );
+}

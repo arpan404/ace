@@ -1,3 +1,4 @@
+import { useToast } from "@/components/ui/toast.tsx";
 import { ClientError } from "@ace/client";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
@@ -63,6 +64,8 @@ export function useAttachments(
   restored: readonly { sha256: string; name: string }[] = [],
 ) {
   const sources = useThreadSources();
+  const toast = useToast();
+  const removed = useRef(new Set<number>());
   const [items, setItems] = useState<PendingAttachment[]>(() =>
     restored.map((file, index) => ({
       key: -1 - index,
@@ -116,6 +119,21 @@ export function useAttachments(
         .upload(thread, file, (progress) => patch({ progress }))
         .then(
           (attachment) => {
+            if (removed.current.delete(key)) {
+              if (
+                [...known.current.values()].some((held) =>
+                  held.id?.startsWith(`${attachment.sha256}\0`),
+                )
+              )
+                return lost;
+              void sources.context.release(thread, attachment.sha256).catch(() =>
+                toast.add({
+                  title: "Couldn't remove the uploaded file",
+                  description: "Open Attachments in the Add menu and try again.",
+                }),
+              );
+              return { error: "it was removed" };
+            }
             files.current.delete(key);
             const ready = { sha256: attachment.sha256, name: file.name };
             // The same bytes under the same name are already attached: one chip is enough.
@@ -140,6 +158,7 @@ export function useAttachments(
             return ready;
           },
           (error: unknown): Outcome => {
+            if (removed.current.delete(key)) return lost;
             const reason = uploadError(error);
             patch({ state: "failed", error: reason, retryable: true });
             return { error: reason };
@@ -147,7 +166,7 @@ export function useAttachments(
         );
       outcomes.current.set(key, outcome);
     },
-    [sources, thread, drop],
+    [sources, thread, drop, toast],
   );
   /**
    * Attach files: each gets its chip and starts uploading. A file already attached (same name,
@@ -231,7 +250,26 @@ export function useAttachments(
       known.current.delete(key);
     }
   };
-  const remove = drop;
+  const remove = (key: number) => {
+    const item = items.find((candidate) => candidate.key === key);
+    if (item?.state === "uploading") {
+      removed.current.add(key);
+      drop(key);
+      return;
+    }
+    if (!item?.sha256 || items.some((other) => other.key !== key && other.sha256 === item.sha256)) {
+      drop(key);
+      return;
+    }
+    drop(key);
+    void sources.context.release(thread, item.sha256).catch(() =>
+      toast.add({
+        title: "Couldn't delete the stored file",
+        description:
+          "A queued message may still use it. Manage it from Attachments in the Add menu.",
+      }),
+    );
+  };
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);
     previews.current.clear();

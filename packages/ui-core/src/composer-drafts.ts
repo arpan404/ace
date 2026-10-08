@@ -1,6 +1,8 @@
+import type { ComposerToken } from "./composer-tokens.ts";
 /** An unsent message: its text, the files it mentions and the attachments already uploaded. */
 export interface ComposerDraft {
   text: string;
+  tokens?: readonly ComposerToken[] | undefined;
   /** Paths picked from the `@` list that are still written in the text. */
   mentions: readonly string[];
   /** Uploaded attachments; only ones the daemon already holds survive a reload. */
@@ -35,6 +37,7 @@ export function putDraft(
   if (!draft || isEmptyDraft(draft)) return rest;
   const kept: ComposerDraft = {
     text: draft.text.slice(0, draftLimits.chars),
+    tokens: draft.tokens?.filter((token) => token.end <= draftLimits.chars).slice(0, 64),
     mentions: draft.mentions.filter((path) => draft.text.includes(`@${path}`)),
     attachments: draft.attachments.slice(0, draftLimits.attachments),
   };

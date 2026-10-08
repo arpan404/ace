@@ -1,4 +1,18 @@
-import { type AttachmentReader, type ComposerDraft } from "@ace/ui-core";
+import { receiveComposerMentions } from "@/lib/composer-insert.ts";
+import { ThreadId, type CatalogMention } from "@ace/protocol";
+import { useClient } from "@ace/client-react";
+import { useNavigate } from "@tanstack/react-router";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useForkOpener } from "../transitions/fork-opener.ts";
+import { MessageInput } from "./message-input.tsx";
+import { editorSelection, placeEditorCaret } from "./editor-dom.ts";
+import {
+  composerInput,
+  editComposerTokens,
+  type ComposerToken,
+  type AttachmentReader,
+  type ComposerDraft,
+} from "@ace/ui-core";
 import {
   Suspense,
   useEffect,
@@ -15,14 +29,18 @@ import {
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
-import { AddButton } from "./add-button.tsx";
+import { AddButton, type AddHandle } from "./add-button.tsx";
 import type { ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
-import { DeferredSuggestionList } from "./deferred-parts.tsx";
+import {
+  DeferredCommandArguments,
+  DeferredThreadAttachments,
+  DeferredSuggestionList,
+} from "./deferred-parts.tsx";
 import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
@@ -124,6 +142,7 @@ export function Composer({
         short?: string | undefined;
       }
     | undefined;
+  onPlan?: (() => void) | undefined;
   ref?: Ref<ComposerHandle> | undefined;
 }) {
   // A failed message brought back with its files remounts the composer on the restored draft.
@@ -143,10 +162,17 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   // thread route ~5 KB of code for a component that re-renders per keystroke anyway.
   "use no memo";
   const { storage } = useLayout();
+  const client = useClient();
+  const navigate = useNavigate();
+  const workspace = useWorkspaceActions(props.thread.id);
+  const fork = useForkOpener();
   const [restored] = useState(() =>
     props.draftKey ? readDraft(storage, props.draftKey) : undefined,
   );
   const [text, setText] = useState(restored?.text ?? "");
+  const [tokens, setTokens] = useState<readonly ComposerToken[]>(restored?.tokens ?? []);
+  const [showAttachments, setShowAttachments] = useState(false);
+  const [argumentsFor, setArgumentsFor] = useState<{ item: Suggestion; trigger: Trigger }>();
   const [caret, setCaret] = useState(text.length);
   const [dismissed, setDismissed] = useState<number>();
   const [highlight, setActive] = useState({ key: "", index: 0 });
@@ -158,10 +184,10 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const [notice, setNotice] = useState<string>();
   // Where to put the caret once an inserted suggestion has rendered.
   const placeCaret = useRef<number | undefined>(undefined);
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const listId = useId();
-  const addMenu = useRef<{ open(): void }>(null);
+  const addMenu = useRef<AddHandle>(null);
   const attachments = useAttachments(
     props.thread,
     props.keepsAttachments ? restored?.attachments : undefined,
@@ -196,6 +222,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
 
   const current: ComposerDraft = {
     text,
+    tokens,
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
   };
@@ -209,6 +236,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     setText(next.text);
     setCaret(next.text.length);
     setPicked(new Set(next.mentions));
+    setTokens(next.tokens ?? []);
   };
   const saved = useDraftPersistence(props.draftKey, current, (next) => {
     // Another window changed this draft: an idle composer takes it, a focused one offers it.
@@ -231,6 +259,15 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     writeDraft(storage, draftKey, {
       text: text.trim() ? `${text.trimEnd()}\n\n${returned.text}` : returned.text,
       mentions: [...new Set([...picked, ...returned.mentions])],
+      tokens: [
+        ...tokens,
+        ...(returned.tokens ?? []).map((token) =>
+          Object.assign({}, token, {
+            start: token.start + (text.trim() ? text.trimEnd().length + 2 : 0),
+            end: token.end + (text.trim() ? text.trimEnd().length + 2 : 0),
+          }),
+        ),
+      ],
       attachments: [...current.attachments, ...returned.attachments],
     });
     props.onReturnedOptions?.(returned.options);
@@ -251,7 +288,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   useLayoutEffect(() => {
     const el = input.current;
     if (!el || placeCaret.current === undefined) return;
-    el.setSelectionRange(placeCaret.current, placeCaret.current);
+    placeEditorCaret(el, placeCaret.current);
     placeCaret.current = undefined;
   });
   // The composer's own width picks the compact footer and the hint. Measured before the first
@@ -272,20 +309,142 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   }, []);
 
   const edit = (next: { text: string; caret: number }) => {
+    setTokens(editComposerTokens(text, next.text, tokens));
     setText(next.text);
     setCaret(next.caret);
     placeCaret.current = next.caret;
     input.current?.focus();
   };
-  const mention = (path: string) => {
+  const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
     rememberFile(storage, props.thread.workspaceId, path);
   };
+  const addToken = (
+    item: Suggestion,
+    at: Trigger,
+    values?: NonNullable<CatalogMention["values"]>,
+  ) => {
+    const label = item.entry ? item.entry.name : item.threadId ? item.label : item.insert;
+    const next = accept(text, at, label);
+    const catalog: CatalogMention | undefined = item.entry
+      ? {
+          type: "mention",
+          entryId: item.entry.id,
+          name: item.entry.name,
+          kind: item.entry.kind,
+          ...(item.entry.icon ? { icon: item.entry.icon } : {}),
+          arguments: "",
+          ...(values ? { values } : {}),
+        }
+      : undefined;
+    const token: ComposerToken = {
+      start: at.start,
+      end: at.start + label.length,
+      label,
+      ...(catalog ? { catalog } : {}),
+      ...(item.path ? { file: { path: item.path } } : {}),
+      ...(item.threadId
+        ? {
+            thread: {
+              type: "thread_ref",
+              threadId: ThreadId.parse(item.threadId),
+              budgetBytes: 4096,
+            },
+          }
+        : {}),
+    };
+    if (item.path) rememberMention(item.path);
+    edit(next);
+    setTokens(
+      [...editComposerTokens(text, next.text, tokens), token].toSorted((a, b) => a.start - b.start),
+    );
+    setArgumentsFor(undefined);
+  };
   const pick = (item: Suggestion) => {
     if (!trigger) return;
-    if (item.path) mention(item.path);
-    edit(accept(text, trigger, item.insert));
+    if (
+      tokens.length >= 64 ||
+      (item.threadId && tokens.filter((token) => token.thread).length >= 8)
+    ) {
+      setNotice("This message has enough references. Remove one before adding another.");
+      return;
+    }
+    const invocation = item.entry?.invocation;
+    if (invocation?.type === "unavailable") {
+      setNotice("This item isn't available for this provider. Choose another item.");
+      return;
+    }
+    if (invocation?.type === "action") {
+      const at = trigger;
+      if (invocation.action === "attachments") {
+        setShowAttachments(true);
+        edit(accept(text, at, ""));
+        return;
+      }
+      edit(accept(text, at, ""));
+      setDismissed(at.start);
+      void import("./actions.ts")
+        .then(({ composerAction }) =>
+          composerAction(invocation.action, {
+            client,
+            thread: props.thread,
+            attach: () => addMenu.current?.attach(),
+            files: () => {
+              const next = accept(text, at, "@");
+              edit({ ...next, caret: at.start + 1 });
+              setDismissed(undefined);
+            },
+            project: () =>
+              void navigate({ to: "/new", search: { project: props.thread.workspaceId } }),
+            model: () =>
+              box.current
+                ?.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')
+                ?.click(),
+            review: () => workspace.open({ kind: "changes", id: "changes" }),
+            fork: (point) => {
+              if (fork) fork(point);
+            },
+            insert: (value) => edit(accept(text, at, value)),
+            plan: props.onPlan,
+          }),
+        )
+        .catch((error) =>
+          setNotice(
+            error instanceof Error
+              ? error.message
+              : "Couldn't use this action. Try again from the thread's menu.",
+          ),
+        );
+      return;
+    }
+    if (invocation?.type === "prompt" && Object.keys(invocation.parameters ?? {}).length) {
+      setArgumentsFor({ item, trigger });
+      setDismissed(trigger.start);
+      return;
+    }
+    addToken(item, trigger);
   };
+  const insertMention = useEffectEvent((file: import("@ace/protocol").Mention) => {
+    if (tokens.length >= 64) {
+      setNotice("This message has enough references. Remove one before adding another.");
+      return;
+    }
+    const label = `@${file.path}${file.lines ? `:${file.lines.start}-${file.lines.end}` : ""}`;
+    const next = insertAt(text, caret, `${label} `);
+    const start = next.caret - label.length - 1;
+    edit(next);
+    setTokens(
+      [
+        ...editComposerTokens(text, next.text, tokens),
+        { start, end: start + label.length, label, file },
+      ].toSorted((a, b) => a.start - b.start),
+    );
+    rememberMention(file.path);
+  });
+  useEffect(() => {
+    if (props.thread.draft) return;
+    return receiveComposerMentions(props.thread.id, (file) => insertMention(file));
+  }, [props.thread.id, props.thread.draft]);
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
   const chips = attachments.items;
@@ -303,8 +462,22 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const submit = (opposite: boolean) => {
     if (blocked) return;
     const draft: Draft = {
-      text: text.trim(),
-      mentions: mentionsIn(text, picked),
+      text,
+      input: composerInput(text, tokens),
+      threadRefs: tokens.flatMap((token) => (token.thread ? [token.thread] : [])),
+      mentions: [
+        ...mentionsIn(text, picked).filter(
+          (mention) => !tokens.some((token) => token.file?.path === mention.path),
+        ),
+        ...tokens.flatMap((token) => (token.file ? [token.file] : [])),
+      ].filter(
+        (mention, index, all) =>
+          all.findIndex(
+            (other) =>
+              other.path === mention.path &&
+              JSON.stringify(other.lines) === JSON.stringify(mention.lines),
+          ) === index,
+      ),
       attachments: attachments.ready.map((file) => ({ sha256: file.sha256 })),
       files: {
         ...attachments.handOff(),
@@ -312,25 +485,37 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
       },
       opposite,
     };
-    const before = { text, picked, files: attachments.ready };
+    const before = { text, picked, tokens, files: attachments.ready };
     saved.discard();
     setText("");
     setCaret(0);
     setTheirs(undefined);
     setNotice(undefined);
     setPicked(new Set());
+    setTokens([]);
     void props.onSubmit(draft).then((sent) => {
       if (sent || !draftKey || typed.current.trim()) return;
       // Couldn't be saved: back in the composer, files included (a remount restores them).
       writeDraft(storage, draftKey, {
         text: before.text,
+        tokens: before.tokens,
         mentions: [...before.picked],
         attachments: before.files,
       });
       props.onReplaced();
     });
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Enter" && event.shiftKey && input.current) {
+      event.preventDefault();
+      const range = editorSelection(input.current);
+      edit({
+        text: text.slice(0, range.start) + "\n" + text.slice(range.end),
+        caret: range.start + 1,
+      });
+      return;
+    }
     if (trigger && suggestions.state !== "closed") {
       if (items.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
@@ -370,8 +555,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         ? "steer"
         : "queue"
       : "send";
-  const unscoped =
-    props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
   const placeholder =
     props.unavailable?.short ??
     (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
@@ -387,6 +570,26 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             suggestions={suggestions}
             active={active}
             onPick={pick}
+          />
+        </Suspense>
+      )}
+      {showAttachments && (
+        <Suspense fallback={null}>
+          <DeferredThreadAttachments.Component
+            thread={props.thread}
+            onClose={() => setShowAttachments(false)}
+          />
+        </Suspense>
+      )}
+      {argumentsFor?.item.entry && (
+        <Suspense fallback={null}>
+          <DeferredCommandArguments.Component
+            entry={argumentsFor.item.entry}
+            onClose={() => {
+              setArgumentsFor(undefined);
+              input.current?.focus();
+            }}
+            onAccept={(values) => addToken(argumentsFor.item, argumentsFor.trigger, values)}
           />
         </Suspense>
       )}
@@ -432,10 +635,10 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             onRetry={attachments.retry}
             threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <textarea
-            ref={input}
-            rows={1}
-            value={text}
+          <MessageInput
+            input={input}
+            text={text}
+            tokens={tokens}
             disabled={!!off}
             aria-describedby={props.unavailable?.describedBy}
             autoFocus={props.autoFocus}
@@ -446,18 +649,35 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             aria-expanded={expanded}
             aria-controls={expanded ? listId : undefined}
             aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-            onChange={(event) => {
-              setText(event.target.value);
-              setCaret(event.target.selectionStart);
+            onChange={(next, at) => {
+              setTokens(editComposerTokens(text, next, tokens));
+              setText(next);
+              setCaret(at);
+              setDismissed(undefined);
             }}
-            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+            onCaret={setCaret}
             onKeyDown={onKeyDown}
             onPaste={(event) => {
-              if (!event.clipboardData.files.length) return;
+              if (event.clipboardData.files.length) {
+                event.preventDefault();
+                intake(event.clipboardData);
+                return;
+              }
               event.preventDefault();
-              intake(event.clipboardData);
+              const el = input.current;
+              const selection = document.getSelection();
+              if (!el || !selection?.rangeCount) return;
+              const range = selection.getRangeAt(0);
+              range.deleteContents();
+              const node = document.createTextNode(event.clipboardData.getData("text/plain"));
+              range.insertNode(node);
+              range.setStartAfter(node);
+              range.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              el.dispatchEvent(new Event("input", { bubbles: true }));
             }}
-            className="block min-h-10 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
+            className="message-input block min-h-10 w-full overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
           />
           {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
           <div
@@ -471,19 +691,11 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           >
             <AddButton
               handle={addMenu}
-              reasons={{
-                files: off ?? unscoped,
-                images: off ?? unscoped,
-                mention: off ?? unscoped,
-                command:
-                  off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
-              }}
-              focusTarget={input}
               onFiles={attach}
-              onMention={() => edit(insertAt(text, caret, "@"))}
-              onCommand={() => edit({ text: "/", caret: 1 })}
-              onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
-              thread={props.thread.draft ? undefined : props.thread}
+              onOpen={() => {
+                setDismissed(undefined);
+                edit(insertAt(text, caret, "/"));
+              }}
               unavailable={props.unavailable}
             />
             {/* The model shrinks and truncates its label, so nothing on the row ever paints over

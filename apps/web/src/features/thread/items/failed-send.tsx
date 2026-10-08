@@ -1,3 +1,4 @@
+import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
@@ -128,6 +129,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const edit = () => {
     const draft = {
       text: staged.text,
+      tokens: staged.input ? tokensFromInput(staged.input).tokens : [],
       mentions: staged.mentions,
       attachments: staged.attachments.flatMap((file) =>
         file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],

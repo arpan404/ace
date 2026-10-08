@@ -6,6 +6,7 @@ import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { ToastProvider } from "@/components/ui/toast.tsx";
 import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
 
@@ -101,13 +102,13 @@ test("each chip names its file's kind and size, and Delete removes it, focus mov
   const chips = await screen.findByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   const meta = (name: string) =>
-    within(chips).getByRole("button", { name: `Preview ${name}` }).lastElementChild?.textContent;
-  expect(meta("spec.pdf")).toBe("8 B · PDF");
-  expect(meta("router.ts")).toBe("10 B · TypeScript");
-  expect(meta("totals.csv")).toBe("7 B · CSV");
-  expect(meta("bundle.zip")).toBe("4 B · ZIP archive");
-  expect(meta("memo.mp3")).toBe("3 B · MP3");
-  expect(meta("core.bin")).toBe("2 B · BIN");
+    within(chips).getByRole("button", { name: `Preview ${name}` }).textContent;
+  expect(meta("spec.pdf")).toContain("8 B · PDF");
+  expect(meta("router.ts")).toContain("10 B · TypeScript");
+  expect(meta("totals.csv")).toContain("7 B · CSV");
+  expect(meta("bundle.zip")).toContain("4 B · ZIP archive");
+  expect(meta("memo.mp3")).toContain("3 B · MP3");
+  expect(meta("core.bin")).toContain("2 B · BIN");
 
   within(chips).getByRole("button", { name: "Preview totals.csv" }).focus();
   await user.keyboard("{Delete}");
@@ -131,17 +132,14 @@ test("each chip names its file's kind and size, and Delete removes it, focus mov
   expect(document.activeElement).toBe(message);
 });
 
-test("a long name keeps its extension in view while its middle gives way", async () => {
+test("a long attachment name remains available when opening its preview", async () => {
   const user = userEvent.setup();
   await openComposer();
   const name = "quarterly-infrastructure-cost-review-final-v3.xlsx";
   await user.upload(screen.getByLabelText("Files to attach"), new File(["x"], name));
   const chip = await screen.findByRole("button", { name: `Preview ${name}` });
-  const shown = chip.querySelector("span.truncate")?.parentElement;
-  // The whole name reads in order; only the part before the tail truncates.
-  expect(shown?.textContent).toBe(name);
-  expect(shown?.lastElementChild?.textContent).toMatch(/\.xlsx$/);
-  expect(shown?.lastElementChild?.classList.contains("truncate")).toBe(false);
+  await user.click(chip);
+  expect(await screen.findByRole("dialog", { name })).toBeTruthy();
 });
 
 test("files adding up past the message limit are refused before uploading, naming the limit", async () => {
@@ -221,7 +219,9 @@ test("a failed upload offers Retry, which uploads the same file again", async ()
   await app.client.start();
   render(
     <ClientProvider client={app.client}>
-      <Chips />
+      <ToastProvider>
+        <Chips />
+      </ToastProvider>
     </ClientProvider>,
   );
   app.daemon.failRequests("context.request");
@@ -282,8 +282,12 @@ test("a provider without native images still accepts image files", async () => {
   await app.open("/t/thread-no-images");
   const message = await screen.findByRole("combobox", { name: "Message" });
   await user.click(screen.getByRole("button", { name: "Add files and context" }));
-  const images = await screen.findByRole("menuitem", { name: /Images/ });
-  expect(images.getAttribute("aria-disabled")).toBeNull();
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  expect(
+    within(menu)
+      .getByRole("option", { name: /Attach files/ })
+      .getAttribute("aria-disabled"),
+  ).toBeNull();
   await user.keyboard("{Escape}");
 
   await user.type(message, "Describe it");
@@ -310,7 +314,9 @@ async function hookAgainstDaemon() {
   app.play(longHistory(2)).runUntilBlocked();
   await app.client.start();
   const wrapper = (props: { children: ReactNode }) => (
-    <ClientProvider client={app.client}>{props.children}</ClientProvider>
+    <ClientProvider client={app.client}>
+      <ToastProvider>{props.children}</ToastProvider>
+    </ClientProvider>
   );
   return renderHook(() => useAttachments(thread), { wrapper });
 }

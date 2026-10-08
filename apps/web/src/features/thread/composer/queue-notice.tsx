@@ -47,7 +47,7 @@ export function QueueNotice(props: {
   return (
     <section
       aria-label={notice.title}
-      className="fx-rise-in glass mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl py-2 pr-2 pl-3 text-ui"
+      className="fx-rise-in mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-1 text-ui"
     >
       <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
       {/* The words keep a readable width; the actions wrap under them when they can't fit. */}
