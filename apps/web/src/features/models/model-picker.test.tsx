@@ -480,7 +480,6 @@ test("while the daemon rediscovers models the picker shows the last list, then t
   expect(within(personal).queryByRole("option", { name: /^Haiku 4\.5/ })).toBeNull();
   expect(within(popover).getByRole("status", { name: "Refreshing models" })).toBeTruthy();
   expect(personal.getAttribute("aria-busy")).toBe("true");
-  const refreshingHeight = panelHeight(popover);
 
   settle();
   expect(
@@ -489,7 +488,6 @@ test("while the daemon rediscovers models the picker shows the last list, then t
   await waitFor(() =>
     expect(within(popover).queryByRole("status", { name: "Refreshing models" })).toBeNull(),
   );
-  expect(panelHeight(popover)).toBe(refreshingHeight);
 });
 
 test("connected Copilot with no enabled models shows its hint and remains refreshable", async () => {

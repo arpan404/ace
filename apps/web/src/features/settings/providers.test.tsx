@@ -19,10 +19,7 @@ const section = (name = "On this computer") =>
 
 /** The row of the list that holds the link to `name`'s page. */
 async function rowOf(name: string) {
-  const link = await screen.findByRole("link", { name }, { timeout: 10_000 });
-  const found = link.closest<HTMLElement>("div")?.parentElement;
-  if (!found) throw new Error(`No row for ${name}`);
-  return found;
+  return screen.findByRole("group", { name }, { timeout: 10_000 });
 }
 
 test("the list says each provider's state in one line and asks only where something's wrong", async () => {
@@ -30,8 +27,8 @@ test("the list says each provider's state in one line and asks only where someth
   // connected through their services, Cursor's sign-in expired, Antigravity not installed.
   await harness().open("/settings/providers");
   const installed = await section();
-  expect(within(await rowOf("Claude Code")).getByText("Signed in as ada@example.com")).toBeTruthy();
-  expect(within(await rowOf("Codex")).getByText("Signed in · Personal")).toBeTruthy();
+  expect(within(await rowOf("Claude Code")).getByText("Ready")).toBeTruthy();
+  expect(within(await rowOf("Codex")).getByText("Update available")).toBeTruthy();
   expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
   expect(await within(await rowOf("Cursor")).findByText("Needs attention")).toBeTruthy();
   // The list opens each provider's one place for account and CLI actions.
@@ -39,7 +36,7 @@ test("the list says each provider's state in one line and asks only where someth
     within(installed)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["Check again"]);
+  ).toEqual(["", "Update", "Sign in"]);
   // No CLI versions or "sign-in unknown" in the list; those live on each page.
   expect(installed.textContent).not.toMatch(/2\.1\.4|unknown|opencode 1/);
   const missing = await section("Not installed");
@@ -71,9 +68,9 @@ test("a provider that needs attention leads its page with what's wrong and Recon
       account.availability = "logged_out";
     }
   await app.open("/settings/providers/cursor");
-  const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
+  const alert = await screen.findByRole("region", { name: "Setup" }, { timeout: 10_000 });
   expect(within(alert).getByText("Cursor sign-in has expired.")).toBeTruthy();
-  await userEvent.click(within(alert).getByRole("button", { name: "Reconnect Cursor" }));
+  await userEvent.click(within(alert).getByRole("button", { name: "Sign in to Cursor" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Cursor" })).toBeTruthy();
 }, 30_000);
 
@@ -125,17 +122,21 @@ test("Disconnect on a working service runs the CLI's logout for it", async () =>
 
 test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed in", async () => {
   const app = harness();
-  stage(app, "codex", { auth: "logged_out" });
+  stage(app, "codex", { auth: "logged_out", updateAvailable: false });
+  for (const account of app.daemon.services.accounts.filter(
+    (entry) => entry.provider === "codex",
+  )) {
+    account.quota.auth = "logged_out";
+    account.availability = "logged_out";
+  }
   await app.open("/settings/providers");
-  expect(within(await rowOf("Codex")).getByText("Signed in · Personal")).toBeTruthy();
+  expect(
+    await within(await rowOf("Codex")).findByRole("button", { name: "Sign in to Codex" }),
+  ).toBeTruthy();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   expect(
-    await within(await rowOf("Codex")).findByText(
-      "Signed in as grace@example.com",
-      {},
-      { timeout: 10_000 },
-    ),
+    await within(await rowOf("Codex")).findByText("Ready", {}, { timeout: 10_000 }),
   ).toBeTruthy();
 }, 30_000);
 
@@ -147,8 +148,8 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
   await userEvent.click(
     within(await section("Not installed")).getByRole("link", { name: "Codex" }),
   );
-  const cli = await screen.findByRole("region", { name: "CLI" });
-  expect(within(cli).getByRole("button", { name: "Install CLI" })).toBeTruthy();
+  const cli = await screen.findByRole("region", { name: "Setup" });
+  expect(within(cli).getByRole("button", { name: "Install" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Sign out of Codex" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
 }, 30_000);

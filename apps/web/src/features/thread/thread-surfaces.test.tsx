@@ -1,10 +1,11 @@
-import { formatClock } from "@ace/ui-core";
+import { describeWake, formatClock } from "@ace/ui-core";
 import { accountLimit, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.useRealTimers());
 
 test("a disconnected thread pauses its live line and removes Stop until replay completes", async () => {
   const app = harness();
@@ -62,7 +63,8 @@ test("a streaming answer keeps one live work timer until the answer completes", 
 });
 
 test("the usage pause, header and queue share the account reset when the turn has none", async () => {
-  const now = Date.now();
+  const now = new Date(2036, 0, 1, 12).getTime();
+  vi.useFakeTimers({ toFake: ["Date"], now });
   const app = harness({ clock: () => now });
   const reset = now + 90 * 60_000;
   const account = app.daemon.services.accounts.find((entry) => entry.id === "codex-team");
@@ -78,7 +80,9 @@ test("the usage pause, header and queue share the account reset when the turn ha
   const time = formatClock(reset);
   await screen.findByRole("note", { name: `Paused · Codex usage limit · resets ${time}` });
   await waitFor(() =>
-    expect(screen.getByRole("region", { name: "Usage limit reached" }).textContent).toContain(time),
+    expect(screen.getByRole("region", { name: "Usage limit reached" }).textContent).toContain(
+      describeWake(reset, now),
+    ),
   );
   expect(screen.getByText(`Limited until ${time}`)).toBeTruthy();
   expect(screen.queryByText(/reset time unknown/)).toBeNull();

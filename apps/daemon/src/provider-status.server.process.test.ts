@@ -229,7 +229,7 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
       "login status",
       2,
     );
-    await fakeCli(bin, "agy", "agy 1.2.3", "UNSAFE", "");
+    await fakeCli(bin, "agy_acp_server", "agy 1.2.3", "UNSAFE", "");
     statuses = new ProviderStatuses(
       { env: { PATH: bin, HOME: f.home, PI_CODING_AGENT_DIR: piHome } },
       { now: () => 1000, schedule: () => () => {} },
@@ -266,7 +266,7 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
     expect(JSON.stringify(response)).not.toContain("SECRET");
     const calls = (await readFile(join(bin, "calls"), "utf8")).trim().split("\n");
     expect(calls.toSorted()).toEqual([
-      "agy:--version",
+      "agy_acp_server:--version",
       "codex:--version",
       "codex:login status",
       "pi:--version",

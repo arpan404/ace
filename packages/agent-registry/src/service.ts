@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import { z } from "zod";
 import {
@@ -147,13 +148,23 @@ export class AgentRegistry {
               ok: false,
               reason: "Refresh the registry before planning installation",
             });
-          const manager =
+          let manager =
             request.runtime === "binary"
               ? undefined
               : await findExecutable(
                   this.#options.managers?.[request.runtime] ?? request.runtime,
                   this.#options.env,
                 );
+          if (
+            !manager &&
+            request.runtime === "uv" &&
+            !this.#options.managers?.uv &&
+            this.#options.env.HOME
+          )
+            manager = await findExecutable(
+              join(this.#options.env.HOME, ".local", "bin", "uv"),
+              this.#options.env,
+            );
           const plan = buildInstallPlan({
             acpAgentId: request.acpAgentId,
             source: this.catalog.source,

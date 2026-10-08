@@ -41,7 +41,7 @@
       "type": "string"
     },
     "instance": {
-      "$ref": "https://ace.local/protocol/v1/AccountId.json"
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
     },
     "manual": {
       "additionalProperties": false,
@@ -55,7 +55,7 @@
           "type": "string"
         },
         "instance": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "instruction": {
           "maxLength": 1024,

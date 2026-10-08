@@ -113,31 +113,33 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   );
   for (const name of ["Claude Code", "Codex", "OpenCode", "Pi"]) {
     const card = within(cards).getByRole("listitem", { name });
-    expect(within(card).queryByRole("button")).toBeNull();
+    if (name === "Codex") expect(within(card).getByRole("button", { name: "Update" })).toBeTruthy();
+    else expect(within(card).queryByRole("button")).toBeNull();
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
     within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
   ).toBeTruthy();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
-  expect(within(codex).getByText("Signed in · Personal")).toBeTruthy();
+  expect(within(codex).getByText("Update available")).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
-  expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
+  expect(within(cursor).getByRole("button", { name: "Sign in to Cursor" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
 }, 30_000);
 
-test("an agent that isn't installed waits apart, its install command a click away", async () => {
+test("an agent that isn't installed starts its official installer with one click", async () => {
   const app = harness({ onboarding: "pending" });
+  app.daemon.services.providerInstalls.autoComplete = false;
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
   await app.open("/setup");
   await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const missing = await screen.findByRole("region", { name: "Not installed" }, { timeout: 10_000 });
   const codex = within(missing).getByRole("listitem", { name: "Codex" });
-  expect(within(codex).queryByText("npm install -g @openai/codex")).toBeNull();
-  await userEvent.click(within(codex).getByRole("button", { name: "How to install" }));
-  expect(within(codex).getByText("npm install -g @openai/codex")).toBeTruthy();
-  // Installed ones count toward setup; this one doesn't.
+  await userEvent.click(within(codex).getByRole("button", { name: "Install" }));
+  expect(
+    await within(codex).findByRole("progressbar", { name: "Codex installation progress" }),
+  ).toBeTruthy();
   expect((await progress()).getAttribute("aria-valuetext")).toMatch(/ of 4 ready$/);
 }, 30_000);
 

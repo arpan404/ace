@@ -45,6 +45,7 @@ export interface ProviderAccount {
 /** A provider CLI as discovery found it, with the person's ace accounts on it. */
 export interface ProviderInstall {
   kind: ProviderKind;
+  instance?: string;
   /** The ACP registry agent behind an `acp` install, which picks its mark. */
   acpAgentId?: string | undefined;
   name: string;

@@ -47,13 +47,7 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
     });
     const providerRow = await within(section).findByRole("group", { name });
     expect(
-      await within(providerRow).findByText(
-        name === "Claude Code"
-          ? "Signed in as ada@example.com"
-          : name === "Codex"
-            ? "Signed out · Your CLI login"
-            : "Signed in · Google",
-      ),
+      await within(providerRow).findByText(name === "Claude Code" ? "Ready" : "Update available"),
     ).toBeTruthy();
     await openAccounts();
   }
@@ -80,7 +74,7 @@ test("signing in with an API key clears the field and refreshes the account with
   expect(JSON.stringify(app.daemon.services.accounts)).not.toContain("fake-key-for-ui-test");
 });
 
-test("CLI install, update and removal show progress and refresh the provider after completion", async () => {
+test("CLI install and removal show progress and refresh the provider after reconnect", async () => {
   const app = harness();
   app.daemon.services.providerInstalls.autoComplete = false;
   app.daemon.services.installed.delete("codex");
@@ -90,48 +84,40 @@ test("CLI install, update and removal show progress and refresh the provider aft
   if (!row) throw new Error("Missing Codex fixture");
   row.installed = false;
   await app.open("/settings/providers/codex");
-  const cli = await screen.findByRole("region", { name: "CLI" });
-  await userEvent.click(await within(cli).findByRole("button", { name: "Install CLI" }));
-  await userEvent.click(await within(cli).findByRole("button", { name: "Install CLI" }));
-  await within(cli).findByRole("progressbar", { name: "CLI installation progress" });
+  const cli = await screen.findByRole("region", { name: "Setup" });
+  await userEvent.click(await within(cli).findByRole("button", { name: "Install" }));
+  await within(cli).findByRole("progressbar");
   app.daemon.refuseConnections(true);
   await waitFor(() => expect(app.client.connectionState().getSnapshot()).not.toBe("ready"));
   app.daemon.services.providerInstalls.complete("fake-install-1");
   app.daemon.refuseConnections(false);
-  expect(await within(cli).findByText("Finished")).toBeTruthy();
-  await userEvent.click(within(cli).getByRole("button", { name: "Close" }));
-  await userEvent.click(await within(cli).findByRole("button", { name: "Check for updates" }));
-  await userEvent.click(await within(cli).findByRole("button", { name: "Update CLI" }));
-  await within(cli).findByRole("progressbar", { name: "CLI installation progress" });
+  await userEvent.click(await within(cli).findByRole("button", { name: "Remove Codex CLI" }));
+  await within(cli).findByText(/Remove Codex's CLI from this computer/);
+  await userEvent.click(within(cli).getByRole("button", { name: "Remove CLI" }));
+  await within(cli).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-2");
-  await within(cli).findByText("Finished");
-  await userEvent.click(within(cli).getByRole("button", { name: "Close" }));
-  await userEvent.click(within(cli).getByRole("button", { name: "Remove CLI" }));
-  expect(await within(cli).findByText(/Remove Codex's CLI from this computer/)).toBeTruthy();
-  await userEvent.click(within(cli).getByRole("button", { name: "Remove CLI" }));
-  await within(cli).findByText("Removing…");
-  app.daemon.services.providerInstalls.complete("fake-install-3");
-  await within(cli).findByText("Finished");
-  await userEvent.click(within(cli).getByRole("button", { name: "Close" }));
-  expect(await within(cli).findByRole("button", { name: "Install CLI" })).toBeTruthy();
+  expect(await within(cli).findByRole("button", { name: "Install" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("region", { name: "Models" })).toBeNull());
 });
 
-test("leaving the provider page during installation resumes the same job on return", async () => {
+test("leaving the provider page during update resumes the same job on the Providers list", async () => {
   const app = harness({ storage: memoryKeyValue() });
   app.daemon.services.providerInstalls.autoComplete = false;
+  const row = app.daemon.services.providerStatuses.find(
+    (candidate) => candidate.provider === "codex",
+  );
+  if (!row) throw new Error("Missing Codex fixture");
+  row.updateAvailable = true;
   await app.open("/settings/providers/codex");
-  const cli = await screen.findByRole("region", { name: "CLI" });
-  await userEvent.click(await within(cli).findByRole("button", { name: "Check for updates" }));
-  await userEvent.click(await within(cli).findByRole("button", { name: "Update CLI" }));
-  await within(cli).findByRole("progressbar", { name: "CLI installation progress" });
+  const setup = await screen.findByRole("region", { name: "Setup" });
+  await userEvent.click(await within(setup).findByRole("button", { name: "Update" }));
+  await within(setup).findByRole("progressbar");
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
-  await screen.findByRole("region", { name: "On this computer" });
+  const group = await screen.findByRole("group", { name: "Codex" });
+  await within(group).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
-  await userEvent.click(screen.getByRole("link", { name: "Codex" }));
-  expect(
-    await within(await screen.findByRole("region", { name: "CLI" })).findByText("Finished"),
-  ).toBeTruthy();
+  await waitFor(() => expect(within(group).queryByRole("progressbar")).toBeNull());
+  expect(within(group).getByText("Ready")).toBeTruthy();
 });
 
 test("a live limit update changes the provider and account surfaces together", async () => {
@@ -175,7 +161,9 @@ test("Cursor reports its bundled SDK and offers no CLI management", async () => 
   expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Remove CLI" })).toBeNull();
   expect(
-    await within(await screen.findByRole("alert")).findByText("Cursor sign-in has expired."),
+    await within(await screen.findByRole("region", { name: "Setup" })).findByText(
+      "Cursor sign-in has expired.",
+    ),
   ).toBeTruthy();
 });
 
@@ -226,15 +214,15 @@ test("OpenAI key entry stays inline in an OpenCode account and cancels without s
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-that-must-be-cleared");
 });
 
-test("a missing Antigravity provider links to its ACP download and cannot be enabled", async () => {
-  await harness().open("/settings/providers/antigravity");
+test("a missing Antigravity provider starts its official ACP registry installation", async () => {
+  const app = harness();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  await app.open("/settings/providers/antigravity");
   const enabled = await screen.findByRole<HTMLInputElement>("switch", { name: "Enable provider" });
   expect(enabled.getAttribute("aria-disabled") === "true" || enabled.disabled).toBe(true);
-  expect(enabled.getAttribute("aria-checked")).toBe("false");
-  await userEvent.click(await screen.findByRole("button", { name: "How to install" }));
-  const link = await screen.findByRole("link", { name: "Official setup instructions" });
-  expect(link.getAttribute("href")).toBe(
-    "https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json",
-  );
-  expect(screen.getByText(/Extract the archive with its companion files/)).toBeTruthy();
+  const setup = await screen.findByRole("region", { name: "Setup" });
+  await userEvent.click(await within(setup).findByRole("button", { name: "Install" }));
+  expect(
+    await within(setup).findByRole("progressbar", { name: "Antigravity installation progress" }),
+  ).toBeTruthy();
 });

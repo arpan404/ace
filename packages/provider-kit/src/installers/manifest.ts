@@ -4,6 +4,8 @@ export interface Installer {
   binary: string;
   sourceUrl: string;
   package?: string;
+  nodeMajor?: number;
+  nodeMinor?: number;
   npmFlags?: readonly string[];
   bun?: true;
   brew?: { name: string; cask?: true };
@@ -11,12 +13,14 @@ export interface Installer {
   scriptHome?: string;
   scriptUninstall?: readonly (readonly ["-f" | "-rf", string])[];
   manual?: string;
+  registryId?: string;
 }
 /** Reviewed allowlist. Never derive commands or packages from registry/client payloads. */
 export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer>> = {
   codex: {
     binary: "codex",
     package: "@openai/codex",
+    nodeMajor: 16,
     sourceUrl: "https://learn.chatgpt.com/docs/codex/cli",
     brew: { name: "codex", cask: true },
     script: "https://chatgpt.com/codex/install.sh",
@@ -25,6 +29,7 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
   claude: {
     binary: "claude",
     package: "@anthropic-ai/claude-code",
+    nodeMajor: 22,
     sourceUrl: "https://code.claude.com/docs/en/setup",
     brew: { name: "claude-code", cask: true },
     script: "https://claude.ai/install.sh",
@@ -46,6 +51,8 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
   pi: {
     binary: "pi",
     package: "@earendil-works/pi-coding-agent",
+    nodeMajor: 22,
+    nodeMinor: 19,
     npmFlags: ["--ignore-scripts"],
     sourceUrl: "https://github.com/earendil-works/pi/tree/main/packages/coding-agent",
   },
@@ -55,34 +62,37 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
     manual: "Cursor's SDK ships with ace. Sign in to Cursor; update the SDK by updating ace.",
   },
   antigravity: {
-    binary: "agy-acp",
+    binary: "agy_acp_server",
+    registryId: "official:antigravity-acp",
     sourceUrl:
       "https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json",
-    manual:
-      "Download the Antigravity ACP server for your computer from the official registry. Extract the archive with its companion files, then set CLI path to the server executable and check again.",
   },
 };
 export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {
   gemini: {
     binary: "gemini",
     package: "@google/gemini-cli",
+    nodeMajor: 20,
     brew: { name: "gemini-cli" },
     sourceUrl: "https://geminicli.com/docs/get-started/installation/",
   },
   "qwen-code": {
     binary: "qwen",
     package: "@qwen-code/qwen-code",
+    nodeMajor: 22,
     sourceUrl: "https://qwenlm.github.io/qwen-code-docs/en/developers/development/deployment/",
   },
   "claude-acp": {
     binary: "claude-agent-acp",
     package: "@agentclientprotocol/claude-agent-acp",
+    nodeMajor: 22,
     sourceUrl: "https://github.com/agentclientprotocol/claude-agent-acp/blob/main/README.md",
   },
   "codex-acp": {
     binary: "codex-acp",
-    package: "@zed-industries/codex-acp",
-    sourceUrl: "https://github.com/zed-industries/codex-acp/blob/main/README.md",
+    package: "@agentclientprotocol/codex-acp",
+    nodeMajor: 22,
+    sourceUrl: "https://github.com/agentclientprotocol/codex-acp/blob/main/README.md",
   },
   goose: {
     binary: "goose",
@@ -92,6 +102,7 @@ export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {
   auggie: {
     binary: "auggie",
     package: "@augmentcode/auggie",
+    nodeMajor: 20,
     sourceUrl: "https://www.augmentcode.com/product/cli",
   },
 };

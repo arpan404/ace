@@ -1,3 +1,4 @@
+import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
   cursorSdkLoginDriver,
   createInstance,
@@ -11,7 +12,7 @@ import { discoverProvider, discoverPiStatus } from "@ace/provider-kit/discovery"
 import { probeOutput, spawnRawSupervised } from "@ace/provider-kit/process";
 import type { TerminalManager } from "@ace/terminal";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
-import { cliLoginDriver, manualLogin } from "../provider-login-driver.ts";
+import { cliLoginDriver } from "../provider-login-driver.ts";
 import { cursorLoginDriver } from "../provider-login-cursor.ts";
 
 import { cursorHosts } from "./cursor-hosts.ts";
@@ -34,21 +35,21 @@ export async function prepareProviderLogin(
   },
   action: "login" | "logout",
   signal: AbortSignal,
+  owner: string,
 ): Promise<ProviderLoginDriver> {
   const { services, options, now, id, config } = context;
   const registry = services.accountRegistry;
   if (!registry || !services.accounts) throw new Error("Accounts unavailable");
-  if (target.provider === "acp" || target.provider === "antigravity") {
-    const manual = manualLogin(target.provider, action, target.instance);
-    return {
-      run: async () => ({
-        success: false,
-        manual,
-      }),
-    };
-  }
   const configuration = services.providerConfigurations?.for(target.provider, target.instance);
   if (configuration?.enabled === false) throw new Error("Provider disabled");
+  if (target.provider === "acp" || target.provider === "antigravity")
+    return prepareAgentLogin(
+      context,
+      { provider: target.provider, ...(target.instance ? { instance: target.instance } : {}) },
+      action,
+      signal,
+      owner,
+    );
   if (target.provider === "cursor") {
     const sdk = await discoverCursorSdk(options.engine?.cursor?.discovery);
     signal.throwIfAborted();

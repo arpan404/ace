@@ -88,6 +88,32 @@ test("ACP default accounts share the user's existing home with distinct agent id
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("confirmed ACP sign-in readies its account and sign-out blocks it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-acp-auth-"));
+  const registry = await openRegistry(join(root, "accounts.sqlite"));
+  const instance = createAcpInstance({
+    identity: identity("auth"),
+    label: "Agent",
+    userHome: root,
+  });
+  try {
+    await registry.register(instance);
+    registry.recordAcpAuth(instance.id, "logged_in", 1000);
+    expect(registry.summary(instance.id, 1000)).toMatchObject({
+      availability: "available",
+      quota: { auth: "logged_in" },
+    });
+    registry.recordAcpAuth(instance.id, "logged_out", 1001);
+    expect(registry.summary(instance.id, 1001)).toMatchObject({
+      availability: "logged_out",
+      quota: { auth: "logged_out" },
+    });
+  } finally {
+    registry.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("account session binding preserves confirmed ACP selectors, negotiated support and MCP controls", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-acp-binding-"));
   const registry = await openRegistry(join(root, "accounts.sqlite"));

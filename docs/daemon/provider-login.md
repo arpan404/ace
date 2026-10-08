@@ -262,3 +262,23 @@ inline add/rename/default/remove/reauth and explicit login completion. API-key
 submission completes immediately; setting
 `daemon.services.providerLogin.scenarios[provider] = "failure"` rejects it.
 Claude/Pi key additions return `unsupported`; read-only mutations return `forbidden`.
+
+## Installed ACP agents
+
+Registry instance IDs (including colon-separated IDs) select the exact verified
+binding. The local service reserves that account while authentication changes.
+Antigravity uses its configured official registry server with all declared launch
+arguments and environment. The agent advertises methods during `initialize`.
+Browser authentication calls the chosen agent-owned `authenticate`; terminal
+methods run the configured agent plus advertised arguments/environment in the
+existing live auth terminal and reconnect after a successful exit. A terminal
+method never also receives `authenticate`. API-key-only methods are unresolved,
+rather than inventing a login command or collecting credentials. Unsupported
+logout capabilities also fail visibly.
+
+The authenticated device owns an advertised auth terminal; another device cannot
+subscribe or write. Disconnect, cancel and service close drain its process. No
+history or replay is retained. Confirmed ACP auth updates only the account's
+readiness fact and login revision, then refreshes readiness and models. ACP quota
+frames remain opaque. Login output remains bounded and reviewed; Google-account
+verification URLs are admitted only for ACP/Antigravity login observations.

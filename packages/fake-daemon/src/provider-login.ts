@@ -140,7 +140,9 @@ export class FakeProviderLogin {
         url:
           job.progress.provider === "claude"
             ? "https://claude.ai/oauth/authorize?client_id=ace-fake"
-            : "https://cursor.com/loginDeepControl",
+            : job.progress.provider === "acp" || job.progress.provider === "antigravity"
+              ? "https://accounts.google.com/o/oauth2/v2/auth?client_id=ace-fake"
+              : "https://cursor.com/loginDeepControl",
         hint: "Open this URL on your device to finish the provider's login.",
       });
   }

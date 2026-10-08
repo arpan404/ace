@@ -1,3 +1,4 @@
+import { registryPrerequisites } from "./prerequisites.ts";
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
@@ -22,11 +23,26 @@ export interface InstallEnvironment {
   home: string;
   binaryPath?(provider: ProviderKind): string | undefined;
   probe?: typeof probeOutput;
+  registry?: RegistryInstaller;
   writable?: (path: string) => Promise<boolean>;
+}
+export interface RegistryInstaller {
+  plan(
+    target: InstallTarget,
+    action: InstallAction,
+    signal?: AbortSignal,
+  ): Promise<ProviderInstallPlan>;
+  run(
+    plan: ProviderInstallPlan,
+    session: string,
+    signal: AbortSignal,
+    line: (text: string) => void,
+  ): Promise<string>;
 }
 export interface InstallTarget {
   provider: ProviderKind;
   agent?: InstallAgent | undefined;
+  acpAgentId?: string | undefined;
 }
 function within(path: string, root: string): boolean {
   const suffix = relative(root, path);
@@ -50,6 +66,9 @@ export class InstallPlanner {
   private options: InstallEnvironment;
   constructor(options: InstallEnvironment) {
     this.options = options;
+  }
+  get registry(): RegistryInstaller | undefined {
+    return this.options.registry;
   }
   get env(): NodeJS.ProcessEnv {
     return this.options.env;
@@ -77,6 +96,27 @@ export class InstallPlanner {
     requested?: InstallMethod,
     signal?: AbortSignal,
   ): Promise<ProviderInstallPlan> {
+    if (target.acpAgentId && target.provider !== "acp") throw new Error("Invalid registry target");
+    if (target.provider === "antigravity" || target.acpAgentId) {
+      if (requested && requested !== "registry") throw new Error("Invalid registry installer");
+      if (this.options.registry)
+        return registryPrerequisites(await this.options.registry.plan(target, action, signal), {
+          env: this.env,
+          home: this.options.home,
+          probe: (command, args) => this.probe(command, args, signal),
+          writable: this.options.writable ?? writable,
+        });
+      return {
+        ...target,
+        action,
+        status: "unavailable",
+        methods: [],
+        commands: [],
+        needsAdmin: false,
+        sourceUrl: "https://antigravity.google/docs/ide/extensions/zed",
+        message: "The agent catalog is unavailable. Reconnect and try Install again.",
+      };
+    }
     const spec = installer(target.provider, target.agent);
     const base: ProviderInstallPlan = {
       provider: target.provider,
@@ -100,12 +140,27 @@ export class InstallPlanner {
         status: target.provider === "cursor" ? "sign_in" : "manual",
         message: spec.manual,
       };
-    const [npm, bun, brew, curl, bash, rm, binary] = await Promise.all([
-      ...["npm", "bun", "brew", "curl", "bash", "rm"].map((name) => findExecutable(name, this.env)),
+    const [npmCandidate, bun, brew, curl, bash, rm, node, binary] = await Promise.all([
+      ...["npm", "bun", "brew", "curl", "bash", "rm", "node"].map((name) =>
+        findExecutable(name, this.env),
+      ),
       findExecutable(this.options.binaryPath?.(target.provider) ?? spec.binary, this.env),
     ]);
+    const nodeVersion =
+      node &&
+      parseVersion(
+        "node",
+        ((await this.probe(node, ["--version"], signal)) ?? "").replace(/^v/, ""),
+      );
+    const npm =
+      nodeVersion &&
+      (Number(nodeVersion.split(".")[0]) > (spec.nodeMajor ?? 16) ||
+        (Number(nodeVersion.split(".")[0]) === (spec.nodeMajor ?? 16) &&
+          Number(nodeVersion.split(".")[1]) >= (spec.nodeMinor ?? 0)))
+        ? npmCandidate
+        : undefined;
     const [npmRoot, brewPrefix, bunBin] = await Promise.all([
-      npm && this.probe(npm, ["root", "-g"], signal),
+      npmCandidate && this.probe(npmCandidate, ["root", "-g"], signal),
       brew && this.probe(brew, ["--prefix"], signal),
       bun && this.probe(bun, ["pm", "bin", "-g"], signal),
     ]);
@@ -114,7 +169,7 @@ export class InstallPlanner {
       ? this.detect(spec, resolved, binary ?? resolved, { npmRoot, brewPrefix, bunBin })
       : undefined;
     const methods: InstallMethod[] = [];
-    if (spec.package && npm) methods.push("npm");
+    if (spec.package && (npm || (action === "uninstall" && npmCandidate))) methods.push("npm");
     if (spec.bun && bun) methods.push("bun");
     if (spec.brew && brew) methods.push("brew");
     if (spec.script && curl && bash) methods.push("script");
@@ -128,8 +183,54 @@ export class InstallPlanner {
         message:
           "The existing binary's installation method is unknown. Manage it through its original installer to avoid a duplicate.",
       };
+    if (existing && requested && existing !== requested)
+      return { ...result, message: "Use the existing installation method to avoid a duplicate." };
     if ((action === "update" || action === "uninstall") && !binary)
       return { ...result, message: "This CLI is not installed." };
+    if (
+      !npm &&
+      spec.package &&
+      brew &&
+      brewPrefix &&
+      action !== "uninstall" &&
+      ((!binary && !methods.length) || existing === "npm")
+    ) {
+      const npmPath = join(brewPrefix.trim(), "bin", "npm");
+      const verifyPath = join(brewPrefix.trim(), "bin", spec.binary);
+      return {
+        ...result,
+        status: "ready",
+        method: existing ?? "brew",
+        methods: [existing ?? "brew"],
+        prerequisite: { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" },
+        commands: [
+          installCommand(brew, ["install", "node"]),
+          ...installerCommands(spec, action, "npm", { npm: npmPath }, this.options.home),
+        ],
+        verify: installCommand(verifyPath, ["--version"]),
+        needsAdmin: !(await (this.options.writable ?? writable)(brewPrefix.trim())),
+        message: "Node.js and npm will be installed first using Homebrew.",
+      };
+    }
+    if (
+      spec.package &&
+      !npm &&
+      action !== "uninstall" &&
+      ((!methods.length && !binary) || existing === "npm")
+    )
+      return {
+        ...result,
+        prerequisite: { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" },
+        message:
+          "Install Node.js from its official download. It includes npm. Then retry Install here.",
+      };
+    if (!methods.length && spec.brew)
+      return {
+        ...result,
+        prerequisite: { name: "Homebrew", sourceUrl: "https://brew.sh" },
+        message:
+          "This installer needs Homebrew. Install it using its official setup, which may require administrator approval, then retry here.",
+      };
     const method = requested ?? existing ?? methods[0];
     if (!method || !methods.includes(method) || (existing && method !== existing))
       return {
@@ -154,7 +255,14 @@ export class InstallPlanner {
       spec,
       action,
       method,
-      { npm, bun, brew, curl, bash, rm },
+      {
+        npm: npm ?? (action === "uninstall" ? npmCandidate : undefined),
+        bun,
+        brew,
+        curl,
+        bash,
+        rm,
+      },
       this.options.home,
     );
     const destination =

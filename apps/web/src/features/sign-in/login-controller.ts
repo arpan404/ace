@@ -19,6 +19,7 @@ export interface SignInTarget {
   provider: ProviderKind;
   /** Create a named account and authenticate it in one daemon-owned operation. */
   newAccount?: string | undefined;
+  name?: string | undefined;
   /** A managed ace account; omitted for the CLI's normal profile. */
   instance?: string | undefined;
   /** The upstream to pick when the CLI asks (an OpenCode or Pi source such as "opencode-go"). */
