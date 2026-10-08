@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
@@ -110,16 +109,10 @@ export function AddProjectDialog(props: {
           className="grid min-w-0 gap-3"
         >
           <TabsList aria-label="How to add a project">
-            {tabs.map((tab, index) => (
+            {tabs.map((tab) => (
               <TabsTab key={tab.value} value={tab.value} className="px-2 sm:px-2.5">
                 <Icon icon={tab.icon} size={14} />
                 {tab.label}
-                <Kbd
-                  aria-hidden
-                  keys={`mod+${index + 1}`}
-                  variant="bare"
-                  className="hidden sm:inline-flex"
-                />
               </TabsTab>
             ))}
           </TabsList>

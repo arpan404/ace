@@ -68,7 +68,7 @@ export class ScreenManager {
         try {
           if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
             throw new Error("Invalid frame sequence or session");
-          this.authorize(session.state.target, session.approvalScope);
+          this.authorize(session.state.target, session.approvalScope, session.humanView);
           session.latest = frame;
           session.pixels.frame(frame);
           if (session.state.lifecycle === "live") {
@@ -95,7 +95,7 @@ export class ScreenManager {
     this.observations = new SessionObservations({
       host: this.host,
       live: (id) => this.live(id),
-      authorize: (target, scope) => this.authorize(target, scope),
+      authorize: (target, scope, humanView) => this.authorize(target, scope, humanView),
       options,
       releaseUnused: (session) => this.releaseUnused(session),
     });
@@ -112,7 +112,7 @@ export class ScreenManager {
       host: this.host,
       policy: this.policy,
       sessions: this.sessions,
-      authorize: (target, scope) => this.authorize(target, scope),
+      authorize: (target, scope, humanView) => this.authorize(target, scope, humanView),
       emit: (session) => this.emit(session),
       nextGeneration: () => ++this.captureGeneration,
     });
@@ -201,7 +201,14 @@ export class ScreenManager {
   approvals(threadId?: string) {
     return this.accessPolicy.approvals(threadId);
   }
-  private authorize(target: ScreenTarget, scope?: ScreenAgentScope): void {
+  private authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView = false): void {
+    if (
+      humanView &&
+      scope === undefined &&
+      target.kind === "window" &&
+      target.bundleId === "com.apple.iphonesimulator"
+    )
+      return;
     this.accessPolicy.authorize(target, scope);
   }
   requestApp(
@@ -283,12 +290,16 @@ export class ScreenManager {
       operation.op,
     );
   }
+  /** Local device viewing has no agent grant and cannot be requested through screen MCP. */
+  startHumanDeviceView(target: ScreenTarget, fps = 10): Promise<ScreenState> {
+    return this.lifecycle.startHumanView(target, fps);
+  }
   async revalidate() {
     await Promise.all(
       [...this.sessions.values()]
         .filter((session) => {
           try {
-            this.authorize(session.state.target, session.approvalScope);
+            this.authorize(session.state.target, session.approvalScope, session.humanView);
             return false;
           } catch {
             return true;
@@ -325,7 +336,7 @@ export class ScreenManager {
     signal.throwIfAborted();
     if (epoch !== session.epoch || session.state.lifecycle !== "live")
       throw new Error("Controller changed");
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target, session.approvalScope, session.humanView);
     session.epoch++;
     session.state = { ...session.state, mode };
     this.emit(session);
@@ -374,6 +385,16 @@ export class ScreenManager {
   }
   async permissions(): Promise<ScreenPermissions> {
     return ScreenPermissions.parse(await this.inspect("permissions"));
+  }
+  /** Device viewers can discover Simulator windows without enabling agent computer use. */
+  async humanDeviceTargets(): Promise<ScreenInventory> {
+    const inventory = ScreenInventory.parse(await this.inspect("targets"));
+    return {
+      displays: [],
+      windows: inventory.windows.filter(
+        (window) => window.bundleId === "com.apple.iphonesimulator",
+      ),
+    };
   }
   async targets(): Promise<ScreenInventory> {
     if (!this.policy.enabled)
@@ -682,7 +703,12 @@ export class ScreenManager {
     return executeSessionAction(
       {
         host: this.host,
-        authorize: (session) => this.authorize(session.state.target, session.approvalScope),
+        authorize: (session) =>
+          this.authorize(
+            session.state.target,
+            session.approvalScope,
+            actor === "human" && session.humanView,
+          ),
         emit: (session) => this.emit(session),
         fail: (session, error) => this.fail(session, error),
         audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),

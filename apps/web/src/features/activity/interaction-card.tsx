@@ -22,6 +22,7 @@ export function InteractionCard(props: {
   threadId: string;
   interactionId: string;
   cardKey?: string;
+  expanded?: boolean;
 }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
   const thread = useSidebarThread(props.threadId);
@@ -32,6 +33,7 @@ export function InteractionCard(props: {
   return (
     <CardFrame
       cardKey={cardKey}
+      expanded={props.expanded ?? false}
       title={request.kind === "approval" ? approvalCopy(request).title : requestTitle(request)}
       heading={request.kind === "approval" && <Heading interaction={interaction} />}
       context={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread"}
@@ -111,7 +113,6 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
         copy={copy}
         review={interaction.review}
         disabled={sending}
-        hints={{ allow_once: "A", deny: "D" }}
         keyed={(option) => option.id !== once?.option.id || keyApproves}
         onAnswer={(choice) => decide(choice.option)}
         answered={

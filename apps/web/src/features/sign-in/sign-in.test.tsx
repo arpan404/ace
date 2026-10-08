@@ -127,11 +127,13 @@ test("Cancel ends the login on the daemon, so trying again starts a fresh one", 
   ).toMatch(/^https:\/\/claude\.ai\//);
 
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(await within(dialog).findByText("Sign-in cancelled")).toBeTruthy();
-  // The daemon let the first login go: a second one isn't refused as busy.
-  await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
-  expect(await within(dialog).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
-  expect(within(dialog).queryByText(/already signing in/)).toBeNull();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
+  await userEvent.click(within(list).getByRole("button", { name: "Sign in to Claude Code" }));
+  const next = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
+  expect(await within(next).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
+  expect(within(next).queryByText(/already signing in/)).toBeNull();
 }, 30_000);
 
 test("a failed sign-in says why, and Try again starts over", async () => {

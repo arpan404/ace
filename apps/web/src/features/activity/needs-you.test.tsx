@@ -1,3 +1,4 @@
+import { openActivityRequest } from "@/test/activity-request.ts";
 import { flakyCheckout, seedIndex, workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -5,7 +6,7 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const approvalTitle = "Run rm -rf node_modules/.cache/vitest?";
-const card = (name: string) => screen.findByRole("article", { name });
+const card = openActivityRequest;
 const main = () => screen.getByRole("main");
 
 function workbenchApp() {
@@ -69,7 +70,7 @@ test("J and K move between cards and A approves only the focused one", async () 
   const app = workbenchApp();
   await app.open("/activity");
   const push = await card("Allow a force push to fix/restart-retry?");
-  await card("Install @fontsource/noto-sans-jp?");
+  await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
   await waitFor(() => expect(push.getAttribute("aria-current")).toBe("true"));
 
   await userEvent.keyboard("jj");
@@ -125,7 +126,7 @@ test("a number key picks that option of the focused question", async () => {
   expect(within(question).getByText("Persist the draft in the view model")).toBeTruthy();
   expect(within(question).getByText("recommended")).toBeTruthy();
 
-  await userEvent.click(within(question).getByText("How should the sheet recover after rotate?"));
+  await userEvent.click(question);
   await waitFor(() => expect(question.getAttribute("aria-current")).toBe("true"));
   await userEvent.keyboard("2");
 
@@ -166,4 +167,21 @@ test("Needs you shows placeholder cards until the thread list arrives, never a f
   expect(screen.queryByText("Nothing needs you")).toBeNull();
   expect(await card("How should the sheet recover after rotate?")).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Loading requests" })).toBeNull();
+});
+
+test("Activity requests start folded and Enter reveals their decision before it can be answered", async () => {
+  const app = workbenchApp();
+  await app.open("/activity");
+  const row = await screen.findByRole("article", {
+    name: "Allow a force push to fix/restart-retry?",
+  });
+  expect(within(row).queryByRole("button", { name: "Allow once" })).toBeNull();
+  await userEvent.keyboard("{Enter}");
+  expect(
+    await within(row).findByText("git push --force-with-lease origin fix/restart-retry"),
+  ).toBeTruthy();
+  expect(within(row).getByRole("button", { name: "Deny" })).toBeTruthy();
+  await userEvent.keyboard("{Enter}");
+  expect(within(row).queryByRole("button", { name: "Deny" })).toBeNull();
+  expect(app.daemon.isPending("thread-retry-budget", "approve-force-push")).toBe(true);
 });

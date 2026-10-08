@@ -1,3 +1,4 @@
+import { openActivityRequest } from "@/test/activity-request.ts";
 import type { Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,7 +70,7 @@ test("in Activity, A doesn't approve a request that defaults to no; a click does
   const app = harness();
   app.play(asking("drop-table", "Drop the legacy sessions table?", true)).runUntilBlocked();
   await app.open("/activity");
-  const card = await screen.findByRole("article", { name: "Drop the legacy sessions table?" });
+  const card = await openActivityRequest("Drop the legacy sessions table?");
   await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
   // Allow once carries no A key to press.
   expect(within(card).getByRole("button", { name: "Allow once" }).textContent).toBe("Allow once");
@@ -91,7 +92,7 @@ test("in Activity, A still approves an ordinary request", async () => {
   const app = harness();
   app.play(asking("add-index", "Add an index on sessions.user_id?", false)).runUntilBlocked();
   await app.open("/activity");
-  const card = await screen.findByRole("article", { name: "Add an index on sessions.user_id?" });
+  const card = await openActivityRequest("Add an index on sessions.user_id?");
   await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
 
   await userEvent.keyboard("a");
@@ -107,7 +108,7 @@ test("in the thread, a number key can deny a request that defaults to no but nev
   const app = harness();
   app.play(asking("truncate-logs", "Truncate the audit log?", true)).runUntilBlocked();
   await app.open("/t/thread-truncate-logs");
-  const card = await screen.findByRole("article", { name: "Truncate the audit log?" });
+  const card = await openActivityRequest("Truncate the audit log?");
   const allow = within(card).getByRole("button", { name: "Allow once" });
   const deny = within(card).getByRole("button", { name: "Deny" });
   expect(allow.getAttribute("aria-keyshortcuts")).toBeNull();
@@ -133,7 +134,7 @@ test("in the thread, a number key approves an ordinary request", async () => {
   const app = harness();
   app.play(asking("vacuum", "Vacuum the database?", false)).runUntilBlocked();
   await app.open("/t/thread-vacuum");
-  const card = await screen.findByRole("article", { name: "Vacuum the database?" });
+  const card = await openActivityRequest("Vacuum the database?");
   await focusIn(within(card).getByRole("button", { name: "Deny" }));
 
   await userEvent.keyboard("1");

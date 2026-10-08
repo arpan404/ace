@@ -1,9 +1,19 @@
 import type { PendingSend } from "@ace/client";
+import type { PermissionMode } from "@ace/protocol";
+import { usePermissionCapabilities } from "@/lib/use-permission-modes.ts";
 import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@ace/client-react";
-import { provisionalTitle, providerNames, type TurnActivity } from "@ace/ui-core";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import {
+  modelLabel,
+  permissionLabel,
+  provisionalTitle,
+  providerNames,
+  type TurnActivity,
+} from "@ace/ui-core";
+import { ShieldIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
+import { Tip } from "@/components/ui/tooltip.tsx";
+import { chipControl, iconControl } from "./composer/composer-styles.ts";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -126,6 +136,8 @@ export function PendingThreadView(props: {
             }}
             draftKey={`thread:${props.threadId}`}
             composer={composer}
+            model={payload.model}
+            permission={payload.permissionMode}
           />
         )}
       </div>
@@ -148,12 +160,18 @@ function PendingComposer({
   composer,
   thread,
   draftKey,
+  model,
+  permission,
 }: {
   thread: ThreadRef;
   draftKey: string;
   composer: Ref<ComposerHandle>;
+  model: string | undefined;
+  permission: PermissionMode | undefined;
 }) {
   const reason = useId();
+  const { capabilities } = usePermissionCapabilities(thread.provider, undefined, thread.instanceId);
+  const approvals = permissionLabel(permission, capabilities);
   return (
     <ComposerDock>
       <p id={reason} className="sr-only">
@@ -166,6 +184,30 @@ function PendingComposer({
         keepsAttachments
         busy={false}
         onSubmit={never}
+        controls={
+          <Tip label={`Approvals: ${approvals}. Available when the thread starts.`} side="top">
+            <button
+              type="button"
+              aria-disabled
+              aria-label={`Approvals: ${approvals}`}
+              className={iconControl}
+            >
+              <ShieldIcon aria-hidden size={16} />
+            </button>
+          </Tip>
+        }
+        trailing={
+          <Tip label="Model controls are available when the thread starts" side="top">
+            <button
+              type="button"
+              aria-disabled
+              aria-label={`Model: ${model ? modelLabel(model) : "Provider default"}`}
+              className={chipControl}
+            >
+              {model ? modelLabel(model) : "Provider default"}
+            </button>
+          </Tip>
+        }
         placeholder="Draft your next message while the worktree is prepared"
         shortPlaceholder="Draft your next message"
         sendBlocked={{

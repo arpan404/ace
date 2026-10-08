@@ -12,8 +12,8 @@ export function ComputerUseSettings() {
     <>
       <SettingSection label="Access">
         <EnableRow use={use} />
-        <div className="flex items-center gap-3 border-b py-3">
-          <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+        <div className="flex h-9 items-center gap-3 border-b">
+          <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
             Stops every session at once, releases every agent and turns computer use off until you
             turn it on again.
           </p>
@@ -21,7 +21,7 @@ export function ComputerUseSettings() {
         </div>
       </SettingSection>
       <SettingSection label="Live sessions">
-        <LiveSessions use={use} />
+        <LiveSessions use={use} compact />
       </SettingSection>
       <SettingSection label="Approved apps">
         <ApprovedApps use={use} />

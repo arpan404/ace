@@ -61,7 +61,7 @@ export function NeedsYouPage() {
         title="Needs you"
         lede="Approvals, questions and plans from every thread, oldest first. Answer here, or open the thread for context."
       />
-      <div ref={watch} className="mt-5 flex flex-col gap-3">
+      <div ref={watch} className="mt-3 flex flex-col">
         {needs.entries.map((entry) => (
           <ThreadCards key={entry.threadId} threadId={entry.threadId} />
         ))}
@@ -143,6 +143,7 @@ function useFocusFollowsCards() {
 const legend: { label: string; shortcut?: KeymapId; keys?: string }[] = [
   { label: "next", shortcut: "activity.next" },
   { label: "previous", shortcut: "activity.prev" },
+  { label: "expand", keys: "enter" },
   { label: "approve", shortcut: "activity.approve" },
   { label: "deny", shortcut: "activity.deny" },
   { label: "choose", keys: "1" },

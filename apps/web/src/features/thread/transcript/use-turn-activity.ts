@@ -2,7 +2,6 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
-import { useThreadReset } from "../lib/thread-account.ts";
 import { pauseLabel, providerNames } from "@ace/ui-core";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useStopping } from "../composer/stop-state.ts";
@@ -39,14 +38,13 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     },
     [enabled, rootId, status, stopping],
   );
-  const reset = useThreadReset(threadId);
   const activity = useWatched(threadId, keys, read, sameActivity);
   return activity && live.staleLabel
-    ? { label: live.staleLabel, tone: "held", elapsedFrom: undefined, current: undefined }
+    ? { label: "Work so far", tone: "held", elapsedFrom: undefined, current: undefined }
     : activity?.tone === "paused"
       ? {
           ...activity,
-          label: pauseLabel(meta ? providerNames[meta.provider] : undefined, { until: reset }),
+          label: pauseLabel(meta ? providerNames[meta.provider] : undefined, undefined),
         }
       : activity;
 }

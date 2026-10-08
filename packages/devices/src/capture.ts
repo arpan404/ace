@@ -46,7 +46,7 @@ export async function startCapture(options: {
     const permissions = await screen.currentPermissions();
     checkAbort();
     if (!permissions.screenRecording) throw permissionDenied("screenRecording");
-    screen.requireApproval("com.apple.iphonesimulator", options.scope);
+    if (options.scope) screen.requireApproval("com.apple.iphonesimulator", options.scope);
     const selected = await options.platform.simulatorCaptureDevice(options.device);
     checkAbort();
     const window = await simulatorWindow(screen, options, selected.name, checkAbort);
@@ -58,11 +58,14 @@ export async function startCapture(options: {
         "Simulator changed while selecting its window",
         "Refresh the device list and start capture again.",
       );
-    const state = await screen.start(
-      { kind: "window", bundleId: window.bundleId, windowId: window.windowId },
-      options.fps,
-      options.scope,
-    );
+    const target = {
+      kind: "window" as const,
+      bundleId: window.bundleId,
+      windowId: window.windowId,
+    };
+    const state = options.scope
+      ? await screen.start(target, options.fps, options.scope)
+      : await screen.startHumanDeviceView(target, options.fps);
     let stopped = false;
     let terminated = false;
     let stopping: Promise<void> | undefined;
@@ -415,12 +418,17 @@ export async function startCapture(options: {
  */
 async function simulatorWindow(
   screen: ScreenManager,
-  options: { device: Device; platform: DevicePlatform; runtime: DeviceRuntime },
+  options: {
+    device: Device;
+    platform: DevicePlatform;
+    runtime: DeviceRuntime;
+    scope?: ScreenAgentScope;
+  },
   name: string,
   checkAbort: () => void,
 ) {
   for (let attempt = 0; ; attempt++) {
-    const inventory = await screen.targets();
+    const inventory = options.scope ? await screen.targets() : await screen.humanDeviceTargets();
     checkAbort();
     const exact = inventory.windows.filter(
       (window) =>

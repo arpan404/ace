@@ -22,6 +22,12 @@ revocation, shutdown and restart release control. A restarted daemon requires fr
 approval and never restores input ownership. Device work does not invent provider
 completion facts or weaken the whole-tree status rules in ADR 0004.
 
+Authenticated human viewing does not grant agent access. Simulator capture uses a
+human-only window session while agent computer use is disabled or the device is
+unapproved; macOS Screen Recording permission still applies. This path accepts
+only Simulator windows and does not expose semantic reads or agent control.
+Approval replaces the capture session, and the client restarts its live view.
+
 ## Reuse and transport
 
 iOS inventory and boot reuse `Simulators`; capture and semantic actions use the

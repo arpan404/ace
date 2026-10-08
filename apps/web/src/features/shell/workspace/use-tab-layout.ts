@@ -42,9 +42,8 @@ export function useTabFit(
       if (rowElement.clientWidth <= 0) return;
       const next = fitTabs(
         tabElements(listElement).map((element) => {
-          const { natural, least, badge } = measureTab(element);
-          const tool = element.dataset.tabTool === "true";
-          return { key: element.dataset.tabKey ?? "", natural, least, tool, badge };
+          const natural = measureTab(element);
+          return { key: element.dataset.tabKey ?? "", natural };
         }),
         shown,
         available,

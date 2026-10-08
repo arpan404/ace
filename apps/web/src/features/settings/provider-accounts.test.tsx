@@ -100,8 +100,9 @@ test("cancelling browser sign-in never leaves a named account behind", async () 
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));
-  await within(dialog).findByText("Sign-in cancelled");
-  await userEvent.click(within(dialog).getByText("Close", { selector: "button" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
   expect(within(await accounts()).queryByText("Client")).toBeNull();
   expect(
     (await app.client.request({ type: "accounts.list" })).accounts.some(

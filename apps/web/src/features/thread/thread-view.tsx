@@ -60,6 +60,7 @@ import {
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredRequestStack } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
@@ -137,6 +138,7 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
 
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
+  const connection = useLiveConnection();
   const meta = useThreadMeta(props.threadId);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
@@ -187,7 +189,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         }
         title={title ?? "Loading thread…"}
         subtitle={
-          meta?.status.state === "limited" ? (
+          connection.fresh && meta?.status.state === "limited" ? (
             <Suspense fallback={null}>
               <DeferredLimitBadge.Component threadId={id} />
             </Suspense>

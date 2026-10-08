@@ -63,8 +63,8 @@ function readWhy(reader: ThreadReader) {
  * subagents and errors, the newest thing the agent said, and the requests waiting on the
  * person. Summarise is an explicit, ordinary message to the
  * thread's agent; nothing here asks a provider by itself. On a phone the card opens folded to
- * its heading and the status, so the transcript keeps the screen; opened, it scrolls inside a
- * capped height rather than pushing the transcript away.
+ * its heading and the status. Opening it adds its content to the transcript
+ * scroll flow, so it cannot cover messages or clip its newest answer.
  */
 export function CatchUpCard(props: {
   threadId: string;
@@ -121,11 +121,7 @@ export function CatchUpCard(props: {
   return (
     <section
       aria-label="While you were away"
-      className={cn(
-        "flex w-full max-w-[700px] flex-col gap-2 border-b border-border py-2 text-ui",
-        // Keep the transcript visible while reading an expanded summary.
-        "max-h-[35dvh] overflow-y-auto overscroll-contain",
-      )}
+      className={cn("flex w-full max-w-[700px] flex-col gap-2 border-b border-border py-2 text-ui")}
     >
       <header className="flex min-w-0 items-center gap-2">
         {phone ? (
@@ -177,15 +173,12 @@ export function CatchUpCard(props: {
         )}
         <IconButton icon={XIcon} label="Dismiss" size="sm" onClick={props.onDismiss} />
       </header>
-      <p className="flex items-start gap-2 text-ui">
-        <StatusLabel
-          tone={freshness.fresh ? status.tone : "waiting"}
-          label={freshness.staleLabel ?? status.label}
-        />
-        {freshness.fresh && (
+      {freshness.fresh && (
+        <p className="flex items-start gap-2 text-ui">
+          <StatusLabel tone={status.tone} label={status.label} />
           <span className={cn("text-muted-foreground", !open && "line-clamp-1")}>{why.body}</span>
-        )}
-      </p>
+        </p>
+      )}
       {open && (
         <div id={body} className="flex flex-col gap-2.5">
           <p className="flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
@@ -241,7 +234,7 @@ export function CatchUpCard(props: {
             </ul>
           )}
           {view.latestMessage && (
-            <div className="line-clamp-2 border-t border-border pt-2.5 text-ui text-muted-foreground">
+            <div className="border-t border-border pt-2.5 text-ui text-muted-foreground">
               <span className="text-subtle-foreground">Latest: </span>
               <Prose text={view.latestMessage} className="inline [&_p]:inline" />
             </div>

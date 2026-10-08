@@ -81,10 +81,7 @@ function LimitedAccount(props: { group: LimitedGroup; accounts: readonly Account
   const target = group.target;
   const from = group.accountId;
   return (
-    <article
-      aria-label={group.name}
-      className="mt-3.5 rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"
-    >
+    <article aria-label={group.name} className="mt-3.5 border-b py-2">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">{group.name}</p>

@@ -14,6 +14,7 @@ import {
 import { refreshProviders, useProviderReadiness } from "@/lib/provider-readiness.ts";
 import { isFinished, type LoginController, type LoginView } from "./login-controller.ts";
 import { LoginBody } from "./login-steps.tsx";
+import { useCloseCancelled } from "./login-outcome.tsx";
 
 /** Waiting on the CLI or on the person elsewhere: the mark breathes meanwhile. */
 function waiting(view: LoginView): boolean {
@@ -65,6 +66,7 @@ export function SignInDialog(props: {
     void queryClient.invalidateQueries({ queryKey: ["accounts"] });
     finish();
   }, [succeeded, queryClient]);
+  useCloseCancelled(view, props.onClose);
   const running = view.kind === "progress" && !isFinished(view.progress);
   const logout = action === "logout";
   const title = service

@@ -35,6 +35,7 @@ export function StatusStrip(props: {
       : props.stopping
         ? "Working"
         : (activity?.label ?? "Working"));
+  if (!live.fresh || props.status?.state === "limited") return null;
   return (
     <AttachedCard label="Agents" strip cardKey="status">
       <div className={cn(stripRow, "gap-2 pl-3.5")}>

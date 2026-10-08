@@ -82,6 +82,9 @@ test("an approval answers in the same verbs in the thread and on Activity's card
   const inActivity = await within(screen.getByRole("main")).findByRole("article", {
     name: title,
   });
+  await userEvent.click(
+    within(inActivity).getByRole("button", { expanded: false, name: new RegExp(title) }),
+  );
   expect(verbs(inActivity)).toEqual(["Allow once", "Always allow", "Deny"]);
   const list = await screen.findByRole("list", { name: "Activity" });
   const row = within(list).getByText(title).closest("li");

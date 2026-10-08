@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import type { LoginController } from "./login-controller.ts";
 import { LoginBody } from "./login-steps.tsx";
+import { useCloseCancelled } from "./login-outcome.tsx";
 
 export function InlineSignIn(props: { login: LoginController; onClose(): void; onRetry(): void }) {
   const view = useSyncExternalStore(props.login.subscribe, props.login.getView);
@@ -24,6 +25,7 @@ export function InlineSignIn(props: { login: LoginController; onClose(): void; o
       close();
     }
   }, [succeeded, queries]);
+  useCloseCancelled(view, props.onClose);
   const target = props.login.target;
   const name = apiKeyServiceLabel(target.provider, target.upstream);
   return (

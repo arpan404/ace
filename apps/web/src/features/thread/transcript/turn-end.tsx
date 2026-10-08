@@ -8,7 +8,6 @@ import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
-import { useThreadReset } from "../lib/thread-account.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
 const FailedTurn = DeferredFailedTurn.Component;
@@ -101,13 +100,9 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   const read = useCallback((reader: ThreadReader) => readEnding(reader, block), [block]);
   const ending = useWatched(props.threadId, keys, read, sameEnding);
   const provider = useThreadMeta(props.threadId)?.provider;
-  const reset = useThreadReset(props.threadId);
   if (!ending) return null;
   if (block.ending === "paused") {
-    const text = pauseLabel(
-      provider ? providerNames[provider] : undefined,
-      ending.held ? { until: reset ?? ending.held.until } : undefined,
-    );
+    const text = pauseLabel(provider ? providerNames[provider] : undefined, undefined);
     return (
       <Marker role="note" aria-label={text} variant="separator" className="text-xs">
         <MarkerContent className="flex items-center gap-1.5">

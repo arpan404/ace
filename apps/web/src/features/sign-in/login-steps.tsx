@@ -160,17 +160,7 @@ export function LoginBody(props: {
     case "succeeded":
       return null;
     case "cancelled":
-      return (
-        <Step key={key}>
-          <Problem
-            title={context.logout ? "Sign-out cancelled" : "Sign-in cancelled"}
-            hint="Nothing changed."
-            onClose={props.onClose}
-            onRetry={props.onRetry}
-            quiet
-          />
-        </Step>
-      );
+      return null;
     case "failed":
       if (progress.manual)
         return (

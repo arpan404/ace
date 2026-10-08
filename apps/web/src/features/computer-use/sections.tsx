@@ -30,7 +30,13 @@ export function EnableRow(props: { use: ComputerUse }) {
       ? "Connecting to the screen helper…"
       : "Agents can ask to use apps on this Mac, in the background while you keep working. You approve each app.";
   return (
-    <SettingRow title="Let agents use apps" description={description} htmlFor={id} inline>
+    <SettingRow
+      title="Let agents use apps"
+      description={description}
+      htmlFor={id}
+      density="compact"
+      inline
+    >
       <Switch
         id={id}
         checked={snapshot.enabled === true}
@@ -87,6 +93,7 @@ export function LiveSessions(props: {
   threadId?: string | undefined;
   /** One column, for a side panel. */
   narrow?: boolean;
+  compact?: boolean;
 }) {
   const { use, threadId } = props;
   const sessions = visibleSessions(use.snapshot.states).toSorted(
@@ -109,11 +116,21 @@ export function LiveSessions(props: {
   return (
     <ul
       aria-label="Live sessions"
-      className={cn("grid grid-cols-1 gap-3", !props.narrow && "md:grid-cols-2")}
+      className={
+        props.compact
+          ? "flex flex-col"
+          : cn("grid grid-cols-1 gap-3", !props.narrow && "md:grid-cols-2")
+      }
     >
       {sessions.map((state) => (
         <li key={state.sessionId} className="min-w-0">
-          <SessionCard state={state} use={use} threadId={threadId} />
+          <SessionCard
+            state={state}
+            use={use}
+            threadId={threadId}
+            live={!props.compact}
+            compact={props.compact}
+          />
         </li>
       ))}
     </ul>
@@ -167,12 +184,11 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
       <ul aria-label="Approved apps" className="flex flex-col">
         {rows.map((row) => (
           <li key={row.key} className="flex h-9 items-center gap-2 border-b last:border-b-0">
-            <AppMark name={row.app} />
+            <AppMark name={row.app} bundleId={row.bundleId} />
             <p className="min-w-0 flex-1 truncate text-ui">
               {row.app}
               <span className="ml-2 text-xs text-subtle-foreground">
-                {row.scopeLabel}
-                {row.sensitive && " · asks every turn"}
+                {row.sensitive ? "Ask each turn" : row.scopeLabel}
               </span>
             </p>
             <Button
@@ -194,16 +210,16 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
 const permissionNames = {
   screenRecording: {
     title: "Screen Recording",
-    what: "Lets Ace Screen Helper see app windows, even behind others.",
+    what: "Lets ace screen helper see app windows, even behind others.",
   },
   accessibility: {
     title: "Accessibility",
-    what: "Lets Ace Screen Helper press buttons and type in approved apps.",
+    what: "Lets ace screen helper press buttons and type in approved apps.",
   },
 } as const;
 
 /**
- * macOS grants to Ace Screen Helper, each with Request (macOS asks, or opens its settings).
+ * macOS grants to ace screen helper, each with Request (macOS asks, or opens its settings).
  * When they can't be read (computer use off, the helper refusing, the channel down) both say
  * Unavailable, with why and what to do next, instead of checking forever (QA-16).
  */
@@ -246,6 +262,8 @@ export function Permissions(props: { use: ComputerUse }) {
             key={key}
             title={permissionNames[key].title}
             description={permissionNames[key].what}
+            density="compact"
+            inline
           >
             <span
               className="flex items-center gap-1.5 text-sm text-muted-foreground"
@@ -277,11 +295,12 @@ export function Permissions(props: { use: ComputerUse }) {
           <span className="font-medium text-foreground">{reading.reason}.</span> {reading.next}{" "}
           {recheck}
         </p>
-      ) : (
+      ) : reading.state === "known" &&
+        (!reading.permissions.screenRecording || !reading.permissions.accessibility) ? (
         <p className="mt-2 text-xs text-subtle-foreground">
           Granted it in System Settings? {recheck}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

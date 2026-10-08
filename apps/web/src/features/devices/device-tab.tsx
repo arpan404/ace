@@ -202,10 +202,9 @@ function SelectedDevice(props: { devices: Devices }) {
             </Button>
           )}
         </div>
-        {selected.platform === "ios" && (
+        {selected.platform === "ios" && !controls.approvedHere && (
           <p className="text-xs text-subtle-foreground">
-            Approving turns on computer use and shares Simulator with this thread only. Revoke
-            removes that access.
+            Approve to let this thread’s agents use Simulator. You can watch without approving.
           </p>
         )}
         {controls.approvedHere && controls.running && (
@@ -250,21 +249,13 @@ function SelectedDevice(props: { devices: Devices }) {
           <div className="grid min-h-40 flex-1 place-items-center">
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="text-sm text-muted-foreground">
-                {controls.running
-                  ? selected.platform === "ios" && !controls.approvedHere
-                    ? "Approve this device above to start its live view."
-                    : "The live view is off."
-                  : `${selected.name} is off.`}
+                {controls.running ? "The live view is off." : `${selected.name} is off.`}
               </p>
               {controls.running ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={
-                    view.pending ||
-                    controls.busy ||
-                    (selected.platform === "ios" && !controls.approvedHere)
-                  }
+                  disabled={view.pending || controls.busy}
                   onClick={devices.start}
                 >
                   {controls.busy && <Spinner />}

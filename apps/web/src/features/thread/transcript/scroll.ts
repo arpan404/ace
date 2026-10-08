@@ -35,11 +35,7 @@ export function useStayPinned(
   }, [viewport, pinned, glidingUntil]);
 }
 
-/**
- * A card docked above the viewport (the catch-up card) pushes the transcript down instead of
- * covering it. When it appears, grows or is dismissed, a reader who isn't at the live end keeps
- * the same lines on screen; one at the live end stays there (`useStayPinned`).
- */
+/** An inline catch-up summary changes the live end, without moving an older reading position. */
 export function useDockShift(
   dock: RefObject<HTMLElement | null>,
   viewport: RefObject<HTMLElement | null>,
@@ -49,12 +45,8 @@ export function useDockShift(
     const el = dock.current;
     const view = viewport.current;
     if (!el || !view || typeof ResizeObserver === "undefined") return;
-    let height = el.offsetHeight;
     const observer = new ResizeObserver(() => {
-      const next = el.offsetHeight;
-      const delta = next - height;
-      height = next;
-      if (delta && !pinned.current) view.scrollTop += delta;
+      if (pinned.current) view.scrollTop = view.scrollHeight - view.clientHeight;
     });
     observer.observe(el);
     return () => observer.disconnect();

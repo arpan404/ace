@@ -46,6 +46,21 @@ test("approving a device for the thread is what the daemon records", async () =>
   );
 });
 
+test("a person watches an unapproved simulator; approval removes the access hint", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  const image = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  await shows(image);
+  expect(
+    app.daemon.appDevices.approval("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b"),
+  ).toBeUndefined();
+  expect(within(iphone).getByText(/You can watch without approving/)).toBeTruthy();
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
+  await within(iphone).findByText("Agents in this thread can use it");
+  expect(within(iphone).queryByText(/You can watch without approving/)).toBeNull();
+});
+
 test("booting an emulator shows its live screen, which takes keys and text while you're in control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
@@ -298,17 +313,10 @@ test("an approved device can be delegated to one of the thread's agents, who the
   expect(await within(iphone).findByText("You're using it")).toBeTruthy();
 });
 
-test("Simulator explains approval before starting and can restart its live view", async () => {
+test("Simulator can restart its live view without granting agent access", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-  expect(
-    within(iphone).getByText("Approve this device above to start its live view."),
-  ).toBeTruthy();
-  expect(
-    within(iphone).getByRole("button", { name: "Start live view" }).hasAttribute("disabled"),
-  ).toBe(true);
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
   await userEvent.click(
     within(iphone).getByRole("button", { name: /Device actions|More|iPhone 16 Pro actions/ }),
