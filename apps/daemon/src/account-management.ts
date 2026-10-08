@@ -7,7 +7,7 @@ import {
   type AccountsResponse,
   type ProviderInstance,
 } from "@ace/protocol/accounts";
-import type { TerminalEvent } from "@ace/terminal";
+import type { OpenTerminalOptions, TerminalEvent } from "@ace/terminal";
 import {
   createPosixBackendFactory,
   TerminalManager,
@@ -34,7 +34,9 @@ interface AuthTerminal {
   controller: AbortController;
   sdk?: boolean;
   owner: string;
-  instance: ProviderInstance;
+  instance?: ProviderInstance;
+  launch?: OpenTerminalOptions;
+  complete?: (success: boolean) => void;
   action: "login" | "logout";
   scope?: "operate";
   release(): void;
@@ -249,6 +251,22 @@ export class AccountManagement {
     if (entry) entry.cancelTimer = () => clearTimeout(timer);
     return terminalId;
   }
+  /** A protocol-advertised login invocation: live, owner-scoped, never recorded. */
+  openLoginTerminal(owner: string, launch: OpenTerminalOptions) {
+    if (this.closed || this.terminals.size >= 8) throw new Error("Auth terminal unavailable");
+    const terminalId = this.options.id();
+    const { promise: exited, resolve: complete } = Promise.withResolvers<boolean>();
+    this.terminals.set(terminalId, {
+      owner,
+      launch,
+      action: "login",
+      scope: "operate",
+      controller: new AbortController(),
+      complete,
+      release: () => complete(false),
+    });
+    return { id: terminalId, exited, stop: () => this.stop(terminalId, owner) };
+  }
   terminalScope(id: string): "accounts" | "operate" {
     return this.terminals.get(id)?.scope ?? "accounts";
   }
@@ -273,7 +291,26 @@ export class AccountManagement {
       ? AbortSignal.any([entry.controller.signal, this.options.signal])
       : entry.controller.signal;
     signal.throwIfAborted();
+    if (entry.launch) {
+      const terminal = this.manager.openLiveTerminal(entry.launch, emit);
+      entry.terminal = terminal;
+      entry.starting = false;
+      entry.done = terminal.exited.then(
+        async (exit) => {
+          await this.manager.releaseLive(terminal);
+          entry.complete?.(exit.code === 0 && exit.signal === null && !signal.aborted);
+          entry.release();
+          this.terminals.delete(id);
+        },
+        () => {
+          entry.release();
+          this.terminals.delete(id);
+        },
+      );
+      return;
+    }
     const { instance, action } = entry;
+    if (!instance) throw new Error("Account unavailable");
     if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     if (instance.provider === "cursor" && !sdk) throw new Error("Cursor SDK is unavailable");

@@ -1,6 +1,7 @@
 import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
-import { digest, type AgentRegistry } from "@ace/agent-registry";
+import { acpModelInstanceId } from "./acp-model-instance.ts";
+import { type AgentRegistry } from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { AcpIdentity, type McpCapability } from "@ace/protocol";
 import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
@@ -81,7 +82,7 @@ export function acpEngineOptions(input: {
       );
       const connection = { url: input.mcp.url, bearer: lease.bearer };
       const instance: InstanceInput = {
-        id: `acp-${digest(JSON.stringify(identity))}`,
+        id: acpModelInstanceId(identity),
         provider: "acp",
         ...identity,
         loginRevision: account.loginRevision,

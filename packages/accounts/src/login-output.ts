@@ -23,6 +23,9 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
         : provider === "cursor"
           ? ([["cursor.com", /^\/(?:login|loginDeepControl)\/?$/]] as const)
           : ([
+              ...(provider === "acp" || provider === "antigravity"
+                ? [["accounts.google.com", /^\/o\/oauth2\/(?:v2\/auth|auth)\/?$/] as const]
+                : []),
               ["github.com", /^\/login\/device\/?$/],
               ["auth.openai.com", /^\/codex\/device\/?$/],
             ] as const);
@@ -38,6 +41,9 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "code_challenge_method",
     "audience",
     "originator",
+    ...(provider === "acp" || provider === "antigravity"
+      ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
+      : []),
     "id_token_add_organizations",
     "codex_cli_simplified_flow",
   ]);
