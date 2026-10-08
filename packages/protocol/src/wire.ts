@@ -1,4 +1,9 @@
 import {
+  WorktreeCreationRequest,
+  WorktreeCreationEvent,
+  WorktreeCreationResult,
+} from "./worktree-creation.ts";
+import {
   ProviderLoginRequest,
   ProviderLoginResult,
   ProviderLoginEvent,
@@ -138,6 +143,7 @@ import {
 } from "./search.ts";
 
 export const ClientMessage = z.discriminatedUnion("type", [
+  WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
   ThreadSearchRequest,
@@ -198,6 +204,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  WorktreeCreationEvent,
+  WorktreeCreationResult,
   TurnsPageResponse,
   ItemsWindowResponse,
   ThreadSearchResponse,

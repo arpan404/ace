@@ -10,6 +10,26 @@ Authenticate with `hello` and the negotiated protocolVersion before subscribing 
 
 [JSON Schema](schema/ClientMessage.json), input validation.
 
+### worktree.creation.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"worktree.creation.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| commandId | yes | [CommandId.json](schema/CommandId.json) |  |
+| action | yes | ["get","cancel","local","retry"] |  |
+
+Example:
+
+```json
+{
+  "action": "local",
+  "commandId": "example",
+  "requestId": "example",
+  "type": "worktree.creation.request"
+}
+```
+
 ### turns.page
 
 Semantic rule: At most one exclusive ordinal cursor, before or after.
@@ -51,9 +71,8 @@ Example:
 
 ```json
 {
-  "after": 5,
-  "aroundSeq": 6,
-  "before": 8,
+  "after": 1,
+  "aroundSeq": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "items.window"
@@ -77,7 +96,9 @@ Example:
 
 ```json
 {
+  "filter": "tool_output",
   "requestId": "example",
+  "scope": "thread",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"
@@ -101,7 +122,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sinceSeq": 9,
+  "sinceTime": 8,
   "threadId": "example",
   "type": "thread.catchUp"
 }
@@ -154,8 +175,7 @@ Example:
 ```json
 {
   "operation": {
-    "hostId": "example",
-    "op": "status"
+    "op": "list"
   },
   "requestId": "example",
   "type": "machines.request"
@@ -192,7 +212,7 @@ Example:
 
 ```json
 {
-  "provider": "claude",
+  "provider": "cursor",
   "requestId": "example",
   "type": "provider.login.start"
 }
@@ -211,8 +231,7 @@ Example:
 
 ```json
 {
-  "instance": "Q2tbJrvwGhslZ9feMKG4Mv4CAvdaVn-UGUgwJSaSAKIFk5faXKFl9BopYRMvCkis3LnNt_bHUplF9IrBWGW8qmSYMSeTI84CqzCfdyiP",
-  "provider": "opencode",
+  "provider": "acp",
   "requestId": "example",
   "type": "provider.logout"
 }
@@ -286,7 +305,7 @@ Example:
 ```json
 {
   "input": {
-    "confirm": true
+    "choice": "r_rzb980xd3mf046lavkmntelh4_"
   },
   "requestId": "example",
   "session": "example",
@@ -342,8 +361,7 @@ Example:
 ```json
 {
   "operation": {
-    "op": "unforward",
-    "port": 3
+    "op": "list"
   },
   "requestId": "example",
   "threadId": "example",
@@ -364,10 +382,11 @@ Example:
 ```json
 {
   "operation": {
-    "op": "unsubscribe",
-    "subscriptionId": "SHkUBxGevOCVttexFyuER8teTQmC3EpDa9gPXPALPzs5lwvuIxif3VCBMRFQC7mYTui7hsLFMU0Nns6sKPsEC15Z-P72kqg.E9Fys2RMnfuZb4uVXbWSIvVz"
+    "op": "subscribe",
+    "runId": "H5CqADfdziPqqVnQ2v-wViiYAORwhkiZp14BBh7PTV9NDPiXYm2R54MyybPqEL.bZU6yj9kFp-GnEvf9x-_m3TfI6OJD_.djxIIGwjZKZPGvVks3L9-TYXrrt",
+    "subscriptionId": "13U8HkUBxGevOCVttexFyuER8teTQmC3EpDa9gPXPALPzs5lwvuIxif3V"
   },
-  "requestId": "Ov-wViiYAORwhkiZp14BBh7PTV9NDPiXYm2R54MyybPqEL.bZU6yj9kFp-GnEvf9x-_m3TfI6OJD_.djxIIGwjZKZPGvVks3L9-TYXrrt3C",
+  "requestId": "LH5Nw5CBvdaWn_VGUgxKTaSAKJGl6faYKFm-CopYRNwClis4LnOt.bIVqlF-IrCXGX9qmTZNSe",
   "type": "conductor.request"
 }
 ```
@@ -385,25 +404,25 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
-    "enabled": false,
+    "concurrency": 2,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 5,
-    "missedRun": "skip",
+    "jitterMs": 7,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "opencode",
     "title": "example",
     "trigger": {
       "kind": "schedule",
       "schedule": {
         "expression": "example",
-        "kind": "rrule",
+        "kind": "cron",
         "startAt": 0,
         "timezone": "example"
       }
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -477,7 +496,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -513,6 +532,7 @@ Example:
 
 ```json
 {
+  "allBefore": 2,
   "read": [],
   "requestId": "example",
   "type": "activity.markRead"
@@ -534,7 +554,6 @@ Example:
 
 ```json
 {
-  "after": "example",
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -564,7 +583,7 @@ Example:
 }
 ```
 
-### Variant 28
+### Variant 29
 
 Type: union. See JSON Schema for constraints.
 
@@ -572,9 +591,10 @@ Example:
 
 ```json
 {
+  "digest": "de8e34e117869487ceb91910e743dbf6a7f56a542f50667feadc5307d15a9857",
   "intentId": "example",
   "requestId": "example",
-  "type": "registry.install-cancel"
+  "type": "registry.install-intent"
 }
 ```
 
@@ -913,7 +933,7 @@ Example:
 }
 ```
 
-### Variant 45
+### Variant 46
 
 Type: union. See JSON Schema for constraints.
 
