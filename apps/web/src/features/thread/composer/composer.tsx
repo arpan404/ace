@@ -725,7 +725,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               unavailable={props.unavailable}
             />
             {/* The model shrinks and truncates its label, so nothing on the row ever paints over
-              another. */}
+            another. */}
             <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
             {props.trailing && (
               <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>

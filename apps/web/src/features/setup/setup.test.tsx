@@ -63,7 +63,10 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   await within(dialog).findByRole("link", { name: "Open sign-in page" });
   app.daemon.services.providerLogin.complete("fake-login-1");
-  await userEvent.click(await within(dialog).findByRole("button", { name: "Done" }));
+  await screen.findByText("Signed in to Claude Code");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
 
   await waitFor(async () =>
     expect((await progress()).getAttribute("aria-valuetext")).toBe("1 of 5 ready"),

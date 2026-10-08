@@ -1,3 +1,5 @@
+import { accountDisplayName, accountStatus } from "@ace/ui-core";
+import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderLoginProgress } from "@ace/protocol";
 import { CheckIcon, TerminalWindowIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -60,7 +62,15 @@ export function ManualSteps(props: {
   const open = useRef<HTMLButtonElement>(null);
   const done = useRef<HTMLButtonElement>(null);
   // The CLI exited and the provider reads signed in: the terminal stays, so its last words do.
-  const signedIn = exited && row?.readiness === "signed_in";
+  const accounts = useAccountViews();
+  const view = props.login.getView();
+  const instance = view.kind === "progress" ? view.progress.instance : undefined;
+  const account = accounts.data?.find((entry) => entry.id === instance);
+  const signedIn =
+    exited &&
+    (instance
+      ? !!account && accountStatus(account, account.quota.observedAt).canRun
+      : row?.readiness === "signed_in");
   useEffect(() => {
     (signedIn ? done : open).current?.focus();
   }, [signedIn]);
@@ -101,6 +111,7 @@ export function ManualSteps(props: {
                 onExit={() => {
                   setExited(true);
                   refreshProviders(queryClient);
+                  void queryClient.invalidateQueries({ queryKey: ["accounts"] });
                 }}
               />
             </Suspense>
@@ -129,7 +140,11 @@ export function ManualSteps(props: {
           {signedIn ? (
             <p role="status" className="flex items-center gap-1.5 font-medium">
               <CheckIcon aria-hidden size={14} weight="bold" className="text-status-done" />
-              {row.accountLabel ? `Signed in as ${row.accountLabel}` : `Signed in to ${name}`}
+              {account
+                ? `Signed in · ${accountDisplayName(account)}`
+                : row?.accountLabel
+                  ? `Signed in as ${row.accountLabel}`
+                  : `Signed in to ${name}`}
             </p>
           ) : (
             <p className="text-muted-foreground">

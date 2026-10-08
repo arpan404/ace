@@ -1,3 +1,4 @@
+import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
@@ -28,32 +29,34 @@ export function AppShell() {
   return (
     <ProjectsHost>
       <SignInHost>
-        <div
-          ref={shell}
-          data-connection={connection}
-          className={cn(
-            "relative flex h-dvh min-h-0 overflow-hidden",
-            "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-            "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
-          )}
-        >
-          <div className="wallpaper" />
-          <a
-            href="#main"
-            // The desktop's macOS traffic lights cover the window's top-left corner.
-            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+        <AddAccountHost>
+          <div
+            ref={shell}
+            data-connection={connection}
+            className={cn(
+              "relative flex h-dvh min-h-0 overflow-hidden",
+              "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
+              "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
+            )}
           >
-            Skip to content
-          </a>
-          <SidebarFrame sidebar={<ShellSidebar />}>
-            <Outlet />
-          </SidebarFrame>
-          <CommandPalette />
-          <SearchHost />
-          <MoveToProjectHost />
-          <ShellHotkeys />
-          <ActivityNotifier />
-        </div>
+            <div className="wallpaper" />
+            <a
+              href="#main"
+              // The desktop's macOS traffic lights cover the window's top-left corner.
+              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+            >
+              Skip to content
+            </a>
+            <SidebarFrame sidebar={<ShellSidebar />}>
+              <Outlet />
+            </SidebarFrame>
+            <CommandPalette />
+            <SearchHost />
+            <MoveToProjectHost />
+            <ShellHotkeys />
+            <ActivityNotifier />
+          </div>
+        </AddAccountHost>
       </SignInHost>
     </ProjectsHost>
   );

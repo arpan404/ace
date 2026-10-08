@@ -1,7 +1,7 @@
 import type { ModelScope } from "@ace/client";
 import { modelRequiresAuth } from "@ace/models/availability";
 import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
-import { tightestWindow, type AccountView } from "./accounts.ts";
+import { accountDisplayName, tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
 import { modelAliases } from "./catalog-ids.ts";
@@ -37,12 +37,15 @@ function isPseudoDefault(model: CatalogModel): boolean {
   return /^default(?:\s*\(recommended\))?$/i.test(model.id.trim());
 }
 
-function placement(model: CatalogModel): ModelPlacement {
+function placement(model: CatalogModel, account?: AccountView): ModelPlacement {
   return {
     free: model.free,
     detail: model.detail,
     sortKey: model.sortKey,
-    source: model.source,
+    source:
+      account && (!model.source || model.source.kind === "account")
+        ? { kind: "account", id: account.id, label: accountDisplayName(account) }
+        : model.source,
     userDefault: model.isDefault && model.defaultSource === "user",
   };
 }
@@ -152,17 +155,13 @@ export function recordedChoice(
 /** What a thread's model reads as when neither the catalog nor its record names one. */
 export const unreportedModel = "Unknown model";
 
-/**
- * An account label as the quiet tag shown beside a model ("Opus 4.1 personal",
- * "Claude Code · work"). The label stays as the provider gave it on the Accounts page.
- */
-export function accountTag(label: string): string {
-  return label.toLocaleLowerCase();
-}
-
 /** Provider, account and model in one line: "Claude Code · work · Sonnet 4.5". */
 export function choiceLine(choice: ModelChoice): string {
-  return modelLine(choice.provider, choice.model, choice.account && accountTag(choice.account));
+  return modelLine(
+    choice.provider,
+    choice.model,
+    choice.account && accountDisplayName(choice.account),
+  );
 }
 
 function note(account: AccountView | undefined): string {
@@ -170,7 +169,7 @@ function note(account: AccountView | undefined): string {
   if (!account.signedIn)
     return (
       account.runtimeStatus?.text ??
-      (account.quota.auth === "logged_out" ? "Signed out" : "Sign-in not reported")
+      (account.quota.auth === "logged_out" ? "Signed out" : "Not signed in yet")
     );
   const window = tightestWindow(account);
   return window ? `${window.usedPercent}% of ${window.label} window used` : "No usage reported";
@@ -214,7 +213,7 @@ export function modelChoices(
             model: modelName(provider, model.displayName),
             modelId: model.id,
             aliases: modelAliases(model),
-            account: account?.label ?? "",
+            account: account ? accountDisplayName(account) : "",
             accountId: model.instance,
             note: note(account),
             used: window ? window.usedPercent / 100 : undefined,
@@ -228,7 +227,7 @@ export function modelChoices(
             legacy: isLegacy(model),
             fastTier: fastTier(model),
             fastDefault: fastByDefault(model),
-            ...placement(model),
+            ...placement(model, account),
           },
         ];
       }),
@@ -332,6 +331,7 @@ export interface ModelOption extends ModelPlacement {
 
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
 export interface AccountOption {
+  authMethod?: AccountView["authMethod"];
   id: string;
   provider: ProviderKind;
   label: string;
@@ -383,12 +383,15 @@ export function newThreadOptions(
       legacy: isLegacy(model),
       fastTier: fastTier(model),
       fastDefault: fastByDefault(model),
-      ...placement(model),
+      ...placement(
+        model,
+        accounts.find((entry) => entry.id === model.instance),
+      ),
     });
   }
   const signedIn = accounts.filter((account) => account.signedIn || account.runtimeStatus?.canRun);
   const defaults = new Map<ProviderKind, string>();
-  for (const account of signedIn)
+  for (const account of signedIn.toSorted((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault)))
     if (account.availability !== "exhausted" && !defaults.has(account.provider))
       defaults.set(account.provider, account.id);
   return {
@@ -397,8 +400,9 @@ export function newThreadOptions(
       const window = tightestWindow(account);
       return {
         id: account.id,
+        authMethod: account.authMethod,
         provider: account.provider,
-        label: account.label,
+        label: accountDisplayName(account),
         usage: window ? `${window.usedPercent}% of ${window.label} used` : "no usage reported",
         isDefault: defaults.get(account.provider) === account.id,
       };

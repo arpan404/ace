@@ -42,12 +42,14 @@ test("headroom names each provider's account with the most room and when the nex
   const rows = within(headroom)
     .getAllByRole("listitem")
     .map((row) => row.textContent);
-  expect(rows[0]).toBe("Claude Code2 of 2 accounts can work · Most room: Work, 43% of Weekly left");
+  expect(rows[0]).toBe(
+    "Claude Code3 of 3 accounts can work · 1 with no limits reported · Most room: Work, 43% of Weekly left",
+  );
   expect(rows[1]).toMatch(
-    /^Codex1 of 2 accounts can work · Most room: Personal, 62% of 5-hour left · Team resets \d\d:\d\d · in 1h 27m$/,
+    /^Codex1 of 3 accounts can work · 1 with no limits reported · Most room: Personal, 62% of 5-hour left · Team resets \d{1,2}:\d\d(?: [AP]M)? · in 1h 27m$/i,
   );
   // OpenCode and Cursor report no windows: nothing to compare.
-  expect(rows.some((row) => row?.startsWith("OpenCode"))).toBe(false);
+  expect(rows.find((row) => row?.startsWith("OpenCode"))).toContain("no limits reported");
 
   // Each ring says how long until its window resets.
   expect(

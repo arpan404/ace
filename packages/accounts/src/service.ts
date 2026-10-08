@@ -124,7 +124,12 @@ export class AccountService {
         { provider: "cursor", role: "worker", estimatedLoad: 1 },
         this.registry
           .list()
-          .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
+          .filter(
+            (a) =>
+              !a.instance.implicit &&
+              !this.registry.isPending(a.instance.id) &&
+              !this.migrating.has(a.instance.id),
+          ),
         this.now(),
       )?.id
     );
@@ -218,6 +223,8 @@ export class AccountService {
     });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
+    if (assignment.instanceId && this.registry.isPending(assignment.instanceId))
+      throw new Error("Account sign-in is not complete");
     const provider = AccountProvider.parse(adapter.provider);
     const chosen = assignment.instanceId
       ? this.registry.get(assignment.instanceId)?.instance
@@ -229,7 +236,12 @@ export class AccountService {
           },
           this.registry
             .list()
-            .filter((a) => !a.instance.implicit && !this.migrating.has(a.instance.id)),
+            .filter(
+              (a) =>
+                !a.instance.implicit &&
+                !this.registry.isPending(a.instance.id) &&
+                !this.migrating.has(a.instance.id),
+            ),
           this.now(),
         );
     if (provider === "acp") {

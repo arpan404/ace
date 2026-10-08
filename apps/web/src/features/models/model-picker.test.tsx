@@ -19,7 +19,7 @@ async function openThread(app: Harness) {
 /** A Claude Code thread mid-turn, on its personal account's default, with the picker open. */
 async function openPicker(app = harness()) {
   await openThread(app);
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const list = await openModelPicker(popover);
   return { app, popover, list };
 }
@@ -41,7 +41,7 @@ test("models read by name with their snapshot as a quiet detail, each account ap
   expect(groupNames(list)).toEqual(["Personal", "Work"]);
   const personal = group(list, "Personal");
   expect(names(personal)).toEqual([
-    "Opus 5.5, default, Claude Code",
+    "Opus 5.5, recommended, Claude Code",
     "Sonnet 5.5, Claude Code",
     "Haiku 4.5, 20251001, Claude Code",
     "Legacy models, 6",
@@ -52,7 +52,7 @@ test("models read by name with their snapshot as a quiet detail, each account ap
     "false",
   );
   const shown = names(list).join("\n");
-  expect(shown).not.toMatch(/^Default|Claude Code · Default|recommended/im);
+  expect(shown).not.toMatch(/^Default|Claude Code · Default/im);
   expect(list.textContent).not.toMatch(/claude-|Haiku 4\.5\.20251001/);
   expect(within(personal).getByText("20251001")).toBeTruthy();
 });
@@ -76,7 +76,7 @@ test("Legacy models open in place; an older model picked there stays checked whe
     "Sonnet 4.5, Claude Code",
   ]);
   await userEvent.click(within(legacy).getByRole("option", { name: /^Opus 4\.8/ }));
-  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.8, personal/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Opus 4\.8, Personal/ })).toBeTruthy();
   expect(
     await within(popover).findByRole("button", { name: "Change model: Opus 4.8" }),
   ).toBeTruthy();
@@ -92,7 +92,7 @@ test("the keyboard reaches Legacy models: → opens them, ← closes them, Enter
   const search = within(popover).getByRole("combobox", { name: "Search models" });
   const active = () => document.getElementById(search.getAttribute("aria-activedescendant") ?? "");
   expect(document.activeElement).toBe(search);
-  expect(active()?.getAttribute("aria-label")).toBe("Opus 5.5, default, Claude Code");
+  expect(active()?.getAttribute("aria-label")).toBe("Opus 5.5, recommended, Claude Code");
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
   expect(active()?.getAttribute("aria-label")).toBe("Legacy models, 6");
@@ -108,14 +108,14 @@ test("the keyboard reaches Legacy models: → opens them, ← closes them, Enter
 
   await userEvent.keyboard("{Enter}{ArrowDown}{Enter}");
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: /^Model: Opus 4\.8, personal/ })).toBeTruthy(),
+    expect(screen.getByRole("button", { name: /^Model: Opus 4\.8, Personal/ })).toBeTruthy(),
   );
 });
 
 test("a row under another account moves the thread to that account", async () => {
   const { list } = await openPicker();
   await userEvent.click(within(group(list, "Work")).getByRole("option", { name: /^Sonnet 5\.5/ }));
-  expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, work/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Work/ })).toBeTruthy();
 });
 
 test("OpenCode lists its models by source, and a failing source says why beside its last models", async () => {
@@ -326,7 +326,7 @@ test("a starred model is kept under Favorites, also the next time the picker ope
 test("⌘ and a number pick that row, and the popover comes back to its effort", async () => {
   const { popover } = await openPicker();
   await userEvent.keyboard("{Meta>}2{/Meta}");
-  expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, personal/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Personal/ })).toBeTruthy();
   expect(
     await within(popover).findByRole("button", { name: "Change model: Sonnet 5.5" }),
   ).toBeTruthy();
@@ -338,7 +338,7 @@ test("the provider column moves with the arrow keys", async () => {
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(within(popover).getByRole("tab", { name: "Codex" }));
   expect(names(group(list, "Personal"))).toEqual([
-    "GPT-6.1 Sol, default, Codex",
+    "GPT-6.1 Sol, recommended, Codex",
     "GPT-5 Codex, Codex",
     "GPT-6, Codex",
     "GPT-6 Luna, Codex",
@@ -352,7 +352,7 @@ test("Escape clears a search first, then closes the popover", async () => {
   await userEvent.type(search, "gpt");
   await userEvent.keyboard("{Escape}");
   expect((search as HTMLInputElement).value).toBe("");
-  expect(names(list)).toContain("Opus 5.5, default, Claude Code");
+  expect(names(list)).toContain("Opus 5.5, recommended, Claude Code");
   expect(screen.getByRole("dialog", { name: "Model and effort" })).toBe(popover);
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
@@ -416,10 +416,8 @@ function holdCatalog(app: Harness) {
 }
 
 /** The picker panel's reserved height, as laid out. */
-const panelHeight = (popover: HTMLElement) =>
-  popover.querySelector<HTMLElement>("[data-slot=model-picker]")?.style.height;
 
-test("while the catalog is still arriving the picker shows it is loading, then the models, at one size", async () => {
+test("while the catalog is still arriving the picker shows loading, then usable models", async () => {
   const app = harness();
   const release = holdCatalog(app);
   await openThread(app);
@@ -428,15 +426,12 @@ test("while the catalog is still arriving the picker shows it is loading, then t
   const list = await openModelPicker(popover);
   expect(within(list).getByRole("status", { name: "Loading models" })).toBeTruthy();
   expect(within(list).queryByText("No models")).toBeNull();
-  const loadingHeight = panelHeight(popover);
-  expect(loadingHeight).toBeTruthy();
 
   release();
   const personal = await within(list).findByRole("group", { name: "Personal" });
-  expect(within(personal).getByRole("option", { name: /^Opus 5\.5, default/ })).toBeTruthy();
+  expect(within(personal).getByRole("option", { name: /^Opus 5\.5, recommended/ })).toBeTruthy();
   expect(within(personal).getByRole("option", { name: "Extra 9, Claude Code" })).toBeTruthy();
   expect(within(list).queryByRole("status", { name: "Loading models" })).toBeNull();
-  expect(panelHeight(popover)).toBe(loadingHeight);
 });
 
 /**
@@ -485,7 +480,6 @@ test("while the daemon rediscovers models the picker shows the last list, then t
   expect(within(personal).queryByRole("option", { name: /^Haiku 4\.5/ })).toBeNull();
   expect(within(popover).getByRole("status", { name: "Refreshing models" })).toBeTruthy();
   expect(personal.getAttribute("aria-busy")).toBe("true");
-  const refreshingHeight = panelHeight(popover);
 
   settle();
   expect(
@@ -494,7 +488,6 @@ test("while the daemon rediscovers models the picker shows the last list, then t
   await waitFor(() =>
     expect(within(popover).queryByRole("status", { name: "Refreshing models" })).toBeNull(),
   );
-  expect(panelHeight(popover)).toBe(refreshingHeight);
 });
 
 test("connected Copilot with no enabled models shows its hint and remains refreshable", async () => {

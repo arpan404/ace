@@ -28,10 +28,15 @@ test("Add account names it and starts its sign-in straight away; it joins the li
   // The new account's own sign-in, at once.
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   expect(await within(dialog).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
-  const added = app.daemon.services.accounts.find((entry) => entry.label === "Side project");
-  expect(added?.provider).toBe("claude");
+  expect(
+    (await app.client.request({ type: "accounts.list" })).accounts.some(
+      (row) => row.label === "Side project",
+    ),
+  ).toBe(false);
   app.daemon.services.providerLogin.complete("fake-login-1");
-  await userEvent.click(await within(dialog).findByRole("button", { name: "Done" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
   expect(await account("Side project")).toBeTruthy();
 }, 30_000);
 
@@ -54,6 +59,7 @@ test("an account's menu renames it, makes it the default and removes it after as
   await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
   await waitFor(() => expect(renamed.isDefault).toBe(true));
   expect(await within(await account("Client work")).findByText("Default")).toBeTruthy();
+  expect(await screen.findByText("Near its limit · Client work")).toBeTruthy();
 
   await userEvent.click(
     within(await account("Client work")).getByRole("button", { name: "Manage Client work" }),
@@ -78,11 +84,58 @@ test("the CLI's own sign-in can't be renamed or removed, only signed in again", 
   expect(await screen.findByRole("dialog", { name: "Sign in to Claude Code" })).toBeTruthy();
 }, 30_000);
 
-test("each account shows how much of its plan is left and when it resets", async () => {
+test("provider accounts stay compact and link to usage instead of repeating its charts", async () => {
   await harness().open("/settings/providers/claude");
-  const personal = await account("Personal");
-  const fiveHour = within(personal).getByRole("meter", { name: "5-hour window" });
-  expect(fiveHour.getAttribute("aria-valuenow")).toBe("62");
-  expect(fiveHour.getAttribute("aria-valuetext")).toMatch(/^62% used, resets/);
-  expect(within(personal).getByRole("meter", { name: "Weekly window" })).toBeTruthy();
+  await account("Personal");
+  expect(within(await accounts()).queryByRole("meter")).toBeNull();
+  expect(screen.getByRole("link", { name: "View usage ›" })).toBeTruthy();
 }, 30_000);
+
+test("cancelling browser sign-in never leaves a named account behind", async () => {
+  const app = harness();
+  await app.open("/settings/providers/claude");
+  await userEvent.click(within(await accounts()).getByRole("button", { name: "Add account" }));
+  const form = await screen.findByRole("form", { name: "Add account" });
+  await userEvent.type(within(form).getByRole("textbox"), "Client");
+  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
+  await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));
+  await within(dialog).findByText("Sign-in cancelled");
+  await userEvent.click(within(dialog).getByText("Close", { selector: "button" }));
+  expect(within(await accounts()).queryByText("Client")).toBeNull();
+  expect(
+    (await app.client.request({ type: "accounts.list" })).accounts.some(
+      (row) => row.label === "Client",
+    ),
+  ).toBe(false);
+}, 30_000);
+
+test.each([
+  ["codex", "Personal", "This removes the account from ace and the CLI's stored key."],
+  ["opencode", "Work", "The key stays in the CLI's credential store"],
+] as const)(
+  "%s explains the API-key sign-in and what removing it does",
+  async (provider, label, copy) => {
+    const app = harness();
+    const target = app.daemon.services.accounts.find(
+      (row) => row.provider === provider && row.label === label,
+    );
+    if (!target) throw new Error("Missing key account");
+    target.authMethod = "api_key";
+    await app.open(`/settings/providers/${provider}`);
+    const manage = await screen.findByRole("button", { name: `Manage ${label}` });
+    const row = manage.closest("li");
+    if (!row) throw new Error("Missing account row");
+    await userEvent.hover(within(row).getByLabelText("Signed in with an API key"));
+    expect(await screen.findByRole("tooltip", { name: "Signed in with an API key" })).toBeTruthy();
+    await userEvent.click(manage);
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    const confirm = await screen.findByRole("dialog", { name: `Remove ${label}?` });
+    expect(confirm.textContent).toContain("ace never stored your API key.");
+    expect(confirm.textContent).toContain(copy);
+    await userEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: `Manage ${label}` })).toBeNull(),
+    );
+  },
+);

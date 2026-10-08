@@ -2,7 +2,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { StatusLine } from "@/components/provider-tile.tsx";
-import { useProviderAccountModels } from "@/features/accounts/index.ts";
+import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DiagnosticReport } from "@ace/protocol";

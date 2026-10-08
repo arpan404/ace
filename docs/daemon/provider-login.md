@@ -180,8 +180,8 @@ version-tagged fake output. It contains no recorded login or real credential.
 The provider-page backend uses the additive `provider.accounts.*` family. Old
 `accounts.*` requests remain supported; daemon removal delegates to the same logout-first path and preserves the old reply shape. Replies have type
 `provider.accounts.result`, with `{ ok: true, accounts, apiKey, progress? }` or
-`{ ok: false, error, instanceId? }`. A failed start after registration may retain
-`instanceId` so the view can offer reauthentication.
+`{ ok: false, error, instanceId? }`. A failed start never publishes a newly staged account;
+its ephemeral `instanceId` identifies the attempted login, rather than a reusable account.
 
 | Request                        | Fields beyond `requestId`                                                         | Scope   |
 | ------------------------------ | --------------------------------------------------------------------------------- | ------- |
@@ -192,9 +192,14 @@ The provider-page backend uses the additive `provider.accounts.*` family. Old
 | `provider.accounts.remove`     | `provider`, `instanceId`, `confirm: true`, `deleteHome?: boolean` (default false) | operate |
 | `provider.accounts.reauth`     | `provider`, `instanceId`, `method?: login \| api_key`, `upstream?`                | operate |
 
-Add returns a newly isolated account and starts its sign-in immediately. Use
+Add stages a newly isolated account and starts its sign-in immediately. Use
 `progress.session` with the existing polling, cancellation and progress messages.
-Failed/cancelled sign-in leaves the account for retry. Account rows include
+New accounts are staged in the registry and excluded from lists, default selection and
+thread scheduling until authentication succeeds. Failed or cancelled login removes its
+managed home before publishing terminal progress; existing accounts survive reauthentication
+cancellation. Staging is persisted so restart recovery discards abandoned login homes.
+A manual fallback keeps its staged home hidden until the CLI terminal verifies sign-in,
+or cancellation, expiry or shutdown removes it. Account rows include
 `id`, `label`, `implicit`, `isDefault`, `status` using the existing availability
 values, `authMethod: browser | api_key | unknown`, `signedInAs?`, `quota`,
 `usageSummary` and `apiKey`. `usageSummary` reuses sanitized quota counters; it is

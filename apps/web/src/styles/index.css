@@ -364,3 +364,8 @@
   color: var(--subtle-foreground);
   pointer-events: none;
 }
+
+/* Confirmations wait behind open popovers, including translucent surfaces. */
+body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] {
+  visibility: hidden;
+}

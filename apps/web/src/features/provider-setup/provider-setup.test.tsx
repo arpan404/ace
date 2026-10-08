@@ -57,7 +57,9 @@ test.each(providers)(
       await within(dialog).findByLabelText("Sign-in code");
     else await within(dialog).findByRole("link", { name: "Open sign-in page" });
     app.daemon.services.providerLogin.complete("fake-login-1");
-    await userEvent.click(await within(dialog).findByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: `Sign in to ${name}` })).toBeNull(),
+    );
     await waitFor(() =>
       expect(within(item()).queryByRole("button", { name: `Sign in to ${name}` })).toBeNull(),
     );
@@ -140,7 +142,9 @@ test("a download-only distribution explains the platform limit and opens the off
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Antigravity" });
   await within(dialog).findByRole("link", { name: "Open sign-in page" });
   app.daemon.services.providerLogin.complete("fake-login-1");
-  await userEvent.click(await within(dialog).findByRole("button", { name: "Done" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Antigravity" })).toBeNull(),
+  );
   expect(await within(installedRow).findByText("Ready")).toBeTruthy();
 }, 30_000);
 
@@ -153,6 +157,8 @@ test("Cursor uses its bundled SDK and signs in without a CLI installer", async (
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Cursor" });
   await within(dialog).findByRole("link", { name: "Open sign-in page" });
   app.daemon.services.providerLogin.complete("fake-login-1");
-  await userEvent.click(await within(dialog).findByRole("button", { name: "Done" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Cursor" })).toBeNull(),
+  );
   expect(await within(row).findByText("Ready")).toBeTruthy();
 });

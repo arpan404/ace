@@ -7,11 +7,14 @@ const InlineSignIn = deferredComponent(() =>
 );
 
 /** Own an ephemeral key hand-off beside the account that requested it. */
-export function useInlineSignIn() {
+export function useInlineSignIn(options: { onClose?(): void } = {}) {
   const client = useClient();
   const [login, setLogin] = useState<LoginController>();
   useEffect(() => () => login?.dispose(), [login]);
-  const close = () => setLogin(undefined);
+  const close = () => {
+    setLogin(undefined);
+    options.onClose?.();
+  };
   const start = (target: SignInTarget) => {
     login?.dispose();
     setLogin(new LoginController(client, target));

@@ -1,3 +1,4 @@
+import { formatClock } from "./time.ts";
 export interface SnoozePreset {
   id: "hour" | "tomorrow" | "monday";
   label: string;
@@ -6,8 +7,7 @@ export interface SnoozePreset {
   until: number;
 }
 
-const time = (at: Date, locale?: string) =>
-  at.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+const time = (at: Date, locale?: string) => formatClock(at.getTime(), locale);
 
 function atNine(from: Date, daysAhead: number): Date {
   const next = new Date(from);

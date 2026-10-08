@@ -1,3 +1,4 @@
+import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, type Command, type CommandPayload } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -71,13 +72,13 @@ test("effort picked while a message is still saving stays for the next message",
   held = new Promise((resolve) => (release = resolve));
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   // While it saves, the person picks Low for the message after.
-  await effort(/^Model: Opus 5\.5, personal, High effort/, "{Home}{ArrowRight}");
+  await effort(/^Model: Opus 5\.5, Personal, High effort/, "{Home}{ArrowRight}");
   release?.();
 
   await waitFor(() => expect(sent).toHaveLength(1));
   expect(sent[0]?.options).toMatchObject({ effort: "high" });
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 5.5, personal, Low effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, Personal, Low effort" }),
   ).toBeTruthy();
   await userEvent.type(message, "And log the cap{Enter}");
   await waitFor(() => expect(sent).toHaveLength(2));
@@ -89,12 +90,12 @@ test("a switch the daemon refuses keeps the effort picked for the next message",
   await effort(/^Model: Opus 5\.5/, "{End}");
   app.daemon.refuseCommands("instance_unavailable", "thread.switch");
 
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal, High effort/);
-  await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal, High effort/);
+  await chooseAccount(popover, "Work");
   expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 5.5, personal, High effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, High effort" }),
   ).toBeTruthy();
 
   await userEvent.type(message, "Cap the replay at 200{Enter}");
@@ -105,10 +106,10 @@ test("a switch the daemon refuses keeps the effort picked for the next message",
 test("a switch that lands keeps the effort its model also takes", async () => {
   const { sent, message } = await open();
   await effort(/^Model: Opus 5\.5/, "{End}");
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal, High effort/);
-  await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal, High effort/);
+  await chooseAccount(popover, "Work");
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, Work, High effort" }),
   ).toBeTruthy();
   await closeModelControl();
 
@@ -124,15 +125,15 @@ test("a move to another provider from another device resets what its model can't
     model: "gpt-5-codex",
     instanceId: "codex-personal",
   });
-  await screen.findByRole("button", { name: /^Model: GPT-5 Codex, personal/ });
+  await screen.findByRole("button", { name: /^Model: GPT-5 Codex, Personal/ });
   // Minimal effort and the fast tier: both Codex's own.
-  const popover = await openModelControl(/^Model: GPT-5 Codex, personal/);
+  const popover = await openModelControl(/^Model: GPT-5 Codex, Personal/);
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{Home}");
   await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: GPT-5 Codex, personal, Minimal effort, fast" }),
+    screen.getByRole("button", { name: "Model: GPT-5 Codex, Personal, Minimal effort, fast" }),
   ).toBeTruthy();
 
   switchElsewhere(app, "to-claude", {
@@ -143,7 +144,7 @@ test("a move to another provider from another device resets what its model can't
   expect(await screen.findByText("Effort and speed reset for Opus 5.5")).toBeTruthy();
   expect(
     await screen.findByRole("button", {
-      name: "Model: Opus 5.5, personal, provider default effort",
+      name: "Model: Opus 5.5, Personal, provider default effort",
     }),
   ).toBeTruthy();
 

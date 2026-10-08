@@ -64,7 +64,13 @@ export class FakeServices {
   accounts: AccountSummary[];
   readonly authTerminals = new Map<
     string,
-    { instanceId: string; action: "login" | "logout"; owner: Push; scope?: "operate" }
+    {
+      session?: string;
+      instanceId: string;
+      action: "login" | "logout";
+      owner: Push;
+      scope?: "operate";
+    }
   >();
   private accountCounter = 0;
   models: CatalogModel[];
@@ -202,14 +208,38 @@ export class FakeServices {
               : "browser"
             : "unknown";
           selected.loginRevision = String(Number(selected.loginRevision ?? "0") + 1);
+          this.models = this.models.filter((entry) => entry.instance !== selected.id);
+          if (signedIn) {
+            const templates = modelCatalog().filter((entry) => entry.provider === provider);
+            const first = templates[0]?.instance;
+            this.models.push(
+              ...templates
+                .filter((entry) => entry.instance === first)
+                .map((entry) =>
+                  Object.assign({}, entry, {
+                    instance: selected.id,
+                    ...(!entry.source || entry.source.kind === "account"
+                      ? {
+                          source: {
+                            kind: "account" as const,
+                            id: selected.id,
+                            label: selected.label,
+                          },
+                        }
+                      : {}),
+                  }),
+                ),
+            );
+          }
         }
-        this.providerStatuses = fakeReadiness(
-          this.providerStatuses.map((row) =>
-            row.provider === provider
-              ? { ...row, auth: signedIn ? "logged_in" : "logged_out" }
-              : row,
-          ),
-        );
+        if (!instance || selected?.implicit)
+          this.providerStatuses = fakeReadiness(
+            this.providerStatuses.map((row) =>
+              row.provider === provider
+                ? { ...row, auth: signedIn ? "logged_in" : "logged_out" }
+                : row,
+            ),
+          );
         host.broadcast?.({
           type: "providers.changed",
           providers: onboardingChecklist(this.providerRows()).providers,
@@ -226,6 +256,7 @@ export class FakeServices {
         const terminalId = `provider-auth-${++this.accountCounter}`;
         this.authTerminals.set(terminalId, {
           instanceId,
+          session: progress.session,
           action: progress.action,
           owner: push,
           scope: "operate",
@@ -295,6 +326,11 @@ export class FakeServices {
   }
   completeAuthTerminal(id: string): void {
     const flow = this.authTerminals.get(id);
+    if (flow?.session) {
+      this.providerLogin.finishTerminal(flow.session);
+      this.authTerminals.delete(id);
+      return;
+    }
     const account = this.accounts.find((entry) => entry.id === flow?.instanceId);
     if (!flow || !account) return;
     account.quota.auth = flow.action === "login" ? "logged_in" : "logged_out";

@@ -1,7 +1,8 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
 import { WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/protocol";
 import {
-  accountTag,
+  accountDisplayName,
+  formatClock,
   choiceForModel,
   currentModelChoice,
   modelControlName,
@@ -23,6 +24,8 @@ import {
   type ModelChoice,
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
+import { useThreadToast } from "../lib/thread-toast.ts";
+import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   ModelControl,
@@ -99,13 +102,8 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
 
 /** Offline, changes still go: effort and speed with the next message, a switch from the outbox. */
 const offlineNote = "Offline: changes apply when reconnected";
-const clock = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
 const limitReached = (resetsAt: number | undefined) =>
-  resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${clock.format(resetsAt)}`;
+  resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${formatClock(resetsAt)}`;
 const none: ExecutionOptions = {};
 
 /**
@@ -128,7 +126,8 @@ const droppedWords = { effort: "Effort", speed: "Speed" } as const;
  */
 export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; next: NextTurn }) {
   const meta = useThreadMeta(props.thread.id);
-  const toast = useToast();
+  const toast = useThreadToast(props.thread.id);
+  const accounts = useAccountViews();
   const choices = useModelChoices();
   const catalog = useModelCatalogState();
   const statuses = useProviderStatuses();
@@ -201,9 +200,12 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
     moving.switchTo(choice).then(
       () =>
         toast.add({
-          title: props.busy
-            ? `Switches to ${choice.model} after this turn`
-            : `Continues on ${choice.model}`,
+          title:
+            choice.accountId !== shown?.accountId
+              ? `Next turn runs on ${providerNames[choice.provider]} · ${choice.account}`
+              : props.busy
+                ? `Next turn runs on ${choice.model}`
+                : `Continues on ${choice.model}`,
         }),
       (error: unknown) =>
         toast.add({ title: "Couldn't switch the model", description: failureMessage(error) }),
@@ -211,7 +213,7 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
   };
   // What the chip names: the switch just chosen here, else what the thread runs on next.
   const target = moving.chosen ?? shown;
-  const account = target?.account ? accountTag(target.account) : undefined;
+  const account = target?.account ? accountDisplayName(target.account) : undefined;
   const details = {
     model: target?.model ?? "",
     account,
@@ -227,6 +229,10 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
   const view: ModelControlView = {
     provider: target?.provider,
     label: target?.model,
+    accountLabel:
+      (accounts.data?.filter((entry) => entry.provider === target?.provider).length ?? 0) > 1
+        ? account
+        : undefined,
     placeholder: "Model",
     ariaLabel: name ? `Model: ${name}` : "Choose a model",
     tip: target
@@ -252,8 +258,9 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean; ne
           .filter((choice) => choice.key === shown.key && choice.account)
           .map((choice) => ({
             id: choice.id,
-            label: accountTag(choice.account),
+            label: accountDisplayName(choice.account),
             detail: choice.note,
+            authMethod: accounts.data?.find((entry) => entry.id === choice.accountId)?.authMethod,
             disabled: choice.exhausted ? limitReached(choice.resetsAt) : undefined,
           }))
       : [],

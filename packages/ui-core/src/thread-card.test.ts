@@ -229,7 +229,7 @@ test("a row says what its thread is doing when the daemon's live hints know more
   expect(testing.status.label).toBe("Running tests…");
 
   const limited = card({ state: "limited", until: now + 20 * 60_000 }, {});
-  expect(limited.pill?.label).toBe("Limited until 03:20 PM");
+  expect(limited.pill?.label).toBe("Limited until 3:20 PM");
 
   // Without hints a working thread reads Working, with the time it has been at it.
   const plain = card({ state: "working", agents: 1 }, {});

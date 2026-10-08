@@ -26,7 +26,7 @@ export async function registerImplicitAccounts(
       ProviderInstance.parse({
         id,
         provider,
-        label: "Default (your CLI login)",
+        label: "Your CLI login",
         homeDir: resolve(homes[provider]),
         env: {},
         implicit: true,
@@ -61,6 +61,22 @@ export async function deleteManagedHome(
   dataDir: string,
   instance: ProviderInstance,
 ): Promise<void> {
+  const parent = join(await realpath(dataDir), "account-homes");
+  if (
+    !instance.managed ||
+    instance.implicit ||
+    instance.homeDir !== join(parent, AccountId.parse(instance.id))
+  )
+    throw new Error("Managed home refused");
+  const stat = await lstat(parent);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || (await realpath(parent)) !== parent)
+    throw new Error("Managed home refused");
+  try {
+    await lstat(instance.homeDir);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
   await assertManagedHome(dataDir, instance);
   await rm(instance.homeDir, { recursive: true });
 }

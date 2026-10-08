@@ -36,19 +36,24 @@ export function useAccountActions() {
     }
   };
   return {
-    /** A new account for `provider`, named `label`; its id, to sign it in. */
-    add: async (provider: NativeAccountProvider, label: string): Promise<string> => {
-      const reply = await settle(client.request({ type: "accounts.add", provider, label }));
-      if (!reply.account) throw new Error("Couldn't add the account. Try again.");
-      return reply.account.id;
-    },
     rename: (instanceId: string, label: string) =>
       settle(client.request({ type: "accounts.rename", instanceId, label })),
     setDefault: (provider: NativeAccountProvider, instanceId: string) =>
       settle(client.request({ type: "accounts.setDefault", provider, instanceId })),
     /** Forget the account; its sign-in folder stays on disk. */
-    remove: (instanceId: string) =>
-      settle(client.request({ type: "accounts.remove", instanceId, deleteHome: false })),
+    remove: async (provider: NativeAccountProvider, instanceId: string) => {
+      const reply = await settle(
+        client.request({
+          type: "provider.accounts.remove",
+          provider,
+          instanceId,
+          confirm: true,
+          deleteHome: false,
+        }),
+      );
+      if (!reply.result.ok)
+        throw new Error("Couldn't remove this account. Finish its running threads and try again.");
+    },
   };
 }
 

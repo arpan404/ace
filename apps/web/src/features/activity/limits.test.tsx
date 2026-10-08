@@ -70,7 +70,9 @@ test("Activity lists threads paused at a usage limit by account and moves them t
   await app.open("/activity");
 
   const team = await screen.findByRole("article", { name: "Codex · Team" });
-  expect(within(team).getByText(/^3 threads paused · Resets \d\d:\d\d · in 1h 27m$/)).toBeTruthy();
+  expect(
+    within(team).getByText(/^3 threads paused · Resets \d{1,2}:\d{2}(?: [ap]m)? · in 1h 27m$/i),
+  ).toBeTruthy();
   expect(
     within(team)
       .getAllByRole("link")
