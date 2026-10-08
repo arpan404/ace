@@ -1,14 +1,11 @@
 import { z } from "zod";
 import type { DiscoveryResult, Provider } from "@ace/provider-kit/discovery";
-export const CheckResult = z.object({
-  id: z.string().max(128),
-  status: z.enum(["ok", "warn", "fail"]),
-  message: z.string().max(2048),
-  fix: z.string().max(2048),
-});
+export { DiagnosticReport as DoctorReport } from "@ace/protocol";
+import {
+  DiagnosticCheck as CheckResult,
+  type DiagnosticReport as DoctorReport,
+} from "@ace/protocol";
 export type CheckResult = z.infer<typeof CheckResult>;
-export const DoctorReport = z.object({ at: z.number(), checks: z.array(CheckResult).max(64) });
-export type DoctorReport = z.infer<typeof DoctorReport>;
 export type Verdict = Omit<CheckResult, "id">;
 export interface Check {
   id: string;

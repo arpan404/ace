@@ -448,6 +448,9 @@
     },
     {
       "properties": {
+        "includeThreads": {
+          "type": "boolean"
+        },
         "op": {
           "const": "artifact.support",
           "type": "string"

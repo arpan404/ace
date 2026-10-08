@@ -33,3 +33,12 @@ Redaction replaces known API keys, GitHub tokens, JWTs, authorization headers, i
 Queues, rings, record depth/field budgets, batches, file count and bytes are bounded. Each logger record has at most 64 visited values and 4,096 total key/value characters. Logger enqueue is proportional to a capped input record, never prior logs. Worker acknowledgement supplies backpressure rather than an unbounded MessagePort backlog. Bundle I/O uses stream backpressure. SQLite is isolated in a child process and has a deadline that also stops native work. Worker spawners, process/resource probes and deadline schedulers are injected at the I/O boundary. Event types are capped by SQLite byte metadata before copying or IPC, alongside payload caps.
 
 Tests exercise public APIs with fake machine probes and real filesystem, SQLite and socket edges. They verify redaction before file writes, rotation and retention across restarts, overflow counters, child levels, all check outcomes, aborted hung probes, corrupt SQLite, archive contents and thread opt-in. A non-gating benchmark reports logger throughput and peak RSS. The owner has deferred test, mutation and benchmark execution to merge time. Regression tests and mutation cases are recorded in `packages/diagnostics/VERIFICATION.md`; their execution needs run at merge.
+
+## Amendment: app diagnostics
+
+The authenticated app now calls the shared doctor and toolchain probes directly, without
+running the ace CLI. Settings › Advanced owns checks and support export; Logs links there.
+A private support artifact registry makes export available before adding a project.
+Conversation opt-in requires the local host token, including when downloading a previously
+created archive. Default redacted exports remain read-scoped. See
+[app diagnostics](../daemon/app-diagnostics.md) for the additive protocol and limits.

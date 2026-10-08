@@ -87,6 +87,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ace/client": "workspace:*",
+        "@ace/diagnostics": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/service": "workspace:*",
         "zod": "^4.6.5",

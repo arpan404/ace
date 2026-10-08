@@ -16,6 +16,10 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  diagnostics?: {
+    doctor(): Promise<import("@ace/protocol").DiagnosticReport>;
+    toolchains(): Promise<import("@ace/protocol").Toolchain[]>;
+  };
   accounts?: Pick<
     import("../account-management.ts").AccountManagementOptions,
     "env" | "discovery" | "terminal"

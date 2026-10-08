@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/DiagnosticsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "report": {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticReport.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "toolchains": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Toolchain.json"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "type": {
+      "const": "diagnostics.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

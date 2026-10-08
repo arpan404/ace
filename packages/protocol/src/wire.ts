@@ -49,7 +49,12 @@ import {
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
-import { DiagnosticsHealthRequest, DiagnosticsHealthResult } from "./diagnostics.ts";
+import {
+  DiagnosticsHealthRequest,
+  DiagnosticsHealthResult,
+  DiagnosticsRequest,
+  DiagnosticsResult,
+} from "./diagnostics.ts";
 import { PiControlRequest, PiControlResult } from "./pi.ts";
 import {
   PermissionCapabilitiesRequest,
@@ -168,6 +173,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TerminalCredit,
   PluginClientMessage,
   DiagnosticsHealthRequest,
+  DiagnosticsRequest,
   PermissionCapabilitiesRequest,
   ContextRequest,
   SettingsGet,
@@ -235,6 +241,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TerminalOutput,
   PluginServerMessage,
   DiagnosticsHealthResult,
+  DiagnosticsResult,
   PermissionCapabilitiesResult,
   ContextResult,
   SettingsResult,

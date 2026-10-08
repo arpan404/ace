@@ -58,7 +58,7 @@ export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("delete"), path, expected }),
   z.object({ op: z.literal("restore"), trashId: id, path, expected }),
   z.object({ op: z.literal("artifacts.list") }),
-  z.object({ op: z.literal("artifact.support") }),
+  z.object({ op: z.literal("artifact.support"), includeThreads: z.boolean().optional() }),
   z.object({ op: z.literal("artifact.output"), streamId: id }),
   z.object({ op: z.literal("artifact.raw"), blobRef: id }),
   z.object({
@@ -90,6 +90,7 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     type: z.literal("files.request"),
     requestId: id,
     threadId: ThreadId.optional(),
+    scope: z.literal("support").optional(),
     operation: FileOperation,
   }),
   z.object({

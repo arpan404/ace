@@ -5,12 +5,49 @@ export function createDiagnosticsSession({
   authorize,
 }: SocketContext): SocketService {
   let pending = false;
+  let closed = false;
   return {
     close() {
-      pending = false;
+      closed = true;
     },
     healthPending: () => Number(pending),
     handle(message) {
+      if (message.type === "diagnostics.request") {
+        const run = message.operation === "doctor" ? options.doctor : options.toolchains;
+        const error = !authorize("read")
+          ? "forbidden"
+          : pending
+            ? "diagnostics_busy"
+            : !run
+              ? "diagnostics_unavailable"
+              : undefined;
+        if (error) {
+          send({ type: "diagnostics.result", requestId: message.requestId, error });
+          return true;
+        }
+        pending = true;
+        void Promise.resolve()
+          .then(async () => {
+            const result =
+              message.operation === "doctor"
+                ? { report: await options.doctor?.() }
+                : { toolchains: await options.toolchains?.() };
+            if (!closed && authorize("read"))
+              send({ type: "diagnostics.result", requestId: message.requestId, ...result });
+          })
+          .catch(() => {
+            if (!closed)
+              send({
+                type: "diagnostics.result",
+                requestId: message.requestId,
+                error: "diagnostics_failed",
+              });
+          })
+          .finally(() => {
+            pending = false;
+          });
+        return true;
+      }
       if (message.type !== "diagnostics.health") return false;
       if (!authorize("read") || !options.health || pending) {
         send({

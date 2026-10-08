@@ -1,3 +1,5 @@
+import { connectedDoctorReport } from "./diagnostics-report.ts";
+import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
@@ -64,6 +66,23 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
+  const diagnostics = options.diagnostics ?? {
+    doctor: () => connectedDoctorReport(config, process.env, now),
+    toolchains: () => detectToolchains(process.env),
+  };
+  let reportPending: ReturnType<typeof diagnostics.doctor> | undefined;
+  let toolsPending: ReturnType<typeof diagnostics.toolchains> | undefined;
+  const sharedDiagnostics = {
+    doctor: () =>
+      (reportPending ??= diagnostics.doctor().finally(() => {
+        reportPending = undefined;
+      })),
+    toolchains: () =>
+      (toolsPending ??= diagnostics.toolchains().finally(() => {
+        toolsPending = undefined;
+      })),
+  };
+  options = { ...options, diagnostics: sharedDiagnostics };
   assertCompatibleHome(config.dataDir);
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
@@ -197,6 +216,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
       store,
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
+      doctor: sharedDiagnostics.doctor,
+      toolchains: sharedDiagnostics.toolchains,
       log: (error) => log.log("error", "WebSocket failure", logError(error)),
     };
     // Feature services publish only after initialization. Socket handlers read the
@@ -209,6 +230,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "providerActivation",
       "commands",
       "files",
+      "supportFiles",
       "threadFiles",
       "relay",
       "handler",

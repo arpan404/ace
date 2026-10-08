@@ -57,6 +57,7 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;
+  supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;

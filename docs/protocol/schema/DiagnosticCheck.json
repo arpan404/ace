@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/DiagnosticCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "fix": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "warn",
+        "fail"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "message",
+    "fix"
+  ],
+  "type": "object"
+}

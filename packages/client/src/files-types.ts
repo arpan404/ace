@@ -1,6 +1,6 @@
 import type { FileOperation, ThreadId } from "@ace/protocol";
 
-export type FileDownloadInput = { threadId: ThreadId } & Extract<
+export type FileDownloadInput = { threadId?: ThreadId; scope?: "support" } & Extract<
   FileOperation,
   { op: "download" | "artifact.download" | "archive.download" }
 >;

@@ -90,6 +90,9 @@ export interface ServerOptions {
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
+  doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
+  toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
+  supportFiles?: FilesService;
   context?: {
     readAttachment?(
       device: string,

@@ -31,3 +31,5 @@ export { logFields, logMetadata, logError } from "./bounded.ts";
 export type { LogWorkerRuntime } from "./worker-sink.ts";
 export type { HealthRuntime } from "./health.ts";
 export type { SqliteRuntime } from "./sqlite.ts";
+
+export { detectToolchains } from "./toolchains.ts";
