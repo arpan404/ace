@@ -121,6 +121,38 @@ export class FakeServices {
       () => this.providerRows(),
       (progress) => {
         const installed = progress.action !== "uninstall";
+        if (progress.acpAgentId && installed) {
+          const agent = this.registry.entries.find(
+            (entry) => entry.agent.acpAgentId === progress.acpAgentId,
+          )?.agent;
+          const metadata = {
+            acpAgentId: progress.acpAgentId,
+            installationId: progress.session,
+            instanceId: `${progress.session}:default`,
+            version: progress.plan?.latestVersion ?? "1.0.0",
+            profileRevision: "generic-v1",
+            source: "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
+            evidence: "unsigned_https" as const,
+          };
+          this.registry.installations.push(metadata);
+          const example = this.accounts.find((account) => account.provider === "acp");
+          if (example)
+            this.accounts.push({
+              ...example,
+              id: metadata.instanceId,
+              acpAgentId: metadata.acpAgentId,
+              installationId: metadata.installationId,
+              label: agent?.name ?? "Agent",
+              availability: "logged_out",
+              quota: {
+                auth: "logged_out",
+                observedAt: this.host.clock(),
+                windows: {},
+                blockers: {},
+                usage: {},
+              },
+            });
+        }
         if (installed) this.installed.add(progress.provider);
         else this.installed.delete(progress.provider);
         this.providerStatuses = fakeReadiness(
@@ -137,7 +169,7 @@ export class FakeServices {
             return {
               ...rest,
               installed,
-              auth: installed ? row.auth : "unknown",
+              auth: installed ? (row.installed ? row.auth : "logged_out") : "unknown",
               updateAvailable: false,
               ...(installed
                 ? {
@@ -152,6 +184,7 @@ export class FakeServices {
         this.host.broadcast?.({ type: "providers.changed", providers: this.providerRows() });
         this.host.broadcast?.({ type: "models.changed", filter: { provider: progress.provider } });
       },
+      (id) => this.registry.entries.find((entry) => entry.agent.acpAgentId === id)?.agent,
     );
     this.providerLogin = new FakeProviderLogin(
       host.clock,

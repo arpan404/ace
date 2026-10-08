@@ -46,7 +46,7 @@ export function SignInDialog(props: {
   const readiness = useProviderReadiness();
   const queryClient = useQueryClient();
   const { provider, action, service, choice } = login.target;
-  const name = providerNames[provider];
+  const name = login.target.name ?? providerNames[provider];
   const row = readiness.data?.find((entry) => entry.provider === provider);
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
   const finish = useEffectEvent(() => props.onClose());

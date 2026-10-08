@@ -51,7 +51,7 @@ const specs = {
 /** The installed CLI command to restore when a user removes an executable override. */
 export function defaultProviderExecutable(provider: Provider | "pi" | "antigravity"): string {
   if (provider === "pi") return "pi";
-  if (provider === "antigravity") return "agy";
+  if (provider === "antigravity") return "agy_acp_server";
   if (provider === "cursor") return "";
   return specs[provider].command;
 }
@@ -137,11 +137,11 @@ export async function discoverAntigravity(
   options: DiscoveryOptions & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const env = { ...process.env, ...options.env };
-  const path = await findExecutable(options.executable ?? "agy", env);
+  const path = await findExecutable(options.executable ?? "agy_acp_server", env);
   const result: DiscoveryResult = {
     installed: Boolean(path),
     auth: "unknown",
-    loginHint: "agy interactively to verify your Google account login",
+    loginHint: "Sign in using Antigravity’s own ACP authentication",
   };
   if (!path) return result;
   result.path = path;

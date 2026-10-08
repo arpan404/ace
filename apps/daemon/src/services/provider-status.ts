@@ -1,3 +1,4 @@
+import { antigravityDiscovery } from "./antigravity.ts";
 import { reportedAuthMethod } from "../provider-account-support.ts";
 import { apiKeySupport } from "../provider-api-key.ts";
 import { probeOutput } from "@ace/provider-kit/process";
@@ -36,11 +37,14 @@ export function startProviderStatuses(context: ServiceContext): void {
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      antigravity: (signal) => antigravityDiscovery(context, signal),
       modelsAvailable: () =>
         Boolean(
           context.services.models && hasUnauthenticatedOpenCodeModels(context.services.models),
         ),
       account(row) {
+        if (row.provider === "antigravity" && context.services.antigravityAuth)
+          return { auth: context.services.antigravityAuth };
         const registry = context.services.accountRegistry;
         const selected =
           registry?.selectedProvider(row.provider) ??
@@ -83,7 +87,9 @@ export function startProviderStatuses(context: ServiceContext): void {
           undefined,
           signal,
         );
-        return installs.versions.check(plan, signal);
+        return plan.method === "registry"
+          ? { latestVersion: plan.latestVersion, updateAvailable: plan.updateAvailable }
+          : installs.versions.check(plan, signal);
       },
       attention(row) {
         const registry = context.services.accountRegistry;

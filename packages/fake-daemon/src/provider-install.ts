@@ -6,6 +6,8 @@ import type {
   ProviderInstallPlan,
   ProviderStatus,
   ProviderKind,
+  InstallMethod,
+  RegistryAgent,
 } from "@ace/protocol";
 
 export const fakeLatestVersions: Partial<Record<ProviderKind, string>> = {
@@ -15,7 +17,7 @@ export const fakeLatestVersions: Partial<Record<ProviderKind, string>> = {
   pi: "0.31.1",
 };
 
-type Scenario = "success" | "failure" | "needs_admin";
+type Scenario = "success" | "failure" | "needs_admin" | "missing_prerequisite" | "download_only";
 interface Job {
   requestId: string;
   owner: string;
@@ -26,12 +28,19 @@ const done = (state: string) => ["succeeded", "failed", "cancelled", "needs_admi
 export class FakeProviderInstalls {
   scenarios: Partial<Record<ProviderKind, Scenario>> = {};
   autoComplete = true;
+  methods: Partial<Record<ProviderKind, InstallMethod>> = {};
   private jobs = new Map<string, Job>();
   private subscribers = new Map<(message: ServerMessage) => void, string>();
   private sequence = 0;
   private rows: () => ProviderStatus[];
   private changed: (progress: ProviderInstallProgress) => void;
-  constructor(rows: () => ProviderStatus[], changed: (progress: ProviderInstallProgress) => void) {
+  private catalog: (id: string) => RegistryAgent | undefined;
+  constructor(
+    rows: () => ProviderStatus[],
+    changed: (progress: ProviderInstallProgress) => void,
+    catalog: (id: string) => RegistryAgent | undefined = () => undefined,
+  ) {
+    this.catalog = catalog;
     this.rows = rows;
     this.changed = changed;
   }
@@ -73,9 +82,16 @@ export class FakeProviderInstalls {
     input: Extract<ProviderInstallRequest, { provider: ProviderKind }>,
   ): ProviderInstallPlan {
     const row = this.rows().find((entry) => entry.provider === input.provider);
+    const listed = input.acpAgentId ? this.catalog(input.acpAgentId) : undefined;
     const spec = installer(input.provider, input.agent);
-    const method = "method" in input ? input.method : spec?.package ? "npm" : "brew";
+    const registry = input.provider === "antigravity" || !!input.acpAgentId;
+    const method =
+      "method" in input
+        ? input.method
+        : (this.methods[input.provider] ??
+          (registry ? "registry" : spec?.package ? "npm" : "brew"));
     const methods = [
+      ...(registry ? ["registry" as const] : []),
       ...(spec?.package ? ["npm" as const] : []),
       ...(spec?.bun ? ["bun" as const] : []),
       ...(spec?.brew ? ["brew" as const] : []),
@@ -102,26 +118,55 @@ export class FakeProviderInstalls {
       spec?.manual ||
       (method === "script" && input.action === "uninstall" && !spec?.scriptUninstall),
     );
-    const unsupported = !commands.length;
+    const unsupported = !commands.length && !registry;
+    const scenario =
+      listed && listed.availability !== "available"
+        ? "download_only"
+        : this.scenarios[input.provider];
     return {
       provider: input.provider,
       ...(input.agent ? { agent: input.agent } : {}),
+      ...(input.acpAgentId ? { acpAgentId: input.acpAgentId } : {}),
       action: input.action,
       status:
-        input.provider === "cursor"
-          ? "sign_in"
-          : manual
-            ? "manual"
-            : unsupported
-              ? "unavailable"
-              : "ready",
+        scenario === "download_only"
+          ? "manual"
+          : scenario === "missing_prerequisite"
+            ? "unavailable"
+            : input.provider === "cursor"
+              ? "sign_in"
+              : manual
+                ? "manual"
+                : unsupported
+                  ? "unavailable"
+                  : "ready",
       ...(unsupported ? {} : { method }),
+      ...(scenario === "missing_prerequisite"
+        ? {
+            prerequisite: { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" },
+            message:
+              "Install Node.js from its official download. It includes npm. Then retry Install here.",
+          }
+        : {}),
+      ...(scenario === "download_only"
+        ? {
+            downloadOnly: true as const,
+            message:
+              "The vendor has no installable distribution for this computer. Download it from the official website.",
+          }
+        : {}),
       methods,
       commands,
       ...(spec?.binary ? { verify: installCommand(spec.binary, ["--version"]) } : {}),
-      sourceUrl: spec?.sourceUrl ?? "https://agentclientprotocol.com/get-started/agents",
+      sourceUrl:
+        scenario === "download_only"
+          ? (listed?.homepage ?? "https://antigravity.google/download")
+          : (listed?.homepage ??
+            spec?.sourceUrl ??
+            "https://agentclientprotocol.com/get-started/agents"),
       needsAdmin: this.scenarios[input.provider] === "needs_admin",
       ...(row?.version ? { installedVersion: row.version } : {}),
+      ...(registry ? { latestVersion: listed?.version ?? "1.3.0" } : {}),
       ...(fakeLatestVersions[input.provider]
         ? {
             latestVersion: fakeLatestVersions[input.provider],
@@ -182,6 +227,7 @@ export class FakeProviderInstalls {
           session: `fake-install-${++this.sequence}`,
           provider: input.provider,
           ...(input.agent ? { agent: input.agent } : {}),
+          ...(input.acpAgentId ? { acpAgentId: input.acpAgentId } : {}),
           action: input.action,
           method: input.method,
           state: plan.status !== "ready" ? "failed" : plan.needsAdmin ? "needs_admin" : "running",

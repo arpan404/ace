@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RegistryInstallPlan } from "./agent-registry.ts";
 import { ProviderKind } from "./provider-data.ts";
 
 const id = z.string().min(1).max(128);
@@ -13,9 +14,17 @@ export const InstallAgent = z.enum([
 export type InstallAgent = z.infer<typeof InstallAgent>;
 export const InstallAction = z.enum(["install", "update", "uninstall"]);
 export type InstallAction = z.infer<typeof InstallAction>;
-export const InstallMethod = z.enum(["npm", "bun", "brew", "script"]);
+export const InstallMethod = z.enum(["npm", "bun", "brew", "script", "registry"]);
 export type InstallMethod = z.infer<typeof InstallMethod>;
-const target = { provider: ProviderKind, agent: InstallAgent.optional() };
+const target = {
+  provider: ProviderKind,
+  agent: InstallAgent.optional(),
+  acpAgentId: z
+    .string()
+    .regex(/^official:[a-z0-9-]+$/)
+    .max(256)
+    .optional(),
+};
 export const InstallCommand = z.strictObject({
   command: z.string().min(1).max(4096),
   args: z.array(z.string().max(4096)).max(16),
@@ -27,7 +36,10 @@ export const ProviderInstallPlan = z.strictObject({
   action: InstallAction,
   status: z.enum(["ready", "manual", "sign_in", "unavailable"]),
   method: InstallMethod.optional(),
-  methods: z.array(InstallMethod).max(4),
+  methods: z.array(InstallMethod).max(5),
+  registryPlan: RegistryInstallPlan.optional(),
+  downloadOnly: z.literal(true).optional(),
+  prerequisite: z.object({ name: z.string().max(128), sourceUrl: z.url().max(2048) }).optional(),
   commands: z.array(InstallCommand).max(4),
   verify: InstallCommand.optional(),
   sourceUrl: z.url().max(2048),

@@ -28,6 +28,7 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
   ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
   checked?(rows: readonly Status[]): void;
   modelsAvailable?(provider: Status["provider"]): boolean;
+  antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
 }
 export interface ProviderStatusRuntime {
@@ -114,6 +115,7 @@ export class ProviderStatuses {
           return discoverPiStatus({ ...options, ...(executable ? { executable } : {}) });
         }
         case "antigravity":
+          if (this.options.antigravity) return this.options.antigravity(this.controller.signal);
           return discoverAntigravity({
             ...options,
             ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),

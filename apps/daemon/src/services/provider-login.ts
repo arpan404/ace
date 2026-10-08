@@ -46,8 +46,8 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
       timer.unref();
       return () => clearTimeout(timer);
     },
-    prepare: (target, action, signal) =>
-      prepareProviderLogin(context, manager, cursorDefault, target, action, signal),
+    prepare: (target, action, signal, owner) =>
+      prepareProviderLogin(context, manager, cursorDefault, target, action, signal, owner),
   });
   services.providerLogin = sessions;
   resources.own(async () => {

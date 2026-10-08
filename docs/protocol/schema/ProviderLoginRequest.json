@@ -6,7 +6,7 @@
       "additionalProperties": false,
       "properties": {
         "instance": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "method": {
           "enum": [
@@ -77,7 +77,7 @@
       "additionalProperties": false,
       "properties": {
         "instance": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

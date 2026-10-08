@@ -100,6 +100,7 @@ export class ProviderInstalls {
           session: this.runtime.id(),
           provider: request.provider,
           ...(request.agent ? { agent: request.agent } : {}),
+          ...(request.acpAgentId ? { acpAgentId: request.acpAgentId } : {}),
           action: request.action,
           method: request.method,
           state: "planning",
@@ -197,8 +198,14 @@ export class ProviderInstalls {
           return;
         }
       }
+      const registryVersion =
+        plan.method === "registry"
+          ? await this.planner.registry?.run(plan, job.progress.session, job.abort.signal, (line) =>
+              this.line(job, line),
+            )
+          : undefined;
       this.publish(job, { state: "verifying", step: plan.commands.length, exit: 0 });
-      const version = await this.planner.verify(plan, job.abort.signal);
+      const version = registryVersion ?? (await this.planner.verify(plan, job.abort.signal));
       if (job.abort.signal.aborted) return;
       if (!version) {
         this.publish(job, {
