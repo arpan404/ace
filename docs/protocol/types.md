@@ -14069,6 +14069,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"review.list"` |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | sessionId | no | string | {"minLength":1,"maxLength":128} |
 | commentId | no | string | {"minLength":1,"maxLength":128} |
 | cursor | no | string | {"default":"","maxLength":128} |
@@ -14080,8 +14081,9 @@ Example:
 {
   "commentId": "example",
   "cursor": "example",
-  "limit": 3,
+  "limit": 8,
   "sessionId": "example",
+  "threadId": "example",
   "type": "review.list"
 }
 ```
@@ -14168,22 +14170,51 @@ Example:
 
 ```json
 {
-  "intentId": "example",
-  "session": {
-    "createdAt": 5,
-    "id": "example",
-    "source": {
-      "from": {
+  "comment": {
+    "anchor": {
+      "fingerprint": {
+        "after": [],
+        "before": [],
+        "lines": [
+          "example"
+        ]
+      },
+      "position": {
+        "end": 1,
+        "file": "example.ts",
+        "side": "new",
+        "start": 1
+      },
+      "revision": {
         "kind": "working-tree"
       },
-      "to": {
-        "kind": "commit",
-        "ref": "example"
-      },
-      "workspaceId": "example"
+      "state": "active"
     },
-    "status": "open"
+    "id": "example",
+    "originalAnchor": {
+      "fingerprint": {
+        "after": [],
+        "before": [],
+        "lines": [
+          "example"
+        ]
+      },
+      "position": {
+        "end": 1,
+        "file": "example.ts",
+        "side": "new",
+        "start": 1
+      },
+      "revision": {
+        "kind": "working-tree"
+      },
+      "state": "active"
+    },
+    "resolved": false,
+    "sessionId": "example",
+    "text": "example"
   },
+  "intentId": "example",
   "sessions": []
 }
 ```

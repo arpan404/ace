@@ -73,7 +73,7 @@ port.on("message", (input: unknown) => {
   if (message.type === "execution") {
     if (execution?.key !== message.key) return;
     if (message.ok) execution.resolve(message.output);
-    else execution.reject(new Error("review_executor_failed"));
+    else execution.reject(new Error(message.error ?? "review_executor_failed"));
     execution = undefined;
     return;
   }
