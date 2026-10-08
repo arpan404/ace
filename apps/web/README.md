@@ -152,7 +152,8 @@ Rules:
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.
 - Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
   `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
-  `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
+  `@ace/ui-core/provider-icons`; the marks are LobeHub Icons plus the official OpenAI Blossom in
+  `scripts/brand-marks/`, regenerated with `bun run icons:providers`.
   They draw in brand colour (gradients included); black-and-white brands draw in the text colour
   at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
 - Colour has jobs, never decoration:

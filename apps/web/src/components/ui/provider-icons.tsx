@@ -10,13 +10,16 @@ import { Tip } from "./tooltip.tsx";
  * `@ace/ui-core/provider-icons` (`providerIcon`, `providerBrands`, `acpAgentBrands`,
  * `modelFamily`), shared with mobile.
  *
- * Marks draw in their brand's colours by default (Claude's orange, Codex's blue gradient); a
- * brand whose mark is black and white (OpenAI, Cursor, OpenCode) draws in the text colour at full
+ * Marks draw in their brand's colours by default (Claude's orange, Gemini's gradient); a brand
+ * whose mark is black and white (OpenAI, Cursor, OpenCode) draws in the text colour at full
  * strength. `variant="mono"` draws any mark in the surrounding text colour, for a tiny inline mark.
  *
- * The marks are LobeHub Icons (MIT, see NOTICE) as path data. The brand tables and each mark load
- * as small chunks the first time a mark is on screen, so none of them weighs on the first paint;
- * the box keeps its size meanwhile, so nothing shifts when the mark arrives.
+ * The marks are LobeHub Icons (MIT, see NOTICE) as path data. Codex and GPT models draw the OpenAI
+ * Blossom from OpenAI's brand kit (https://openai.com/brand/,
+ * https://cdn.openai.com/brand/openai-logos.zip), vendored in scripts/brand-marks/ and turned into
+ * path data by scripts/provider-icons.ts. The brand tables and each mark load as small chunks the
+ * first time a mark is on screen, so none of them weighs on the first paint; the box keeps its
+ * size meanwhile, so nothing shifts when the mark arrives.
  */
 
 type Catalog = typeof import("@ace/ui-core/provider-icons");
@@ -91,10 +94,7 @@ export function ProviderIcon(props: ProviderIconProps) {
   const choice = catalog?.providerIcon(props);
   const size = props.size ?? 12;
   const color = props.variant !== "mono";
-  // In mono, at row sizes a detailed mark draws as its maker's simpler one (Codex → OpenAI); in
-  // colour the brand's own colours keep it legible.
-  const brand =
-    choice?.brand && catalog && !color ? catalog.brandAtSize(choice.brand, size) : choice?.brand;
+  const brand = choice?.brand;
   const art = brand && marks.get(brand);
   const paths = art ? (color ? (art.color ?? art.mono) : art.mono) : undefined;
   const label =

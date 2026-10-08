@@ -34,6 +34,11 @@ packages/ui-core/src/brand-art/; the package is a build-time devDependency and n
 bundled. The marks remain the trademarks of their owners and identify each provider's own product.
 Agents LobeHub has no mark for show ace's own neutral glyph; no brand mark is drawn by ace.
 
+The OpenAI Blossom, shown for Codex and for GPT models, is OpenAI's trademark, taken unmodified from
+OpenAI's brand kit (https://cdn.openai.com/brand/openai-logos.zip, linked from
+https://openai.com/brand/) into scripts/brand-marks/openai-blossom.svg. It is used only to identify
+OpenAI's own products and is not licensed under ace's license.
+
 Attachment previews use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and contributors,
 Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
 These dependencies and their bundled notices/licenses are accepted for bounded previews.
