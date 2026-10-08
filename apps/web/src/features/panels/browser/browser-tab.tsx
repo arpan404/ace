@@ -12,7 +12,7 @@ import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { AgentTabs } from "./agent-tabs.tsx";
-import { ControlStrip, useControl } from "./control-strip.tsx";
+import { ControlPill, useControl } from "./control-strip.tsx";
 import { PageDialog } from "./page-dialog.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
@@ -86,6 +86,22 @@ function Browser(props: TabViewProps) {
   );
 
   const root = useRef<HTMLDivElement>(null);
+  // Focus leaves the renderer when the person clicks into the desktop's native page (or another
+  // app): let go of the chrome's focused control so no focus ring stays drawn meanwhile. An
+  // address being edited keeps its focus and its draft.
+  useEffect(() => {
+    const release = () => {
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLElement &&
+        root.current?.contains(focused) &&
+        !focused.hasAttribute("data-editing")
+      )
+        focused.blur();
+    };
+    addEventListener("blur", release);
+    return () => removeEventListener("blur", release);
+  }, []);
   const shortcut = (accelerator: BrowserAccelerator) => {
     if (accelerator === "CmdOrCtrl+L")
       root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
@@ -183,8 +199,24 @@ function Browser(props: TabViewProps) {
     );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
+  const tabs = !!page.live && !page.live.closed && !!page.live.tabs?.length;
+  const pill = page.bound && !!page.live;
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
+      {page.live && (tabs || pill) && (
+        <div className="@container flex h-9 shrink-0 items-end gap-1 px-1.5">
+          {tabs && <AgentTabs view={page.live} browser={browser} busy={control.busy} />}
+          {pill && (
+            <ControlPill
+              view={page.live}
+              heldHere={!!page.heldAs}
+              busy={control.busy}
+              onToggle={control.toggle}
+              onPrivate={control.takePrivately}
+            />
+          )}
+        </div>
+      )}
       <PageToolbar
         nav={
           <PageNav
@@ -252,21 +284,7 @@ function Browser(props: TabViewProps) {
         }
         progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
-      {page.bound && page.live && (
-        <ControlStrip
-          view={page.live}
-          heldHere={!!page.heldAs}
-          busy={control.busy}
-          onToggle={control.toggle}
-          onPrivate={control.takePrivately}
-        />
-      )}
-      {page.live && !page.live.closed && (
-        <>
-          <AgentTabs view={page.live} browser={browser} busy={control.busy} />
-          <PageDialog view={page.live} browser={browser} />
-        </>
-      )}
+      {page.live && !page.live.closed && <PageDialog view={page.live} browser={browser} />}
       {finding && page.live && (
         <FindPage source={source} threadId={threadId} onClose={() => setFinding(false)} />
       )}

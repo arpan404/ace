@@ -13,7 +13,6 @@ import { open, withPerfApp } from "./perf-app.ts";
  *   retained. `MEMORY_MINUTES` lengthens the run (the default suits CI).
  */
 
-const port = 5_198;
 const minutes = Number(process.env.MEMORY_MINUTES ?? budgets.memory.minutes);
 const historyPages = Number(process.env.MEMORY_PAGES ?? 60);
 const mb = (bytes: number) => bytes / 1024 / 1024;
@@ -99,7 +98,7 @@ const check = (ok: boolean, message: string) => {
   if (!ok) failures.push(message);
 };
 
-await withPerfApp(port, async ({ browser, origin }) => {
+await withPerfApp(async ({ browser, origin }) => {
   // Load and a huge thread: the stream barely moves, so the reader can page back.
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

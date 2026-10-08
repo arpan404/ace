@@ -8,7 +8,7 @@ import type { ViewPage } from "./backend.ts";
 import { appChord, browserChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
-import { throttleDecision } from "./throttle.ts";
+import { throttleDecision, type ViewPresence } from "./throttle.ts";
 import type { NativeDevice, Rect } from "./placement.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 const throttleIdleMs = 30_000;
@@ -20,6 +20,8 @@ export interface PageOptions {
   /** Ephemeral sessions: the partition was cleared (or not) and may go back to its pool. */
   released: ((cleared: boolean) => void) | undefined;
   window: BaseWindow;
+  /** The app's hidden window where an unseen view renders while an agent drives it. */
+  park(size: { width: number; height: number }): BaseWindow;
   platform: NodeJS.Platform;
   log(message: string): void;
   /** Replays an app shortcut the person pressed in the page into the app's own page. */
@@ -34,6 +36,7 @@ export class EmbeddedPage implements ViewPage {
   private blocked = new Set<() => void>();
   private gate = new WebSocketGate();
   private nativeInput = false;
+  private agentControl = true;
   /**
    * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
    * command or a key press). Chromium runs Electron's input hooks synchronously inside that
@@ -43,6 +46,9 @@ export class EmbeddedPage implements ViewPage {
   private injecting = 0;
   private lastBlocked = 0;
   private placed = false;
+  /** The window a renderer last placed this view in; parking never changes it. */
+  private home: BaseWindow;
+  private presence: ViewPresence = "hidden";
   private metrics = "";
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
@@ -60,6 +66,7 @@ export class EmbeddedPage implements ViewPage {
       this.emit(method, params),
     );
     this.contents = options.view.webContents;
+    this.home = options.window;
     const contents = this.contents;
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
     contents.setWindowOpenHandler(({ url }) => {
@@ -136,13 +143,10 @@ export class EmbeddedPage implements ViewPage {
     device?: NativeDevice | undefined;
   }) {
     const view = this.options.view;
-    const current = this.options.window;
-    if (target.window && target.window !== current) {
-      if (!current.isDestroyed()) current.contentView.removeChildView(view);
-      target.window.contentView.addChildView(view);
-      this.options.window = target.window;
-    }
-    if (target.bounds) view.setBounds(target.bounds);
+    if (target.window) this.home = target.window;
+    this.placed = target.visible && target.bounds !== undefined && !this.home.isDestroyed();
+    if (this.placed) this.attach(this.home);
+    if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
     if (target.visible && target.bounds) {
       const zoom = target.zoom ?? 1;
       if (this.contents.getZoomFactor() !== zoom) this.contents.setZoomFactor(zoom);
@@ -166,10 +170,29 @@ export class EmbeddedPage implements ViewPage {
         ).catch((error) => this.options.log(String(error)));
       }
     }
-    this.placed = target.visible && target.bounds !== undefined;
-    // Hidden views stay alive (and attached) but stop painting, and send no frames.
-    view.setVisible(this.placed);
+    // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
+    // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
+  }
+
+  private attach(window: BaseWindow): void {
+    const current = this.options.window;
+    if (window === current) return;
+    const view = this.options.view;
+    if (!current.isDestroyed()) current.contentView.removeChildView(view);
+    window.contentView.addChildView(view);
+    this.options.window = window;
+  }
+
+  private show(presence: ViewPresence): void {
+    this.presence = presence;
+    const view = this.options.view;
+    if (presence === "parked") {
+      const { width, height } = view.getBounds();
+      this.attach(this.options.park({ width, height }));
+      view.setBounds({ x: 0, y: 0, width, height });
+    }
+    view.setVisible(presence !== "hidden");
   }
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -292,11 +315,18 @@ export class EmbeddedPage implements ViewPage {
       mobile: false,
     });
     // A view the renderer is not showing takes the requested size itself.
-    if (!this.placed) this.options.view.setBounds({ x: 0, y: 0, width, height });
+    if (this.placed) return;
+    if (this.presence === "parked") this.options.park({ width, height });
+    this.options.view.setBounds({ x: 0, y: 0, width, height });
   }
 
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
+    this.updateThrottle();
+  }
+
+  setAgentControl(agent: boolean): void {
+    this.agentControl = agent;
     this.updateThrottle();
   }
 
@@ -342,7 +372,8 @@ export class EmbeddedPage implements ViewPage {
   /** The agent used the view: full speed now, and throttled again once it goes quiet. */
   private driven(): void {
     this.lastDrivenAt = Date.now();
-    if (this.throttled) this.updateThrottle();
+    // An unseen, unrendered view starts rendering before the command reaches it.
+    if (this.throttled || this.presence === "hidden") this.updateThrottle();
     // One pending check at a time, however many commands arrive (frame acks are commands).
     else this.throttleTimer ??= setTimeout(() => this.updateThrottle(), throttleIdleMs);
   }
@@ -355,12 +386,14 @@ export class EmbeddedPage implements ViewPage {
       {
         visible: this.placed,
         nativeInput: this.nativeInput,
+        agentControl: this.agentControl,
         screencasting: this.screencasting,
         lastDrivenAt: this.lastDrivenAt,
       },
       Date.now(),
       throttleIdleMs,
     );
+    this.show(decision.presence);
     if (decision.throttle !== this.throttled) {
       this.throttled = decision.throttle;
       this.contents.setBackgroundThrottling(decision.throttle);
