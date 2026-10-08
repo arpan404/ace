@@ -286,3 +286,30 @@ test("a transport auth failure stays at the instance even when only Copilot is c
   expect(notices[0]?.source).toBeUndefined();
   expect(JSON.stringify(result)).not.toMatch(/private|Bearer|token/);
 });
+
+test.each(["no_models", "parse_failure", "cli_too_old"] as const)(
+  "terminal %s metadata waits for max age or an explicit change instead of retrying discovery",
+  async (code) => {
+    let available = false;
+    const { catalog, clock, notices } = await setup(
+      async (config) => {
+        if (!available) throw { code };
+        return normalizeCodex(codexPayload(), { ...config, provider: "codex" }).map((model) =>
+          Object.assign({}, model, { provider: "opencode" as const }),
+        );
+      },
+      { revisionProbe: async () => "unchanged" },
+    );
+    await catalog.refresh();
+    const initial = notices.length;
+    clock.now += 60_000;
+    await catalog.reconcileConnections();
+    catalog.revalidate();
+    expect(catalog.list().instances[0]).toMatchObject({ refreshing: false, errorDetail: { code } });
+    expect(notices).toHaveLength(initial);
+    available = true;
+    await catalog.refresh();
+    expect(catalog.list().models[0]?.id).toBe("coder");
+    expect(catalog.list().instances[0]?.errorDetail).toBeUndefined();
+  },
+);
