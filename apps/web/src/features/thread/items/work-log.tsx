@@ -15,6 +15,7 @@ export function WorkLog(props: {
   threadId: string;
   itemIds: readonly string[];
   live?: boolean;
+  ongoing?: boolean | undefined;
   /** When its stretch closed: its time never runs past it. */
   until?: number | undefined;
   /** Time the agent sat idle between two of its runs inside the log. */
@@ -22,6 +23,7 @@ export function WorkLog(props: {
 }) {
   const headline = useWorkLog(props.threadId, props.itemIds, {
     live: props.live,
+    ongoing: props.ongoing,
     until: props.until,
     idle: props.idle,
   });

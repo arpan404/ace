@@ -51,7 +51,7 @@ export function GitDialog(props: {
   const [draft, setDraft] = useState(kind === "draft-pr");
   const pushId = useId();
   const draftId = useId();
-  // What a commit takes: read fresh as the form opens, untracked files unticked until picked.
+  // What a commit takes: read fresh as the form opens, with every changed file picked.
   const status = useChangedFiles(props.thread, commit);
   const files = status.data?.files;
   const [picked, setPicked] = useState<ReadonlySet<string>>();

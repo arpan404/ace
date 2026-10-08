@@ -370,7 +370,7 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
   opened.mockRestore();
 });
 
-test("Commit lists exactly the files git reports, leaves untracked ones out until picked, and commits only what is ticked", async () => {
+test("Commit lists exactly the files git reports, preselects new and tracked files, and commits only what is ticked", async () => {
   const app = await openThread("checkout");
   app.daemon.workspace.setGitStatus("thread-checkout", [
     { path: ".env.local", status: "untracked", additions: 2, deletions: 0, binary: false },
@@ -397,17 +397,16 @@ test("Commit lists exactly the files git reports, leaves untracked ones out unti
       [".env.local", "src/checkout.ts", "src/payments/wait.ts"].map(box).indexOf(row),
     ),
   ).toEqual([0, 1, 2]);
-  expect(box(".env.local").getAttribute("aria-checked")).toBe("false");
+  expect(box(".env.local").getAttribute("aria-checked")).toBe("true");
   expect(box("src/checkout.ts").getAttribute("aria-checked")).toBe("true");
   expect(box("src/payments/wait.ts").getAttribute("aria-checked")).toBe("true");
-  expect(within(dialog).getByText("· 2 picked")).toBeTruthy();
+  expect(within(dialog).getByText("· 3 picked")).toBeTruthy();
 
   await userEvent.click(box("src/checkout.ts"));
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
   expect(await screen.findByText("Committed")).toBeTruthy();
   // The rename went in with its old path; the unticked files stayed uncommitted.
   expect(app.daemon.workspace.gitStatus("thread-checkout").map((file) => file.path)).toEqual([
-    ".env.local",
     "src/checkout.ts",
   ]);
 });
@@ -421,7 +420,8 @@ test("Commit can't run with nothing picked, and View diff shows the changes inst
   const form = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
-  await within(dialog).findByRole("list", { name: "Files to commit" });
+  const files = await within(dialog).findByRole("list", { name: "Files to commit" });
+  await userEvent.click(within(files).getByRole("checkbox", { name: "notes.md" }));
   expect(within(dialog).getByRole("button", { name: commitButton }).hasAttribute("disabled")).toBe(
     true,
   );

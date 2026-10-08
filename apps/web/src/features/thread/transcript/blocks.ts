@@ -38,6 +38,7 @@ export type Block =
       key: string;
       itemIds: string[];
       until?: number | undefined;
+      ongoing?: boolean | undefined;
       /**
        * Time the agent sat idle inside the log, between a turn's end and the run it started by
        * itself when its background work or subagent finished: not counted as work.
@@ -167,6 +168,7 @@ interface TurnMark {
   agents: Set<string>;
   /** Its work log still open when it ended, to freeze at the turn's end. */
   openWork: Extract<Block, { kind: "work" }> | undefined;
+  work: WorkBlock[];
   /** A usage limit paused it (the next turn resumed after the limit, or it was seen held). */
   paused: boolean;
   /** The turn after it started by itself (a restart or limit resume). */
@@ -274,6 +276,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         runs: new Set(),
         agents: new Set(),
         openWork: undefined,
+        work: [],
         paused: false,
         automatic: false,
         failure: undefined,
@@ -318,6 +321,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!open) {
       const block: WorkBlock = { kind, key: `${kind}:${id}`, itemIds: [] };
       open = stretch.work = { block, at: blocks.push(block) - 1 };
+      mark?.work.push(block);
     }
     open.block.itemIds.push(id);
     groupOf.set(id, { itemIds: open.block.itemIds, at: open.at });
@@ -469,6 +473,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
     if (held) turn.paused = true;
     if (!pseudo && !settled(source, turn, newest === turn)) {
+      for (const block of turn.work) block.ongoing = true;
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id)
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn));

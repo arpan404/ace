@@ -12,7 +12,7 @@ import {
   type Block,
   type RunFacts,
 } from "./blocks.ts";
-import { useWatched, type Watched } from "./use-watched.ts";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
 const none: readonly Block[] = [];
 const noKeys: readonly string[] = [];

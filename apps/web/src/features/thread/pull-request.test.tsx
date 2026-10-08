@@ -283,6 +283,9 @@ test("a missing PR shows one explanation and can be unlinked without GitHub", as
     "GitHub couldn't find the pull request",
   );
   expect(within(popover).queryByText("No status from GitHub yet")).toBeNull();
+  const work = screen.getByRole("dialog", { name: "Work card" });
+  expect(within(work).queryByText("open", { exact: true })).toBeNull();
+  expect(within(work).getByText("Unavailable")).toBeTruthy();
   expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();
   expect(within(popover).getByRole("button", { name: "Link…" })).toBeTruthy();
   await userEvent.click(within(popover).getByRole("button", { name: "Unlink" }));
@@ -336,7 +339,9 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   expect(files.textContent).toContain("src/supervisor/restart-budget.ts");
   expect(files.textContent).toContain("src/supervisor/supervisor.ts");
   expect(files.textContent).not.toMatch(/src\/config|src\/lib\/retry/);
-  await userEvent.click(within(files).getByRole("checkbox", { name: /restart-budget/ }));
+  expect(
+    within(files).getByRole("checkbox", { name: /restart-budget/, checked: true }),
+  ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit & push/ }));
   expect(await screen.findByText("Committed and pushed")).toBeTruthy();
   expect(app.daemon.workspace.gitStatus("thread-retry-budget")).toEqual([]);
