@@ -114,7 +114,7 @@ export function providerStatuses(
       name: providerNames[kind],
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
-      state: pickerState(model),
+      state: row?.installed === false ? "not_installed" : pickerState(model),
       actionId: row?.actionId,
       accounts: model.accounts,
     };

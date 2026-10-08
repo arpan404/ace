@@ -10,6 +10,7 @@ export function completePaths(
   const q = query.toLowerCase();
   const scored: { path: string; score: number }[] = [];
   for (const path of paths) {
+    if (path.endsWith("/")) continue;
     const lower = path.toLowerCase();
     let at = 0;
     for (const char of q) {

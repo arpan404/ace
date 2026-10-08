@@ -20,8 +20,6 @@ export async function requestDeviceAccess(
   };
   if (devices.approvedThread(deviceId) === caller.threadId) {
     signal.throwIfAborted();
-    if (devices.states().find((state) => state.device.id === deviceId)?.controller === "none")
-      await devices.request(delegation, actor);
     return;
   }
   const device = (await devices.list()).find((entry) => entry.id === deviceId);

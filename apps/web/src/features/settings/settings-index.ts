@@ -1,3 +1,4 @@
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
@@ -238,7 +239,19 @@ export function searchSettings(query: string): SettingEntry[] {
   if (!text) return [];
   const visible = visibleSettingsPages();
   const found = settingsIndex.filter(
-    (entry) => visible.some((page) => page.to === entry.page) && matches(entry, text),
+    (entry) =>
+      visible.some((page) => page.to === entry.page) &&
+      (hasDesktopPreferences() ||
+        ![
+          "notifications.system",
+          "notifications.quietHours",
+          "app.openAtLogin",
+          "app.background",
+          "app.preventSleep",
+          "app.globalShortcut",
+          "app.attention",
+        ].includes(entry.id)) &&
+      matches(entry, text),
   );
   return found.toSorted(
     (a, b) =>

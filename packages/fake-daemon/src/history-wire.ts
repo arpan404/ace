@@ -58,9 +58,23 @@ export class FakeHistory {
       });
       return true;
     }
+    const progress = (phase: "preparing" | "unsupported" | "completed") => {
+      if (
+        (message.type === "history.import" || message.type === "history.continue") &&
+        message.requestId
+      )
+        send({
+          type: "history.operation.progress",
+          requestId: message.requestId,
+          operation: message.type,
+          phase,
+        });
+    };
     if (message.type === "history.import") {
+      progress("preparing");
       const session = this.sessions.find((entry) => entry.id === message.sourceId);
       if (!session || session.support.status !== "supported") {
+        progress("unsupported");
         send({
           type: "history.import",
           requestId: message.requestId,
@@ -99,6 +113,7 @@ export class FakeHistory {
           },
         ]);
       }
+      progress("completed");
       send({
         type: "history.import",
         requestId: message.requestId,
@@ -108,10 +123,13 @@ export class FakeHistory {
       return true;
     }
     if (message.type === "history.continue") {
+      progress("preparing");
       const session = this.sessions.find(
         (entry) => this.imported.get(entry.id) === message.threadId,
       );
-      if (!session || session.continuation?.status !== "supported")
+      const supported = session?.continuation?.status === "supported";
+      progress(supported ? "completed" : "unsupported");
+      if (!supported)
         send({
           type: "history.continue",
           requestId: message.requestId,

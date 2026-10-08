@@ -178,7 +178,12 @@ export function devicesToolkit(
             const abort = () => service.disconnect(owner);
             signal.addEventListener("abort", abort, { once: true });
             try {
-              if ("deviceId" in args && typeof args.deviceId === "string" && requestAccess)
+              if (
+                (name === "device_boot" || name === "device_start") &&
+                "deviceId" in args &&
+                typeof args.deviceId === "string" &&
+                requestAccess
+              )
                 await requestAccess(args.deviceId, caller, signal);
               if (name === "device_screenshot") {
                 const { deviceId } = target.parse(args);
