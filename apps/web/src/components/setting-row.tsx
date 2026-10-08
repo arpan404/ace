@@ -4,7 +4,8 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * Settings-style row: title and description on the left, the control on the right. Rows are separated by hairlines. Narrow (below 30rem of row width) the control drops under the text and wide
+ * Settings-style row: title and description on the left, the control on the right. Hairlines
+ * separate rows. Below 30rem of row width the control drops under the text and wide
  * controls take the full width, unless `inline` (switches, small buttons). `id` makes the row
  * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
  */

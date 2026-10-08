@@ -103,7 +103,11 @@ export function ProviderModels(props: { provider: ProviderKind }) {
 function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): void }) {
   const { model } = props;
   const preferences = useProviderConfiguration(model.provider);
-  const hidden = preferences.value?.hiddenModels?.includes(model.id) === true;
+  const hidden =
+    preferences.value?.hiddenModels?.includes(model.id) === true ||
+    model.visibilityReason === "model_hidden" ||
+    model.visibilityReason === "deprecated" ||
+    model.visibilityReason === "provider_hidden";
   return (
     <li className="flex min-h-9 items-center gap-2 text-ui">
       <span className="min-w-0 flex-1 truncate">{model.displayName}</span>
@@ -123,12 +127,18 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
         size="sm"
         disabled={preferences.disabled}
         onClick={() =>
-          void preferences.update((row) => ({
-            ...row,
-            hiddenModels: hidden
-              ? (row.hiddenModels ?? []).filter((id) => id !== model.id)
-              : [...(row.hiddenModels ?? []), model.id],
-          }))
+          void preferences.update((row) => {
+            const ids = new Set([model.id, ...(model.aliases ?? [])]);
+            return {
+              ...row,
+              hiddenModels: hidden
+                ? (row.hiddenModels ?? []).filter((id) => !ids.has(id))
+                : [...new Set([...(row.hiddenModels ?? []), model.id])],
+              shownModels: hidden
+                ? [...new Set([...(row.shownModels ?? []), model.id])]
+                : (row.shownModels ?? []).filter((id) => !ids.has(id)),
+            };
+          })
         }
       />
     </li>

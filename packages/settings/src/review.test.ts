@@ -57,7 +57,7 @@ test.each([
   },
 );
 
-test("a workspace symlink cannot overwrite the daemon's global approvals", async () => {
+test("a workspace symlink cannot overwrite global settings", async () => {
   const f = await setup();
   await f.service.set("threads.followUpBehavior", "queue", { kind: "global" });
   await symlink(f.dataDir, join(f.workspace, ".ace"), "dir");

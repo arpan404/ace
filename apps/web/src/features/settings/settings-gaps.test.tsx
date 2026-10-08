@@ -139,6 +139,20 @@ test("provider configuration changes visibility, stars and custom model choices 
   expect(visible.result.models.find((model) => model.id === "claude-sonnet-5-5")).toMatchObject({
     hidden: true,
   });
+  await userEvent.click(screen.getByRole("switch", { name: "Hide deprecated models" }));
+  const showOlder = await within(models).findByRole("button", { name: "Show Opus 4" });
+  await userEvent.click(showOlder);
+  await within(models).findByRole("button", { name: "Hide Opus 4" });
+  const shownOlder = await app.client.request({
+    type: "models.list",
+    options: { provider: "claude" },
+  });
+  if (!("models" in shownOlder.result)) throw new Error("Models unavailable");
+  expect(shownOlder.result.models.find((model) => model.id === "claude-opus-4")).toMatchObject({
+    hidden: false,
+  });
+  await userEvent.click(within(models).getByRole("button", { name: "Hide Opus 4" }));
+  await within(models).findByRole("button", { name: "Show Opus 4" });
   await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "/tmp/fake-claude");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(configuration(app)[0]?.binaryPath).toBe("/tmp/fake-claude"));
