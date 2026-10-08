@@ -7,7 +7,6 @@ import { Icon } from "@/components/icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
 import {
   Menu,
@@ -19,7 +18,9 @@ import {
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { ViewRowBody, viewRowClass } from "@/components/ui/view-row.tsx";
+import { CompactViewRowBody, compactViewRowClass } from "@/components/ui/view-row.tsx";
+import { Prose } from "@/components/markdown/prose.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useInstallDialog } from "./install-plugin.tsx";
 import { RemovePluginDialog } from "./remove-plugin.tsx";
@@ -31,6 +32,9 @@ import {
   pinText,
   pluginSkillId,
   sourceText,
+  skillTitle,
+  skillMarkdown,
+  skillsLoadError,
   type Skill,
 } from "./skills-model.ts";
 import { useSetAvailability, useSkillSource, useSkills } from "./skills-source.ts";
@@ -47,7 +51,7 @@ export function SkillPage(props: { skillId: string }) {
             icon={CubeIcon}
             heading
             title="Skills unavailable"
-            description={describeDaemonError(daemonErrorCode(skills.error))}
+            description={skillsLoadError}
             action={
               <Button size="sm" onClick={() => void skills.refetch()}>
                 Try again
@@ -81,9 +85,6 @@ export function SkillPage(props: { skillId: string }) {
   );
 }
 
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "The plugin service didn't answer.";
-
 /** "engineering available to Claude Code and Codex", "… to every provider". */
 function availabilityToast(plugin: string, providers: readonly ProviderKind[]): string {
   if (!providers.length) return `${plugin} hidden from every provider`;
@@ -94,10 +95,6 @@ function availabilityToast(plugin: string, providers: readonly ProviderKind[]): 
 const sameProviders = (a: readonly ProviderKind[], b: readonly ProviderKind[]) =>
   a.length === b.length && a.every((provider) => b.includes(provider));
 
-/**
- * Availability is the plugin's: a component follows the plugin that ships it, so every control
- * on a component's page names the plugin it changes.
- */
 function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly Skill[] }) {
   const { skill, plugin, components } = props;
   const toast = useToast();
@@ -105,33 +102,39 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
   const install = useInstallDialog();
   const [removing, setRemoving] = useState(false);
   const isPlugin = skill.kind === "plugin";
+  const ownSkill = skill.kind === "skill";
+  const policy = ownSkill ? (skill.skillAvailability ?? skill) : plugin;
+  const controlled = ownSkill ? skill : plugin;
   const group = kinds.find((entry) => entry.kind === skill.kind)?.label ?? "Skills";
-  // Shown at once; the catalog goes back with a toast if the daemon refuses.
   const change = (next: { enabled?: boolean; providers?: readonly ProviderKind[] }, done: string) =>
     setAvailability.mutate(
       {
         plugin: plugin.plugin,
-        enabled: next.enabled ?? plugin.enabled,
-        providers: next.providers ?? plugin.providers,
+        skill: ownSkill ? skill.name : undefined,
+        enabled: next.enabled ?? policy.enabled,
+        providers: next.providers ?? policy.providers,
       },
       {
         onSuccess: () => toast.add({ title: done }),
-        onError: (error) =>
-          toast.error({ title: `Couldn't change ${plugin.name}`, description: errorText(error) }),
+        onError: () =>
+          toast.error({
+            title: `Couldn't change ${skillTitle(controlled)}`,
+            description: "Couldn't save the change. Check your connection and try again.",
+          }),
       },
     );
   const setEnabled = (enabled: boolean) =>
     change(
       {
         enabled,
-        // Turning on a plugin no provider may load would leave it off.
-        ...(enabled && !plugin.providers.length ? { providers: ProviderKind.options } : {}),
+        // Enabling an empty allowlist restores provider choices.
+        ...(enabled && !policy.providers.length ? { providers: ProviderKind.options } : {}),
       },
-      `${plugin.name} ${enabled ? "turned on" : "turned off"}`,
+      `${skillTitle(controlled)} ${enabled ? "turned on" : "turned off"}`,
     );
   return (
     <Screen
-      title={<span className="font-mono text-ui">{skill.name}</span>}
+      title={skillTitle(skill)}
       subtitle={group}
       menu={
         <>
@@ -159,25 +162,32 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           <div className="flex items-start gap-4">
             <div className="min-w-0 flex-1">
-              <h2 className="font-mono text-xl font-semibold tracking-title">{skill.name}</h2>
+              <p className="font-mono text-sm text-muted-foreground">{skill.name}</p>
               <p className="mt-1 text-base leading-normal text-muted-foreground">
                 {skill.description}
               </p>
             </div>
-            {isPlugin ? (
+            {(isPlugin || ownSkill) && (
               <LabelledSwitch
                 label="Enabled"
-                checked={plugin.enabled}
+                checked={policy.enabled}
                 disabled={setAvailability.isPending}
                 onCheckedChange={setEnabled}
               />
-            ) : (
-              <span className="mt-2 shrink-0 rounded-sm bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                {skill.enabled ? "On" : `Off · ${plugin.name} is off`}
-              </span>
             )}
           </div>
-          <SettingSection label={isPlugin ? "Plugin" : "Details"} card>
+          {ownSkill && (
+            <div className="mt-4">
+              <Link
+                to="/new"
+                search={{ skill: skill.name }}
+                className={buttonVariants({ variant: "secondary", size: "sm" })}
+              >
+                Use in a thread
+              </Link>
+            </div>
+          )}
+          <SettingSection label={isPlugin ? "Plugin" : "Details"}>
             {!isPlugin && (
               <SettingRow
                 title={
@@ -186,18 +196,15 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
                     params={{ skillId: plugin.id }}
                     className="underline-offset-4 hover:underline"
                   >
-                    {plugin.name} plugin
+                    {skillTitle(plugin)} plugin
                   </Link>
                 }
-                description={`Ships with ${plugin.name}. Turning it off turns off everything it ships.`}
-              >
-                <Switch
-                  aria-label={`Turn ${plugin.name} on or off`}
-                  checked={plugin.enabled}
-                  disabled={setAvailability.isPending}
-                  onCheckedChange={setEnabled}
-                />
-              </SettingRow>
+                description={
+                  !plugin.enabled
+                    ? "This plugin is off. Turn it on to use its skills."
+                    : "Changes apply to new threads."
+                }
+              />
             )}
             {isPlugin && plugin.install && <VersionRow skill={plugin} />}
             {skill.path && (
@@ -206,18 +213,20 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
                 description={<span className="font-mono text-sm">{skill.path}</span>}
               />
             )}
-            <SettingRow title="Available to" description={availabilityText(plugin.providers)}>
-              <AvailabilityMenu
-                providers={plugin.providers}
-                onCommit={(providers) =>
-                  change(
-                    // Choosing providers for an off plugin doesn't turn it on.
-                    { providers },
-                    availabilityToast(plugin.name, providers),
-                  )
-                }
-              />
-            </SettingRow>
+            {(isPlugin || ownSkill) && (
+              <SettingRow
+                inline
+                title="Available to"
+                description={availabilityText(policy.providers)}
+              >
+                <AvailabilityMenu
+                  providers={policy.providers}
+                  onCommit={(providers) =>
+                    change({ providers }, availabilityToast(skillTitle(controlled), providers))
+                  }
+                />
+              </SettingRow>
+            )}
           </SettingSection>
           {isPlugin && components.length > 0 && <Contents components={components} />}
           {skill.path && <SourcePreview skill={skill} />}
@@ -321,12 +330,15 @@ function Contents(props: { components: readonly Skill[] }) {
           <ul key={group.kind} aria-label={group.label} className="flex flex-col gap-px">
             {members.map((skill) => (
               <li key={skill.id}>
-                <Link to="/skills/$skillId" params={{ skillId: skill.id }} className={viewRowClass}>
-                  <ViewRowBody
+                <Link
+                  to="/skills/$skillId"
+                  params={{ skillId: skill.id }}
+                  className={compactViewRowClass}
+                >
+                  <CompactViewRowBody
                     icon={group.icon}
-                    title={skill.name}
-                    description={skill.description}
-                    mono={skill.kind === "skill" || skill.kind === "command"}
+                    title={skillTitle(skill)}
+                    status={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
                   />
                 </Link>
               </li>
@@ -343,14 +355,18 @@ function SourcePreview(props: { skill: Skill }) {
   return (
     <SettingSection label="Preview">
       {source.isError ? (
-        <p className="text-ui text-muted-foreground">{errorText(source.error)}</p>
+        <p className="text-ui text-muted-foreground">
+          Couldn't load the preview. Check your connection and reopen this skill.
+        </p>
       ) : source.data === undefined ? (
         <SkeletonText lines={4} />
       ) : (
-        <pre className="rounded-lg bg-code px-4 py-3.5 font-mono text-sm leading-[1.6] whitespace-pre-wrap">
-          {source.data.text}
-          {source.data.truncated && "\n…"}
-        </pre>
+        <>
+          <Prose text={skillMarkdown(source.data.text)} />
+          {source.data.truncated && (
+            <p className="mt-2 text-sm text-muted-foreground">Preview shortened.</p>
+          )}
+        </>
       )}
     </SettingSection>
   );

@@ -20,7 +20,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useRemovingPlugins } from "./plugin-removals.ts";
-import { skillCatalog, withAvailability, type Skill } from "./skills-model.ts";
+import { skillCatalog, type Skill } from "./skills-model.ts";
 
 type Request = z.input<typeof PluginRequest>;
 type Response<T extends PluginResponse["type"]> = Extract<PluginResponse, { type: T }>;
@@ -103,41 +103,46 @@ function usePluginMutation<T, R>(run: (client: ClientApi, input: T) => Promise<R
   const queries = useQueryClient();
   return useMutation({
     mutationFn: (input: T) => run(client, input),
-    // Not awaited: the caller can move on (open the new plugin) while the catalog reloads.
-    onSuccess: () => void queries.invalidateQueries({ queryKey: key }),
+    // Keep controls pending until the catalog reflects the saved policy.
+    onSuccess: () => queries.invalidateQueries({ queryKey: key }),
   });
 }
 
-/**
- * Turn a plugin on or off, and choose which providers may load it. The catalog shows the change
- * at once and goes back if the daemon refuses it.
- */
+/** Save availability, then read the effective catalog with both policies applied. */
 export function useSetAvailability() {
-  const client = useClient();
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { plugin: string; enabled: boolean; providers: readonly ProviderKind[] }) =>
-      plugins(
-        client,
-        {
-          type: "plugins.availability",
-          name: input.plugin,
-          enabled: input.enabled,
-          providers: [...input.providers],
-        },
-        "plugins.availability",
-      ),
-    onMutate: async (input) => {
-      await queries.cancelQueries({ queryKey: key, exact: true });
-      const before = queries.getQueryData<Skill[]>(key);
-      if (before) queries.setQueryData(key, withAvailability(before, input.plugin, input));
-      return { before };
-    },
-    onError: (_error, _input, context) => {
-      if (context?.before) queries.setQueryData(key, context.before);
-    },
-    onSettled: () => void queries.invalidateQueries({ queryKey: key }),
-  });
+  return usePluginMutation(
+    async (
+      client,
+      input: {
+        plugin: string;
+        skill?: string | undefined;
+        enabled: boolean;
+        providers: readonly ProviderKind[];
+      },
+    ) =>
+      input.skill
+        ? plugins(
+            client,
+            {
+              type: "plugins.skillAvailability",
+              plugin: input.plugin,
+              name: input.skill,
+              enabled: input.enabled,
+              providers: [...input.providers],
+            },
+            "plugins.skillAvailability",
+          )
+        : plugins(
+            client,
+            {
+              type: "plugins.availability",
+              name: input.plugin,
+              enabled: input.enabled,
+              providers: [...input.providers],
+            },
+            "plugins.availability",
+          ),
+  );
 }
 
 /**

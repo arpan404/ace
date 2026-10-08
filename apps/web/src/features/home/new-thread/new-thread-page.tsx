@@ -58,7 +58,11 @@ function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
  * (and its worktree). Mentions, files and slash commands work before then, in a draft scope on
  * the daemon.
  */
-export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
+export function NewThreadPage(props: {
+  project?: string | undefined;
+  base?: string | undefined;
+  skill?: string | undefined;
+}) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
   const { ids: projects, name, loaded } = useRegisteredProjects();
@@ -179,7 +183,10 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           </h2>
           <Composer
             thread={draftThread}
-            draftKey={project ? `new:${project}` : undefined}
+            draftKey={
+              project ? `new:${project}${props.skill ? `:skill:${props.skill}` : ""}` : undefined
+            }
+            initialText={props.skill ? `/${props.skill} ` : undefined}
             busy={false}
             onSubmit={send}
             autoFocus

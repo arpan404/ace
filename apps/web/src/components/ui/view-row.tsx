@@ -79,6 +79,29 @@ export function ViewRowBody(props: {
   );
 }
 
+/** One-line list entry, with a plain icon and optional status. */
+export const compactViewRowClass = cn(
+  "group flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-ui transition-colors duration-(--dur-1)",
+  "hover:bg-sidebar-accent focus-ring-inset",
+  "data-[status=active]:bg-foreground/8 aria-[current=page]:bg-foreground/8",
+);
+
+export function CompactViewRowBody(props: {
+  icon: IconGlyph;
+  title: ReactNode;
+  status?: ReactNode;
+}) {
+  return (
+    <>
+      <Icon icon={props.icon} size={14} className="shrink-0 text-muted-foreground" />
+      <span data-view-row-title="" className="min-w-0 flex-1 truncate">
+        {props.title}
+      </span>
+      {props.status}
+    </>
+  );
+}
+
 /** Group label inside a view's list in the sidebar ("Needs you", "Plugins"). */
 export function ViewRowSection(props: { label: string; children: ReactNode }) {
   return (
