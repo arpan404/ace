@@ -144,7 +144,7 @@ try {
     sourceClock.offset,
   );
   await page.addInitScript({ content: meter });
-  await page.getByRole("button", { name: "New thread", exact: true }).waitFor({ timeout: 60000 });
+  await page.getByRole("link", { name: /^New thread/ }).waitFor({ timeout: 60000 });
   await page.goto(`app://ace/t/${thread.id}`);
   await page.getByRole("combobox", { name: "Message" }).waitFor({ timeout: 60000 });
   await page.keyboard.press("Control+Shift+m");
