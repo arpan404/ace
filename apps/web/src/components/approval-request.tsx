@@ -66,7 +66,10 @@ export function ApprovalRequest(props: {
   const medium = copy.risk?.level === "medium" ? copy.risk : undefined;
   const hasDetails = !!medium || copy.facts.length > 0 || !!props.review || copy.others.length > 0;
   return (
-    <div className={cn("flex flex-col gap-2.5", props.className)}>
+    <div
+      data-approval-deliberate={high || copy.defaultToNo ? "" : undefined}
+      className={cn("flex flex-col gap-2.5", props.className)}
+    >
       {copy.command && <pre className={block}>{copy.command}</pre>}
       {copy.code && (
         <pre aria-label="Script" className={block}>
@@ -104,6 +107,7 @@ export function ApprovalRequest(props: {
                       : "ghost"
                 }
                 disabled={props.disabled}
+                data-approval-refusal={decision.verb === "deny" ? "" : undefined}
                 aria-keyshortcuts={
                   props.numbered && keyed
                     ? String(index + 1)

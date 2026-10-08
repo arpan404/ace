@@ -90,7 +90,7 @@ function ShellHotkeys() {
 
 /** Where focus already is on purpose; a navigation must not pull it out of these. */
 const keepFocusIn =
-  '[role="dialog"], [role="alertdialog"], [data-slot="composer"], textarea, input, [contenteditable="true"]';
+  '[role="dialog"], [role="alertdialog"], [data-slot="composer"], [data-approval-deliberate], textarea, input, [contenteditable="true"]';
 const settleFrames = 30;
 
 /**

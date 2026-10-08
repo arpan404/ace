@@ -75,7 +75,7 @@ test("in Activity, A doesn't approve a request that defaults to no; a click does
   expect(within(card).getByRole("button", { name: "Allow once" }).textContent).toBe("Allow once");
 
   await userEvent.keyboard("a");
-  expect(await within(card).findByText(/defaults to no: click Allow once/)).toBeTruthy();
+  expect(await within(card).findByText(/Read the request, then click Allow once/)).toBeTruthy();
   expect(app.daemon.isPending("thread-drop-table", "drop-table")).toBe(true);
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
@@ -115,7 +115,7 @@ test("in the thread, a number key can deny a request that defaults to no but nev
 
   await focusIn(deny);
   await userEvent.keyboard("1");
-  expect(await within(card).findByText(/defaults to no: click Allow once/)).toBeTruthy();
+  expect(await within(card).findByText(/Read the request, then click Allow once/)).toBeTruthy();
   expect(app.daemon.isPending("thread-truncate-logs", "truncate-logs")).toBe(true);
 
   await userEvent.keyboard("2");

@@ -83,7 +83,10 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
   const once = copy?.decisions.find((decision) => decision.verb === "allow_once");
   const deny = copy?.decisions.find((decision) => decision.verb === "deny");
   const keyApproves =
-    !!once && request.kind === "approval" && !copy?.tool && approvalByKey(request, once.option);
+    !!once &&
+    request.kind === "approval" &&
+    !copy?.tool &&
+    approvalByKey(request, once.option, copy?.risk);
   const live = focused && !sending;
   const decide = (option: { id: string; kind: string }) =>
     answer(
@@ -122,7 +125,7 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
       />
       {nudged && !sending && once && (
         <p role="status" className="mt-2 text-xs text-subtle-foreground">
-          This request defaults to no: click {once.label} to allow it.
+          Read the request, then click {once.label} to allow it.
         </p>
       )}
       <CardError message={failure} />

@@ -357,21 +357,27 @@ export function approvalCopy(
 }
 
 /**
- * Whether a key may pick `option`. A request that defaults to no takes a key only to refuse;
+ * Whether a key may pick `option`. A high-risk or default-to-no request takes a key only to refuse;
  * approving it is a click (or Enter on the focused button), never a reflex key.
  */
-export function approvalByKey(request: ApprovalRequest, option: ApprovalOption): boolean {
-  return request.defaultToNo !== true || refusal(option);
+export function approvalByKey(
+  request: ApprovalRequest,
+  option: ApprovalOption,
+  risk = approvalCopy(request).risk,
+): boolean {
+  return refusal(option) || (request.defaultToNo !== true && risk?.level !== "high");
 }
 
 /**
  * A request to answer on its full card, never with a one-tap Approve from a list: ace's own
- * tools and anything that defaults to no.
+ * tools, high-risk actions and anything that defaults to no.
  */
 export function deliberateApproval(request: InteractionRequest): boolean {
   return (
     request.kind === "approval" &&
-    (request.defaultToNo === true || approvalCopy(request).tool !== undefined)
+    (request.defaultToNo === true ||
+      approvalCopy(request).tool !== undefined ||
+      approvalCopy(request).risk?.level === "high")
   );
 }
 
