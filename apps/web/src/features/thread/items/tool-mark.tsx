@@ -59,7 +59,7 @@ function LetterTile(props: { text: string }) {
   return (
     <span
       aria-hidden
-      className="grid size-3.5 shrink-0 place-items-center rounded-sm bg-foreground/8 text-[9px] font-semibold text-foreground"
+      className="grid size-3.5 shrink-0 place-items-center rounded-sm bg-foreground/8 text-2xs font-semibold text-foreground"
     >
       {props.text.charAt(0).toUpperCase()}
     </span>
