@@ -80,6 +80,10 @@ it("failed effect execution keeps its intent and retries without invisible sessi
   expect(fake.sessions.size).toBe(0);
   expect(store.pending("run")).toHaveLength(1);
   fake.ports.orchestrator.attach = original;
+  // A failed intent retains its retry deadline instead of spinning on the same drain.
+  await driver.drain("run");
+  expect(fake.sessions.size).toBe(0);
+  env.advance(1000);
   await driver.drain("run");
   expect(fake.sessions.size).toBe(1);
 });

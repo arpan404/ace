@@ -545,6 +545,17 @@ export class Engine {
     }
     return { activeSessions, queues };
   }
+  /** A host resource owner may retire a terminal session before removing its workspace. */
+  async retireSession(id: ThreadId): Promise<void> {
+    const actor = this.actors.get(id);
+    if (!actor) return;
+    await actor.flush();
+    if (!this.repo.quiescent(this.repo.requireState(id))) throw new Error("thread_tree_is_live");
+    await this.sessions.close(actor, "idle");
+    await actor.flush();
+    if (!this.repo.quiescent(this.repo.requireState(id))) throw new Error("thread_tree_is_live");
+    this.releaseDormant(id);
+  }
   bindHostInteractions(
     handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
   ): void {
@@ -679,6 +690,9 @@ export class Engine {
   }
   commandExecution(commandId: import("@ace/protocol").CommandId) {
     return this.repo.pending.commandStatus(commandId);
+  }
+  recovering(id: ThreadId): boolean {
+    return this.repo.pending.recovering(id);
   }
   queuePage(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">) {
     return this.repo.queue.page(request);

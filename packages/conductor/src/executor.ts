@@ -12,6 +12,9 @@ export function executor(ports: Ports): Executor {
     const effect = Effect.parse(input);
     let results: unknown[] = [];
     switch (effect.type) {
+      case "cleanup":
+        await ports.git.cleanup(effect.id, effect.runId);
+        break;
       case "launch": {
         const prepared = PreparedWorkspace.parse(
           await ports.git.prepare(

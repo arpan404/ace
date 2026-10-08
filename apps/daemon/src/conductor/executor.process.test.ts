@@ -8,7 +8,14 @@ afterEach(closeDeckFixtures);
 
 // Scripted provider boundary; no installed provider CLIs are invoked. Scripted adapters never call provider CLIs.
 test("a Deck reaches done through attached real threads and integrates each card in its private branch", async () => {
-  const h = await deckFixture({ cards: plan({ a: [], b: ["a"] }) });
+  let dependency: string | undefined;
+  const h = await deckFixture({
+    cards: plan({ a: [], b: ["a"] }),
+    onSend(send) {
+      if (send.text.includes("Implement this workstream") && send.text.includes("Build b"))
+        dependency = git(send.cwd, "show", "HEAD:a.txt");
+    },
+  });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
   await h.waitFor((run) => run.phase === "done");
@@ -26,9 +33,10 @@ test("a Deck reaches done through attached real threads and integrates each card
   const worker = h.sends.filter((entry) => entry.text.includes("Implement this workstream"));
   expect(new Set(worker.map((entry) => entry.cwd)).size).toBe(2);
   expect(worker.every((entry) => entry.cwd !== h.repo)).toBe(true);
-  const second = worker.at(-1);
-  if (!second) throw new Error("Second worker missing");
-  expect(git(second.cwd, "show", "HEAD:a.txt")).toBe("a works");
+  expect(dependency).toBe("a works");
+  await h.settle();
+  const integration = git(h.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/deck/");
+  expect(git(h.repo, "show", `${integration}:b.txt`)).toBe("b works");
   expect(git(h.repo, "rev-parse", "HEAD")).toBe(h.original);
   expect(h.sends.some((entry) => entry.text.includes("delegated child"))).toBe(false);
   expect(run.startedAt).toBeGreaterThan(0);
@@ -259,6 +267,7 @@ test("PR-only waits for CI at the published revision and recovers a lost create 
   expect((await h.read()).phase).not.toBe("done");
   await h.restart();
   await h.subscribe();
+  await h.advance();
   await h.waitFor((run) => run.dag[0]?.state === "verifying");
   expect(h.forge.publications).toHaveLength(1);
   expect((await h.read()).phase).not.toBe("done");
@@ -299,4 +308,5 @@ test("a recoverable local quota hold resumes through the engine without resendin
     1,
   );
   expect(h.sends.filter((send) => send.thread === worker.threadId && send.resumed)).toHaveLength(1);
+  expect(h.executionErrors).toEqual([]);
 });

@@ -36,6 +36,7 @@ export function selectAccount(
       if (previous?.status === "limited" && account.id === previous.account) continue;
       const used = usage.get(account.id) ?? { active: 0, quota: 0 };
       if (
+        active >= (account.hostCapacity ?? 64) ||
         account.externalActive + used.active >= account.capacity ||
         account.quota - used.quota < model.quota
       )

@@ -40,6 +40,7 @@ export async function deckFixture(
     cards?: ConductorPlan;
     planApproval?: "auto" | "required";
     hostCapacity?: number;
+    delegationPolicy?: Partial<import("@ace/protocol").DelegationPolicy>;
     prOnly?: boolean;
     /** Merge policy "ask": every reviewed card waits on a merge gate. */
     mergeAsk?: boolean;
@@ -132,7 +133,9 @@ export async function deckFixture(
         scriptedModelInstance(modelProvider, home),
       ),
       workspaceActions: { forgeRunner: forge.runner, ...(options.git ? { git: options.git } : {}) },
-      agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
+      agentControl: {
+        policy: { maxConcurrent: options.hostCapacity ?? 4, ...options.delegationPolicy },
+      },
     });
   daemon = await launch();
   for (const modelProvider of ["codex", "claude"] as const)
@@ -326,6 +329,7 @@ export async function deckFixture(
     holdPreparation,
     subscribe,
     changes,
+    executionErrors,
     runId,
     spec,
     repo,
@@ -338,6 +342,7 @@ export async function deckFixture(
     finish,
     stream: provider.stream,
     beginStream: provider.beginStream,
+    usage: provider.usage,
     release: provider.release,
     get daemon() {
       return daemon;

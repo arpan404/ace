@@ -6,7 +6,7 @@ type Root = Pick<
   "id" | "spec" | "plan" | "phase" | "spent" | "planApproved" | "gates" | "startedAt" | "updatedAt"
 >;
 export function clientSummary(
-  root: Pick<Root, "id" | "spec" | "phase" | "spent">,
+  root: Pick<Root, "id" | "spec" | "phase" | "spent" | "startedAt" | "updatedAt">,
 ): ConductorSummary {
   return ConductorSummary.parse({
     id: root.id,
@@ -15,6 +15,8 @@ export function clientSummary(
     phase: root.phase,
     spent: root.spent,
     budget: root.spec.constraints.budget,
+    startedAt: root.startedAt,
+    updatedAt: root.updatedAt,
   });
 }
 /** Compact display facts omit execution artifacts and retired lane history. */

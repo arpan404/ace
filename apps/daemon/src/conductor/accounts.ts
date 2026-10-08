@@ -29,6 +29,15 @@ export function executionAccounts(
   const active = capacityUse(context, delegations);
   const reservations = delegations.journal.reservations();
   const own = new Set(run ? journal.lanes(run).map((lane) => lane.thread) : []);
+  const hostCapacity = Math.max(
+    0,
+    Math.min(
+      delegations.policy.maxConcurrent,
+      64 -
+        delegations.journal.active().filter((edge) => !own.has(edge.childId)).length -
+        reservations.filter((entry) => !own.has(entry.record.childId)).length,
+    ),
+  );
   const external = (account: string) =>
     active.filter((entry) => !own.has(entry.threadId) && entry.account === account).length +
     reservations.filter(
@@ -65,6 +74,7 @@ export function executionAccounts(
         id: instance.id,
         provider: instance.provider,
         capacity: delegations.policy.maxConcurrent,
+        hostCapacity,
         externalActive: Math.min(64, external(instance.id)),
         quota: usable ? 100 : 0,
         resetAt: null,
@@ -87,6 +97,7 @@ export function executionAccounts(
       id: `local.${provider}`,
       provider,
       capacity: delegations.policy.maxConcurrent,
+      hostCapacity,
       externalActive: Math.min(64, external(`local.${provider}`)),
       quota: 1_000_000,
       resetAt: null,

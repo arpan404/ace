@@ -213,6 +213,17 @@ export function deckProvider(
     sends,
     contexts,
     finish,
+    async usage(threadId: ThreadId, tokens: number, cost: number) {
+      const ctx = contexts.get(threadId);
+      if (!ctx) throw new Error("No scripted session");
+      await output(ctx, {
+        type: "usage",
+        agent: "root",
+        inputTokens: tokens,
+        outputTokens: 0,
+        costUsd: cost,
+      });
+    },
     async stream(threadId: ThreadId, text: string) {
       const ctx = contexts.get(threadId);
       if (!ctx) throw new Error("No scripted session");

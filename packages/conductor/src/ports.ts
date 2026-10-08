@@ -15,6 +15,7 @@ export interface OrchestratorPort {
   attach(key: string, rootAgentId: string, lane: Lane): Promise<void>;
 }
 export interface GitPort {
+  cleanup(key: string, runId: string): Promise<void>;
   prepare(
     key: string,
     workspaceId: string,

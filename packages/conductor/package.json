@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./pagination": "./src/pagination.ts",
     "./test-support": "./src/test-support.ts"
   },
   "scripts": {

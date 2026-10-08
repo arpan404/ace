@@ -37,15 +37,26 @@ export class ConductorDriver {
   fact(run: string, receipt: string, input: unknown): State {
     return this.store.apply(run, receipt, input, this.env);
   }
-  /** Bounded drain; errors keep the current effect durable for retry. No polling or timers. */
-  async drain(run: string, limit = 128): Promise<number> {
+  ready(run: string): boolean {
+    const state = this.store.read(run);
+    return (
+      !!state && this.store.ready(run, this.env.now()).some((effect) => executable(state, effect))
+    );
+  }
+  /** A failed intent backs off durably; unrelated intents still execute in this pass. */
+  async drain(run: string, limit = 128, onFailure?: (error: unknown) => void): Promise<number> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1024)
       throw new Error("invalid_drain_limit");
     if (this.draining) throw new Error("driver_busy");
     this.draining = true;
+    const unpin = this.store.pin(run);
     let count = 0;
+    let failure: unknown;
+    let failed = false;
     try {
-      let batch = new Map(this.store.pending(run).map((effect) => [effect.id, effect]));
+      let batch = new Map(
+        this.store.ready(run, this.env.now()).map((effect) => [effect.id, effect]),
+      );
       while (count < limit) {
         const state = this.store.load(run);
         if (!state) throw new Error("run_not_found");
@@ -53,36 +64,46 @@ export class ConductorDriver {
         if (!effect) {
           // New intents can arrive while an executor awaits. Refresh only at a
           // batch boundary, never parse the full queue for each acknowledgement.
-          batch = new Map(this.store.pending(run).map((item) => [item.id, item]));
+          batch = new Map(this.store.ready(run, this.env.now()).map((item) => [item.id, item]));
           effect = this.pick(batch, state);
           if (!effect) break;
         }
         batch.delete(effect.id);
         if (!this.store.hasPending(run, effect.id)) continue;
-        if (
-          (state.phase === "cancelling" || state.phase === "cancelled") &&
-          effect.type === "merge"
-        ) {
-          if (state.phase === "cancelling") this.store.abandonIntegration(run, effect.id, this.env);
-          else this.store.complete(run, effect.id, [], this.env);
-        } else if (
-          "lane" in effect &&
-          ["launch", "migrate"].includes(effect.type) &&
-          (!state.lanes[effect.lane.id]?.live ||
-            state.lanes[effect.lane.id]?.generation !== effect.lane.generation ||
-            state.lanes[effect.lane.id]?.retiring)
-        ) {
-          this.store.complete(run, effect.id, [], this.env);
-        } else if (effect.type === "gate" && !state.gates[effect.gate.id]) {
-          this.store.complete(run, effect.id, [], this.env);
-        } else {
-          const facts = await this.execute(effect, state);
-          this.store.complete(run, effect.id, facts, this.env);
+        try {
+          if (
+            (state.phase === "cancelling" || state.phase === "cancelled") &&
+            effect.type === "merge"
+          ) {
+            if (state.phase === "cancelling")
+              this.store.abandonIntegration(run, effect.id, this.env);
+            else this.store.complete(run, effect.id, [], this.env);
+          } else if (
+            "lane" in effect &&
+            ["launch", "migrate"].includes(effect.type) &&
+            (!state.lanes[effect.lane.id]?.live ||
+              state.lanes[effect.lane.id]?.generation !== effect.lane.generation ||
+              state.lanes[effect.lane.id]?.retiring)
+          ) {
+            this.store.complete(run, effect.id, [], this.env);
+          } else if (effect.type === "gate" && !state.gates[effect.gate.id]) {
+            this.store.complete(run, effect.id, [], this.env);
+          } else {
+            const facts = await this.execute(effect, state);
+            this.store.complete(run, effect.id, facts, this.env);
+          }
+        } catch (error) {
+          this.store.defer(run, effect.id, this.env.now());
+          if (!failed) failure = error;
+          failed = true;
+          onFailure?.(error);
         }
         count++;
       }
+      if (failed && !onFailure) throw failure;
       return count;
     } finally {
+      unpin();
       this.draining = false;
     }
   }

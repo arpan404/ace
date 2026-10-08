@@ -31,6 +31,8 @@ export const Account = z.object({
   provider: ProviderKind,
   capacity: z.number().int().min(0).max(64),
   externalActive: z.number().int().min(0).max(64),
+  /** Remaining host slots, excluding this run's own lane reservations. */
+  hostCapacity: z.number().int().min(0).max(64).optional(),
   quota: z.number().finite().nonnegative(),
   resetAt: z.number().int().nonnegative().nullable(),
 });
@@ -194,6 +196,7 @@ export const Fact = z.discriminatedUnion("type", [
 ]);
 export type Fact = z.infer<typeof Fact>;
 export const Effect = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("cleanup"), id: Key, runId: Key }),
   z.object({
     type: z.literal("launch"),
     id: Key,

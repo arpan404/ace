@@ -117,7 +117,7 @@ export function createConductorSession({
             type: "conductor.result",
             requestId: message.requestId,
             ok: true,
-            ...runtime.list(op.after, op.limit),
+            ...runtime.list(op.after, op.limit, op.active),
           });
           return true;
         }

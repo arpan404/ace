@@ -86,6 +86,7 @@ export function fakePorts(now: () => number) {
       },
     },
     git: {
+      async cleanup() {},
       async prepare(key, workspace, lane, _source, dependencies) {
         return once(key, () => {
           bases.set(lane.id, dependencies);

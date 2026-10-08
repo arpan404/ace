@@ -38,6 +38,7 @@ export class ExecutionJournal {
       CREATE TABLE IF NOT EXISTS conductor_execution_lanes (run TEXT NOT NULL, lane TEXT NOT NULL, generation INTEGER NOT NULL, thread TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,lane,generation));
       CREATE TABLE IF NOT EXISTS conductor_gate_interactions (interaction TEXT PRIMARY KEY, run TEXT NOT NULL, gate TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conductor_execution_thread ON conductor_execution_lanes(thread);
+      CREATE TABLE IF NOT EXISTS conductor_cleanup_trees (run TEXT NOT NULL, path TEXT NOT NULL, head TEXT NOT NULL, PRIMARY KEY(run,path));
     `),
     );
   }
@@ -123,6 +124,32 @@ export class ExecutionJournal {
           .all(run),
       )
       .map((row) => LaneBinding.parse(JSON.parse(z.string().parse(row.payload))));
+  }
+  lanePage(run: string, after = 0) {
+    const rows = this.store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT rowid AS ordinal,payload FROM conductor_execution_lanes WHERE run=? AND rowid>? ORDER BY rowid LIMIT 128",
+        )
+        .all(run, after),
+    );
+    return {
+      bindings: rows.map((row) => LaneBinding.parse(JSON.parse(z.string().parse(row.payload)))),
+      after: rows.length ? z.number().parse(rows.at(-1)?.ordinal) : undefined,
+    };
+  }
+  cleanupHead(run: string, path: string): string | undefined {
+    const row = this.store.atomic((db) =>
+      db.prepare("SELECT head FROM conductor_cleanup_trees WHERE run=? AND path=?").get(run, path),
+    );
+    return row ? z.string().parse(row.head) : undefined;
+  }
+  saveCleanupHead(run: string, path: string, head: string): void {
+    this.store.atomic((db) =>
+      db
+        .prepare("INSERT OR IGNORE INTO conductor_cleanup_trees VALUES (?,?,?)")
+        .run(run, path, head),
+    );
   }
   forThread(thread: ThreadId) {
     const row = this.store.atomic((db) =>

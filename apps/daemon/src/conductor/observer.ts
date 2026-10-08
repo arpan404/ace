@@ -232,8 +232,11 @@ export class DeckObserver {
       const observed = this.context.store.getThread(binding.thread);
       if (!observed) continue;
       if (observed.status.state === "limited") {
+        // The engine owns an admitted continuation until it acknowledges the new turn.
+        // Its old limited status must not manufacture more resume intents meanwhile.
+        if (this.context.services.engine?.recovering(binding.thread)) continue;
         if (current.status !== "limited" && current.status !== "migrating")
-          this.runtime.fact(run, this.context.id(), {
+          this.runtime.observe(run, {
             type: "usage_limit",
             laneId: lane.id,
             generation: lane.generation,
@@ -254,7 +257,7 @@ export class DeckObserver {
                 : "working";
       const activityAt = this.activity.get(binding.thread) ?? current.lastActivity;
       if (current.status !== status || (status === "working" && activityAt > current.lastActivity))
-        this.runtime.fact(run, this.context.id(), {
+        this.runtime.observe(run, {
           type: "status",
           laneId: lane.id,
           generation: lane.generation,
@@ -267,10 +270,10 @@ export class DeckObserver {
     if (state && !["done", "cancelled"].includes(state.phase)) {
       const accounts = this.executor.accounts(state.spec, run);
       if (JSON.stringify(accounts) !== JSON.stringify(state.accounts))
-        this.runtime.fact(run, this.context.id(), { type: "accounts", accounts });
+        this.runtime.observe(run, { type: "accounts", accounts });
       const deadline = nextDeadline(state);
       if (deadline !== null && deadline <= this.context.now())
-        this.runtime.fact(run, this.context.id(), { type: "tick" });
+        this.runtime.observe(run, { type: "tick" });
     }
     if (publish) this.runtime.refresh(run);
     else this.runtime.retry(run);

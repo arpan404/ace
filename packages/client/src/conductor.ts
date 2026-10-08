@@ -28,7 +28,7 @@ export class ConductorClient {
     return reply.run;
   }
   async list(
-    input: { after?: string; limit?: number } = {},
+    input: { after?: string; limit?: number; active?: boolean } = {},
     options?: RequestOptions,
   ): Promise<{ runs: ConductorSummary[]; next?: string }> {
     const reply = await this.client.request(
@@ -38,6 +38,7 @@ export class ConductorClient {
           op: "list",
           limit: input.limit ?? 16,
           ...(input.after ? { after: input.after } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
         },
       },
       options,

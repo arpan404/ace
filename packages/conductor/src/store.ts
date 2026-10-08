@@ -13,6 +13,9 @@ import {
 import { Count, Payload, StoredRoot, freezeState } from "./persistence-schema.ts";
 import { StatePersistence } from "./persistence.ts";
 import { reduce, start } from "./reducer.ts";
+import { migrateEffects, queueCleanup } from "./effect-storage.ts";
+import { cursorPosition, runCursor } from "./pagination.ts";
+import { z } from "zod";
 
 const MAX_PENDING = 1024;
 const CONTROL_PENDING = 2048;
@@ -26,6 +29,7 @@ export class ConductorStore {
   private readonly sql: ReturnType<typeof statements>;
   private readonly persistence: StatePersistence;
   private readonly actors = new Map<string, State>();
+  private readonly pinned = new Map<string, number>();
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL;
@@ -39,11 +43,13 @@ export class ConductorStore {
       CREATE TRIGGER IF NOT EXISTS conductor_pending_add AFTER INSERT ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_remove AFTER DELETE ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending-1 WHERE id=OLD.run; END;`);
     this.db.exec("PRAGMA foreign_keys=ON");
+    this.atomic(() => migrateEffects(this.db));
     this.sql = statements(this.db);
     this.persistence = new StatePersistence(this.db);
   }
   close(): void {
     this.actors.clear();
+    this.pinned.clear();
     this.db.close();
   }
   load(id: string): State | null {
@@ -71,21 +77,47 @@ export class ConductorStore {
     return this.admit(state);
   }
   /** Paged persisted run ids, without admitting actors or decoding their plans. */
-  list(after = "", limit = 16): { ids: string[]; next?: string } {
+  list(after = "", limit = 16, active = false): { ids: string[]; next?: string } {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32)
       throw new Error("invalid_page_limit");
+    const activity = "COALESCE(json_extract(payload,'$.updatedAt'),0)";
+    const creation = "COALESCE(json_extract(payload,'$.startedAt'),0)";
+    const shape = z.object({ id: Key, updatedAt: z.number(), startedAt: z.number() });
+    const cursor = after
+      ? (cursorPosition(after) ??
+        shape.parse(
+          this.db
+            .prepare(
+              `SELECT id,${activity} AS updatedAt,${creation} AS startedAt FROM conductor_runs WHERE id=?`,
+            )
+            .get(after),
+        ))
+      : undefined;
     const rows = this.db
-      .prepare("SELECT id FROM conductor_runs WHERE id>? ORDER BY id LIMIT ?")
-      .all(after, limit + 1);
-    const ids = rows.slice(0, limit).map((row) => Key.parse(row.id));
-    const last = ids.at(-1);
-    return { ids, ...(rows.length > limit && last ? { next: last } : {}) };
+      .prepare(`SELECT id,${activity} AS updatedAt,${creation} AS startedAt FROM conductor_runs WHERE
+      (?=0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled'))
+      AND (?=0 OR (${activity},${creation}) < (?,?) OR ((${activity},${creation})=(?,?) AND id>?))
+      ORDER BY ${activity} DESC,${creation} DESC,id LIMIT ?`)
+      .all(
+        Number(active),
+        Number(!!cursor),
+        cursor?.updatedAt ?? 0,
+        cursor?.startedAt ?? 0,
+        cursor?.updatedAt ?? 0,
+        cursor?.startedAt ?? 0,
+        cursor?.id ?? "",
+        limit + 1,
+      )
+      .map((row) => shape.parse(row));
+    const ids = rows.slice(0, limit).map((row) => row.id);
+    const last = rows[limit - 1];
+    return { ids, ...(rows.length > limit && last ? { next: runCursor(last) } : {}) };
   }
   /** Restart admission visits indexed nonterminal runs, including empty outboxes. */
   resumable(): string[] {
     return this.db
       .prepare(
-        "SELECT id FROM conductor_runs WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled') ORDER BY id LIMIT 8",
+        "SELECT id FROM conductor_runs WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled') ORDER BY id",
       )
       .all()
       .map((row) => Key.parse(row.id));
@@ -129,6 +161,27 @@ export class ConductorStore {
       .all(id)
       .map((row) => Effect.parse(JSON.parse(Payload.parse(row).payload)));
   }
+  ready(id: string, at: number): Effect[] {
+    Key.parse(id);
+    return this.sql.ready
+      .all(id, at)
+      .map((row) => Effect.parse(JSON.parse(Payload.parse(row).payload)));
+  }
+  defer(id: string, effectId: string, at: number): void {
+    this.sql.defer.run(at, id, effectId);
+  }
+  hasFailures(id: string): boolean {
+    return this.sql.failed.get(id) !== undefined;
+  }
+  /** Awaited executors keep their actors; excess idle reads can use durable state uncached. */
+  pin(id: string): () => void {
+    this.pinned.set(id, (this.pinned.get(id) ?? 0) + 1);
+    return () => {
+      const remaining = (this.pinned.get(id) ?? 1) - 1;
+      if (remaining) this.pinned.set(id, remaining);
+      else this.pinned.delete(id);
+    };
+  }
   /** Check an already decoded intent against concurrent command pruning. */
   hasPending(id: string, effectId: string): boolean {
     Key.parse(id);
@@ -157,11 +210,27 @@ export class ConductorStore {
   }
   apply(id: string, receipt: string, fact: unknown, env: Environment): State {
     Key.parse(receipt);
+    return this.applyFact(id, receipt, fact, env);
+  }
+  /** Current observer facts are fenced by lane generation/time, not retained input ids. */
+  observe(id: string, input: unknown, env: Environment): State {
+    const fact = Fact.parse(input);
+    if (!["status", "accounts", "usage_limit", "tick"].includes(fact.type))
+      throw new Error("invalid_observation");
+    return this.applyFact(id, undefined, fact, env);
+  }
+  private applyFact(
+    id: string,
+    receipt: string | undefined,
+    fact: unknown,
+    env: Environment,
+  ): State {
     const state = this.required(id);
     const next = this.atomic(() => {
-      if (this.sql.receipt.get(id, receipt)) return state;
+      if (receipt && this.sql.receipt.get(id, receipt)) return state;
       const parsed = Fact.parse(fact);
-      const retain = retainReceipt(state, parsed, Count.parse(this.sql.countInputs.get(id)).n);
+      const retain =
+        receipt && retainReceipt(state, parsed, Count.parse(this.sql.countInputs.get(id)).n);
       const transition = reduce(state, parsed, env);
       if (transition.state.phase === "cancelling" && state.phase !== "cancelling")
         this.sql.pruneControls.run(id);
@@ -172,7 +241,7 @@ export class ConductorStore {
             ? CONTROL_PENDING
             : MAX_PENDING;
       this.write(transition, state, capacity);
-      if (retain) this.sql.insertReceipt.run(id, receipt);
+      if (retain && receipt) this.sql.insertReceipt.run(id, receipt);
       return transition.state;
     });
     return this.admit(next);
@@ -225,13 +294,21 @@ export class ConductorStore {
     if (!["done", "cancelled"].includes(state.phase)) throw new Error("run_still_live");
     this.actors.delete(id);
   }
-  private room(id: string): void {
-    if (!this.actors.has(id) && this.actors.size >= MAX_ACTORS)
-      throw new Error("actor_backpressure");
+  private room(id: string): boolean {
+    if (!this.actors.has(id) && this.actors.size >= MAX_ACTORS) {
+      for (const candidate of this.actors.keys()) {
+        if (this.pinned.has(candidate)) continue;
+        this.actors.delete(candidate);
+        return true;
+      }
+      return false;
+    }
+    return true;
   }
   private admit(state: State): State {
-    this.room(state.id);
     const frozen = freezeState(state);
+    if (!this.room(state.id)) return frozen;
+    this.actors.delete(state.id);
     this.actors.set(state.id, frozen);
     return frozen;
   }
@@ -256,6 +333,7 @@ export class ConductorStore {
     );
     for (const effect of effects)
       this.sql.insertEffect.run(state.id, effect.id, JSON.stringify(Effect.parse(effect)));
+    if (["done", "cancelled"].includes(state.phase)) queueCleanup(this.db, state.id);
   }
   private atomic<T>(action: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -275,6 +353,13 @@ function statements(db: DatabaseSync) {
     pending: db.prepare(
       "SELECT payload FROM conductor_outbox WHERE run=? ORDER BY ordinal LIMIT 3072",
     ),
+    ready: db.prepare(
+      "SELECT payload FROM conductor_outbox WHERE run=? AND retry_at<=? ORDER BY ordinal LIMIT 3072",
+    ),
+    defer: db.prepare(
+      "UPDATE conductor_outbox SET retry_at=?+MIN(30000,1000*(1 << MIN(failures,5))),failures=MIN(30,failures+1) WHERE run=? AND id=?",
+    ),
+    failed: db.prepare("SELECT id FROM conductor_outbox WHERE run=? AND failures>0 LIMIT 1"),
     receipt: db.prepare("SELECT id FROM conductor_inputs WHERE run=? AND id=?"),
     countInputs: db.prepare("SELECT inputs AS n FROM conductor_runs WHERE id=?"),
     insertReceipt: db.prepare("INSERT INTO conductor_inputs(run,id) VALUES (?,?)"),

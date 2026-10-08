@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { type Effect, type State, type Fact, type Account } from "@ace/conductor";
 import {
   ThreadId,
@@ -11,11 +10,14 @@ import { executionAccounts, capacityUse, startAvailability } from "./accounts.ts
 import { executionView } from "./client-view.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "../agent-control/delegations.ts";
-import { ExecutionJournal, type RootBinding, type LaneBinding } from "./journal.ts";
+import { ExecutionJournal, type RootBinding } from "./journal.ts";
 import { DeckWorktrees } from "./worktrees.ts";
 import { integrateCard, verifyCard } from "./integration.ts";
 import { DeckCommands } from "./command-attempts.ts";
 import { artifactInstructions } from "./artifacts.ts";
+import { cleanupDeck } from "./cleanup.ts";
+import { controlLane } from "./lane-controls.ts";
+import { deckKey } from "./identity.ts";
 
 export class NativeConductorExecutor {
   readonly journal: ExecutionJournal;
@@ -33,9 +35,6 @@ export class NativeConductorExecutor {
       leaseId: context.id,
     });
   }
-  private key(...parts: string[]) {
-    return `deck.${createHash("sha256").update(JSON.stringify(parts)).digest("hex")}`;
-  }
   private caller(root: RootBinding): McpAttribution {
     return { threadId: root.thread, agentId: root.agent, sessionId: `conductor:${root.run}` };
   }
@@ -48,6 +47,7 @@ export class NativeConductorExecutor {
   private async root(state: State): Promise<RootBinding> {
     const saved = this.journal.root(state.id);
     if (saved) {
+      this.delegations.ownDeck(saved.thread);
       await this.worktrees.ensure(saved, saved);
       return saved;
     }
@@ -56,7 +56,7 @@ export class NativeConductorExecutor {
     if (!repo) throw new Error("deck_workspace_not_found");
     const model = state.spec.policies.roles.planner[0];
     if (!model) throw new Error("deck_planner_missing");
-    const key = this.key(state.id, "root");
+    const key = deckKey(state.id, "root");
     const existing = store.atomic((db) =>
       db
         .prepare("SELECT id FROM threads WHERE root_agent_id=? AND workspace_id=? LIMIT 1")
@@ -96,15 +96,48 @@ export class NativeConductorExecutor {
       base: await this.worktrees.git.resolveCommit({ worktree: repo, ref: "HEAD" }),
     };
     this.journal.saveRoot(root);
+    this.delegations.ownDeck(root.thread);
     await this.worktrees.ensure(root, root);
     return root;
   }
   async execute(effect: Effect, state?: State): Promise<Fact[]> {
+    try {
+      return await this.perform(effect, state);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        [
+          "deck_capacity_wait",
+          "concurrency_limit",
+          "active_limit",
+          "engine_capacity_exceeded",
+          "admission_closed",
+          "engine_starting",
+        ].includes(error.message)
+      ) {
+        if (state && effect.type === "launch")
+          this.context.services.conductor?.observe(state.id, {
+            type: "status",
+            laneId: effect.lane.id,
+            generation: effect.lane.generation,
+            status: "waiting",
+            at: this.context.now(),
+          });
+        throw new Error("deck_capacity_wait", { cause: error });
+      }
+      throw error;
+    }
+  }
+  private async perform(effect: Effect, state?: State): Promise<Fact[]> {
     if (!state) throw new Error("deck_run_context_missing");
+    if (effect.type === "cleanup") {
+      await cleanupDeck(state, this.context, this.journal, this.worktrees, this.delegations);
+      return [];
+    }
     if (effect.type === "launch") {
       const root = await this.root(state);
       const caller = this.caller(root);
-      const requestId = this.key(state.id, effect.lane.id, String(effect.lane.generation));
+      const requestId = deckKey(state.id, effect.lane.id, String(effect.lane.generation));
       let binding = this.journal.lane(state.id, effect.lane.id, effect.lane.generation);
       let edge = this.delegations.journal.receipt(root.thread, requestId);
       if (!edge) {
@@ -173,22 +206,27 @@ export class NativeConductorExecutor {
           role: effect.lane.role,
           laneId: effect.lane.id,
         };
-        const workspace = this.context.store.createWorkspace(
-          binding.path,
-          binding.branch,
-          undefined,
-          deck,
-        );
+        const prepared = binding;
+        const registered = this.context.store.atomic(() => {
+          const workspace = this.context.store.createWorkspace(
+            prepared.path,
+            prepared.branch,
+            undefined,
+            deck,
+          );
+          const owned = { ...prepared, workspace };
+          this.journal.save(owned);
+          return owned;
+        });
+        binding = registered;
         const source = effect.lane.source
           ? this.journal.latest(state.id, effect.lane.source)
           : undefined;
-        edge = this.delegations.prepareReserved(caller, reservation, workspace, {
+        edge = this.delegations.prepareReserved(caller, reservation, registered.workspace, {
           resultDelivery: "owner",
           deck,
           ...(source ? { handoffFrom: source.thread } : {}),
         });
-        binding = { ...binding, workspace };
-        this.journal.save(binding);
       }
       if (!binding) throw new Error("deck_lane_binding_missing");
       const prompt = `${effect.prompt}\n\n${artifactInstructions(effect.lane.role, binding.branch)}`;
@@ -281,7 +319,7 @@ export class NativeConductorExecutor {
       this.journal.save({ ...binding, generation: effect.lane.generation });
       const queue = engine.queuePage({ threadId: binding.thread });
       if (queue.paused) {
-        const key = this.key(effect.id, "resume");
+        const key = deckKey(effect.id, "resume");
         const payload = {
           type: "thread.resume" as const,
           threadId: binding.thread,
@@ -305,62 +343,8 @@ export class NativeConductorExecutor {
         },
       ];
     }
-    await this.control(effect, binding);
+    await controlLane(effect, binding, this.context, this.delegations, this.commands, this.journal);
     return [];
-  }
-  private async control(effect: Extract<Effect, { type: "control" }>, binding: LaneBinding) {
-    const engine = this.context.services.engine;
-    if (!engine) throw new Error("deck_engine_unavailable");
-    if (effect.action === "cancel") {
-      this.delegations.cancelDescendants(binding.thread, effect.id);
-      const result = this.delegations.command(effect.id, {
-        type: "thread.interrupt",
-        threadId: binding.thread,
-        cascade: true,
-      });
-      if (!result.ok) {
-        const root = this.journal.root(binding.run);
-        const reservation =
-          root && this.delegations.journal.reservation(root.thread, binding.request);
-        if (reservation && !this.context.store.getThread(binding.thread)) {
-          this.delegations.releaseReservation(reservation);
-          return;
-        }
-        throw new Error(result.error);
-      }
-    } else if (effect.action === "pause" || effect.action === "resume") {
-      const root = this.journal.root(binding.run);
-      const children = root
-        ? this.delegations.journal
-            .family(root.thread)
-            .filter(
-              (edge) =>
-                edge.phase !== "settled" &&
-                this.delegations.journal.isDescendant(edge.childId, binding.thread),
-            )
-            .toSorted((a, b) => b.depth - a.depth)
-            .map((edge) => edge.childId)
-        : [];
-      const threads = [...children, binding.thread];
-      for (const threadId of threads) {
-        const queue = engine.queuePage({ threadId });
-        if (effect.action === "resume" && !queue.paused) continue;
-        const key = this.key(effect.id, threadId, "queue");
-        const payload =
-          effect.action === "pause"
-            ? { type: "queue.pause" as const, threadId, expectedRevision: queue.revision }
-            : { type: "thread.resume" as const, threadId, expectedRevision: queue.revision };
-        const result = await this.commands.run(key, payload);
-        if (!result.ok) throw new Error(result.error);
-        if (effect.action === "pause") {
-          const interrupted = this.delegations.suspend(
-            threadId,
-            this.key(effect.id, threadId, "pause"),
-          );
-          if (!interrupted.ok) throw new Error(interrupted.error);
-        }
-      }
-    } else throw new Error("deck_destructive_gate_requires_provider_approval");
   }
   /** Upgrade pre-marker runs on restart without changing their execution identity. */
   restoreOwnership(state: State): void {
@@ -372,7 +356,10 @@ export class NativeConductorExecutor {
         store.appendEvents(thread, [{ type: "thread.client.updated", changes: { deck } }]);
     };
     const root = this.journal.root(state.id);
-    if (root) mark(root.thread, { ...base, role: "root" });
+    if (root) {
+      this.delegations.ownDeck(root.thread);
+      mark(root.thread, { ...base, role: "root" });
+    }
     for (const binding of this.journal.lanes(state.id)) {
       const lane = state.lanes[binding.lane];
       if (!lane) continue;

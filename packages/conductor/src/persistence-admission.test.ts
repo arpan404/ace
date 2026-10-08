@@ -101,13 +101,17 @@ it("legacy snapshots migrate once while preserving lane order and input receipts
   }
 });
 
-it("active actor capacity applies backpressure and terminal release admits another run", async () => {
+it("evicted live actors retain their paused work and remain resumable", async () => {
   const context = fixture();
   try {
-    for (let i = 1; i < 8; i++) context.store.create(`run-${i}`, spec(), context.env);
-    expect(() => context.store.create("overflow", spec(), context.env)).toThrow(
-      "actor_backpressure",
-    );
+    for (let i = 1; i < 12; i++) {
+      context.store.create(`run-${i}`, spec(), context.env);
+      context.driver.command(`pause-${i}`, { type: "conductor.pause", runId: `run-${i}` });
+    }
+    for (let i = 1; i < 12; i++) {
+      expect(context.store.load(`run-${i}`)?.phase).toBe("paused");
+      expect(context.store.resumable()).toContain(`run-${i}`);
+    }
     expect(() => context.store.release("run")).toThrow("run_still_live");
     context.driver.command("cancel", { type: "conductor.cancel", runId: "run" });
     await context.driver.drain("run");

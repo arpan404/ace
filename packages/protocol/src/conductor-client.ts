@@ -2,6 +2,10 @@ import { z } from "zod";
 import { ConductorPlan, ConductorSpec } from "./conductor.ts";
 const timestamp = z.number().int().nonnegative();
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
+const cursor = z
+  .string()
+  .max(512)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
 export const ConductorSummary = z.object({
   id,
   workspaceId: ConductorSpec.shape.workspaceId,
@@ -9,6 +13,8 @@ export const ConductorSummary = z.object({
   phase: z.enum(["planning", "running", "paused", "cancelling", "cancelled", "done"]),
   spent: z.number().finite().nonnegative(),
   budget: z.number().finite().nonnegative(),
+  startedAt: timestamp.optional(),
+  updatedAt: timestamp.optional(),
 });
 export const ConductorRunView = ConductorSummary.extend({
   startedAt: timestamp.default(0),
@@ -117,7 +123,8 @@ export const ConductorRequest = z.object({
   operation: z.discriminatedUnion("op", [
     z.object({
       op: z.literal("list"),
-      after: id.optional(),
+      after: cursor.optional(),
+      active: z.boolean().optional(),
       limit: z.number().int().min(1).max(32).default(16),
     }),
     z.object({ op: z.literal("get"), runId: id }),
@@ -132,7 +139,7 @@ export const ConductorResult = z.object({
   error: z.string().max(128).optional(),
   runs: z.array(ConductorSummary).max(32).optional(),
   run: ConductorRunView.optional(),
-  next: id.optional(),
+  next: cursor.optional(),
 });
 export const ConductorChanged = z.object({
   type: z.literal("conductor.changed"),

@@ -7,6 +7,7 @@ const retryable = new Set([
   "queue_conflict",
   "engine_capacity_exceeded",
   "queue_capacity_exceeded",
+  "recovery_in_progress",
 ]);
 /** Admission receipts are immutable. Only a rejected attempt, or a switch whose
  * execution failed, may be replaced. Queued/running/accepted work retains its id. */
