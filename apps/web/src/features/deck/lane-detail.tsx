@@ -6,7 +6,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { deckLaneTab } from "@/features/panels/index.ts";
-import { StatusPill } from "@/components/status-pill.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import {
@@ -22,7 +22,7 @@ import {
 import { AgentList } from "./agent-list.tsx";
 import { useDeckToast } from "./deck-keys.ts";
 
-const pillTone: Record<CardTone, Tone> = {
+const statusTone: Record<CardTone, Tone> = {
   idle: "idle",
   waiting: "waiting",
   "needs-you": "needs-you",
@@ -68,7 +68,7 @@ export function LaneDetail(props: {
           <h3 className="text-md font-medium">{card.title}</h3>
           <CardTimes card={card} />
         </div>
-        <StatusPill tone={lane ? pillTone[status.tone] : "idle"} label={status.label} />
+        <StatusLabel tone={lane ? statusTone[status.tone] : "idle"} label={status.label} />
         {threadId && threadId !== props.scope && (
           <span className="flex items-center gap-1">
             <OpenThread
@@ -122,7 +122,7 @@ function RoundRow(props: { round: Round }) {
       <span className="pt-0.5 font-medium text-muted-foreground">{round.label}</span>
       <span className="min-w-0">
         {round.tone ? (
-          <StatusPill tone={roundTone[round.tone]} label={round.verdict} />
+          <StatusLabel tone={roundTone[round.tone]} label={round.verdict} />
         ) : (
           <span className="font-medium">{round.verdict}</span>
         )}

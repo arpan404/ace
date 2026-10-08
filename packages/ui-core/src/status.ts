@@ -79,10 +79,10 @@ export function runningSubagents(status: ThreadStatus): number {
   return status.state === "working" ? Math.max(0, status.agents - 1) : 0;
 }
 
-/** What a status pill draws beside its words: a ring while working, a check, a warning sign. */
+/** What a row's status draws beside its words: a ring while working, a check, a warning sign. */
 export type PillIcon = "working" | "needs-you" | "waiting" | "done" | "failed";
 
-/** A task row's status pill: short words, a tone and, while working, when it started. */
+/** A task row's status: short coloured words, a tone and, while working, when it started. */
 export interface TaskPill {
   /** "Working", "Needs you", "Done": the short form; the row's name has the full status. */
   label: string;
@@ -93,7 +93,7 @@ export interface TaskPill {
 }
 
 /**
- * The pill a task row shows on its first line, or none: a settled-in thread (done and read, or
+ * The status a task row shows on its first line, or none: a settled-in thread (done and read, or
  * new) shows its age instead. `since` is when the status last changed (the entry's activity),
  * which is when a working thread started working.
  */
