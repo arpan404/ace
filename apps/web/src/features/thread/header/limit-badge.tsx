@@ -1,9 +1,9 @@
 import { useThreadMeta } from "@ace/client-react";
-import { accountLimit, limitedLabel } from "@ace/ui-core";
+import { limitedLabel } from "@ace/ui-core";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { useNow } from "@/lib/time.ts";
-import { useThreadAccount } from "../lib/thread-account.ts";
+import { useThreadReset } from "../lib/thread-account.ts";
 
 /**
  * After the title in the header while the thread is held at its account's usage limit: "Limited
@@ -14,10 +14,9 @@ import { useThreadAccount } from "../lib/thread-account.ts";
  */
 export function LimitBadge(props: { threadId: string }) {
   const status = useThreadMeta(props.threadId)?.status;
-  const { account } = useThreadAccount(props.threadId);
+  const until = useThreadReset(props.threadId);
   const now = useNow();
   if (status?.state !== "limited") return null;
-  const until = status.until ?? (account && accountLimit(account, now).resetsAt);
   return (
     <span role="status">
       <StatusLabel tone="waiting" label={limitedLabel(until, now)} mark={<Dot tone="limited" />} />

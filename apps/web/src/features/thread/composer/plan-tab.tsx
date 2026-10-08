@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
 import { AttachedCard } from "./attached-card.tsx";
 import { useComposerCompact } from "./composer-compact.ts";
@@ -85,10 +86,14 @@ export function PlanTab(props: { threadId: string; plans: readonly ShownPlan[] }
       [step],
     ),
   );
-  const now = useTicker(since !== undefined);
+  const live = useThreadLiveState(props.threadId);
+  const now = useTicker(since !== undefined && live.fresh && !live.paused);
   if (!plan) return null;
   const { progress } = plan;
-  const elapsed = since === undefined ? undefined : formatElapsed(Math.max(0, now - since));
+  const elapsed =
+    !live.fresh || live.paused || since === undefined
+      ? undefined
+      : formatElapsed(Math.max(0, now - since));
   const count = planCount(progress);
   const fold = (next: boolean) => {
     setRaised(next);

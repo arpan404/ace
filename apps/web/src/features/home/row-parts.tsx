@@ -1,10 +1,11 @@
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { GitBranchIcon, GitPullRequestIcon, MoonIcon } from "@phosphor-icons/react";
 import { formatSpan, type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { useSeconds } from "@/lib/time.ts";
 
 /*
@@ -57,7 +58,7 @@ function StatusMark(props: { card: ThreadCard }) {
   const { card } = props;
   switch (card.status.mark) {
     case "working":
-      return <Spinner />;
+      return <LiveWorkMark />;
     case "needs-you":
     case "failed":
     case "unresponsive":
@@ -70,7 +71,9 @@ function StatusMark(props: { card: ThreadCard }) {
 
 /** "18s", "4m", "1h 2m" since work began, ticking with the shared second clock. */
 function Elapsed(props: { since: number }) {
-  const now = useSeconds(true);
+  const { fresh } = useLiveConnection();
+  const now = useSeconds(fresh);
+  if (!fresh) return null;
   return <span className="tabular-nums">{formatSpan(props.since, now)}</span>;
 }
 

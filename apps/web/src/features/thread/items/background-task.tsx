@@ -3,6 +3,7 @@ import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
 import { formatElapsed } from "@ace/ui-core";
 
@@ -21,8 +22,9 @@ const ended = {
 export function BackgroundTaskLine(props: { threadId: string; itemId: string; taskId: string }) {
   const task = useTask(props.threadId, props.taskId);
   const item = useItem(props.threadId, props.itemId);
+  const live = useThreadLiveState(props.threadId);
   const running = task?.status === "running";
-  const now = useTicker(running);
+  const now = useTicker(running && live.fresh);
   const { send, intent, error } = useIntentSender();
   const workspace = useWorkspaceActions(props.threadId);
   if (!task) return null;
@@ -41,7 +43,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
       <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
         <span className="flex shrink-0 items-center gap-2">
           <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-          {ended[task.status]}
+          {running && !live.fresh ? "Last seen running in background" : ended[task.status]}
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-2 @max-[360px]:order-last @max-[360px]:basis-full">
           {task.kind === "shell" ? (
@@ -61,7 +63,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
               {command}
             </code>
           )}
-          {age && (
+          {age && (!running || live.fresh) && (
             <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>
           )}
         </span>
@@ -70,7 +72,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
             Couldn't stop it
           </span>
         ) : null}
-        {running && task.stoppable && (
+        {running && live.canStop && task.stoppable && (
           <Button
             variant="ghost"
             size="sm"

@@ -14,6 +14,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { ComposerDock } from "./composer-dock.tsx";
 import { useComposerAnswer } from "./answer-slot.ts";
 import {
@@ -82,6 +83,7 @@ export function ThreadComposer({
   const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
+  const activityState = useThreadLiveState(props.thread.id);
   const threadId = ThreadId.parse(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
@@ -213,7 +215,7 @@ export function ThreadComposer({
         followUp={followUp}
         canSteer={canSteer}
         onSubmit={submit}
-        onStop={tab === "plan" ? stop : undefined}
+        onStop={tab === "plan" && activityState.canStop ? stop : undefined}
         stopping={stopping}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));

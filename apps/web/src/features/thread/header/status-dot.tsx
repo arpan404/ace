@@ -1,3 +1,4 @@
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import {
   describeLive,
@@ -25,12 +26,15 @@ const tones: Record<Tone, string> = {
 export function ThreadStatusDot(props: {
   thread: { status: ThreadStatus; live?: ThreadRunMetadata | undefined };
 }) {
+  const { fresh, staleLabel } = useLiveConnection();
   const now = useNow();
   const fact = threadLiveFact(props.thread);
   const live = fact && describeLive(fact, now);
-  const { label, tone } = live
-    ? { label: liveStatusText(live), tone: live.tone }
-    : threadStatusLabel(props.thread.status);
+  const { label, tone } = !fresh
+    ? { label: staleLabel ?? "Connection lost", tone: "waiting" as const }
+    : live
+      ? { label: liveStatusText(live), tone: live.tone }
+      : threadStatusLabel(props.thread.status);
   return (
     <span
       role="img"

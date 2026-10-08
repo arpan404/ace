@@ -224,11 +224,10 @@ export function Feed(props: FeedProps) {
   // The turn's one live line: the bottom work log's header while the agent works on it, else
   // the footer under the last block. Never both.
   const activity = useTurnActivity(threadId);
-  const rootWorking = activity?.tone === "working";
-  const bottom = blocks.at(-1);
+  const openWork = blocks.findLast((block) => block.kind === "work" && block.until === undefined);
   const liveBlock =
-    !detached && rootWorking && activity?.elapsedFrom !== undefined && bottom?.kind === "work"
-      ? bottom.key
+    !detached && activity && (activity.tone === "held" || activity.elapsedFrom !== undefined)
+      ? openWork?.key
       : undefined;
 
   const viewport = useRef<HTMLDivElement>(null);
@@ -629,7 +628,7 @@ export function Feed(props: FeedProps) {
           <DeferredLivePill.Component
             newItems={props.fresh.count}
             more={props.fresh.more}
-            paused={rootWorking}
+            paused={activity?.tone === "working"}
             onClick={toLive}
           />
         </Suspense>

@@ -1,5 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { describeLive, threadLiveFact } from "@ace/ui-core";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 
 /**
@@ -9,8 +10,10 @@ import { StatusLabel } from "@/components/status-label.tsx";
  * (`limit-badge.tsx`), which also knows the account's reset.
  */
 export function LiveBadge(props: { threadId: string }) {
+  const live = useLiveConnection();
   const meta = useThreadMeta(props.threadId);
   const fact = meta && threadLiveFact(meta);
+  if (live.staleLabel) return <StatusLabel tone="waiting" label={live.staleLabel} />;
   if (!fact || fact.kind === "limited") return null;
   const status = describeLive(fact, 0);
   return (
