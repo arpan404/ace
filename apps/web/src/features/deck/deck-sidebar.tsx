@@ -72,7 +72,7 @@ export function DeckSidebar() {
   const shown = project === "all" ? runs : runs.filter((run) => run.workspaceId === project);
   return (
     <ViewSidebar
-      title="Deck"
+      title="Offsets"
       actions={
         <FilterMenu
           label="Project"
@@ -86,15 +86,15 @@ export function DeckSidebar() {
       }
     >
       <Link
-        to="/deck/new"
+        to="/offsets/new"
         className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-foreground/8 [&_svg]:text-muted-foreground"
       >
         <Icon icon={CardsIcon} />
-        New deck
+        New offset
         <Kbd keys="shift+mod+n" variant="bare" className="ml-auto" />
       </Link>
       {!ready ? (
-        <ListSkeleton label="decks" shape="tile" rows={4} />
+        <ListSkeleton label="offsets" shape="tile" rows={4} />
       ) : error && !runs.length ? (
         <ViewSidebarError onRetry={retry} />
       ) : !shown.length ? (
@@ -102,11 +102,11 @@ export function DeckSidebar() {
         // WP-1: EmptyState variant="inline" once it lands.
         runs.length > 0 && (
           <p className="px-[11px] pt-3 text-sm text-muted-foreground">
-            No decks in {projectName(project)}.
+            No offsets in {projectName(project)}.
           </p>
         )
       ) : (
-        <nav aria-label="Decks">
+        <nav aria-label="Offsets">
           {groups.map((group) => {
             const members = shown
               .filter((run) => deckGroup(run) === group.id)
@@ -128,7 +128,7 @@ export function DeckSidebar() {
               className="mt-2 px-[11px] rounded-xs text-sm font-medium text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_var(--ring)]"
             >
               {/* WP-1: focus-ring */}
-              Show older decks
+              Show older offsets
             </button>
           )}
         </nav>
@@ -170,7 +170,7 @@ function DeckRow(props: { run: DeckRun }) {
   const { run } = props;
   const at = run.gate?.gatedAt || run.updatedAt;
   return (
-    <Link to="/deck/$runId" params={{ runId: run.id }} className={viewRowClass}>
+    <Link to="/offsets/$runId" params={{ runId: run.id }} className={viewRowClass}>
       <ViewRowBody
         icon={markOf(run)}
         title={run.title}

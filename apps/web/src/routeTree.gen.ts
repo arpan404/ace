@@ -10,10 +10,12 @@
 
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as HomeRouteImport } from "./routes/_home"
+import { Route as AccountsRouteImport } from "./routes/accounts"
 import { Route as ActivityRouteImport } from "./routes/activity"
 import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as DeckRouteImport } from "./routes/deck"
 import { Route as MoreRouteImport } from "./routes/more"
+import { Route as OffsetsRouteImport } from "./routes/offsets"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
@@ -23,13 +25,11 @@ import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
-import { Route as DeckIndexRouteImport } from "./routes/deck.index"
-import { Route as DeckRunIdRouteImport } from "./routes/deck.$runId"
-import { Route as DeckNewRouteImport } from "./routes/deck.new"
-import { Route as MoreIndexRouteImport } from "./routes/more.index"
-import { Route as MoreAccountsRouteImport } from "./routes/more.accounts"
-import { Route as MoreFilesRouteImport } from "./routes/more.files"
-import { Route as MoreSearchRouteImport } from "./routes/more.search"
+import { Route as DeckSplatRouteImport } from "./routes/deck.$"
+import { Route as MoreSplatRouteImport } from "./routes/more.$"
+import { Route as OffsetsIndexRouteImport } from "./routes/offsets.index"
+import { Route as OffsetsRunIdRouteImport } from "./routes/offsets.$runId"
+import { Route as OffsetsNewRouteImport } from "./routes/offsets.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
@@ -51,6 +51,11 @@ const HomeRoute = HomeRouteImport.update({
   id: "/_home",
   getParentRoute: () => rootRouteImport,
 } as any)
+const AccountsRoute = AccountsRouteImport.update({
+  id: "/accounts",
+  path: "/accounts",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ActivityRoute = ActivityRouteImport.update({
   id: "/activity",
   path: "/activity",
@@ -69,6 +74,11 @@ const DeckRoute = DeckRouteImport.update({
 const MoreRoute = MoreRouteImport.update({
   id: "/more",
   path: "/more",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OffsetsRoute = OffsetsRouteImport.update({
+  id: "/offsets",
+  path: "/offsets",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -116,40 +126,30 @@ const AutomationsNewRoute = AutomationsNewRouteImport.update({
   path: "/new",
   getParentRoute: () => AutomationsRoute,
 } as any)
-const DeckIndexRoute = DeckIndexRouteImport.update({
-  id: "/",
-  path: "/",
+const DeckSplatRoute = DeckSplatRouteImport.update({
+  id: "/$",
+  path: "/$",
   getParentRoute: () => DeckRoute,
 } as any)
-const DeckRunIdRoute = DeckRunIdRouteImport.update({
+const MoreSplatRoute = MoreSplatRouteImport.update({
+  id: "/$",
+  path: "/$",
+  getParentRoute: () => MoreRoute,
+} as any)
+const OffsetsIndexRoute = OffsetsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => OffsetsRoute,
+} as any)
+const OffsetsRunIdRoute = OffsetsRunIdRouteImport.update({
   id: "/$runId",
   path: "/$runId",
-  getParentRoute: () => DeckRoute,
+  getParentRoute: () => OffsetsRoute,
 } as any)
-const DeckNewRoute = DeckNewRouteImport.update({
+const OffsetsNewRoute = OffsetsNewRouteImport.update({
   id: "/new",
   path: "/new",
-  getParentRoute: () => DeckRoute,
-} as any)
-const MoreIndexRoute = MoreIndexRouteImport.update({
-  id: "/",
-  path: "/",
-  getParentRoute: () => MoreRoute,
-} as any)
-const MoreAccountsRoute = MoreAccountsRouteImport.update({
-  id: "/accounts",
-  path: "/accounts",
-  getParentRoute: () => MoreRoute,
-} as any)
-const MoreFilesRoute = MoreFilesRouteImport.update({
-  id: "/files",
-  path: "/files",
-  getParentRoute: () => MoreRoute,
-} as any)
-const MoreSearchRoute = MoreSearchRouteImport.update({
-  id: "/search",
-  path: "/search",
-  getParentRoute: () => MoreRoute,
+  getParentRoute: () => OffsetsRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
@@ -237,21 +237,22 @@ const SettingsProvidersProviderRoute =
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
+  "/accounts": typeof AccountsRoute
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
+  "/offsets": typeof OffsetsRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$runId": typeof DeckRunIdRoute
-  "/deck/new": typeof DeckNewRoute
-  "/more/accounts": typeof MoreAccountsRoute
-  "/more/files": typeof MoreFilesRoute
-  "/more/search": typeof MoreSearchRoute
+  "/deck/$": typeof DeckSplatRoute
+  "/more/$": typeof MoreSplatRoute
+  "/offsets/$runId": typeof OffsetsRunIdRoute
+  "/offsets/new": typeof OffsetsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -263,8 +264,7 @@ export interface FileRoutesByFullPath {
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
-  "/deck/": typeof DeckIndexRoute
-  "/more/": typeof MoreIndexRoute
+  "/offsets/": typeof OffsetsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
@@ -274,15 +274,17 @@ export interface FileRoutesByFullPath {
   "/settings/providers/": typeof SettingsProvidersIndexRoute
 }
 export interface FileRoutesByTo {
+  "/accounts": typeof AccountsRoute
+  "/deck": typeof DeckRouteWithChildren
+  "/more": typeof MoreRouteWithChildren
   "/setup": typeof SetupRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$runId": typeof DeckRunIdRoute
-  "/deck/new": typeof DeckNewRoute
-  "/more/accounts": typeof MoreAccountsRoute
-  "/more/files": typeof MoreFilesRoute
-  "/more/search": typeof MoreSearchRoute
+  "/deck/$": typeof DeckSplatRoute
+  "/more/$": typeof MoreSplatRoute
+  "/offsets/$runId": typeof OffsetsRunIdRoute
+  "/offsets/new": typeof OffsetsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -295,8 +297,7 @@ export interface FileRoutesByTo {
   "/": typeof HomeIndexRoute
   "/activity": typeof ActivityIndexRoute
   "/automations": typeof AutomationsIndexRoute
-  "/deck": typeof DeckIndexRoute
-  "/more": typeof MoreIndexRoute
+  "/offsets": typeof OffsetsIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
@@ -308,21 +309,22 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_home": typeof HomeRouteWithChildren
+  "/accounts": typeof AccountsRoute
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
+  "/offsets": typeof OffsetsRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$runId": typeof DeckRunIdRoute
-  "/deck/new": typeof DeckNewRoute
-  "/more/accounts": typeof MoreAccountsRoute
-  "/more/files": typeof MoreFilesRoute
-  "/more/search": typeof MoreSearchRoute
+  "/deck/$": typeof DeckSplatRoute
+  "/more/$": typeof MoreSplatRoute
+  "/offsets/$runId": typeof OffsetsRunIdRoute
+  "/offsets/new": typeof OffsetsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -335,8 +337,7 @@ export interface FileRoutesById {
   "/_home/": typeof HomeIndexRoute
   "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
-  "/deck/": typeof DeckIndexRoute
-  "/more/": typeof MoreIndexRoute
+  "/offsets/": typeof OffsetsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
@@ -349,21 +350,22 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
+    | "/accounts"
     | "/activity"
     | "/automations"
     | "/deck"
     | "/more"
+    | "/offsets"
     | "/settings"
     | "/setup"
     | "/skills"
     | "/archived"
     | "/new"
     | "/automations/new"
-    | "/deck/$runId"
-    | "/deck/new"
-    | "/more/accounts"
-    | "/more/files"
-    | "/more/search"
+    | "/deck/$"
+    | "/more/$"
+    | "/offsets/$runId"
+    | "/offsets/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -375,8 +377,7 @@ export interface FileRouteTypes {
     | "/skills/$skillId"
     | "/activity/"
     | "/automations/"
-    | "/deck/"
-    | "/more/"
+    | "/offsets/"
     | "/settings/"
     | "/skills/"
     | "/t/$threadId"
@@ -386,15 +387,17 @@ export interface FileRouteTypes {
     | "/settings/providers/"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/accounts"
+    | "/deck"
+    | "/more"
     | "/setup"
     | "/archived"
     | "/new"
     | "/automations/new"
-    | "/deck/$runId"
-    | "/deck/new"
-    | "/more/accounts"
-    | "/more/files"
-    | "/more/search"
+    | "/deck/$"
+    | "/more/$"
+    | "/offsets/$runId"
+    | "/offsets/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -407,8 +410,7 @@ export interface FileRouteTypes {
     | "/"
     | "/activity"
     | "/automations"
-    | "/deck"
-    | "/more"
+    | "/offsets"
     | "/settings"
     | "/skills"
     | "/t/$threadId"
@@ -419,21 +421,22 @@ export interface FileRouteTypes {
   id:
     | "__root__"
     | "/_home"
+    | "/accounts"
     | "/activity"
     | "/automations"
     | "/deck"
     | "/more"
+    | "/offsets"
     | "/settings"
     | "/setup"
     | "/skills"
     | "/_home/archived"
     | "/_home/new"
     | "/automations/new"
-    | "/deck/$runId"
-    | "/deck/new"
-    | "/more/accounts"
-    | "/more/files"
-    | "/more/search"
+    | "/deck/$"
+    | "/more/$"
+    | "/offsets/$runId"
+    | "/offsets/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -446,8 +449,7 @@ export interface FileRouteTypes {
     | "/_home/"
     | "/activity/"
     | "/automations/"
-    | "/deck/"
-    | "/more/"
+    | "/offsets/"
     | "/settings/"
     | "/skills/"
     | "/_home/t/$threadId"
@@ -459,10 +461,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRouteWithChildren
+  AccountsRoute: typeof AccountsRoute
   ActivityRoute: typeof ActivityRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
   DeckRoute: typeof DeckRouteWithChildren
   MoreRoute: typeof MoreRouteWithChildren
+  OffsetsRoute: typeof OffsetsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
@@ -475,6 +479,13 @@ declare module "@tanstack/react-router" {
       path: ""
       fullPath: "/"
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/accounts": {
+      id: "/accounts"
+      path: "/accounts"
+      fullPath: "/accounts"
+      preLoaderRoute: typeof AccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/activity": {
@@ -503,6 +514,13 @@ declare module "@tanstack/react-router" {
       path: "/more"
       fullPath: "/more"
       preLoaderRoute: typeof MoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/offsets": {
+      id: "/offsets"
+      path: "/offsets"
+      fullPath: "/offsets"
+      preLoaderRoute: typeof OffsetsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -568,54 +586,40 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AutomationsNewRouteImport
       parentRoute: typeof AutomationsRoute
     }
-    "/deck/": {
-      id: "/deck/"
-      path: "/"
-      fullPath: "/deck/"
-      preLoaderRoute: typeof DeckIndexRouteImport
+    "/deck/$": {
+      id: "/deck/$"
+      path: "/$"
+      fullPath: "/deck/$"
+      preLoaderRoute: typeof DeckSplatRouteImport
       parentRoute: typeof DeckRoute
     }
-    "/deck/$runId": {
-      id: "/deck/$runId"
+    "/more/$": {
+      id: "/more/$"
+      path: "/$"
+      fullPath: "/more/$"
+      preLoaderRoute: typeof MoreSplatRouteImport
+      parentRoute: typeof MoreRoute
+    }
+    "/offsets/": {
+      id: "/offsets/"
+      path: "/"
+      fullPath: "/offsets/"
+      preLoaderRoute: typeof OffsetsIndexRouteImport
+      parentRoute: typeof OffsetsRoute
+    }
+    "/offsets/$runId": {
+      id: "/offsets/$runId"
       path: "/$runId"
-      fullPath: "/deck/$runId"
-      preLoaderRoute: typeof DeckRunIdRouteImport
-      parentRoute: typeof DeckRoute
+      fullPath: "/offsets/$runId"
+      preLoaderRoute: typeof OffsetsRunIdRouteImport
+      parentRoute: typeof OffsetsRoute
     }
-    "/deck/new": {
-      id: "/deck/new"
+    "/offsets/new": {
+      id: "/offsets/new"
       path: "/new"
-      fullPath: "/deck/new"
-      preLoaderRoute: typeof DeckNewRouteImport
-      parentRoute: typeof DeckRoute
-    }
-    "/more/": {
-      id: "/more/"
-      path: "/"
-      fullPath: "/more/"
-      preLoaderRoute: typeof MoreIndexRouteImport
-      parentRoute: typeof MoreRoute
-    }
-    "/more/accounts": {
-      id: "/more/accounts"
-      path: "/accounts"
-      fullPath: "/more/accounts"
-      preLoaderRoute: typeof MoreAccountsRouteImport
-      parentRoute: typeof MoreRoute
-    }
-    "/more/files": {
-      id: "/more/files"
-      path: "/files"
-      fullPath: "/more/files"
-      preLoaderRoute: typeof MoreFilesRouteImport
-      parentRoute: typeof MoreRoute
-    }
-    "/more/search": {
-      id: "/more/search"
-      path: "/search"
-      fullPath: "/more/search"
-      preLoaderRoute: typeof MoreSearchRouteImport
-      parentRoute: typeof MoreRoute
+      fullPath: "/offsets/new"
+      preLoaderRoute: typeof OffsetsNewRouteImport
+      parentRoute: typeof OffsetsRoute
     }
     "/settings/": {
       id: "/settings/"
@@ -779,34 +783,39 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
 )
 
 interface DeckRouteChildren {
-  DeckRunIdRoute: typeof DeckRunIdRoute
-  DeckNewRoute: typeof DeckNewRoute
-  DeckIndexRoute: typeof DeckIndexRoute
+  DeckSplatRoute: typeof DeckSplatRoute
 }
 
 const DeckRouteChildren: DeckRouteChildren = {
-  DeckRunIdRoute: DeckRunIdRoute,
-  DeckNewRoute: DeckNewRoute,
-  DeckIndexRoute: DeckIndexRoute,
+  DeckSplatRoute: DeckSplatRoute,
 }
 
 const DeckRouteWithChildren = DeckRoute._addFileChildren(DeckRouteChildren)
 
 interface MoreRouteChildren {
-  MoreAccountsRoute: typeof MoreAccountsRoute
-  MoreFilesRoute: typeof MoreFilesRoute
-  MoreSearchRoute: typeof MoreSearchRoute
-  MoreIndexRoute: typeof MoreIndexRoute
+  MoreSplatRoute: typeof MoreSplatRoute
 }
 
 const MoreRouteChildren: MoreRouteChildren = {
-  MoreAccountsRoute: MoreAccountsRoute,
-  MoreFilesRoute: MoreFilesRoute,
-  MoreSearchRoute: MoreSearchRoute,
-  MoreIndexRoute: MoreIndexRoute,
+  MoreSplatRoute: MoreSplatRoute,
 }
 
 const MoreRouteWithChildren = MoreRoute._addFileChildren(MoreRouteChildren)
+
+interface OffsetsRouteChildren {
+  OffsetsRunIdRoute: typeof OffsetsRunIdRoute
+  OffsetsNewRoute: typeof OffsetsNewRoute
+  OffsetsIndexRoute: typeof OffsetsIndexRoute
+}
+
+const OffsetsRouteChildren: OffsetsRouteChildren = {
+  OffsetsRunIdRoute: OffsetsRunIdRoute,
+  OffsetsNewRoute: OffsetsNewRoute,
+  OffsetsIndexRoute: OffsetsIndexRoute,
+}
+
+const OffsetsRouteWithChildren =
+  OffsetsRoute._addFileChildren(OffsetsRouteChildren)
 
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
@@ -855,10 +864,12 @@ const SkillsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
+  AccountsRoute: AccountsRoute,
   ActivityRoute: ActivityRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
   DeckRoute: DeckRouteWithChildren,
   MoreRoute: MoreRouteWithChildren,
+  OffsetsRoute: OffsetsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,

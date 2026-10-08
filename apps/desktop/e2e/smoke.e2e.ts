@@ -65,31 +65,29 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   });
 
   it("renders the app shell from the bundled renderer", async () => {
-    await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 30_000 });
+    await page.getByRole("navigation", { name: "App" }).waitFor({ timeout: 30_000 });
     expect(new URL(page.url()).protocol).toBe("app:");
     // The page may render its heading a frame after the sidebar; wait for it to be visible.
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
 
   it.runIf(process.platform === "darwin")(
-    "keeps the rail, the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
+    "keeps the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
     async () => {
       // The traffic lights end 68 px from the window's left edge and 28 px from its top.
-      const views = page.getByRole("navigation", { name: "Views" });
-      const home = views.getByRole("link", { name: /^Home/ });
-      expect((await home.boundingBox())?.y).toBeGreaterThanOrEqual(28);
       const title = page.getByRole("button", { name: "ace menu" });
       expect((await title.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       await page.getByRole("button", { name: "Hide sidebar" }).click();
       const show = page.getByRole("button", { name: "Show sidebar" });
       await show.waitFor();
       expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
-      // The rail stays, and Home on it still works.
-      await views.getByRole("link", { name: /^Deck/ }).click();
-      await home.click();
-      await expect.poll(() => new URL(page.url()).pathname).not.toBe("/deck");
       await show.click();
       await title.waitFor();
+      // The sidebar's places sit below the lights.
+      const offsets = page
+        .getByRole("navigation", { name: "App" })
+        .getByRole("link", { name: "Offsets" });
+      expect((await offsets.boundingBox())?.y).toBeGreaterThanOrEqual(28);
     },
   );
 

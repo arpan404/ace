@@ -35,7 +35,7 @@ test("headroom names each provider's account with the most room and when the nex
   report(app, "claude-work", { five_hour: [23, 3 * hour], seven_day: [57, 2 * day] });
   report(app, "codex-personal", { five_hour: [38, 3 * hour], seven_day: [22, 5 * day] });
   report(app, "codex-team", { five_hour: [100, 87 * minute] });
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   const work = await screen.findByRole("article", { name: "Claude Code Work" });
 
   const headroom = screen.getByRole("list", { name: "Headroom now" });
@@ -63,7 +63,7 @@ const cells = (row: HTMLElement) =>
     .map((cell) => cell.textContent);
 
 test("usage by account lists each account's tokens under its name", async () => {
-  await harness().open("/more/accounts");
+  await harness().open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "By account" }));
 
   const table = await screen.findByRole("table", { name: "Usage by account" });
@@ -80,7 +80,7 @@ test("usage by account lists each account's tokens under its name", async () => 
 test("when usage can't be read, each grouping says so with its own retry and the other stays reachable", async () => {
   const app = harness();
   app.daemon.failRequests("usage.summary");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
 
   // Each read is tried twice before it is called failed.
   const byModel = await screen.findByText(
@@ -111,7 +111,7 @@ test("a grouping cut short says how many it shows", async () => {
     ...answer(query, kind),
     truncated: query.groupBy.includes("account"),
   });
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "By account" }));
 
   await screen.findByRole("table", { name: "Usage by account" });

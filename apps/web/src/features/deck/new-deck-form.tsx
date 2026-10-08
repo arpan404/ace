@@ -33,7 +33,7 @@ const merges: readonly { value: MergePolicy; title: string; description: string 
   {
     value: "ask",
     title: "Ask me before merging",
-    description: "Cards merge into the deck branch; main waits for your approval.",
+    description: "Cards merge into the offset branch; main waits for your approval.",
   },
   {
     value: "auto-after-verification",
@@ -43,7 +43,7 @@ const merges: readonly { value: MergePolicy; title: string; description: string 
   {
     value: "PR-only",
     title: "Open a pull request only",
-    description: "The deck stops at a PR you merge yourself.",
+    description: "The offset stops at a PR you merge yourself.",
   },
 ];
 const counts = (values: number[]) => values.map((n) => ({ value: String(n), label: String(n) }));
@@ -160,7 +160,7 @@ export function NewDeckForm() {
         budget: budgetOf(value.budget, value.maxParallel),
       });
       if (!parsed.success) {
-        setError("Pick a project. Decks run in a project you already have threads in.");
+        setError("Pick a project. Offsets run in a project you already have threads in.");
         focusInvalid(element.current);
         return;
       }
@@ -172,8 +172,8 @@ export function NewDeckForm() {
           runId,
           spec: deckSpec(input, choices, crypto.randomUUID(), Date.now()),
         });
-        toast.done(input.planApproval ? "Deck started · review the plan" : "Deck started");
-        await navigate({ to: "/deck/$runId", params: { runId } });
+        toast.done(input.planApproval ? "Offset started · review the plan" : "Offset started");
+        await navigate({ to: "/offsets/$runId", params: { runId } });
       } catch (failure) {
         setError(startFailure(failure));
       }
@@ -183,7 +183,7 @@ export function NewDeckForm() {
   return (
     <form
       ref={element}
-      aria-label="New deck"
+      aria-label="New offset"
       noValidate
       className="mt-7 flex flex-col gap-6"
       onSubmit={(event) => {
@@ -222,7 +222,7 @@ export function NewDeckForm() {
           {(field) => (
             <Row
               label="Project"
-              hint={noProjects ? "Decks run inside a project." : undefined}
+              hint={noProjects ? "Offsets run inside a project." : undefined}
               labelFor={!noProjects}
             >
               {() =>
@@ -447,7 +447,7 @@ export function NewDeckForm() {
                 variant="primary"
                 disabled={submitting || !choices?.length || noProjects}
               >
-                {submitting ? "Starting…" : "Start deck"}
+                {submitting ? "Starting…" : "Start offset"}
                 <Kbd keys="mod+enter" variant="bare" className="text-tint-foreground/60" />
               </Button>
             );
@@ -472,7 +472,7 @@ export function NewDeckForm() {
 }
 
 const noProviders =
-  "No provider on this daemon can run a deck. Sign in to Claude Code, Codex or OpenCode on that machine.";
+  "No provider on this daemon can run an offset. Sign in to Claude Code, Codex or OpenCode on that machine.";
 
 function providerOptions(choices: readonly DeckProviderChoice[] | undefined) {
   return (choices ?? []).map((choice) => ({ value: choice.provider, label: choice.label }));

@@ -138,11 +138,11 @@ export function deckProvider(
             roles.get(ctx.threadId) ??
             store()?.getThread(ctx.threadId)?.title ??
             (text.includes("Plan this project")
-              ? "Deck planner: plan"
+              ? "Offset planner: plan"
               : text.includes("adversarial reviewer")
-                ? `Deck reviewer: ${text.match(/"objective":"Build ([^"]+)"/)?.[1] ?? "a"}`
+                ? `Offset reviewer: ${text.match(/"objective":"Build ([^"]+)"/)?.[1] ?? "a"}`
                 : text.includes("Implement this workstream")
-                  ? `Deck worker: ${text.match(/"objective":"Build ([^"]+)"/)?.[1] ?? "a"}`
+                  ? `Offset worker: ${text.match(/"objective":"Build ([^"]+)"/)?.[1] ?? "a"}`
                   : "nested");
           roles.set(ctx.threadId, role);
           writeFileSync(rolesPath, JSON.stringify(Object.fromEntries(roles)));

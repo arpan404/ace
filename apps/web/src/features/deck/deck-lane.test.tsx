@@ -30,15 +30,15 @@ test("a deck's thread lists its deck's lanes in Agents, and a lane opens as a ta
   expect(within(lane).getAllByText("Worker").length).toBeGreaterThan(0);
   expect(
     within(panel)
-      .getByRole("link", { name: /Open deck/ })
+      .getByRole("link", { name: /Open offset/ })
       .getAttribute("href"),
-  ).toContain("/deck/mobile-cold-start");
+  ).toContain("/offsets/mobile-cold-start");
 });
 
 test("a lane on the Deck view opens beside its thread", async () => {
   const app = harness();
   app.daemon.seedServices(workbenchServices(Date.now()));
-  await app.open("/deck/mobile-cold-start?card=card-2");
+  await app.open("/offsets/mobile-cold-start?card=card-2");
   const lane = await screen.findByRole("region", { name: /^Lane: / });
   const title = (lane.getAttribute("aria-label") ?? "").replace("Lane: ", "");
   await userEvent.click(await within(lane).findByRole("button", { name: "Open beside thread" }));

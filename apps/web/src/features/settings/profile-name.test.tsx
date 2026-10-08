@@ -3,16 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-const account = () => screen.findByRole("button", { name: "Account and connection" });
+/** The profile at the foot of the sidebar, named by the person's name ("You" until given). */
+const account = () => screen.findByRole("button", { name: /, account/ });
 
-test("the account button shows the initials of the name given in Settings, and its menu the name", async () => {
+test("the profile shows the name given in Settings and its initials, and its menu the name", async () => {
   await harness().open("/settings/general");
+  expect((await account()).getAttribute("aria-label")).toBe("You, account");
   expect(within(await account()).queryByText("AB")).toBeNull();
 
   const name = await screen.findByRole("textbox", { name: "Your name" });
   await userEvent.type(name, "Arpan Bhandari{Enter}");
 
   expect(within(await account()).getByText("AB")).toBeTruthy();
+  expect(within(await account()).getByText("Arpan Bhandari")).toBeTruthy();
+  expect((await account()).getAttribute("aria-label")).toBe("Arpan Bhandari, account");
   await userEvent.click(await account());
   expect(within(await screen.findByRole("menu")).getByText("Arpan Bhandari")).toBeTruthy();
 });

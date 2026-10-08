@@ -140,7 +140,7 @@ function UploadStatus(props: { state: UploadState; onReplace(): void; onDismiss(
 /**
  * A file of the thread's checkout: path breadcrumb and actions above, the source (or rendered
  * markdown, an image, or why it can't be shown) on the left and the checkout tree on the right.
- * The empty tab ("Open file") is the same view before a file is picked.
+ * The pinned Files tab is the same view before a file is picked.
  */
 export function FileTab(props: TabViewProps) {
   const threadId = props.scope;

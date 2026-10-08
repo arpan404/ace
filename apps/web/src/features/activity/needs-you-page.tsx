@@ -53,14 +53,14 @@ export function NeedsYouPage() {
       <EmptyState
         icon={BellIcon}
         title="You're all caught up"
-        description="Approvals, questions and Deck decisions from every thread land here, with mentions, CI failures and automation results."
+        description="Approvals, questions and offset decisions from every thread land here, with mentions, CI failures and automation results."
       />
     );
   return (
     <Page>
       <PageTitle
         title="Needs you"
-        lede="Approvals, questions and Deck decisions from every thread, oldest first. Answer here, or open the thread for context."
+        lede="Approvals, questions and offset decisions from every thread, oldest first. Answer here, or open the thread for context."
       />
       <div ref={watch} className="mt-5 flex flex-col gap-3">
         {needs.entries.map((entry) =>

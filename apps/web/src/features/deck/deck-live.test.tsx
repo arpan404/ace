@@ -18,7 +18,7 @@ async function open(path: string) {
 }
 
 test("a deck shows when it started and changed, and how long its decision has waited", async () => {
-  await open("/deck/relay-streams");
+  await open("/offsets/relay-streams");
 
   const gate = await screen.findByRole("region", {
     name: "Merge needs your approval: Server-side replay cursor",
@@ -28,7 +28,7 @@ test("a deck shows when it started and changed, and how long its decision has wa
 });
 
 test("a worker's question waits behind the escalation, and is answered right on the deck", async () => {
-  const app = await open("/deck/mobile-cold-start");
+  const app = await open("/offsets/mobile-cold-start");
   const first = await screen.findByRole("region", { name: escalation });
   expect(within(first).getByText("Decision 1 of 2")).toBeTruthy();
   expect(card(/Precompile Hermes bytecode/).textContent).toContain("Waiting for you");
@@ -53,7 +53,7 @@ test("a worker's question waits behind the escalation, and is answered right on 
 });
 
 test("a deck follows a change another device made, from the daemon's push alone", async () => {
-  const app = await open("/deck/mobile-cold-start");
+  const app = await open("/offsets/mobile-cold-start");
   await screen.findByRole("region", { name: escalation });
 
   app.daemon.command({
@@ -62,32 +62,32 @@ test("a deck follows a change another device made, from the daemon's push alone"
     payload: { type: "conductor.pause", runId: "mobile-cold-start" },
   });
 
-  expect(await screen.findByRole("button", { name: "Resume deck" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Resume offset" })).toBeTruthy();
   expect(card(/Lazy-load fonts and icons/).textContent).toContain("Paused");
 });
 
 test("cancelling a deck asks first, then stops it and keeps its threads to read", async () => {
-  await open("/deck/mobile-cold-start");
+  await open("/offsets/mobile-cold-start");
   await screen.findByRole("region", { name: escalation });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Cancel deck…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Cancel this deck?" });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Cancel offset…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Cancel this offset?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Keep it running" }));
-  expect(screen.getByRole("button", { name: "Pause deck" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Pause offset" })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Cancel deck…" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Cancel offset…" }));
   await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Cancel this deck?" })).getByRole("button", {
-      name: "Cancel deck",
+    within(await screen.findByRole("dialog", { name: "Cancel this offset?" })).getByRole("button", {
+      name: "Cancel offset",
     }),
   );
 
-  expect(await screen.findByText("This deck was cancelled.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Pause deck" })).toBeNull();
+  expect(await screen.findByText("This offset was cancelled.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Pause offset" })).toBeNull();
   expect(screen.queryByRole("region", { name: escalation })).toBeNull();
-  const decks = screen.getByRole("navigation", { name: "Decks" });
+  const decks = screen.getByRole("navigation", { name: "Offsets" });
   expect(
     within(within(decks).getByRole("region", { name: "Finished" })).getByText(
       "Mobile cold start under 1s",
@@ -96,33 +96,35 @@ test("cancelling a deck asks first, then stops it and keeps its threads to read"
 });
 
 test("a deck the daemon couldn't run says why in words, and trying again clears it", async () => {
-  const app = await open("/deck/mobile-cold-start");
+  const app = await open("/offsets/mobile-cold-start");
   await screen.findByRole("region", { name: escalation });
 
   app.daemon.failDeck("mobile-cold-start", "conductor_execution_failed");
 
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("The deck can't take its next step.");
+  expect(alert.textContent).toContain("The offset can't take its next step.");
   await userEvent.click(within(alert).getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(screen.queryByText("The deck can't take its next step.")).toBeNull());
-  expect(screen.getByRole("button", { name: "Pause deck" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByText("The offset can't take its next step.")).toBeNull(),
+  );
+  expect(screen.getByRole("button", { name: "Pause offset" })).toBeTruthy();
 });
 
 test("a deck whose project is gone offers to cancel it, since trying again can't help", async () => {
-  const app = await open("/deck/mobile-cold-start");
+  const app = await open("/offsets/mobile-cold-start");
   await screen.findByRole("region", { name: escalation });
 
   app.daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");
 
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("The deck's project is no longer on this daemon.");
+  expect(alert.textContent).toContain("The offset's project is no longer on this daemon.");
   expect(within(alert).queryByRole("button", { name: "Try again" })).toBeNull();
-  await userEvent.click(within(alert).getByRole("button", { name: "Cancel deck…" }));
-  expect(await screen.findByRole("dialog", { name: "Cancel this deck?" })).toBeTruthy();
+  await userEvent.click(within(alert).getByRole("button", { name: "Cancel offset…" }));
+  expect(await screen.findByRole("dialog", { name: "Cancel this offset?" })).toBeTruthy();
 });
 
 test("waiting for a free account is a calm status, not a stop", async () => {
-  const app = await open("/deck/mobile-cold-start");
+  const app = await open("/offsets/mobile-cold-start");
   await screen.findByRole("region", { name: escalation });
 
   app.daemon.failDeck("mobile-cold-start", "deck_capacity_wait");
@@ -134,8 +136,8 @@ test("waiting for a free account is a calm status, not a stop", async () => {
 });
 
 test("New deck says which model and accounts each role runs on before it starts", async () => {
-  await open("/deck/new");
-  const form = await screen.findByRole("form", { name: "New deck" });
+  await open("/offsets/new");
+  const form = await screen.findByRole("form", { name: "New offset" });
   expect(await within(form).findByText(/^Workers run .+ on Claude Code/)).toBeTruthy();
 });
 
@@ -154,7 +156,7 @@ test("with more moving decks than live watches, the open deck still follows the 
     updatedAt: now - (index + 1) * 60_000,
   }));
   app.daemon.seedServices({ decks: moving });
-  await app.open("/deck/moving-7");
+  await app.open("/offsets/moving-7");
   await screen.findByRole("heading", { level: 1, name: "Moving deck 7" });
 
   app.daemon.command({
@@ -163,5 +165,5 @@ test("with more moving decks than live watches, the open deck still follows the 
     payload: { type: "conductor.pause", runId: "moving-7" },
   });
 
-  expect(await screen.findByRole("button", { name: "Resume deck" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Resume offset" })).toBeTruthy();
 });

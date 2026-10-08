@@ -75,7 +75,7 @@ export function ProviderSettings() {
       </SettingSection>
       <p className="mt-6 text-sm text-muted-foreground">
         Quota, limits and scheduling are in{" "}
-        <Link to="/more/accounts" className="font-medium text-foreground hover:underline">
+        <Link to="/accounts" className="font-medium text-foreground hover:underline">
           Usage &amp; accounts ›
         </Link>
       </p>

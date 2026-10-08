@@ -299,7 +299,7 @@ test("Sources lists the tools the thread's agents have, each opening where it is
 
   await userEvent.click(within(sources).getByRole("button", { name: /^Files:/ }));
   const panel = await sidePanel();
-  expect(await within(panel).findByRole("tab", { name: "Open file", selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
 });
 
 test("Sources' + goes to Skills, where plugins and MCP servers are added", async () => {

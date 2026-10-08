@@ -9,7 +9,7 @@ const card = (name: string) => screen.findByRole("article", { name });
 test("each account shows its quota windows, and one with threads at its limit says when it resets", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
 
   const personal = await card("Claude Code Personal");
   const fiveHour = within(personal).getByRole("meter", { name: "5-hour window" });
@@ -28,7 +28,7 @@ test("each account shows its quota windows, and one with threads at its limit sa
 test("an account whose CLI reports no usage says so instead of showing an empty card", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   const opencode = await card("OpenCode Default (your CLI login)");
   expect(within(opencode).queryByRole("meter")).toBeNull();
   expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
@@ -43,7 +43,7 @@ test("Move threads moves the limited threads where automatic recovery would: the
   normal.availability = "logged_out";
   normal.quota.auth = "logged_out";
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   const team = await card("Codex Team");
 
   await userEvent.click(await within(team).findByRole("button", { name: "Move running threads" }));
@@ -68,7 +68,7 @@ test("Move threads moves the limited threads where automatic recovery would: the
 
 test("the run-out policy is the daemon's setting and is kept when you come back", async () => {
   const app = harness();
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   const policy = await screen.findByRole("radiogroup", { name: "When an account runs out" });
 
   await userEvent.click(
@@ -77,12 +77,11 @@ test("the run-out policy is the daemon's setting and is kept when you come back"
   await waitFor(() =>
     expect(app.daemon.services.settings.get("threads.limitPolicy")).toBe("resume_at_reset"),
   );
-  // Away through the rail's More menu, and back the same way.
-  const views = screen.getByRole("navigation", { name: "Views" });
-  await userEvent.click(within(views).getByRole("button", { name: "More" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
-  await screen.findByRole("heading", { level: 1, name: "Files" });
-  await userEvent.click(within(views).getByRole("button", { name: "More" }));
+  // Away through the sidebar, and back through the profile menu, its one way in.
+  const sidebar = screen.getByRole("navigation", { name: "App" });
+  await userEvent.click(within(sidebar).getByRole("link", { name: "Skills" }));
+  await screen.findByRole("complementary", { name: "Skills" });
+  await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
 
   const again = await screen.findByRole("radiogroup", { name: "When an account runs out" });
@@ -97,7 +96,7 @@ test("the run-out policy is the daemon's setting and is kept when you come back"
 
 test("Refresh picks up quota the providers reported since the page opened", async () => {
   const app = harness();
-  await app.open("/more/accounts");
+  await app.open("/accounts");
   const work = await card("Claude Code Work");
   expect(
     within(work).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
@@ -118,7 +117,7 @@ test("Refresh picks up quota the providers reported since the page opened", asyn
 });
 
 test("usage shows a bar per day of the chosen range and totals by model", async () => {
-  await harness().open("/more/accounts");
+  await harness().open("/accounts");
   const days = await screen.findByRole("list", { name: "Tokens per day" });
   await waitFor(() => expect(within(days).getAllByRole("listitem")).toHaveLength(14));
 
@@ -138,7 +137,7 @@ test("usage shows a bar per day of the chosen range and totals by model", async 
 });
 
 test("Add account explains how to sign in a second account without giving ace credentials", async () => {
-  await harness().open("/more/accounts");
+  await harness().open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
   const dialog = await screen.findByRole("dialog", { name: "Add an account" });
   expect(within(dialog).getByLabelText("Sign-in command").textContent).toContain(
@@ -155,7 +154,7 @@ test("Add account explains how to sign in a second account without giving ace cr
 test("when the daemon can't list accounts, the page says so in words and reads them again on Try again", async () => {
   const app = harness();
   app.daemon.failRequests("accounts.list");
-  await app.open("/more/accounts");
+  await app.open("/accounts");
 
   expect(
     await screen.findByText(
@@ -177,7 +176,7 @@ test("in the development world each account counts the threads running on it", a
     if (thread.through) player.runThrough(thread.through);
     else player.runUntilBlocked();
   }
-  await app.open("/more/accounts");
+  await app.open("/accounts");
 
   const personal = await card("Claude Code Personal");
   expect(await within(personal).findByText(/^\d+ running threads?$/)).toBeTruthy();

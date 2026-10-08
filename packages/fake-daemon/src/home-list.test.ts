@@ -22,7 +22,7 @@ test("the Home list plays each thread at its age, with the finished history days
   }
   const threads = listView(daemon);
   const byTitle = new Map(threads.map((t) => [t.title, t]));
-  expect(byTitle.get("Deck: resumable relay streams")).toMatchObject({
+  expect(byTitle.get("Offset: resumable relay streams")).toMatchObject({
     status: { state: "working", agents: 5 },
     updatedAt: now - 3 * hour,
   });

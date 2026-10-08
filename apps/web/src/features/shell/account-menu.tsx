@@ -16,41 +16,55 @@ const DaemonMenuContent = lazy(() =>
 );
 
 /**
- * The account at the foot of the rail: the person's initials on a neutral disc (a silhouette
- * until they give a name in Settings › General), whose dot is the daemon connection. The
- * connection is part of the button's name rather than a live region, so a flapping connection
- * isn't read out each time.
+ * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
+ * (a silhouette until they give a name in Settings › General) and their name. The disc's dot is
+ * the daemon connection, said in words under the name while it isn't connected. The connection is
+ * part of the button's name rather than a live region, so a flapping connection isn't read out
+ * each time. Its menu is the only way to Usage & accounts.
  */
 export function AccountMenu() {
   const state = useConnectionState();
   const [name] = useProfileName();
   const letters = initials(name);
+  const shown = name.trim() || "You";
   const label =
     state === "ready"
-      ? "Account and connection"
-      : `Account and connection, daemon ${connectionLabels[state].toLowerCase()}`;
+      ? `${shown}, account`
+      : `${shown}, account, daemon ${connectionLabels[state].toLowerCase()}`;
   return (
     <SidebarMenu
-      tip="Account and connection"
       trigger={
         <button
           type="button"
           aria-label={label}
-          className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] transition-[color,transform] duration-(--dur-1) focus-ring touch-hit touch-hit-lg hover:text-foreground active:scale-[0.94]"
+          className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:h-11"
         >
-          {letters ? (
-            <span aria-hidden className="text-2xs font-semibold tracking-[0.02em] text-foreground">
-              {letters}
+          <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
+            {letters ? (
+              <span
+                aria-hidden
+                className="text-2xs font-semibold tracking-[0.02em] text-foreground"
+              >
+                {letters}
+              </span>
+            ) : (
+              <Icon icon={UserIcon} size={14} />
+            )}
+            <span
+              aria-hidden
+              data-state={state}
+              className="absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full bg-sidebar"
+            >
+              <span className={cn("size-[9px] rounded-full", connectionDot[state])} />
             </span>
-          ) : (
-            <Icon icon={UserIcon} size={14} />
-          )}
-          <span
-            aria-hidden
-            data-state={state}
-            className="absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full bg-rail"
-          >
-            <span className={cn("size-[9px] rounded-full", connectionDot[state])} />
+          </span>
+          <span aria-hidden className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-ui font-medium text-foreground">{shown}</span>
+            {state !== "ready" && (
+              <span className="truncate text-xs text-muted-foreground">
+                Daemon {connectionLabels[state].toLowerCase()}
+              </span>
+            )}
           </span>
         </button>
       }

@@ -2,8 +2,8 @@ import type { BrowserWindowConstructorOptions } from "electron";
 import { minimumSize, type Rectangle } from "./bounds.ts";
 
 /**
- * The approved design is translucent: the rail and sidebar are glass over the desktop.
- * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the top of the rail
+ * The approved design is translucent: the sidebar is glass over the desktop.
+ * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the top of the sidebar
  *   and the sidebar's top row (16 px from the top and left).
  * - Windows 11: Mica behind a hidden title bar with native caption buttons overlaid.
  * - Linux: solid, with the system frame.
@@ -88,18 +88,17 @@ html, body { background: transparent !important; }
 `;
 
 /**
- * macOS: the traffic lights span x 16–68 at the top of the window, over the top of the rail and
- * the start of the sidebar's top row; both drag the window. Every first control starts at
- * x ≥ 80, 12 px clear of them: the rail's first view below them, the sidebar's title after them,
- * the header's first controls after them with the sidebar hidden (the full-view strip, the
- * side panel's `header-nav`, 4 px further in to make up its narrower padding), and on a narrow
- * window (rail and sidebar in a sheet) the header clears them from the window's edge. Full screen hides the lights, so
- * none of this applies there; the preload marks `<html data-fullscreen>`.
+ * macOS: the traffic lights span x 16–68 at the top of the window, over the start of the sidebar's
+ * top row, which drags the window. Every first control starts at x ≥ 80, 12 px clear of them: the
+ * sidebar's title after them, the header's first controls after them with the sidebar hidden (the
+ * full-view strip, the side panel's `header-nav`, 4 px further in to make up its narrower padding),
+ * and on a narrow window (the sidebar in a sheet) the header clears them from the window's edge.
+ * Full screen hides the lights, so none of this applies there; the preload marks
+ * `<html data-fullscreen>`.
  */
 export const macTitleBarCss = `
-:root:not([data-fullscreen]) [data-slot="rail"] { padding-top: 44px; }
-:root:not([data-fullscreen]) [data-slot="sidebar-top"] { padding-left: 40px; }
-:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 28px; }
-:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-panel] [data-slot="header-nav"] { margin-left: 32px; }
+:root:not([data-fullscreen]) [data-slot="sidebar-top"] { padding-left: 80px; }
+:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
+:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-panel] [data-slot="header-nav"] { margin-left: 72px; }
 :root:not([data-fullscreen]) [data-sidebar="sheet"] [data-slot="header-nav"] { margin-left: 68px; }
 `;

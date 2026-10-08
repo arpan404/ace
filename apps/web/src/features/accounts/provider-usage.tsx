@@ -71,7 +71,7 @@ export function ProviderUsage(props: { provider: string }) {
         </ul>
       )}
       <Link
-        to="/more/accounts"
+        to="/accounts"
         className="self-start rounded-xs text-sm text-muted-foreground focus-ring hover:text-foreground"
       >
         Full usage and scheduling ›

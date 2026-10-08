@@ -20,16 +20,18 @@ export function GlobalHotkeys(props: {
   const layout = useLayout();
   const noProjects = useNoProjects() && props.onAddProject !== undefined;
   useHotkey(keymap.palette.keys, () => layout.setPaletteOpen(!layout.paletteOpen));
+  useHotkey(keymap.search.keys, () => (layout.search ? layout.closeSearch() : layout.openSearch()));
   useHotkey(keymap.newThread.keys, () =>
     noProjects ? props.onAddProject?.() : void navigate({ to: "/new" }),
   );
-  useHotkey(keymap.newDeck.keys, () => void navigate({ to: "/deck/new" }));
+  // Deck is called Offset in the UI, at `/offsets…`.
+  useHotkey(keymap.newDeck.keys, () => void navigate({ to: "/offsets/new" }));
   useHotkey(keymap.back.keys, nav.back);
   useHotkey(keymap.forward.keys, nav.forward);
   useHotkey(keymap.settings.keys, () => void navigate({ to: "/settings" }));
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goActivity.keys, () => void navigate({ to: "/activity" }));
-  useHotkey(keymap.goDeck.keys, () => void navigate({ to: "/deck" }));
+  useHotkey(keymap.goDeck.keys, () => void navigate({ to: "/offsets" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
   return null;

@@ -62,7 +62,7 @@ function resumableStreams(): Scenario {
     thread: {
       id: "thread-resumable-streams",
       workspaceId: "ace",
-      title: "Deck: resumable relay streams",
+      title: "Offset: resumable relay streams",
       provider: "claude",
     },
     steps: [

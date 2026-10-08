@@ -362,13 +362,13 @@ test("a rebound Next key moves between cards", async () => {
   });
 });
 
-test("a deck worker's question still shows after Activity is left and opened again", async () => {
+test("an offset worker's question still shows after Activity is left and opened again", async () => {
   await openActivity();
   const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
   expect(await main().findByRole("article", { name })).toBeTruthy();
-  const rail = within(screen.getByRole("navigation", { name: "Views" }));
-  await userEvent.click(rail.getByRole("link", { name: /^Home/ }));
-  const app = within(await screen.findByRole("navigation", { name: "App" }));
+  const app = within(screen.getByRole("navigation", { name: "App" }));
+  await userEvent.click(app.getByRole("link", { name: "Skills" }));
+  await screen.findByRole("complementary", { name: "Skills" });
   await userEvent.click(app.getByRole("link", { name: /^Activity/ }));
   expect(await main().findByRole("article", { name })).toBeTruthy();
 });

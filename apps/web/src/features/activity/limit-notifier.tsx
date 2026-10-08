@@ -80,7 +80,7 @@ export default function LimitNotifier() {
       said.current.add(change.key);
       toasts.add({
         ...words(change, now),
-        actionProps: { children: "View usage", onClick: () => void go({ to: "/more/accounts" }) },
+        actionProps: { children: "View usage", onClick: () => void go({ to: "/accounts" }) },
       });
     }
   }, [data, dataUpdatedAt]);

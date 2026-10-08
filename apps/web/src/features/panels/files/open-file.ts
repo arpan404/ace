@@ -15,7 +15,8 @@ export interface OpenFileOptions {
 /**
  * Open a checkout file the way the Files tool does: a tab already showing it comes forward; a
  * single click reuses the tab it came from when that tab is empty or a preview (or any other
- * preview tab), so browsing a tree doesn't pile up tabs; a deliberate open keeps its tab.
+ * preview tab), so browsing a tree doesn't pile up tabs; a deliberate open keeps its tab. The
+ * pinned Files tab stays the tree: what it opens goes in a tab beside it.
  */
 export function openFile(
   workspace: ScopeWorkspace,
@@ -42,7 +43,7 @@ export function openFile(
   const data = { path, preview: !keep, ...extra };
   const replaceable = (key: string | undefined) => {
     const found = key ? findTab(workspace, key) : undefined;
-    if (found?.tab.kind !== "files") return undefined;
+    if (found?.tab.kind !== "files" || found.tab.pinned) return undefined;
     const current = fileTabData(found.tab);
     return !current.path || current.preview ? found.tab.key : undefined;
   };

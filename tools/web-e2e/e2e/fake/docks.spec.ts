@@ -27,13 +27,13 @@ test("the + launcher becomes the tool picked from it, and tabs reorder and close
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents"]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files"]);
 
   await launch(page, "Preview");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
   await launch(page, "Devices");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview, "Devices"]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview, "Devices"]);
 
   // Drag Devices before Preview; the showing tab stays Devices.
   await sidePanel(page)
@@ -41,12 +41,12 @@ test("the + launcher becomes the tool picked from it, and tabs reorder and close
     .dragTo(sidePanel(page).getByRole("tab", { name: preview }), {
       targetPosition: { x: 4, y: 8 },
     });
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Devices", preview]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", "Devices", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: "Devices", selected: true })).toBeVisible();
 
   // Closing the showing tab shows its neighbour; the others stay.
   await sidePanel(page).getByRole("button", { name: "Close Devices" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", preview]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
 });
 
@@ -60,7 +60,7 @@ test("each thread keeps its own tabs, showing tab and panel, and gets them back 
   await open(page, "/t/thread-install-page", /./);
   await expect(sidePanel(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Right panel" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents"]);
+  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files"]);
 
   await page.goBack();
   await expect(
@@ -118,8 +118,8 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
   await launch(page, "Preview");
+  // With the pinned Changes, Agents and Files.
   await launch(page, "Devices");
-  await launch(page, "Files");
   await expect(tabs(page)).toHaveCount(5);
   const strip = sidePanel(page).getByRole("tablist", { name: "Thread panel tabs" });
   const inside = async (name: string | RegExp) => {
@@ -140,12 +140,12 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
       }),
     ).toBe(true);
   };
-  await inside("Open file");
+  await inside("Devices");
   // The first tab, folded or not, comes back whole when shown.
   await strip.getByRole("tab").first().click();
   await inside(/^Changes/);
   await strip.getByRole("tab").last().click();
-  await inside("Open file");
+  await inside("Devices");
 });
 
 test("with the side panel open at its default width, the work card and ⋯ stay beside a readable title", async ({

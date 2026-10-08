@@ -3,7 +3,7 @@ import { CardsIcon } from "@phosphor-icons/react";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
+import { Page, PageTitle, Screen, ViewListPage } from "@/features/shell/index.ts";
 import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { DeckSkeleton } from "./deck-run-page.tsx";
 import { NewDeckForm } from "./new-deck-form.tsx";
@@ -13,14 +13,21 @@ export function DeckLandingScreen() {
   const { ready, error, runs } = useDeckRuns();
   const retry = useDeckRetry();
   const first = landingDeck(runs);
-  if (first) return <Navigate to="/deck/$runId" params={{ runId: first.id }} replace />;
+  // A narrow window shows the list as the page; a wide one opens the run that needs a look.
+  if (first)
+    return (
+      <ViewListPage
+        title="Offsets"
+        fallback={<Navigate to="/offsets/$runId" params={{ runId: first.id }} replace />}
+      />
+    );
   if (error && !runs.length)
     return (
-      <Screen title="Deck">
+      <Screen title="Offsets">
         <EmptyState
           icon={CardsIcon}
-          title="Decks unavailable"
-          description="Couldn't reach the daemon's Deck service."
+          title="Offsets unavailable"
+          description="Couldn't reach the daemon's Offsets service."
           action={
             <Button size="sm" onClick={retry}>
               Try again
@@ -30,7 +37,7 @@ export function DeckLandingScreen() {
       </Screen>
     );
   return (
-    <Screen title="Deck">
+    <Screen title="Offsets">
       {!ready ? (
         <DeckSkeleton />
       ) : (
@@ -38,10 +45,10 @@ export function DeckLandingScreen() {
           icon={CardsIcon}
           heading
           title="Deal a goal to a team of agents"
-          description="A deck plans the work as cards, gives each card a worker and a reviewer, and merges what passes."
+          description="An offset plans the work as cards, gives each card a worker and a reviewer, and merges what passes."
           action={
-            <Link to="/deck/new" className={buttonVariants({ variant: "primary" })}>
-              New deck
+            <Link to="/offsets/new" className={buttonVariants({ variant: "primary" })}>
+              New offset
             </Link>
           }
         />
@@ -53,11 +60,11 @@ export function DeckLandingScreen() {
 /** ⌘⇧N: a goal and a few policies start a deck. */
 export function NewDeckScreen() {
   return (
-    <Screen title="New deck">
+    <Screen title="New offset">
       <Page>
         <PageTitle
-          title="New deck"
-          lede="Describe the goal. The deck drafts a plan of cards, gives each card a worker and an adversarial reviewer, and merges what passes."
+          title="New offset"
+          lede="Describe the goal. The offset drafts a plan of cards, gives each card a worker and an adversarial reviewer, and merges what passes."
         />
         <NewDeckForm />
       </Page>

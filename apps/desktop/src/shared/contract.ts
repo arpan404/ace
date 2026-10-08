@@ -118,7 +118,7 @@ export function deepLinkRoute(link: DeepLink): string {
     case "thread":
       return `/t/${encodeURIComponent(link.threadId)}`;
     case "deck":
-      return link.runId ? `/deck/${encodeURIComponent(link.runId)}` : "/deck";
+      return link.runId ? `/offsets/${encodeURIComponent(link.runId)}` : "/offsets";
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":

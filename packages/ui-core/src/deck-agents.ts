@@ -50,8 +50,11 @@ export function laneRole(account: string, model: string, accounts: DeckAccounts)
   };
 }
 
-/** The daemon titles each lane's thread "Deck worker: health"; retired lanes are known by it. */
-const titled = /^Deck (planner|worker|reviewer|integrator):/;
+/**
+ * The daemon titles each lane's thread "Offset worker: health" ("Deck worker: health" before the
+ * rename); retired lanes are known by it.
+ */
+const titled = /^(?:Offset|Deck) (planner|worker|reviewer|integrator):/;
 
 function roleOf(
   delegation: Delegation,

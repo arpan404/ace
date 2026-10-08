@@ -17,9 +17,7 @@ test("the app connects to a real daemon, opens a thread and gets a reply to a me
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
 
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: new RegExp(seededTitle) }).click();
 

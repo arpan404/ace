@@ -12,6 +12,7 @@ import {
   useWorkspaceActions,
   useWorkspaceCommands,
 } from "@/lib/workspace/index.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useThreadCommands } from "./thread-commands.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
@@ -21,10 +22,8 @@ export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 type Destination =
   | View["to"]
   | "/new"
-  | "/deck/new"
-  | "/more/accounts"
-  | "/more/files"
-  | "/more/search"
+  | "/offsets/new"
+  | "/accounts"
   | "/archived"
   | "/settings"
   | "/settings/theme-editor";
@@ -63,6 +62,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
   const threadGroups = useThreadCommands(close);
   const projects = useProjectDialogs();
   const directory = useProjectDirectory();
+  const { openSearch } = useLayout();
   // With no project yet, adding one is the only way forward.
   const noProjects = directory.loaded && directory.projects.length === 0;
   const staticGroups = useMemo(() => {
@@ -89,12 +89,13 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
         run: go("/new"),
       },
       {
+        // Deck is called Offset in the UI.
         id: "new-deck",
-        label: "New deck",
+        label: "New offset",
         keys: keymap.newDeck.keys,
         icon: "action",
         ...needsProject,
-        run: go("/deck/new"),
+        run: go("/offsets/new"),
       },
     ];
     const groups: PaletteGroup[] = [
@@ -113,22 +114,24 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       {
         value: "Go to",
         items: [
-          ...views
-            // More is a menu of the pages below, not a place of its own.
-            .filter((view) => view.id !== "more")
-            .map((view): PaletteCommand => {
-              const command: PaletteCommand = {
-                id: `go-${view.id}`,
-                label: view.label,
-                icon: "view",
-                run: go(view.to),
-              };
-              if (view.shortcut) command.keys = keymap[view.shortcut].keys;
-              return command;
-            }),
-          { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/more/accounts") },
-          { id: "go-files", label: "Files", icon: "view", run: go("/more/files") },
-          { id: "go-search", label: "Search all threads", icon: "view", run: go("/more/search") },
+          ...views.map((view): PaletteCommand => {
+            const command: PaletteCommand = {
+              id: `go-${view.id}`,
+              label: view.label,
+              icon: "view",
+              run: go(view.to),
+            };
+            if (view.shortcut) command.keys = keymap[view.shortcut].keys;
+            return command;
+          }),
+          {
+            id: "go-search",
+            label: "Search all threads",
+            keys: keymap.search.keys,
+            icon: "view",
+            run: run(() => openSearch()),
+          },
+          { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/accounts") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",
@@ -282,6 +285,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
     tabCommands,
     projects,
     noProjects,
+    openSearch,
   ]);
   return useMemo(
     () =>

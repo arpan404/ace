@@ -17,9 +17,7 @@ async function connect(page: Page, path = "/") {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
   const daemon = encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`);
   await page.goto(`${path}#token=${token}&daemon=${daemon}`);
-  await expect(
-    page.getByRole("button", { name: "Account and connection", exact: true }),
-  ).toBeAttached();
+  await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 
 async function openThread(page: Page) {
@@ -32,14 +30,18 @@ async function openThread(page: Page) {
 }
 
 test("Usage & accounts shows what the daemon's accounts service reports", async ({ page }) => {
-  await connect(page, "/more/accounts");
+  await connect(page, "/accounts");
   await expect(page.getByRole("heading", { level: 1, name: "Usage & accounts" })).toBeVisible();
   await expect(page.getByText("No accounts found yet")).toBeVisible();
   await expect(page.getByText("Accounts unavailable")).toHaveCount(0);
 });
 
 test("search finds a message across threads and Enter opens its thread", async ({ page }) => {
-  await connect(page, "/more/search");
+  await connect(page);
+  await page
+    .getByRole("navigation", { name: "App" })
+    .getByRole("button", { name: "Search" })
+    .click();
   // Only the seeded thread's first message says this.
   await page.getByRole("combobox", { name: "Search every thread" }).fill("say hello");
   const results = page.getByRole("listbox", { name: "Results" });

@@ -238,7 +238,7 @@ function relayStreams(now: number): FakeDeckRun {
       }),
     ],
     log: [
-      { at: createdAt, text: "Deck started from the goal." },
+      { at: createdAt, text: "Offset started from the goal." },
       { at: createdAt + 4 * minute, text: "Planner proposed 6 cards in 4 stages." },
       { at: createdAt + 9 * minute, text: "You approved plan revision 1." },
       { at: createdAt + 41 * minute, text: "Sequence numbers on every event merged as #211." },
@@ -348,7 +348,7 @@ function mobileColdStart(now: number): FakeDeckRun {
       }),
     ],
     log: [
-      { at: createdAt, text: "Deck started from the goal." },
+      { at: createdAt, text: "Offset started from the goal." },
       { at: createdAt + 3 * minute, text: "You approved plan revision 1." },
       { at: createdAt + 20 * minute, text: "Startup trace baseline merged as #88." },
       { at: createdAt + 21 * minute, text: "Dealt 3 cards to lanes." },
@@ -397,7 +397,7 @@ function merged(
       ),
     ],
     log: [
-      { at: createdAt, text: "Deck started from the goal." },
+      { at: createdAt, text: "Offset started from the goal." },
       { at: now - options.age, text: `Merged to main as #${options.pullRequest}.` },
     ],
     pullRequest: options.pullRequest,
@@ -460,7 +460,7 @@ export function stagedDeck(scenario: FakeDeckScenario, now: number): FakeDeckRun
     pullRequest: null,
     createdAt,
     updatedAt: now - 6 * minute,
-    log: [{ at: createdAt, text: "Deck started from the goal." }],
+    log: [{ at: createdAt, text: "Offset started from the goal." }],
   };
   switch (scenario) {
     case "planning":

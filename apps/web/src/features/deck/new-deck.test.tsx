@@ -8,19 +8,19 @@ import { harness } from "@/test/harness.tsx";
 async function openNew() {
   const app = harness();
   app.daemon.createThread({ id: "thread-a", workspaceId: "ace", title: "A", provider: "codex" });
-  await app.open("/deck/new");
+  await app.open("/offsets/new");
   return app;
 }
 
 test("starting a deck drafts a plan behind a gate, and approving it deals the first card", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
+  const form = await screen.findByRole("form", { name: "New offset" });
 
   await userEvent.type(
     within(form).getByLabelText("Goal"),
     "Stream terminal output to the phone without dropping bytes on reconnect.",
   );
-  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Start offset/ }));
 
   expect(
     await screen.findByRole("heading", {
@@ -28,11 +28,11 @@ test("starting a deck drafts a plan behind a gate, and approving it deals the fi
       name: /^Stream terminal output to the phone without dropping/,
     }),
   ).toBeTruthy();
-  const gate = screen.getByRole("region", { name: "Deck plan needs your approval" });
+  const gate = screen.getByRole("region", { name: "Offset plan needs your approval" });
   expect(screen.getByRole("button", { name: /Map the current behaviour/ }).textContent).toContain(
     "Planned",
   );
-  const decks = screen.getByRole("navigation", { name: "Decks" });
+  const decks = screen.getByRole("navigation", { name: "Offsets" });
   expect(
     within(within(decks).getByRole("region", { name: "Needs you" })).getByText(
       /Stream terminal output/,
@@ -51,14 +51,14 @@ test("starting a deck drafts a plan behind a gate, and approving it deals the fi
 
 test("a deck without plan approval starts dealing straight away", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
+  const form = await screen.findByRole("form", { name: "New offset" });
 
   await userEvent.type(within(form).getByLabelText("Goal"), "Cache model lists per account.");
   await userEvent.click(within(form).getByRole("switch"));
   fireEvent.keyDown(within(form).getByLabelText("Goal"), { key: "Enter", metaKey: true });
 
   await screen.findByRole("heading", { level: 1, name: "Cache model lists per account" });
-  expect(screen.queryByRole("region", { name: "Deck plan needs your approval" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Offset plan needs your approval" })).toBeNull();
   expect(screen.getByRole("button", { name: /Map the current behaviour/ }).textContent).toContain(
     "Working",
   );
@@ -66,31 +66,31 @@ test("a deck without plan approval starts dealing straight away", async () => {
 
 test("a goal too short to plan from is refused with a reason", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
+  const form = await screen.findByRole("form", { name: "New offset" });
 
   await userEvent.type(within(form).getByLabelText("Goal"), "Fix it");
-  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Start offset/ }));
 
   expect((await within(form).findByRole("alert")).textContent).toBe(
     "Describe the goal in a sentence or two.",
   );
-  expect(screen.getByRole("heading", { level: 1, name: "New deck" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 1, name: "New offset" })).toBeTruthy();
 });
 
 test("⌘⇧N opens New deck from anywhere", async () => {
   const app = harness();
   app.daemon.seedServices(workbenchServices(Date.now()));
-  await app.open("/deck/relay-streams");
+  await app.open("/offsets/relay-streams");
   await screen.findByRole("heading", { level: 1, name: "Resumable relay streams" });
 
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
 
-  expect(await screen.findByRole("form", { name: "New deck" })).toBeTruthy();
+  expect(await screen.findByRole("form", { name: "New offset" })).toBeTruthy();
 });
 
 test("New deck opens on the goal, and its footer says when lanes start", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
+  const form = await screen.findByRole("form", { name: "New offset" });
   await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText("Goal")));
   expect(within(form).getByText("You approve the plan before any lane starts.")).toBeTruthy();
 
@@ -101,14 +101,14 @@ test("New deck opens on the goal, and its footer says when lanes start", async (
 
 test("a failed submit focuses the field to fix", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
-  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  const form = await screen.findByRole("form", { name: "New offset" });
+  await userEvent.click(within(form).getByRole("button", { name: /Start offset/ }));
   await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText("Goal")));
 });
 
 test("the budget and a time limit are set under Advanced and go to the daemon with the deck", async () => {
   await openNew();
-  const form = await screen.findByRole("form", { name: "New deck" });
+  const form = await screen.findByRole("form", { name: "New offset" });
   await userEvent.type(
     within(form).getByLabelText("Goal"),
     "Index thread titles for search across every project.",
@@ -118,7 +118,7 @@ test("the budget and a time limit are set under Advanced and go to the daemon wi
   // Empty means the default for the lanes at once: 3 lanes × 4 × 6.
   expect(budget.getAttribute("placeholder")).toBe("72");
   await userEvent.type(budget, "0");
-  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Start offset/ }));
   expect((await within(form).findByRole("alert")).textContent).toBe(
     "Enter a whole number of lane starts, from 1 to 100,000.",
   );
@@ -126,7 +126,7 @@ test("the budget and a time limit are set under Advanced and go to the daemon wi
 
   await userEvent.clear(budget);
   await userEvent.type(budget, "120");
-  await userEvent.click(within(form).getByRole("button", { name: /Start deck/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Start offset/ }));
 
   await screen.findByRole("heading", { level: 1, name: /^Index thread titles/ });
   expect(screen.getByText("1 of 120 lane starts")).toBeTruthy();
@@ -134,14 +134,14 @@ test("the budget and a time limit are set under Advanced and go to the daemon wi
 
 test("with no project yet, New deck offers to add one and won't start", async () => {
   const app = harness();
-  await app.open("/deck/new");
-  const form = await screen.findByRole("form", { name: "New deck" });
+  await app.open("/offsets/new");
+  const form = await screen.findByRole("form", { name: "New offset" });
 
   expect(within(form).getByRole("button", { name: "Add project…" })).toBeTruthy();
-  expect(within(form).getByText("Decks run inside a project.")).toBeTruthy();
+  expect(within(form).getByText("Offsets run inside a project.")).toBeTruthy();
   expect(
     within(form)
-      .getByRole("button", { name: /Start deck/ })
+      .getByRole("button", { name: /Start offset/ })
       .hasAttribute("disabled"),
   ).toBe(true);
 });

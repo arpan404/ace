@@ -120,7 +120,7 @@
   "apps/web/src/features/projects/manage-dialogs.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/search/search-page.tsx": {
+  "apps/web/src/features/search/search-dialog.tsx": {
     "radius": 1
   },
   "apps/web/src/features/settings/add-acp-agent.tsx": {

@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon,
   PaletteIcon,
 } from "@phosphor-icons/react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { matchRanges, rankCommand } from "@ace/ui-core/command-rank";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -158,9 +158,8 @@ export default function PaletteBody(props: { close(): void }) {
   const groups = usePaletteGroups(props.close);
   const keymap = useResolvedKeymap();
   const phone = usePhone();
-  const navigate = useNavigate();
   const current = useParams({ strict: false }).threadId;
-  const { storage } = useLayout();
+  const { storage, openSearch } = useLayout();
   const [query, setQuery] = useState("");
   const [allThreads, setAllThreads] = useState(false);
   const [recent] = useState(() => readRecentThreads(storage));
@@ -173,12 +172,10 @@ export default function PaletteBody(props: { close(): void }) {
         current,
         allThreads,
         () => setAllThreads(true),
-        (q) => {
-          props.close();
-          void navigate({ to: "/more/search", search: { q } });
-        },
+        // Opening search closes the palette: one sheet at a time.
+        (q) => openSearch(q),
       ),
-    [groups, query, recent, current, allThreads, props, navigate],
+    [groups, query, recent, current, allThreads, openSearch],
   );
   const ranked = query.trim() !== "";
   return (

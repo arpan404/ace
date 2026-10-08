@@ -86,7 +86,7 @@ export function ErrorRow(props: {
               </Link>
             ))}
           {view.action === "switch_account" && (
-            <Link to="/more/accounts" className={linkButton}>
+            <Link to="/accounts" className={linkButton}>
               Use another account
             </Link>
           )}

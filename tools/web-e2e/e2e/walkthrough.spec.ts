@@ -150,7 +150,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.keyboard.press("Escape");
   for (const [path, name] of [
     ["/activity", "Activity"],
-    ["/deck", "Resumable relay streams"],
+    ["/offsets", "Resumable relay streams"],
     ["/settings/appearance", "Settings"],
   ] as const) {
     await page.goto(path);

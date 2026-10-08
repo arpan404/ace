@@ -1,7 +1,7 @@
 import { needYouPhrase } from "@ace/ui-core/counts";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/index.ts";
+import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { ActivityActions, ActivityMenu } from "./activity-header.tsx";
 import { useActivityState } from "./activity-state.tsx";
@@ -23,7 +23,7 @@ export function ActivityScreen() {
   const subtitle = [count ? needYouPhrase(count) : undefined, project && projectName(project)]
     .filter(Boolean)
     .join(" · ");
-  return (
+  const screen = (
     <Screen
       title="Activity"
       subtitle={subtitle || undefined}
@@ -41,4 +41,6 @@ export function ActivityScreen() {
       <NotificationPreferencesDialog open={prefsOpen} onOpenChange={setPrefsOpen} />
     </Screen>
   );
+  // A narrow window shows the feed as the page until an item is open; a wide one has it beside.
+  return item ? screen : <ViewListPage title="Activity" fallback={screen} />;
 }

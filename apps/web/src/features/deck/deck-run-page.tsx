@@ -73,20 +73,20 @@ export function DeckRunPage(props: {
   const { ready, run } = useDeckRun(props.runId);
   if (!run)
     return (
-      <Screen title="Deck">
+      <Screen title="Offsets">
         {ready ? (
           <EmptyState
             icon={CardsIcon}
             heading
-            title="This deck isn't here"
+            title="This offset isn't here"
             description="It may have been removed, or it lives on another daemon."
             action={
               <span className="flex gap-2">
-                <Link to="/deck" className={buttonVariants({ variant: "secondary" })}>
-                  Back to Deck
+                <Link to="/offsets" className={buttonVariants({ variant: "secondary" })}>
+                  Back to Offsets
                 </Link>
-                <Link to="/deck/new" className={buttonVariants({ variant: "primary" })}>
-                  New deck
+                <Link to="/offsets/new" className={buttonVariants({ variant: "primary" })}>
+                  New offset
                 </Link>
               </span>
             }
@@ -153,11 +153,11 @@ function RunScreen(props: {
   return (
     <Screen
       title={run.title}
-      subtitle={`${projectName(run.workspaceId)} · Deck`}
+      subtitle={`${projectName(run.workspaceId)} · Offsets`}
       menu={
         live ? (
           <MenuItem danger onClick={() => setCancelling(true)}>
-            Cancel deck…
+            Cancel offset…
           </MenuItem>
         ) : undefined
       }
@@ -166,19 +166,19 @@ function RunScreen(props: {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void send({ type: "conductor.resume", runId: run.id }, "Deck resumed")}
+            onClick={() => void send({ type: "conductor.resume", runId: run.id }, "Offset resumed")}
           >
             <Icon icon={PlayIcon} size={14} />
-            Resume deck
+            Resume offset
           </Button>
         ) : moving ? (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void send({ type: "conductor.pause", runId: run.id }, "Deck paused")}
+            onClick={() => void send({ type: "conductor.pause", runId: run.id }, "Offset paused")}
           >
             <Icon icon={PauseIcon} size={14} />
-            Pause deck
+            Pause offset
           </Button>
         ) : undefined
       }
@@ -190,7 +190,7 @@ function RunScreen(props: {
             lede={brief || undefined}
             actions={
               <SegmentedControl
-                label="Deck view"
+                label="Offset view"
                 value={tab}
                 options={tabs}
                 onValueChange={(next) => props.onNavigate({ tab: next })}
@@ -272,10 +272,10 @@ function RunScreen(props: {
       <Dialog open={cancelling} onOpenChange={setCancelling}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancel this deck?</DialogTitle>
+            <DialogTitle>Cancel this offset?</DialogTitle>
             <DialogDescription>
               Every lane stops, its sub-agents included, and nothing else merges. Cards already
-              merged into the deck's branch stay there.
+              merged into the offset's branch stay there.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -287,10 +287,10 @@ function RunScreen(props: {
               variant="danger"
               onClick={() => {
                 setCancelling(false);
-                void send({ type: "conductor.cancel", runId: run.id }, "Stopping the deck");
+                void send({ type: "conductor.cancel", runId: run.id }, "Stopping the offset");
               }}
             >
-              Cancel deck
+              Cancel offset
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -389,15 +389,15 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
     run.phase === "waiting"
       ? { title: "Waiting for a free account.", body: deckErrorText(error) }
       : run.phase === "failed"
-        ? { title: "The deck can't take its next step.", body: deckErrorText(error) }
+        ? { title: "The offset can't take its next step.", body: deckErrorText(error) }
         : run.phase === "stopping"
           ? {
-              title: "Stopping the deck.",
-              body: "Each lane is being interrupted; the deck reads Cancelled once every one of them has stopped.",
+              title: "Stopping the offset.",
+              body: "Each lane is being interrupted; the offset reads Cancelled once every one of them has stopped.",
             }
           : run.phase === "cancelled"
             ? {
-                title: "This deck was cancelled.",
+                title: "This offset was cancelled.",
                 body: "Its threads stay, so you can read what each lane did.",
               }
             : undefined;
@@ -423,7 +423,7 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
       {failed &&
         (unrecoverable.has(error) ? (
           <Button size="sm" variant="danger" onClick={props.onCancel}>
-            Cancel deck…
+            Cancel offset…
           </Button>
         ) : (
           <Button size="sm" onClick={props.onRetry}>
@@ -444,7 +444,7 @@ function PlanPending(props: { run: DeckRun }) {
         {run.phase === "planning" && <Spinner />}
         {run.phase === "planning"
           ? "The planner is splitting the goal into cards."
-          : "This deck has no cards."}
+          : "This offset has no cards."}
       </p>
       <AgentList label="Planner" agents={run.agents} />
     </div>
@@ -454,7 +454,7 @@ function PlanPending(props: { run: DeckRun }) {
 /** The deck's shape while it loads: title, goal, stepper, then a row of card columns. */
 export function DeckSkeleton() {
   return (
-    <LoadingRegion label="deck" className="flex flex-col gap-3 px-4 pt-11 sm:px-9">
+    <LoadingRegion label="offset" className="flex flex-col gap-3 px-4 pt-11 sm:px-9">
       <Skeleton className="h-6 w-64 max-w-full" />
       <Skeleton className="h-3.5 w-[28rem] max-w-full" />
       <Skeleton className="mt-3 h-3 w-96 max-w-full" />

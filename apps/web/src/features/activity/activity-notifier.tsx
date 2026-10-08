@@ -74,12 +74,12 @@ function ThreadNotifier() {
     // A deck's own threads speak as the deck: its decision, opening the deck.
     const owner = deck.threads.get(thread.id);
     if (owner) {
-      if (context.current.pathname === `/deck/${owner.runId}`) return;
+      if (context.current.pathname === `/offsets/${owner.runId}`) return;
       const decision = deck.events.find((event) => event.runId === owner.runId);
       const title = needsYou
         ? (decision?.title ?? `${owner.deck} needs you`)
         : `${thread.title} failed`;
-      const open = () => void navigate({ to: "/deck/$runId", params: { runId: owner.runId } });
+      const open = () => void navigate({ to: "/offsets/$runId", params: { runId: owner.runId } });
       if (!visible) {
         if (context.current.prefs.browser)
           notifyInBrowser({ title, body: owner.deck, tag: needsToastId(thread.id), open });
@@ -90,7 +90,7 @@ function ThreadNotifier() {
         title,
         description: `${projectName(owner.workspaceId)} · ${owner.deck}`,
         timeout: attentionTimeout,
-        actionProps: { children: "Open deck", onClick: open },
+        actionProps: { children: "Open offset", onClick: open },
       });
       return;
     }

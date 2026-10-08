@@ -61,8 +61,8 @@ describe("app shortcuts while an embedded page has focus", () => {
       press("[", "BracketLeft", { meta: true }),
       press("]", "BracketRight", { meta: true }),
       press("f", "KeyF", { meta: true }),
-      // ⌘⇧K is not an app shortcut.
-      press("K", "KeyK", { meta: true, shift: true }),
+      // ⌘⇧J is not an app shortcut.
+      press("J", "KeyJ", { meta: true, shift: true }),
     ])
       expect(forwarded(input, "darwin"), `${input.code}`).toEqual([]);
   });

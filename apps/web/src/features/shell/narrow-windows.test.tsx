@@ -62,16 +62,18 @@ async function openThread() {
   return app;
 }
 
-test("on a narrow window the rail and sidebar are a sheet from the header, closing once a view is chosen", async () => {
+test("on a narrow window the sidebar is a sheet from the header, closing once a view is chosen", async () => {
   windowWidth(390);
   await openThread();
-  expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
+  expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
 
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
+  // The same one sidebar: its places, the threads, and the profile with Settings beside it.
+  expect(within(sheet).getByRole("navigation", { name: "App" })).toBeTruthy();
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
-  expect(within(sheet).getByRole("button", { name: "Account and connection" })).toBeTruthy();
+  expect(within(sheet).getByRole("button", { name: /^You, account/ })).toBeTruthy();
+  expect(within(sheet).getByRole("link", { name: "Settings" })).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
   // On a phone a view opens on its list (ViewListPage); a row opens the item.
@@ -79,10 +81,11 @@ test("on a narrow window the rail and sidebar are a sheet from the header, closi
   await userEvent.click(await page.findByRole("link", { name: /Nightly dependency audit/ }));
   await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
 
-  // It covers the header's toggle, so it carries its own.
+  // It covers the header's toggle, so it carries its own. It keeps the threads, not the view's list.
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const again = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(again).getByRole("complementary", { name: "Automations" })).toBeTruthy();
+  expect(within(again).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(again).queryByRole("complementary", { name: "Automations" })).toBeNull();
   await userEvent.click(within(again).getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
@@ -95,7 +98,7 @@ test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide wi
 
   await userEvent.keyboard("{Meta>}\\{/Meta}");
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
+  expect(within(sheet).getByRole("navigation", { name: "App" })).toBeTruthy();
   await userEvent.keyboard("{Meta>}\\{/Meta}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
   expect(layout()).toBe(before);
@@ -220,7 +223,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   );
 });
 
-test("below 1100px the sidebar steps aside for the right panel, the rail stays, and both come back", async () => {
+test("below 1100px the sidebar steps aside for the right panel and comes back after", async () => {
   windowWidth(1024);
   await openThread();
   expect(sidebar()).toBeTruthy();
@@ -228,10 +231,6 @@ test("below 1100px the sidebar steps aside for the right panel, the rail stays, 
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
-  // The views stay one click away on the rail.
-  expect(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", { name: "Deck" }),
-  ).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(sidebar()).toBeTruthy());
@@ -316,13 +315,13 @@ test("the sheet closes when its link to the page already open is tapped", async 
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
 
-test("Search in the sheet opens the palette in the sheet's place", async () => {
+test("Search in the sheet opens the search dialog in the sheet's place", async () => {
   windowWidth(390);
   await openThread();
   // On a phone the header's way to the list is "Back to threads" (#126).
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  await userEvent.click(within(sheet).getByRole("button", { name: "Search and commands" }));
-  expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
+  await userEvent.click(within(sheet).getByRole("button", { name: "Search" }));
+  expect(await screen.findByRole("dialog", { name: "Search" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
