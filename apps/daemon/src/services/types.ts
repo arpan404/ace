@@ -79,6 +79,7 @@ export interface Services {
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationWorker;
+  notificationPublicKey?: string;
   review: ReturnType<typeof createDaemonReview>;
   history?: DaemonHistory;
   usage: ReturnType<typeof createDaemonUsage>;

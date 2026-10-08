@@ -28,6 +28,9 @@ const interaction = z
   .strict();
 const Payload = z.discriminatedUnion("type", [
   z
+    .object({ type: z.literal("thread.client.updated"), snoozedUntil: Timestamp.nullable() })
+    .strict(),
+  z
     .object({
       type: z.literal("thread.created"),
       thread: z
@@ -35,6 +38,7 @@ const Payload = z.discriminatedUnion("type", [
           title: z.string().max(200),
           status: ThreadStatus,
           archivedAt: Timestamp.optional(),
+          snoozedUntil: Timestamp.optional(),
         })
         .strict(),
     })
@@ -95,6 +99,10 @@ export function metadata(event: Event): MetadataEvent | undefined {
   const p = event.payload;
   let payload: unknown;
   switch (p.type) {
+    case "thread.client.updated":
+      if (p.changes.snoozedUntil === undefined) return undefined;
+      payload = { type: p.type, snoozedUntil: p.changes.snoozedUntil };
+      break;
     case "thread.created":
       payload = {
         type: p.type,
@@ -102,6 +110,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
           title: p.thread.title.slice(0, 200),
           status: p.thread.status,
           archivedAt: p.thread.archivedAt,
+          snoozedUntil: p.thread.snoozedUntil,
         },
       };
       break;

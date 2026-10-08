@@ -222,6 +222,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "onboarding",
       "mcp",
       "notifications",
+      "notificationPublicKey",
       "review",
       "history",
       "usage",
@@ -303,6 +304,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       get models() {
         return requireService(services.models, "models");
+      },
+      get notificationPublicKey() {
+        return services.notificationPublicKey;
       },
       get notifications() {
         return requireService(services.notifications, "notifications");

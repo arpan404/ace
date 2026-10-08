@@ -18,11 +18,19 @@ async function setup() {
   const home = mkdtempSync(join(tmpdir(), "ace-notify-sockets-"));
   let sender: (device: DeviceId, notification: Notification) => boolean = offline;
   const mobile: string[] = [];
+  const push: { endpoint: string; message: string | undefined }[] = [];
   const service = new NotificationWorker({
     path: join(home, "notify.sqlite"),
     windowMs: 0,
     transport: createNotificationRouter({
       websocket: (id, notification) => sender(id, notification),
+      webpush: {
+        async send(device, notice) {
+          if (device.address.channel !== "webpush") return "failed";
+          push.push({ endpoint: device.address.subscription.endpoint, message: notice.message });
+          return "accepted";
+        },
+      },
       apns: {
         async send(device) {
           mobile.push(device.id);
@@ -82,8 +90,46 @@ async function setup() {
   const desktop = DeviceId.parse("device"),
     phone = DeviceId.parse("phone");
   await service.register(phone, { channel: "apns", platform: "phone", token: "ab".repeat(32) });
-  return { f, service, attached, client, desktop, phone, mobile, errors };
+  return { f, service, attached, client, desktop, phone, mobile, push, errors };
 }
+
+it("browser push enrollment is acknowledged after its address is registered", async () => {
+  const { client, service, f, push } = await setup();
+  client.send({
+    type: "notification.register",
+    requestId: "enroll",
+    device: {
+      channel: "webpush",
+      platform: "web",
+      subscription: {
+        endpoint: "https://push.example.test/subscription",
+        p256dh: "a".repeat(87),
+        auth: "b".repeat(22),
+      },
+    },
+  });
+  expect(await client.next()).toEqual({
+    type: "notification.register.result",
+    requestId: "enroll",
+  });
+  client.send({ type: "notification.config", requestId: "settings" });
+  expect(await client.next()).toMatchObject({
+    type: "notification.config.result",
+    publicKey: null,
+  });
+  await client.close();
+  await service.notify({
+    id: "agent-push",
+    threadId: f.thread.id,
+    title: "Preview",
+    status: "agent_says",
+    message: "Ready",
+    backgroundCount: 0,
+    actions: [],
+  });
+  await service.drain();
+  expect(push).toEqual([{ endpoint: "https://push.example.test/subscription", message: "Ready" }]);
+});
 
 it("authenticated websocket presence suppresses phone push and delivers browser notification", async () => {
   const { f, client, service, attached, mobile, errors } = await setup();

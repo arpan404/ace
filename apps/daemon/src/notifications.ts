@@ -17,6 +17,7 @@ export interface DaemonNotifications {
   setSender(sender: (device: DeviceId, notification: Notification) => boolean): void;
   open(): Promise<void>;
   ready(): Promise<void>;
+  tick(): Promise<void>;
   activate(): void;
   start(): Promise<void>;
   stop(): void;
@@ -59,7 +60,25 @@ export function createDaemonNotifications(
       cursor: () => service.cursor(signal),
       // Admitted ingestion remains durable shutdown work, not cancellable startup.
       ingest: (events) => service.ingest(events),
-      drain: () => service.drain(),
+      async drain() {
+        for (const entry of store.readMcpIntents(64, "mcp.notify")) {
+          if (entry.intent.type !== "mcp.notify") continue;
+          const thread = store.getThread(entry.intent.threadId);
+          if (thread)
+            await service.notify({
+              id: `mcp:${entry.id}`,
+              threadId: thread.id,
+              title: thread.title.slice(0, 200),
+              status: "agent_says",
+              message: entry.intent.notice.text.slice(0, 300),
+              backgroundCount: 0,
+              actions: [],
+            });
+          await store.writable();
+          store.acknowledgeMcpIntent(entry.id);
+        }
+        await service.drain();
+      },
     },
     store,
     (error) => {
@@ -142,6 +161,7 @@ export function createDaemonNotifications(
     service,
     open,
     ready,
+    tick: attached.tick,
     activate,
     setSender(sender) {
       send = sender;

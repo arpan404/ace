@@ -51,12 +51,15 @@ export interface RouterOptions {
 /** Map the daemon's notification statuses onto the desktop categories. */
 export function alertFromDaemon(notification: Notification): Alert {
   const category: NotificationCategory =
-    notification.status === "needs_you"
-      ? "needsYou"
-      : notification.status === "failed" || notification.status === "unresponsive"
-        ? "failed"
-        : "finished";
+    notification.status === "agent_says"
+      ? "agentSays"
+      : notification.status === "needs_you"
+        ? "needsYou"
+        : notification.status === "failed" || notification.status === "unresponsive"
+          ? "failed"
+          : "finished";
   const body =
+    notification.message ??
     notification.preview ??
     (category === "needsYou"
       ? "Needs your answer"

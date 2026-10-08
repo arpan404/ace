@@ -85,8 +85,14 @@ export class NotificationService {
     if (!this.database.device(id))
       this.database.register(id, { channel: "websocket", platform: "web" });
   }
+  getPreferences(id: DeviceId) {
+    return this.database.device(id)?.preferences;
+  }
   preferences(id: DeviceId, input: unknown): void {
     this.database.preferences(id, input);
+  }
+  notify(notification: Notification): void {
+    this.database.notify(notification, this.options.now());
   }
   snooze(thread: ThreadId, until: number): void {
     this.database.snooze(thread, until);
@@ -124,6 +130,7 @@ export class NotificationService {
           !this.database.current(job.notification, job.generation) ||
           this.database.snoozed(job.notification.threadId, now) ||
           isQuiet(device.preferences, now) ||
+          (job.notification.status === "agent_says" && device.preferences.agentSays === false) ||
           (device.address.platform === "phone" &&
             this.presence.viewedElsewhere(job.notification.threadId, device.id, now))
         ) {

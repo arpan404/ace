@@ -52,3 +52,19 @@ Non-gating benchmarks measure ingestion, burst fan-out, backlog admission/draini
 ## Verification
 
 Test public behavior using core facts and events, temporary SQLite, real websocket/HTTP/HTTP2 servers, injected time and generated keys. Cover whole-tree status and wake grace, every alert kind, duplicate replay, burst replacement, background completion, snooze/quiet hours including DST, presence expiry/disconnect, authenticated actions, restart recovery, transient backoff, terminal failures and revocation. Match the complete RFC 8291 example ciphertext, not just round-trip encryption. Verify JWT signatures and request headers against the local servers. Apply at least eight meaningful production mutations, observe failures, revert them, and record results in the PR.
+
+## Agent notices, thread Snooze and browser enrollment
+
+`mcp.notify` intents enter the existing notification worker as `agent_says` with a bounded
+message. The worker accepts a stable intent id durably before the intent is acknowledged;
+a bounded, expiring receipt table prevents duplicate fan-out during recovery. The `agentSays`
+preference suppresses this category without suppressing state notifications. Both desktop and
+web display it as “Agent says”. Thread client snooze events feed the same worker policy; old
+projections replay once on upgrade so previously snoozed threads remain quiet after restart.
+
+Web notification preferences live in Settings › Notifications. `notification.config` returns
+the device preferences and only the public Web Push application key when configured. Optional
+correlated `notification.register` requests receive `notification.register.result` after durable
+registration; existing one-way callers remain compatible. Enrollment uses the browser's Push API
+and a root-scoped module service worker, which parses the shared notification schema. Provider
+credentials never enter this flow.

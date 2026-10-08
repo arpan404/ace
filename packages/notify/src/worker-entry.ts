@@ -41,9 +41,15 @@ port.on("message", (input: unknown) => {
   const { call, id } = message;
   // Calls are synchronous except drain/close. Delivery replies must remain able to complete a drain.
   void (async () => {
-    let value: number | undefined;
+    let value: number | import("@ace/protocol").NotificationPreferences | undefined;
     try {
       switch (call.method) {
+        case "notify":
+          service.notify(call.notification);
+          break;
+        case "getPreferences":
+          value = service.getPreferences(call.device);
+          break;
         case "cursor":
           value = service.cursor();
           break;
