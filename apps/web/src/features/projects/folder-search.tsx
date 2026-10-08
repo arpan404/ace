@@ -325,10 +325,6 @@ function KeyHints(props: { mode: SearchMode; path: boolean }) {
         {props.mode === "open" ? "open" : "go in"}
       </span>
       <span className="inline-flex items-center gap-1">
-        <Kbd keys="mod+enter" />
-        {props.mode === "open" ? "new thread" : "create"}
-      </span>
-      <span className="inline-flex items-center gap-1">
         <Kbd>tab</Kbd>
         {props.path ? "complete" : "browse"}
       </span>

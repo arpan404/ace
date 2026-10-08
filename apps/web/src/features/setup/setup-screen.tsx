@@ -31,6 +31,7 @@ export function SetupScreen() {
   const projects = useProjectDialogs();
   const signals = useCatalogSignals();
   const [checking, setChecking] = useState(false);
+  const [welcomed, setWelcomed] = useState(false);
   const leave = (to: "/") => {
     void dismissOnboarding(client, queryClient, true);
     void navigate({ to });
@@ -64,69 +65,91 @@ export function SetupScreen() {
     ? undefined
     : (actionable.find((card) => card.row.provider === data?.next.provider) ?? actionable[0])?.row
         .provider;
+  if (!welcomed)
+    return (
+      <Screen title="Set up">
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-center gap-4 px-5 sm:px-8">
+          <h2 className="text-2xl font-semibold tracking-title">Welcome to ace</h2>
+          <p className="max-w-[44ch] text-base text-muted-foreground">
+            Work with your coding agents in one place. Connect the agents on this computer, then
+            choose a project.
+          </p>
+          <div>
+            <Button variant="primary" onClick={() => setWelcomed(true)}>
+              Get started
+              <ArrowRightIcon aria-hidden size={14} />
+            </Button>
+          </div>
+        </div>
+      </Screen>
+    );
   return (
     <Screen title="Set up">
-      <div className="h-full overflow-y-auto px-5 pt-10 pb-16 sm:px-8 sm:pt-16">
-        <div className="fx-view-in mx-auto flex w-full max-w-3xl flex-col gap-7">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-2xl font-semibold tracking-title text-foreground">
-              {ready ? "You're ready to go" : "Welcome to ace"}
-            </h2>
-            <p className="max-w-[62ch] text-base leading-normal text-muted-foreground">
-              {ready
-                ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready. Add a project to start, or connect more agents first.`
-                : "ace works with the coding agents on this computer, using your own accounts. Sign in to one to start."}
-            </p>
-          </div>
-          {onboarding.isError ? (
-            <p role="alert" className="text-muted-foreground">
-              This computer can't list its agents yet. Check Settings → Providers.
-            </p>
-          ) : !data ? (
-            <ListSkeleton label="providers" shape="row" rows={4} />
-          ) : (
-            <>
-              <div className="flex items-center gap-3">
-                <Progress ready={ready} total={installed.length} />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={checking}
-                  onClick={() => void checkAgain()}
-                >
-                  <ArrowClockwiseIcon aria-hidden size={13} />
-                  {checking ? "Checking…" : "Check again"}
-                </Button>
-              </div>
-              {installed.length > 0 && (
-                <ul aria-label="Providers on this computer" className="flex flex-col">
-                  {installed.map(({ row, view }) => (
-                    <ProviderRow
-                      key={row.provider}
-                      row={row}
-                      view={view}
-                      next={next === row.provider}
-                    />
-                  ))}
-                </ul>
-              )}
-              {missing.length > 0 && (
-                <section aria-label="Not installed" className="flex flex-col gap-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">
-                    {installed.length ? "More agents you can use" : "Install one to begin"}
-                  </h3>
-                  <ul className="flex flex-col">
-                    {missing.map(({ row, view }) => (
-                      <MissingRow key={row.provider} row={row} view={view} />
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+          <div className="fx-view-in mx-auto flex w-full max-w-3xl flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-2xl font-semibold tracking-title text-foreground">
+                {ready ? "You're ready to go" : "Welcome to ace"}
+              </h2>
+              <p className="max-w-[62ch] text-base leading-normal text-muted-foreground">
+                {ready
+                  ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready. Add a project to start, or connect more agents first.`
+                  : "ace works with the coding agents on this computer, using your own accounts. Sign in to one to start."}
+              </p>
+            </div>
+            {onboarding.isError ? (
+              <p role="alert" className="text-muted-foreground">
+                This computer can't list its agents yet. Check Settings → Providers.
+              </p>
+            ) : !data ? (
+              <ListSkeleton label="providers" shape="row" rows={4} />
+            ) : (
+              <>
+                <div className="flex items-center gap-3">
+                  <Progress ready={ready} total={installed.length} />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={checking}
+                    onClick={() => void checkAgain()}
+                  >
+                    <ArrowClockwiseIcon aria-hidden size={13} />
+                    {checking ? "Checking…" : "Check again"}
+                  </Button>
+                </div>
+                {installed.length > 0 && (
+                  <ul aria-label="Providers on this computer" className="flex flex-col">
+                    {installed.map(({ row, view }) => (
+                      <ProviderRow
+                        key={row.provider}
+                        row={row}
+                        view={view}
+                        next={next === row.provider}
+                      />
                     ))}
                   </ul>
-                </section>
-              )}
-            </>
-          )}
-          <PastSessions />
-          <ToolchainHints />
-          <div className="flex items-center gap-3 border-t pt-5">
+                )}
+                {missing.length > 0 && (
+                  <section aria-label="Not installed" className="flex flex-col gap-2">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      {installed.length ? "More agents you can use" : "Install one to begin"}
+                    </h3>
+                    <ul className="flex flex-col">
+                      {missing.map(({ row, view }) => (
+                        <MissingRow key={row.provider} row={row} view={view} />
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
+            )}
+            <PastSessions />
+            <ToolchainHints />
+          </div>
+        </div>
+        <div className="shrink-0 border-t px-5 py-3 sm:px-8">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
             <Button variant="ghost" onClick={() => leave("/")}>
               Skip for now
             </Button>

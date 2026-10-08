@@ -3,6 +3,7 @@ import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { DialogOverlay } from "./dialog.tsx";
 import { Kbd } from "./kbd.tsx";
 import { layers, menuLabel } from "./menu-styles.ts";
 
@@ -25,12 +26,7 @@ function CommandDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop
-          className={cn(
-            layers.overlay,
-            "fixed inset-0 bg-black/25 transition-opacity duration-(--dur-2) [-webkit-app-region:no-drag] data-ending-style:opacity-0 data-starting-style:opacity-0",
-          )}
-        />
+        <DialogOverlay />
         <Dialog.Popup
           aria-label={title}
           className={cn(
