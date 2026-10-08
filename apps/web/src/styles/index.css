@@ -306,18 +306,6 @@
 }
 
 /*
- * Fades the end of a line that a row's hover actions float over, instead of cutting a letter in
- * half. `--under` is how much of the line's end the actions cover.
- */
-@utility fade-under-actions {
-  mask-image: linear-gradient(
-    to right,
-    #000 calc(100% - var(--under, 0px) - 1.75rem),
-    transparent calc(100% - var(--under, 0px))
-  );
-}
-
-/*
  * Focus rings (one recipe app-wide). `focus-ring` for controls: a 2px gap in the surface colour,
  * then 2px of the focus colour. `focus-ring-inset` for rows inside scrollers, where an outer
  * ring would be clipped. `--focus` is the full-strength focus token; it falls back to the accent.

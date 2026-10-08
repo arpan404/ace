@@ -4,15 +4,13 @@ import { homeRowKey, homeRows, type HomeGroups } from "./home-rows.ts";
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: ReturnType<typeof homeRows>) =>
   rows.map((row) =>
-    row.kind === "recent-header"
-      ? "recent"
-      : row.kind === "settled-header"
-        ? `settled ${row.count}`
-        : row.kind === "pinned-header"
-          ? `pinned ${row.count}`
-          : row.kind === "pinned-end"
-            ? "—"
-            : row.id,
+    row.kind === "settled-header"
+      ? `settled ${row.count}`
+      : row.kind === "pinned-header"
+        ? `pinned ${row.count}`
+        : row.kind === "pinned-end"
+          ? "—"
+          : row.id,
   );
 const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
   pinned: [],
@@ -36,12 +34,12 @@ test("with nothing pinned there is no Pinned heading, except as a drop zone mid-
   );
 });
 
-test("threads at rest follow the work in hand under Recent, which needs nothing above it to head", () => {
+test("threads at rest follow the work in hand without an extra heading", () => {
   expect(
     words(homeRows(groups({ active: ["a"], recent: ["r1", "r2"] }), { settledOpen: false })),
-  ).toEqual(["a", "recent", "r1", "r2"]);
+  ).toEqual(["a", "r1", "r2"]);
   expect(words(homeRows(groups({ pinned: ["p"], recent: ["r"] }), { settledOpen: false }))).toEqual(
-    ["pinned 1", "p", "—", "recent", "r"],
+    ["pinned 1", "p", "—", "r"],
   );
   // With only threads at rest, a heading over the whole list would say nothing.
   expect(words(homeRows(groups({ recent: ["r"] }), { settledOpen: false }))).toEqual(["r"]);

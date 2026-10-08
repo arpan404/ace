@@ -63,6 +63,8 @@ export function arrange(
   const settled: ThreadListEntry[] = [];
   for (const entry of entries) {
     if (isRemoved(entry)) continue;
+    // An untouched composer is not a task; sent input gives it a title or live state.
+    if (entry.status.state === "new" && entry.title === "New thread") continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (entry.pinned === true) pinned.push(entry);
     else if (isSettled(entry)) settled.push(entry);

@@ -235,3 +235,14 @@ test("a row says what its thread is doing when the daemon's live hints know more
   const plain = card({ state: "working", agents: 1 }, {});
   expect(plain.pill).toMatchObject({ label: "Working", since: now });
 });
+
+test("a linked pull request stays available when the thread has no feature branch", () => {
+  for (const branch of [null, "main", "master"]) {
+    const local = entry("t", { state: "done" }, now, {
+      details: { branch, linkedPr: { number: 18, state: "open" } },
+    });
+    const card = threadCard(input({ entry: local, details: cardDetails(local, undefined) }));
+    expect(card.pr).toBe(18);
+    expect(card.branch).toBeUndefined();
+  }
+});

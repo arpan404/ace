@@ -37,10 +37,9 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 33,
+  pinned: 47,
   "pinned-end": 9,
-  thread: 33,
-  "recent-header": 37,
+  thread: 47,
   "settled-header": 37,
   settled: 33,
 };
@@ -71,7 +70,7 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
 
 /**
  * The Home list, virtualized: the Pinned group in the person's own order, then one row per
- * thread across projects (the work in hand, then Recent: threads at rest), then the collapsible
+ * thread across projects (the work in hand, then threads at rest), then the collapsible
  * Settled section (when threads settle is a
  * setting, in Settings › General). Only visible rows mount. Up and Down (or j and k) move
  * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
@@ -352,11 +351,6 @@ export function ThreadList(props: { list: HomeList }) {
                       ) : (
                         <HeadingText label="Drop here to pin" />
                       )}
-                    </div>
-                  )}
-                  {row.kind === "recent-header" && (
-                    <div className={header}>
-                      <HeadingText label="Recent" />
                     </div>
                   )}
                   {row.kind === "settled-header" && (
