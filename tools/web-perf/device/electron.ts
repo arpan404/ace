@@ -163,6 +163,7 @@ try {
     deviceName,
     { timeout: 60000 },
   );
+  // A device's control toggle (components/control-toggle.tsx), not the browser's pill.
   await page.getByRole("button", { name: "Take control", exact: true }).click();
   if (process.env["ACE_PERF_SPACE"] === "1")
     await app.evaluate(({ BrowserWindow }) =>

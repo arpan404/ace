@@ -14,7 +14,6 @@ import { open, withPerfApp } from "./perf-app.ts";
  * DOM nodes.
  */
 
-const port = 5_196;
 const limits = budgets.markdownStream;
 const seconds = Number(process.env.PERF_SECONDS ?? limits.seconds);
 
@@ -58,7 +57,7 @@ function line(label: string, value: number, limit: number | string, ok: boolean,
 }
 
 async function measureStream(): Promise<void> {
-  await withPerfApp(port, async ({ browser, origin }) => {
+  await withPerfApp(async ({ browser, origin }) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(observe);
     await page.addInitScript(probe);

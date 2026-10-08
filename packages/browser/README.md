@@ -39,8 +39,14 @@ The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.m
 `HeadlessBackend` wraps Playwright; `registerEmbedded` attaches an authenticated
 transport after the daemon has verified its local desktop credential. Agent
 and client commands keep using `BrowserService`. `browser.backend` can be
-`auto`, `embedded` or `headless`, with thread overrides through settings.
-Desktop disconnect emits `browser.backend.lost` and pauses by default.
+`auto`, `embedded` or `headless`, with thread overrides through settings. Agent
+opens (`background`) get the same choice, so agents drive the desktop's native
+view when one is registered; `auto` falls back to headless when the desktop
+cannot open a view ([ADR 0069](../../docs/adr/0069-shared-native-browser.md)).
+`profilePreference` fills an open without a profile; `forgetThread` closes a
+deleted thread's browser and purges its persistent profiles.
+Desktop disconnect emits `browser.backend.lost` and pauses by default; the
+agent's next open resumes a paused page headlessly unless a person holds it.
 `browser.backendLoss: headless` reopens the last approved URL in an ephemeral
 headless profile, keeps the controller lease and reports `pageStateLost: true`.
 It preserves subscriptions, advances frame sequence numbers and invalidates

@@ -15,7 +15,6 @@ import { open, withPerfApp } from "./perf-app.ts";
  * page's retained heap must stay within budget.
  */
 
-const port = 5_199;
 const limits = budgets.longThread;
 const mod = process.platform === "darwin" ? "Meta" : "Control";
 /** Turns each round jumps to: days apart, old and recent. */
@@ -39,7 +38,7 @@ async function since(page: Page, start: number): Promise<number> {
 async function measureLongThread(): Promise<void> {
   let timingFailed = false;
   let resourcesFailed = false;
-  await withPerfApp(port, async ({ browser, origin }) => {
+  await withPerfApp(async ({ browser, origin }) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(observe);
     const cdp = await page.context().newCDPSession(page);

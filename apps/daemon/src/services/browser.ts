@@ -15,8 +15,10 @@ import {
 } from "@ace/protocol";
 import { InteractionId as importInteractionId } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
+import { BrowserForget } from "../browser-forget.ts";
 import { settingsScope } from "../settings.ts";
 import type { ServiceContext } from "./types.ts";
+const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
@@ -148,6 +150,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     },
   );
   services.browserApprovals = approvals;
+  let forget: BrowserForget | undefined;
   resources.own(() => approvals.close());
   resources.onShutdown(() => approvals.close());
   const browser = new BrowserService({
@@ -198,6 +201,21 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
         );
         return preference;
       }),
+    profilePreference:
+      options.browser?.profilePreference ??
+      (async (open) =>
+        BrowserProfilePreference.parse(
+          (
+            await services.settings?.get(
+              "browser.profile",
+              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
+            )
+          )?.value ?? "persistent",
+        )),
+    onEmbeddedRegistered: () => {
+      void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
+      options.browser?.onEmbeddedRegistered?.();
+    },
     backendLoss:
       options.browser?.backendLoss ??
       (async (open) =>
@@ -230,6 +248,10 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     },
   });
   resources.own(() => browser.close());
+  forget = new BrowserForget(store, browser, (error) =>
+    context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
+  );
+  resources.own(() => forget?.close());
   if (services.engine || options.handler) {
     origins.recover();
     approvals.recover();

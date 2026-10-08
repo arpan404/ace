@@ -80,10 +80,10 @@ const screens: Record<string, Setup> = {
     await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);
     // Answer the page first: a pending question holds every other command.
     await panel(page).getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
-    await panel(page)
-      .getByRole("button", { name: /^(Take over privately|Make private)$/ })
-      .click();
-    await expect(panel(page).getByText("agents can't see, read or record")).toBeVisible();
+    await panel(page).getByRole("button", { name: "Make private", exact: true }).click();
+    // Private: the toggle is gone and the pill offers only Hand back.
+    await expect(panel(page).getByRole("button", { name: "Make private" })).toHaveCount(0);
+    await expect(panel(page).getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
   },
   "devices-delegated": async (page) => {
     await openTool(page, "/t/thread-install-page", "Devices");

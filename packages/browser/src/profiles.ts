@@ -10,14 +10,21 @@ export class BrowserProfiles {
   constructor(dataDir: string) {
     this.root = join(dataDir, "browser");
   }
+  private persistentDir(workspaceId: string, threadId: string): string {
+    const key = createHash("sha256").update(`${workspaceId}:${threadId}`).digest("hex");
+    return join(this.root, "profiles", key);
+  }
+  /** The thread was deleted: its persistent profile goes too, unless a session holds it. */
+  async forget(workspaceId: string, threadId: string): Promise<void> {
+    const profile = this.persistentDir(workspaceId, threadId);
+    if (this.leases.has(profile)) throw new Error("Browser profile is still in use");
+    await rm(profile, { recursive: true, force: true });
+  }
   async acquire(options: BrowserOpen) {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
-    const key = createHash("sha256")
-      .update(`${options.workspaceId}:${options.threadId}`)
-      .digest("hex");
     const persistent = options.profile === "persistent";
     const profile = persistent
-      ? join(this.root, "profiles", key)
+      ? this.persistentDir(options.workspaceId, options.threadId)
       : await mkdtemp(join(this.root, "ephemeral-"));
     if (this.leases.has(profile)) throw new Error("Workspace browser profile is already in use");
     this.leases.add(profile);

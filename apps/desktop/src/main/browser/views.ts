@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import {
+  BaseWindow as AppWindow,
   WebContentsView,
   session as sessions,
   webContents,
@@ -30,6 +34,8 @@ export interface PlacementHost {
 export interface ViewHostOptions {
   preload?: string | undefined;
   window(): BaseWindow | undefined;
+  /** Electron's directory of persistent partitions (`userData/Partitions`). */
+  partitionsDir: string;
   platform: NodeJS.Platform;
   log(message: string): void;
   /** The connection the renderer showing a thread's view holds the page through, if any. */
@@ -42,6 +48,9 @@ const fetched = new Set(["http:", "https:"]);
 const sockets = new Set(["ws:", "wss:"]);
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
+/** One persistent partition per thread, never shared with another thread or the app. */
+const persistentName = (workspaceId: string, threadId: string) =>
+  `ace-browser-${digest(`${workspaceId}:${threadId}`)}`;
 
 /**
  * The app's in-app browser: Electron's own Chromium in `WebContentsView`s drawn inside a
@@ -58,6 +67,8 @@ export class EmbeddedViews implements ViewHost {
   private ephemeralPartitions = new PartitionPool("ace-browser-ephemeral-");
   private placements = new PlacementBook();
   private hosts = new Map<number, PlacementHost>();
+  /** Never shown or focused; unseen views render here while an agent drives them. */
+  private parking: BaseWindow | undefined;
   private options: ViewHostOptions;
 
   constructor(options: ViewHostOptions) {
@@ -78,7 +89,7 @@ export class EmbeddedViews implements ViewHost {
     const pool = this.ephemeralPartitions;
     const partition = ephemeral
       ? pool.acquire()
-      : `persist:ace-browser-${digest(`${workspaceId}:${threadId}`)}`;
+      : `persist:${persistentName(workspaceId, threadId)}`;
     const partitionSession = this.configure(partition);
     const group = new EmbeddedPageGroup(
       async () => {
@@ -105,6 +116,7 @@ export class EmbeddedViews implements ViewHost {
           session: partitionSession,
           released: undefined,
           window,
+          park: (size) => this.park(size),
           platform: this.options.platform,
           log: this.options.log,
           forward: (accelerator) => this.forward(threadId, accelerator),
@@ -124,6 +136,9 @@ export class EmbeddedViews implements ViewHost {
           this.pages.delete(threadId);
           this.placements.forget(threadId);
         }
+        // An idle hidden window must not keep the app from quitting once its views are gone.
+        if (!this.pages.size && this.parking && !this.parking.isDestroyed()) this.parking.destroy();
+        if (!this.pages.size) this.parking = undefined;
         if (ephemeral) pool.release(partition, await clearPartition(partitionSession));
       },
     );
@@ -136,6 +151,39 @@ export class EmbeddedViews implements ViewHost {
       await group.close();
       throw error;
     }
+  }
+
+  /**
+   * A deleted thread's persistent partition: its view closes and its stored data goes. A
+   * partition this app never created is left alone rather than created to be cleared.
+   */
+  async purge(request: { threadId: string; workspaceId: string }): Promise<void> {
+    await this.pages.get(request.threadId)?.close();
+    const name = persistentName(request.workspaceId, request.threadId);
+    const dir = join(this.options.partitionsDir, name);
+    if (!existsSync(dir)) return;
+    if (!(await clearPartition(sessions.fromPartition(`persist:${name}`))))
+      throw new Error("Browser partition could not be cleared");
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  private park(size: { width: number; height: number }): BaseWindow {
+    let window = this.parking;
+    if (!window || window.isDestroyed()) {
+      window = new AppWindow({
+        show: false,
+        focusable: false,
+        skipTaskbar: true,
+        title: "ace browser",
+        width: size.width,
+        height: size.height,
+      });
+      this.parking = window;
+    }
+    const [width = 0, height = 0] = window.getContentSize();
+    if (size.width > width || size.height > height)
+      window.setContentSize(Math.max(width, size.width), Math.max(height, size.height));
+    return window;
   }
 
   /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */

@@ -7,7 +7,6 @@ test.each([false, true])(
   "search brings a tool-output hit into the real transcript after historical navigation=%s",
   async (historical) => {
     await withPerfApp(
-      5_198,
       async ({ origin, browser }) => {
         const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
         await open(page, `${origin}/t/thread-multi-day?long=1&rate=20`);
