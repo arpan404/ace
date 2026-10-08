@@ -38,7 +38,7 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
   const transports: ReturnType<typeof h.transport>[] = [];
   try {
     for (const [index, lease] of leases.entries()) {
-      await adapter.openSession({
+      const session = await adapter.openSession({
         threadId: ThreadId.parse(`thread-${index}`),
         cwd: "/account",
         instanceId: "same-account",
@@ -58,6 +58,16 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
         onExit() {},
       });
       transports.push(h.transport());
+      const response = await h.control(`/api/session/${session.nativeSessionId}`);
+      expect(response).toMatchObject({
+        data: {
+          instructions: {
+            "ace.tool-guidance": expect.stringContaining(
+              "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+            ),
+          },
+        },
+      });
       expect(await h.control("/test/mcp")).toMatchObject({
         names: ["user", "ace"],
         status: 200,

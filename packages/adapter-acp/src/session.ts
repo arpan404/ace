@@ -1,5 +1,5 @@
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { appendAcpMcp } from "@ace/mcp-server";
+import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { clientMeta } from "./bridge-negotiation.ts";
@@ -361,7 +361,22 @@ class AcpSession implements ProviderSession {
       }
       const result = await this.rpc.request(
         "session/prompt",
-        { sessionId: this.nativeSessionId, prompt: next.input.map(encodeContent) },
+        {
+          sessionId: this.nativeSessionId,
+          prompt: [
+            // ACP has no portable system-instruction field. Native prompt context is the
+            // interoperable fallback, refreshed each turn so compaction cannot erase it.
+            ...(this.ctx.mcp
+              ? [
+                  {
+                    type: "text",
+                    text: `<ace-tool-guidance>\n${developerInstructions(this.quirks.provider)}\n</ace-tool-guidance>`,
+                  },
+                ]
+              : []),
+            ...next.input.map(encodeContent),
+          ],
+        },
         { timeoutMs: null, signal: this.ctx.signal },
       );
       const stop = promptStop(result);

@@ -45,6 +45,39 @@ export const computerUseSchemas = {
     reason: z.string().min(1).max(2048),
   }),
 };
+// Read enum descriptions from the shared action schema when the expanded helper contract lands.
+const enumNames = (schema: z.ZodType, fallback: readonly string[]) => {
+  const result = z.object({ enum: z.array(z.string()) }).safeParse(z.toJSONSchema(schema));
+  return (result.success ? result.data.enum : fallback).join(", ");
+};
+const namedKeys = enumNames(PointKey.shape.key, [
+  "a–z",
+  "0–9",
+  "enter",
+  "return",
+  "tab",
+  "space",
+  "backspace",
+  "escape",
+  "delete",
+  "home",
+  "end",
+  "pageup",
+  "pagedown",
+  "left",
+  "right",
+  "up",
+  "down",
+]);
+const keyEnum = z
+  .object({ enum: z.array(z.string()) })
+  .safeParse(z.toJSONSchema(PointKey.shape.key));
+const namedModifiers = keyEnum.success
+  ? z
+      .object({ items: z.object({ enum: z.array(z.string()) }) })
+      .parse(z.toJSONSchema(PointKey.shape.modifiers))
+      .items.enum.join(", ")
+  : "command, shift, option, control";
 export const computerUseTools = [
   {
     name: "screen_measure_interaction",
@@ -57,7 +90,7 @@ export const computerUseTools = [
   {
     name: "screen_request_app",
     description:
-      "Request human approval for an exact app bundle id with a reason. Grants last this turn, this thread or always.",
+      "Ask the person to approve computer use of one native macOS app by exact bundle id, with a reason. Call only when the person asked you to operate that app. Never request a web browser to visit a website; use ace_browser_open. Browser grants must come from the person in ace's UI.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_request_app);
     },
@@ -128,15 +161,15 @@ export const computerUseTools = [
   },
   {
     name: "screen_type",
-    description: "Type text in the approved application",
+    description:
+      "Type text in the approved native app. Use screen_key for Enter and shortcuts, or screen_ui_act to set a field's whole value.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_type);
     },
   },
   {
     name: "screen_key",
-    description:
-      "Press a named key with v2 (for example Enter), or a legacy macOS keyCode, with modifiers.",
+    description: `Press a key in the approved native app. Named keys: ${namedKeys}. Modifiers: ${namedModifiers}. Example: {"key":"l","modifiers":["command"]}. Legacy sessions accept macOS keyCode.`,
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_key);
     },

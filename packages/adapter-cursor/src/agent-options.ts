@@ -3,13 +3,20 @@ import { cursorSdkInjection } from "@ace/mcp-server";
 import type { OpenOptions } from "./contracts.ts";
 import { localPolicy, cursorRestrictedTools } from "./policy.ts";
 
-function defaults(options: OpenOptions, store: LocalAgentStore) {
-  return { local: { cwd: options.cwd, store }, model: { id: options.model ?? "composer-2.5" } };
+function defaults(options: OpenOptions, store: LocalAgentStore, guidanceDirectory?: string) {
+  return {
+    local: { cwd: options.cwd, store, ...(guidanceDirectory ? { dirs: [guidanceDirectory] } : {}) },
+    model: { id: options.model ?? "composer-2.5" },
+  };
 }
 
 /** The admitted options also key SDK prewarming, including scoped MCP definitions. */
-export function sandboxCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
+export function sandboxCursorOptions(
+  options: OpenOptions,
+  store: LocalAgentStore,
+  guidanceDirectory?: string,
+): AgentOptions {
+  const base = defaults(options, store, guidanceDirectory);
   const injection = options.mcp && !options.readOnly ? cursorSdkInjection(options.mcp) : undefined;
   return {
     ...base,
@@ -19,8 +26,12 @@ export function sandboxCursorOptions(options: OpenOptions, store: LocalAgentStor
   };
 }
 
-export function limitedCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
+export function limitedCursorOptions(
+  options: OpenOptions,
+  store: LocalAgentStore,
+  guidanceDirectory?: string,
+): AgentOptions {
+  const base = defaults(options, store, guidanceDirectory);
   return {
     ...base,
     local: { ...base.local, ...localPolicy("restricted", false) },
@@ -28,8 +39,12 @@ export function limitedCursorOptions(options: OpenOptions, store: LocalAgentStor
   };
 }
 
-export function fullCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
+export function fullCursorOptions(
+  options: OpenOptions,
+  store: LocalAgentStore,
+  guidanceDirectory?: string,
+): AgentOptions {
+  const base = defaults(options, store, guidanceDirectory);
   const injection = options.mcp ? cursorSdkInjection(options.mcp) : undefined;
   return {
     ...base,

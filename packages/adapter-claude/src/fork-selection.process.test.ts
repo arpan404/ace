@@ -125,6 +125,12 @@ test("Claude preserves selected fork permissions, project MCP and scoped ace ins
       },
     });
     expect(object(data["request"])["appendSystemPrompt"]).toContain("mcp__ace__*");
+    expect(object(data["request"])["appendSystemPrompt"]).toContain(
+      "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+    );
+    expect(object(data["request"])["appendSystemPrompt"]).not.toContain(
+      "appear only when authorized",
+    );
     expect(JSON.stringify(h.frames)).not.toContain(bearer);
   } finally {
     await h.session.close("shutdown");

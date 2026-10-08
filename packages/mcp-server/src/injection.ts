@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { aceInstructions } from "./status.ts";
 import type { ProviderKind } from "@ace/protocol";
 
 export const AceMcpConnectionSchema = z.strictObject({
@@ -30,7 +31,8 @@ export function developerInstructions(provider: ProviderKind): string {
     acp: "Use the ace MCP server for ace operations.",
     pi: "Use ace_*, screen_* and device_* extension tools for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Use ace_browser_open then ace_browser_snapshot for web pages; do not call cua_repl or provider browser tools for ace's thread browser. Use screen_ui_tree/screen_ui_find for the human-delegated app, or device_list/device_find for an approved simulator. Inspect semantic trees before using coordinate input. If delegation is missing or a human owns control, report the tool error and wait for the user.`;
+  return `${aceInstructions}
+${prefix[provider]} Any website or web app, including localhost: ace_browser_open → ace_browser_snapshot → act on refs. Never drive Safari/Chrome/Arc/Firefox with screen_*. screen_* only when the person explicitly asks you to operate a specific native app, or nothing else can do the task; call screen_request_app, then screen_ui_tree/screen_ui_find before coordinates. If a tool reports disabled/denied/read-only/human control, stop and tell the person; don't switch tool groups to work around it. Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Creation returns acceptance, not completion. Agents must never resolve approvals. Use device_list/device_find before coordinate input on an approved simulator.`;
 }
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
@@ -38,7 +40,11 @@ export function codexInjection(input: AceMcpConnection) {
     config: {
       "mcp_servers.ace": {
         url,
-        http_headers: { Authorization: `Bearer ${bearer}` },
+        http_headers: {
+          Authorization: `Bearer ${bearer}`,
+          "X-Ace-Instructions": "native",
+          "X-Ace-Notifications": "stream",
+        },
         tool_timeout_sec: 300,
       },
     },
@@ -50,7 +56,11 @@ export function claudeInjection(input: AceMcpConnection) {
   return {
     env: { MCP_TOOL_TIMEOUT: "300000" },
     mcpServers: {
-      ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
+      ace: {
+        type: "http" as const,
+        url,
+        headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
+      },
     },
     developerInstructions: developerInstructions("claude"),
   };
@@ -65,7 +75,7 @@ export function openCodeInjection(input: AceMcpConnection) {
     oauth: false as const,
     protocol: "2026-07-28" as const,
     timeout: { execution: 300_000 },
-    headers: { Authorization: `Bearer ${bearer}` },
+    headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
   };
   return {
     server,
@@ -83,7 +93,10 @@ export function acpInjection(
         type: "http" as const,
         name: "ace",
         url,
-        headers: [{ name: "Authorization", value: `Bearer ${bearer}` }],
+        headers: [
+          { name: "Authorization", value: `Bearer ${bearer}` },
+          { name: "X-Ace-Notifications", value: "stream" },
+        ],
       },
     ],
     developerInstructions: developerInstructions(provider),
@@ -95,7 +108,11 @@ export function cursorSdkInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse(input);
   return {
     mcpServers: {
-      ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
+      ace: {
+        type: "http" as const,
+        url,
+        headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
+      },
     },
     developerInstructions: developerInstructions("cursor"),
   };

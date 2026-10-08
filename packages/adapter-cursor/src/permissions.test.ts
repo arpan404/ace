@@ -1,5 +1,5 @@
 import * as sdk from "@cursor/sdk";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -51,6 +51,12 @@ test.each([
       },
       Agent: {
         async create(options) {
+          const directory = options.local?.dirs?.[0];
+          if (!directory) throw new Error("Missing native rule workspace");
+          expect(await readFile(join(directory, ".cursor/rules/ace.mdc"), "utf8")).toContain(
+            "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+          );
+          expect(options.systemPrompt).toBeUndefined();
           const guarded =
             options.local?.sandboxOptions?.enabled === true &&
             options.local?.autoReview === true &&
@@ -95,6 +101,11 @@ test.each([
           };
         },
         async resume(nativeId, options) {
+          const directory = options?.local?.dirs?.[0];
+          if (!directory) throw new Error("Missing resumed native rule workspace");
+          expect(await readFile(join(directory, ".cursor/rules/ace.mdc"), "utf8")).toContain(
+            "Any website or web app, including localhost",
+          );
           const local = options?.local;
           if (
             (readOnly && options?.mcpServers !== undefined) ||
@@ -133,7 +144,7 @@ test.each([
           autoReviewAvailable: false,
           limits: CursorLimitsSchema.parse({}),
           readOnly,
-          ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
+          mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) },
         }),
       ).toEqual({
         agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
@@ -156,7 +167,7 @@ test.each([
             autoReviewAvailable: false,
             limits: CursorLimitsSchema.parse({}),
             readOnly,
-            ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
+            mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) },
           }),
         ).toEqual({
           agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
