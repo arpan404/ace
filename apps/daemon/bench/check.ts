@@ -1,3 +1,4 @@
+import { measureIdleCpu } from "./idle-cpu.ts";
 import { checkIdleImports } from "./idle-imports.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -76,6 +77,17 @@ try {
         timeout: 20000,
       });
       return join(destination, "ace.mjs");
+    });
+    await phase("idle CPU", async () => {
+      const idle = await measureIdleCpu(entry);
+      const violations =
+        idle.rss > limits.idleRss ? [`idle RSS: ${idle.rss} exceeds ${limits.idleRss}`] : [];
+      const timing =
+        idle.cpuPercent >= 2 ? [`idle CPU: ${idle.cpuPercent}% exceeds 2% of one core`] : [];
+      if (overloaded()) {
+        process.stdout.write(`daemon idle CPU: deferred, host load reached ${maximumTimingLoad}\n`);
+        checkBudgets(violations, []);
+      } else checkBudgets(violations, timing);
     });
     // Deterministic facts, real stdout/SQLite/WebSocket edges, bounded reconnect gaps.
     const acceptance = await phase("long-thread acceptance", () =>
