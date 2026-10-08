@@ -15,8 +15,9 @@ import { SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 
 /**
  * Settle (finished threads) and Snooze, or Unsettle on a settled row, then Pin or Unpin,
- * floating at the row's top right while the pointer or keyboard focus is on the row. They cover
- * the age, which hides meanwhile, and step aside while the row's context menu is open.
+ * floating at the row's top right while the pointer or keyboard focus is on the row. Snooze and
+ * Pin are icons, each named by its tooltip and its accessible label. They cover the age, which
+ * hides meanwhile, and step aside while the row's context menu is open.
  */
 export function RowActions(props: {
   entry: ThreadListEntry;
@@ -54,23 +55,23 @@ export function RowActions(props: {
             </HoverButton>
           )}
           <Menu>
-            <MenuTrigger
-              render={
-                <HoverButton
-                  icon={<Icon icon={MoonIcon} size={14} />}
-                  aria-label={`Snooze ${title}`}
-                >
-                  Snooze
-                </HoverButton>
-              }
-            />
+            <Tip label="Snooze…">
+              <MenuTrigger
+                render={
+                  <HoverButton
+                    icon={<Icon icon={MoonIcon} size={14} />}
+                    aria-label={`Snooze ${title}`}
+                  />
+                }
+              />
+            </Tip>
             <MenuContent align="end" className="min-w-[200px]">
               <SnoozeItems entry={props.entry} actions={actions} snoozed={props.snoozed} />
             </MenuContent>
           </Menu>
         </>
       )}
-      <Tip label={props.pinned ? "Unpin" : "Pin"} shortcut="home.pin">
+      <Tip label={props.pinned ? "Unpin thread" : "Pin thread"} shortcut="home.pin">
         <HoverButton
           icon={<Icon icon={props.pinned ? PushPinSlashIcon : PushPinIcon} size={14} />}
           aria-label={`${props.pinned ? "Unpin" : "Pin"} ${title}`}

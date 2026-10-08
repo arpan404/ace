@@ -70,7 +70,7 @@ test("a task row shows its project badge, status, title, branch, changes and pro
   const refund = card(/^Partial refunds double-count tax/);
   expect(within(refund).getByText("billing-api")).toBeTruthy();
   expect(within(refund).getByText("BA")).toBeTruthy();
-  expect(within(refund).getByText("Needs you")).toBeTruthy();
+  expect(within(refund).getByText("Waiting for your approval")).toBeTruthy();
   expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
   // A linked pull request stands in for the diff.
   expect(refund.textContent).toContain("#77");
@@ -81,8 +81,9 @@ test("a task row shows its project badge, status, title, branch, changes and pro
   expect(within(install).getByText("+120")).toBeTruthy();
   expect(within(install).getByText("−88")).toBeTruthy();
 
+  // Its agent waits on the subagents it started: the row says so.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).getByText(/^Working/)).toBeTruthy();
+  expect(within(dedupe).getByText("Waiting on 2 subagents")).toBeTruthy();
   // Its subagents count beside the provider's mark.
   expect(within(dedupe).getByText("2")).toBeTruthy();
 });
@@ -141,12 +142,12 @@ test("a row's name says its status, provider and subagents, branch, pull request
   await openHome(workbenchApp());
   expect(
     await within(threads()).findByRole("link", {
-      name: /^Partial refunds double-count tax\. Needs you, Claude Code, .*Pull request #77/,
+      name: /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
     }),
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Working, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect\. Waiting on 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
@@ -161,7 +162,7 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   await openHome(workbenchApp());
   await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
   const tip = await screen.findByRole("tooltip");
-  expect(tip.textContent).toContain("Needs you");
+  expect(tip.textContent).toContain("Waiting for your approval");
   expect(tip.textContent).toContain("Pull request #77");
 });
 

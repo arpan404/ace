@@ -86,6 +86,8 @@ export type PillIcon = "working" | "needs-you" | "waiting" | "done" | "failed";
 export interface TaskPill {
   /** "Working", "Needs you", "Done": the short form; the row's name has the full status. */
   label: string;
+  /** A command the label names, shown as code after it: "Watching `bun run dev:relay`". */
+  code?: string | undefined;
   tone: Tone;
   icon: PillIcon;
   /** While working: the moment it began, for the live "Working 18s". */

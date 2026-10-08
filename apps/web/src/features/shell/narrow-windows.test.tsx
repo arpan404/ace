@@ -125,8 +125,8 @@ test("on a phone the header is a back caret to the list, the title, its status a
       .getAllByRole("button")
       .map((button) => button.ariaLabel),
   ).toEqual(["Back to threads", "More actions"]);
-  // The agent is still at work on this thread.
-  expect(within(header).getByRole("img", { name: "Working" })).toBeTruthy();
+  // The agent is still at work on this thread, waiting on the subagents it started.
+  expect(within(header).getByRole("img", { name: "Waiting on 2 subagents" })).toBeTruthy();
 
   const tools = ["Work card", "Right panel"];
   for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();

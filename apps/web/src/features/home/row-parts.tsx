@@ -83,7 +83,10 @@ function Elapsed(props: { since: number }) {
   return <span className="tabular-nums">{formatSpan(props.since, now)}</span>;
 }
 
-/** The status in a few coloured words and a mark; a working thread counts the time it has been at it. */
+/**
+ * The status in a few coloured words and a mark: what the thread is doing ("Watching
+ * `bun run dev:relay`", "Waiting on 2 subagents"), and how long a working thread has been at it.
+ */
 function RowStatus(props: { pill: TaskPill }) {
   const { pill } = props;
   return (
@@ -93,6 +96,7 @@ function RowStatus(props: { pill: TaskPill }) {
       mark={<PillIcon pill={pill} />}
       className="gap-1"
     >
+      {pill.code && <code className="max-w-24 truncate font-mono">{pill.code}</code>}
       {pill.since !== undefined && <Elapsed since={pill.since} />}
     </StatusLabel>
   );

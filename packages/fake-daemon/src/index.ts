@@ -33,6 +33,14 @@ export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
+export {
+  askingQuestion,
+  oneTurnWork,
+  runningTests,
+  turnStatuses,
+  waitingOnSubagents,
+  watchingRelay,
+} from "./scenarios/turn-statuses.ts";
 export { seedPanels } from "./scenarios/panels.ts";
 export { devWorld } from "./scenarios/dev-world.ts";
 export { accountLimit, teamAtLimit } from "./scenarios/account-limit.ts";

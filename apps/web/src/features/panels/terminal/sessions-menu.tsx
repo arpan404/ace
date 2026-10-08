@@ -34,10 +34,11 @@ const shellState = {
 const ring = { boxShadow: "0 0 0 1.5px var(--panel)" };
 
 /**
- * Every shell of the thread in one place: your terminals and the agents' background shells,
- * open in a tab or not. Picking one shows its tab, opening it if needed. The count on the
- * button is the shells still running that no tab shows, so a shell an agent started in the
- * background is never out of sight.
+ * Every shell of the thread in one place: your terminals, open in a tab or not, and the
+ * agents' background shells still running or open in a tab (a finished one stays reachable
+ * from its transcript row instead). Picking one shows its tab, opening it if needed. The count
+ * on the button is the shells still running that no tab shows, so a shell an agent started in
+ * the background is never out of sight.
  */
 export function SessionsMenu(props: { scope: string }) {
   const { scope } = props;
@@ -62,7 +63,7 @@ export function SessionsMenu(props: { scope: string }) {
       label: shellLabel(task.title),
       open: isOpen(shellKind, task.id),
     })),
-  );
+  ).filter((entry) => entry.open || entry.task.status === "running");
   const unseen =
     own.filter((entry) => !entry.open && !entry.terminal.exited).length +
     agents.filter((entry) => !entry.open && entry.task.status === "running").length;
@@ -123,7 +124,7 @@ export function SessionsMenu(props: { scope: string }) {
           <MenuLabel>Agent shells · read-only</MenuLabel>
           {agents.length === 0 && (
             <MenuItem disabled reason="Commands an agent leaves running show here">
-              None in this thread
+              None running
             </MenuItem>
           )}
           {agents.map((entry) => (

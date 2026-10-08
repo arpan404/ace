@@ -6,6 +6,7 @@ import {
   fakeTransport,
   hostFolders,
   seedPanels,
+  turnStatuses,
   workbenchServices,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
@@ -41,8 +42,15 @@ export function bootFake(): {
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
-  // threads and no projects: the first run.
-  const empty = (globalThis as { aceFakeWorld?: string }).aceFakeWorld === "empty";
+  // threads and no projects: the first run. `?fakeWorld=thread-activity` adds threads caught
+  // mid-work (watching a command, waiting on subagents, running tests, asking) to the world.
+  const world =
+    (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
+    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
+  const empty = world === "empty";
+  if (world === "thread-activity")
+    for (const scenario of turnStatuses())
+      new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
   for (const thread of empty ? [] : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
@@ -62,11 +70,7 @@ export function bootFake(): {
     );
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
-  if (
-    (globalThis as { aceFakeWorld?: string }).aceFakeWorld === "computer-use" ||
-    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld") === "computer-use"
-  )
-    seedComputerUse(daemon);
+  if (world === "computer-use") seedComputerUse(daemon);
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

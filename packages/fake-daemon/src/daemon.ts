@@ -458,6 +458,12 @@ export class FakeDaemon implements Host {
     while (followups.length || inputIndex < payloads.length) {
       const payload = followups.shift() ?? payloads[inputIndex++];
       if (!payload) continue;
+      const step =
+        payload.type === "agent.status" &&
+        payload.status.state === "working" &&
+        payload.status.itemId !== undefined
+          ? host.view.items[payload.status.itemId]
+          : undefined;
       const metadata = liveMetadata(
         host.view.thread,
         payload,
@@ -467,6 +473,9 @@ export class FakeDaemon implements Host {
           : payload.type === "background_task.updated"
             ? host.view.backgroundTasks[payload.taskId]
             : undefined,
+        step?.type === "tool_call" && step.call.detail.kind === "shell"
+          ? step.call.detail.command
+          : undefined,
       );
       if (metadata) followups.push(metadata);
       // The daemon turns a provider's context sample into the agent's replaceable meter.

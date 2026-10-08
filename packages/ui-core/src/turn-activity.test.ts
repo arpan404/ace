@@ -184,17 +184,20 @@ test("a working turn times its work and names the step in flight readably", () =
 });
 
 test("the step in flight follows the step's own updates, and the line says which to watch", () => {
-  const thread = world(working, [said("ask", "user", 0), shell("run", "bun test", "running", 0)]);
+  const thread = world(working, [
+    said("ask", "user", 0),
+    shell("run", "bun run build", "running", 0),
+  ]);
   const first = readTurnActivity(thread.reader, "root");
-  expect(first.activity?.current).toBe("Running bun test");
+  expect(first.activity?.current).toBe("Running bun run build");
   expect(first.watch).toContain("item:run");
 
   // The provider refines the running command without the root's status changing.
-  thread.replace(shell("run", "bun test apps/web", "running", 0));
-  expect(turnActivity(thread.reader, "root")?.current).toBe("Running bun test apps/web");
+  thread.replace(shell("run", "bun run build apps/web", "running", 0));
+  expect(turnActivity(thread.reader, "root")?.current).toBe("Running bun run build apps/web");
 
   // Once it settles there is no step in flight, and nothing left to watch.
-  thread.replace(shell("run", "bun test apps/web", "succeeded", 0));
+  thread.replace(shell("run", "bun run build apps/web", "succeeded", 0));
   const after = readTurnActivity(thread.reader, "root");
   expect(after.activity?.current).toBeUndefined();
   expect(after.watch).toEqual([]);
@@ -247,13 +250,19 @@ test("overlapping waits on a person count once, and only within the span asked a
   expect(ledger.waitedWithin(120 * second, 150 * second)).toBe(0);
 });
 
-test("the timer starts at the work after the agent last spoke", () => {
+test("the timer counts the whole turn's work, across what the agent said between steps", () => {
   const thread = world(working, [said("ask", "user", 0), shell("early", "ls", "succeeded", 0)]);
   expect(turnActivity(thread.reader, "root")?.elapsedFrom).toBe(0);
-  // Items arriving one by one move the stretch on, as one long history read at once would.
+  // Items arriving one by one keep the turn's one stretch, as one long history read at once would.
   thread.add(said("progress", "assistant", 50 * second));
-  thread.add(shell("late", "bun run test", "running", 60 * second));
-  expect(activityText(turnActivity(thread.reader, "root")!, 90 * second)).toBe("Working for 30s");
+  thread.add(shell("late", "bun run build", "running", 60 * second));
+  expect(activityText(turnActivity(thread.reader, "root")!, 90 * second)).toBe(
+    "Working for 1m 30s",
+  );
+  // The person's next message starts a new stretch.
+  thread.add(said("again", "user", 100 * second));
+  thread.add(shell("next", "ls", "running", 110 * second));
+  expect(activityText(turnActivity(thread.reader, "root")!, 120 * second)).toBe("Working for 10s");
 });
 
 test("a finished turn has no live line unless a question still waits on the person", () => {
@@ -289,4 +298,39 @@ test("a dev server left running in the background is not the step in flight", ()
     label: "Thinking",
     current: undefined,
   });
+});
+
+test("a step that runs the tests reads Running tests", () => {
+  const thread = world(working, [
+    said("ask", "user", 0),
+    shell("run", "bun test apps/web", "running", 0),
+  ]);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Working",
+    current: "Running tests…",
+  });
+});
+
+test("a turn that left a command running watches it, by name when it is the only one", () => {
+  const thread = world({ state: "blocked", on: "background_task", refs: ["task-dev"] }, [
+    shell("dev", "bun run dev:relay", "running", 0),
+  ]);
+  thread.background("dev");
+  const line = turnActivity(thread.reader, "root");
+  expect(line).toMatchObject({ label: "Watching", code: "dev", tone: "held" });
+  expect(activityText(line!, 10 * second)).toBe("Watching dev");
+
+  thread.background("tunnel");
+  thread.status({ state: "blocked", on: "background_task", refs: ["task-dev", "task-tunnel"] });
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Watching 2 background tasks",
+    code: undefined,
+  });
+});
+
+test("waiting on subagents counts them", () => {
+  const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, []);
+  expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 2 subagents");
+  thread.status({ state: "blocked", on: "subagents", refs: ["web"] });
+  expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 1 subagent");
 });

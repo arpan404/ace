@@ -39,7 +39,7 @@ export function ActivityLine(props: { activity: TurnActivity }) {
   return (
     <p
       role="status"
-      aria-label={activity.label}
+      aria-label={activity.code ? `${activity.label} ${activity.code}` : activity.label}
       className="fx-view-in flex min-w-0 items-center gap-[9px] text-[13.5px]"
     >
       {activity.tone === "working" ? (
@@ -58,7 +58,12 @@ export function ActivityLine(props: { activity: TurnActivity }) {
       ) : (
         <>
           <Icon icon={HourglassMediumIcon} size={14} className="text-subtle-foreground" />
-          <span className="text-muted-foreground">{text}</span>
+          <span className="shrink-0 text-muted-foreground">{activity.label}</span>
+          {activity.code && (
+            <code className="min-w-0 truncate font-mono text-sm text-foreground">
+              {activity.code}
+            </code>
+          )}
         </>
       )}
     </p>

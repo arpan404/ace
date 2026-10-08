@@ -20,6 +20,7 @@
   "dependencies": {
     "@ace/accounts": "workspace:*",
     "@ace/client": "workspace:*",
+    "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/screen": "workspace:*",
     "zod": "^4.6.5"

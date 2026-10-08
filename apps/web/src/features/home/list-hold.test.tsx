@@ -82,7 +82,7 @@ test("a thread that needs you waits for the pointer to leave before it rises", a
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
-  await waitFor(() => expect(row(/^Middle thread\. Needs you/)).toBeTruthy());
+  await waitFor(() => expect(row(/^Middle thread\. Waiting for your approval/)).toBeTruthy());
   expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
 
   // Off the list it rises at once, ahead of the 600 ms the other rows wait.

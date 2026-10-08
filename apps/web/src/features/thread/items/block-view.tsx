@@ -37,6 +37,7 @@ export const BlockView = memo(function BlockView(props: {
           itemIds={block.itemIds}
           live={props.live ?? false}
           until={block.until}
+          idle={block.idle}
         />
       );
     case "subagents":

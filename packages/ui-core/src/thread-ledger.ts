@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import type { Interaction, Item } from "@ace/protocol";
+import type { Interaction, Item, Run } from "@ace/protocol";
 import { rootRunOf } from "./turn-ordinals.ts";
 
 /*
@@ -54,12 +54,22 @@ function waitsOnPerson(interaction: Interaction): boolean {
 }
 
 /**
- * Whether an item ends the stretch of work before it: the agent's prose, the person's own
- * message, or a question to the person. The transcript closes its "Worked for" group there too.
+ * Whether an item ends the stretch of work before it: the person's own message. A turn is one
+ * stretch: what the agent says between steps, and questions it asks, stay inside it (time spent
+ * waiting on the person is left out of the timer), so its "Worked for" log is one per turn.
  */
 export function closesStretch(item: Item): boolean {
-  if (item.type === "message") return !item.synthetic;
-  return item.type === "tool_call" && item.call.detail.kind === "ask_user";
+  return item.type === "message" && item.role === "user" && !item.synthetic;
+}
+
+const carryingOn = new Set<Run["trigger"]>(["background_completion", "subagent_result"]);
+
+/**
+ * Whether a run carries on the stretch before it: the agent started it by itself once its
+ * background work or a subagent finished, so no one asked and no new stretch begins.
+ */
+export function carriesOnStretch(trigger: Run["trigger"] | undefined): boolean {
+  return trigger !== undefined && carryingOn.has(trigger);
 }
 
 /** Whether an item counts as the stretch's work (what a "Worked for" log times). */
@@ -81,10 +91,12 @@ interface Stretch {
   flying: Set<string>;
   /** The background calls its start leaves out. */
   tasksVersion: number;
+  /** Time the agent sat idle between runs that carried the stretch on. */
+  idle: number;
 }
 
 function newStretch(run: string | undefined): Stretch {
-  return { run, work: [], start: undefined, flying: new Set(), tasksVersion: -1 };
+  return { run, work: [], start: undefined, flying: new Set(), tasksVersion: -1, idle: 0 };
 }
 
 export class ThreadLedger {
@@ -324,9 +336,16 @@ export class ThreadLedger {
       return;
     }
     const run = rootRunOf(reader, item.runId)?.id;
-    if (run !== undefined && this.stretch.run !== undefined && run !== this.stretch.run)
-      this.stretch = newStretch(run);
-    else if (run !== undefined) this.stretch.run = run;
+    const before = this.stretch.run;
+    if (run !== undefined && before !== undefined && run !== before) {
+      const next = reader.run(run);
+      if (carriesOnStretch(next?.trigger)) {
+        const ended = reader.run(before)?.endedAt;
+        if (ended !== undefined && next && next.startedAt > ended)
+          this.stretch.idle += next.startedAt - ended;
+        this.stretch.run = run;
+      } else this.stretch = newStretch(run);
+    } else if (run !== undefined) this.stretch.run = run;
     if (!isWork(item)) return;
     const stretch = this.stretch;
     stretch.work.push(item);
@@ -357,6 +376,8 @@ export class ThreadLedger {
    */
   currentStretch(reader: LedgerReader): {
     start: number | undefined;
+    /** Time the agent sat idle between runs that carried the stretch on. */
+    idle: number;
     current: Item | undefined;
     watch: string[];
   } {
@@ -381,7 +402,7 @@ export class ThreadLedger {
       const item = reader.item(id);
       if (item?.type === "tool_call" && runningStatus.has(item.call.status)) current = item;
     }
-    return { start: stretch.start, current, watch };
+    return { start: stretch.start, idle: stretch.idle, current, watch };
   }
 }
 
