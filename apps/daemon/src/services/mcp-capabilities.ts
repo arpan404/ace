@@ -1,7 +1,8 @@
 import type { McpCapability } from "@ace/protocol";
 import type { Services } from "./types.ts";
 
-/** One authority list for engine-owned and fallback provider leases. */
+/** Lease ceiling for engine-owned and fallback sessions. Live settings, permissions and
+ * grants filter discovery and calls, so enabling a group does not require a new credential. */
 export function daemonMcpCapabilities(
   services: Pick<Partial<Services>, "devices" | "screen">,
 ): McpCapability[] {

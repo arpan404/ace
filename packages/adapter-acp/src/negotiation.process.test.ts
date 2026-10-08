@@ -349,3 +349,35 @@ test.each(["claude-acp", "codex-acp"])(
     }
   },
 );
+
+test("ACP receives ace routing context on native prompts after opening and resuming", async () => {
+  for (const resume of [undefined, { nativeSessionId: "synthetic-session" }]) {
+    const h = await open(
+      { load: true },
+      {
+        permissionMode: "full-access",
+        ...(resume ? { resume } : {}),
+        mcp: { httpServers: [], stdioServers: [], secrets: [], end() {} },
+      },
+    );
+    try {
+      await h.session.send([{ type: "text", text: "Inspect localhost" }], "queue");
+      const request = h.frames.find(
+        (frame) =>
+          frame.dir === "send" && Envelope.safeParse(frame.data).data?.method === "session/prompt",
+      );
+      const prompt = Envelope.parse(request?.data).params?.prompt;
+      expect(prompt).toEqual(
+        expect.arrayContaining([
+          {
+            type: "text",
+            text: expect.stringContaining("Never drive Safari/Chrome/Arc/Firefox with screen_*"),
+          },
+          { type: "text", text: "Inspect localhost" },
+        ]),
+      );
+    } finally {
+      await h.session.close("shutdown");
+    }
+  }
+});

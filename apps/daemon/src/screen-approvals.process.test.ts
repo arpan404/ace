@@ -391,3 +391,35 @@ test("host approval deadlines expire and prevent late approval from granting acc
   ).toBeUndefined();
   expect(h.grants.allows("dev.test.app", h.caller)).toBe(false);
 });
+
+test.each([
+  "com.apple.Safari",
+  "com.google.Chrome",
+  "company.thebrowser.Browser",
+  "org.mozilla.firefox",
+  "com.brave.Browser.beta",
+])("%s computer use requires a human UI grant and never accepts Always", async (bundleId) => {
+  const h = await fixture();
+  h.grants.enable(true);
+  await expect(
+    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "approval_required" });
+  expect(
+    Object.values(h.store.snapshotThread(h.thread.id).interactions).filter(
+      (entry) => entry.state === "pending",
+    ),
+  ).toEqual([]);
+  expect(() => h.grants.approve(bundleId, true, "always")).toThrow("turn or thread grant");
+  h.grants.approve(bundleId, true, "thread", h.thread.id);
+  await h.approvals.request(
+    bundleId,
+    "Human granted browser settings",
+    h.caller,
+    new AbortController().signal,
+  );
+  expect(h.grants.allows(bundleId, h.caller)).toBe(true);
+  h.grants.approve(bundleId, false, "thread", h.thread.id);
+  await expect(
+    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "approval_required" });
+});

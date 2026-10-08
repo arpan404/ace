@@ -76,6 +76,7 @@
         "@ace/fake-daemon": "workspace:*",
         "@ace/perf-kit": "workspace:*",
         "@cursor/sdk": "1.0.35",
+        "@modelcontextprotocol/client": "2.2.0",
         "@modelcontextprotocol/sdk": "1.31.0",
         "@types/ws": "^8.18.1",
         "image-size": "^2.0.2",
@@ -531,6 +532,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@modelcontextprotocol/client": "2.2.0",
         "@modelcontextprotocol/node": "2.1.0",
         "@modelcontextprotocol/server": "2.2.0",
         "jsonc-parser": "^3.3.1",
@@ -538,7 +540,6 @@
         "zod": "^4.1.11",
       },
       "devDependencies": {
-        "@modelcontextprotocol/client": "2.2.0",
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },

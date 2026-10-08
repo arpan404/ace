@@ -1,4 +1,4 @@
-import { McpStatus } from "@ace/protocol";
+import { legacySessions } from "./legacy-sessions.ts";
 import { createStatusRegistry, type StatusReader, aceInstructions } from "./status.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
@@ -15,6 +15,21 @@ export interface McpServerOptions {
   maxBodyBytes?: number;
 }
 export async function startMcpServer(options: McpServerOptions) {
+  options.registry.setAvailability((caller) => {
+    const state = options.status?.(caller);
+    let screenApproved: boolean | undefined;
+    return (name, capability) => {
+      if (capability && state?.disabled?.[capability] !== undefined) return false;
+      if (capability === "screen" || capability === "devices") {
+        if (state?.permissionMode === "read-only") return false;
+        if (capability === "screen" && name !== "screen_request_app") {
+          screenApproved ??= state?.screenApproved ?? true;
+          if (!screenApproved) return false;
+        }
+      }
+      return true;
+    };
+  });
   const status = createStatusRegistry(options.registry, options.status);
   const credentials =
     options.credentials ??
@@ -79,7 +94,9 @@ export async function startMcpServer(options: McpServerOptions) {
     });
   } catch {
     credentials.close();
-    await (await runtime)?.handler.close();
+    const current = await runtime;
+    await current?.legacy.close();
+    await current?.handler.close();
     throw new Error("MCP listener failed");
   }
   const address = http.address();
@@ -88,12 +105,23 @@ export async function startMcpServer(options: McpServerOptions) {
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
     credentials,
+    toolsChanged(): void {
+      if (!closing && runtime)
+        void runtime
+          .then(({ handler, legacy }) => {
+            handler.notify.toolsChanged();
+            legacy.toolsChanged();
+          })
+          .catch(() => {});
+    },
     close(): Promise<void> {
       stopped ??= (async () => {
         closing = true;
         credentials.close();
         try {
-          await (await runtime)?.handler.close();
+          const current = await runtime;
+          await current?.legacy.close();
+          await current?.handler.close();
         } finally {
           await new Promise<void>((resolve, reject) => {
             http.close((error) => (error ? reject(error) : resolve()));
@@ -114,113 +142,120 @@ async function createHandler(
   credentials: CredentialRegistry,
   status: ToolRegistry,
 ) {
-  const { McpServer, createMcpHandler } = await import("@modelcontextprotocol/server");
+  const { McpServer, createMcpHandler, isLegacyRequest } =
+    await import("@modelcontextprotocol/server");
   const { localhostHostValidation, localhostOriginValidation, toNodeHandler } =
     await import("@modelcontextprotocol/node");
   const calls = new WeakMap<Principal, Map<string | number, AbortController>>();
-  const handler = createMcpHandler(
-    ({ requestInfo }) => {
-      const principal = credentials.authenticate(
-        bearer(requestInfo?.headers.get("authorization") ?? undefined),
-      );
-      if (!principal) throw new Error("Unauthorized");
-      const caller = principal;
-      // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
-      // our prepared schema by name instead of registering/scanning every tool per call.
-      class RegistryServer extends McpServer {
-        override toolInputSchemaJson(name: string) {
-          return (name === "ace_status" ? status : options.registry).inputSchema(name, caller);
-        }
+  const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
+    const principal = credentials.authenticate(
+      bearer(requestInfo?.headers.get("authorization") ?? undefined),
+    );
+    if (!principal) throw new Error("Unauthorized");
+    const caller = principal;
+    // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
+    // our prepared schema by name instead of registering/scanning every tool per call.
+    class RegistryServer extends McpServer {
+      override toolInputSchemaJson(name: string) {
+        return (name === "ace_status" ? status : options.registry).inputSchema(name, caller);
       }
-      const product = new RegistryServer(
-        { name: "ace", version: "0.1.0" },
-        { instructions: aceInstructions, capabilities: { tools: {}, resources: {} } },
-      );
-      const server = product.server;
-      server.setRequestHandler("resources/list", async () => ({
-        resources: [
+    }
+    const product = new RegistryServer(
+      { name: "ace", version: "0.1.0" },
+      {
+        ...(requestInfo?.headers.get("X-Ace-Instructions") === "native"
+          ? {}
+          : { instructions: aceInstructions }),
+        capabilities: { tools: { listChanged: true }, resources: {} },
+      },
+    );
+    const server = product.server;
+    server.setRequestHandler("resources/list", async () => ({
+      resources: [
+        {
+          uri: "ace://status",
+          name: "ace status",
+          description:
+            "Current connection, tool availability and permission mode. Also call ace_status.",
+          mimeType: "application/json",
+        },
+      ],
+    }));
+    server.setRequestHandler("resources/read", async (request, context) => {
+      if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
+      const result = await status.call("ace_status", {}, principal, context.mcpReq.signal);
+      if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
+      return {
+        contents: [
           {
             uri: "ace://status",
-            name: "ace status",
-            description:
-              "Current connection, tool availability and permission mode. Also call ace_status.",
             mimeType: "application/json",
+            text: JSON.stringify(result.structuredContent),
           },
         ],
-      }));
-      server.setRequestHandler("resources/read", async (request, context) => {
-        if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
-        const result = await status.call("ace_status", {}, principal, context.mcpReq.signal);
-        if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
+      };
+    });
+    server.setRequestHandler("tools/list", async () => ({
+      tools: [...status.list(principal), ...options.registry.list(principal)],
+    }));
+    server.setRequestHandler("tools/call", async (request, context) => {
+      let pending = calls.get(principal);
+      if (!pending) {
+        pending = new Map();
+        calls.set(principal, pending);
+      }
+      const id = context.mcpReq.id;
+      if (pending.has(id))
         return {
-          contents: [
-            {
-              uri: "ace://status",
-              mimeType: "application/json",
-              text: JSON.stringify(result.structuredContent),
-            },
-          ],
+          isError: true,
+          content: [{ type: "text", text: "Duplicate active request id" }],
         };
-      });
-      server.setRequestHandler("tools/list", async () => {
-        const result = await status.call("ace_status", {}, principal, principal.signal);
-        const groups = McpStatus.safeParse(result.structuredContent);
-        return {
-          tools: [...status.list(principal), ...options.registry.list(principal)].map((tool) => {
-            const group = options.registry.capability(tool.name);
-            const disabled = groups.success
-              ? groups.data.groups.find((entry) => entry.name === group && !entry.enabled)
-              : undefined;
-            return disabled
-              ? Object.assign({}, tool, { description: `${tool.description} ${disabled.reason}` })
-              : tool;
-          }),
-        };
-      });
-      server.setRequestHandler("tools/call", async (request, context) => {
-        let pending = calls.get(principal);
-        if (!pending) {
-          pending = new Map();
-          calls.set(principal, pending);
-        }
-        const id = context.mcpReq.id;
-        if (pending.has(id))
-          return {
-            isError: true,
-            content: [{ type: "text", text: "Duplicate active request id" }],
-          };
-        const controller = new AbortController();
-        pending.set(id, controller);
-        try {
-          const registry = request.params.name === "ace_status" ? status : options.registry;
-          return await registry.call(
-            request.params.name,
-            request.params.arguments ?? {},
-            principal,
-            AbortSignal.any([context.mcpReq.signal, controller.signal]),
-          );
-        } finally {
-          pending.delete(id);
-          if (!pending.size) calls.delete(principal);
-        }
-      });
-      // Stateless 2025 requests still need cancellation to find the original caller's request.
-      server.setNotificationHandler("notifications/cancelled", (notification) => {
-        const id = notification.params.requestId;
-        if (id !== undefined) calls.get(principal)?.get(id)?.abort();
-      });
-      return product;
+      const controller = new AbortController();
+      pending.set(id, controller);
+      try {
+        const registry = request.params.name === "ace_status" ? status : options.registry;
+        return await registry.call(
+          request.params.name,
+          request.params.arguments ?? {},
+          principal,
+          AbortSignal.any([context.mcpReq.signal, controller.signal]),
+        );
+      } finally {
+        pending.delete(id);
+        if (!pending.size) calls.delete(principal);
+      }
+    });
+    // Stateless 2025 requests still need cancellation to find the original caller's request.
+    server.setNotificationHandler("notifications/cancelled", (notification) => {
+      const id = notification.params.requestId;
+      if (id !== undefined) calls.get(principal)?.get(id)?.abort();
+    });
+    return product;
+  };
+  const handler = createMcpHandler(factory, {
+    legacy: "stateless",
+    maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
+    maxSubscriptions: 16,
+  });
+  const legacy = await legacySessions(factory, (request) =>
+    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined)),
+  );
+  const nodeHandler = toNodeHandler(
+    {
+      fetch: async (request: Request) => {
+        if (
+          request.headers.get("X-Ace-Notifications") === "stream" &&
+          (await isLegacyRequest(request))
+        )
+          return legacy.fetch(request);
+        return handler.fetch(request);
+      },
     },
     {
-      legacy: "stateless",
       maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
-      maxSubscriptions: 16,
     },
   );
-  const nodeHandler = toNodeHandler(handler, {
-    maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
-  });
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
-  return { handler, nodeHandler, validateHost, validateOrigin };
+  return { handler, legacy, nodeHandler, validateHost, validateOrigin };
 }

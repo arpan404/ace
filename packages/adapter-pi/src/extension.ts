@@ -1,6 +1,10 @@
 import { registerPiContextSamples } from "./context-usage.ts";
 import { z } from "zod";
-import { readPrivateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
+import {
+  readPrivateMcpConfig,
+  AceMcpConnectionSchema,
+  developerInstructions,
+} from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
 const ToolName = z
@@ -33,6 +37,10 @@ const boundedFetch: typeof fetch = async (input, init) => {
   const body = response.body;
   if (!body) return response;
   const reader = body.getReader();
+  const headers = new Headers(
+    init?.headers ?? (input instanceof Request ? input.headers : undefined),
+  );
+  const subscription = headers.get("MCP-Method") === "subscriptions/listen";
   let bytes = 0;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -43,7 +51,7 @@ const boundedFetch: typeof fetch = async (input, init) => {
           return;
         }
         bytes += chunk.value.byteLength;
-        if (bytes > 1024 * 1024) {
+        if (!subscription && bytes > 1024 * 1024) {
           await reader.cancel();
           controller.error(new Error("ace MCP response exceeds limit"));
           return;
@@ -125,6 +133,9 @@ export default async function aceExtension(
   });
   if (!session.mcp) return;
   const connection = session.mcp;
+  pi.on("before_agent_start", (event) => ({
+    systemPrompt: `${event.systemPrompt}\n\n${developerInstructions("pi")}`,
+  }));
   const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
   const client = new Client(
     { name: "ace-pi", version: "0.1.0" },
@@ -143,51 +154,77 @@ export default async function aceExtension(
         fetch: boundedFetch,
       }),
     );
-    const catalog = Tools.parse(await client.listTools());
-    if (catalog.nextCursor) throw new Error("ace MCP catalog exceeds extension budget");
-    for (const tool of catalog.tools)
-      pi.registerTool({
-        name: tool.name,
-        label: tool.name,
-        description: tool.description ?? tool.name,
-        promptSnippet: tool.description ?? tool.name,
-        parameters: tool.inputSchema,
-        async execute(_id, params, signal) {
-          if (calls >= 16) throw new Error("ace MCP call capacity exceeded");
-          const args = z.record(z.string(), z.unknown()).parse(params);
-          if (Buffer.byteLength(JSON.stringify(args)) > 64 * 1024)
-            throw new Error("ace MCP arguments exceed limit");
-          calls++;
-          try {
-            const result = Result.parse(
-              await client.callTool(
-                { name: tool.name, arguments: args },
-                {
-                  ...(signal ? { signal } : {}),
-                  timeout: tool["_meta"]?.["ace/timeoutMs"] ?? 30_000,
+    const registered = new Set<string>();
+    const refresh = (catalogValue: unknown) => {
+      const catalog = Tools.parse(catalogValue);
+      if (catalog.nextCursor) throw new Error("ace MCP catalog exceeds extension budget");
+      for (const tool of catalog.tools) {
+        if (registered.has(tool.name)) continue;
+        registered.add(tool.name);
+        pi.registerTool({
+          name: tool.name,
+          label: tool.name,
+          description: tool.description ?? tool.name,
+          promptSnippet: tool.description ?? tool.name,
+          parameters: tool.inputSchema,
+          async execute(_id, params, signal) {
+            if (calls >= 16) throw new Error("ace MCP call capacity exceeded");
+            const args = z.record(z.string(), z.unknown()).parse(params);
+            if (Buffer.byteLength(JSON.stringify(args)) > 64 * 1024)
+              throw new Error("ace MCP arguments exceed limit");
+            calls++;
+            try {
+              const result = Result.parse(
+                await client.callTool(
+                  { name: tool.name, arguments: args },
+                  {
+                    ...(signal ? { signal } : {}),
+                    timeout: tool["_meta"]?.["ace/timeoutMs"] ?? 30_000,
+                  },
+                ),
+              );
+              return {
+                content: result.content.map((block) => {
+                  const value = obj(block);
+                  if (value.type === "text") return { type: "text", text: str(value.text) };
+                  if (value.type === "image")
+                    return { type: "image", data: str(value.data), mimeType: str(value.mimeType) };
+                  return { type: "text", text: JSON.stringify(block) };
+                }),
+                details: {
+                  aceMcp: {
+                    isError: result.isError ?? false,
+                    structuredContent: result.structuredContent,
+                  },
                 },
-              ),
-            );
-            return {
-              content: result.content.map((block) => {
-                const value = obj(block);
-                if (value.type === "text") return { type: "text", text: str(value.text) };
-                if (value.type === "image")
-                  return { type: "image", data: str(value.data), mimeType: str(value.mimeType) };
-                return { type: "text", text: JSON.stringify(block) };
-              }),
-              details: {
-                aceMcp: {
-                  isError: result.isError ?? false,
-                  structuredContent: result.structuredContent,
-                },
-              },
-            };
-          } finally {
-            calls--;
-          }
-        },
+              };
+            } finally {
+              calls--;
+            }
+          },
+        });
+      }
+      if (pi.setActiveTools && pi.getActiveTools) {
+        const native = pi.getActiveTools().filter((name) => !registered.has(name));
+        pi.setActiveTools([...native, ...catalog.tools.map((tool) => tool.name)]);
+      }
+    };
+    refresh(await client.listTools());
+    let refreshPending = false;
+    let refreshing: Promise<void> | undefined;
+    client.setNotificationHandler("notifications/tools/list_changed", () => {
+      refreshPending = true;
+      refreshing ??= (async () => {
+        while (refreshPending) {
+          refreshPending = false;
+          refresh(await client.listTools());
+        }
+      })().finally(() => {
+        refreshing = undefined;
       });
+      return refreshing;
+    });
+    await client.listen({ toolsListChanged: true });
     pi.on("session_shutdown", () => client.close());
   } catch (error) {
     await client.close();

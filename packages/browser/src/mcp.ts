@@ -17,7 +17,7 @@ const actions = {
   },
   navigate: {
     riskClass: "external-effect",
-    description: "Navigate the approved browser to a URL.",
+    description: "Navigate this thread's ace browser to a URL.",
   },
   click: {
     riskClass: "external-effect",
@@ -45,21 +45,26 @@ const actions = {
   },
   history: {
     riskClass: "external-effect",
-    description: "Go back, forward or reload the approved page using its real browser history.",
+    description:
+      "Go back, forward or reload the page in this thread's ace browser using its real browser history.",
   },
   find_text: {
     riskClass: "external-effect",
-    description: "Find visible text in the approved page without executing user-supplied scripts.",
+    description:
+      "Find visible text in the page in this thread's ace browser without executing user-supplied scripts.",
   },
   snapshot: {
     riskClass: "read-only",
     description:
       "Read the current page accessibility tree. Use node refs for click/type/press. Refs stay stable within a document and expire on navigation; only the latest snapshot grants actionable refs.",
   },
-  screenshot: { riskClass: "read-only", description: "Read a screenshot of the approved browser." },
+  screenshot: {
+    riskClass: "read-only",
+    description: "Read a screenshot of this thread's ace browser.",
+  },
   evaluate: {
     riskClass: "external-effect",
-    description: "Execute JavaScript in the approved browser page under its evaluate policy.",
+    description: "Execute JavaScript in this thread's ace browser page under its evaluate policy.",
   },
   wait_for: {
     riskClass: "read-only",
@@ -73,11 +78,11 @@ const actions = {
   },
   resize: {
     riskClass: "external-effect",
-    description: "Change the approved browser viewport dimensions.",
+    description: "Change this thread's ace browser viewport dimensions.",
   },
   emulate: {
     riskClass: "external-effect",
-    description: "Change the approved browser's device emulation settings.",
+    description: "Change this thread's ace browser's device emulation settings.",
   },
   tabs: {
     riskClass: "external-effect",
@@ -141,7 +146,7 @@ export function browserToolkit(
         const action = command.shape.action.value;
         registry.registerContent({
           name: `ace_browser_${action}`,
-          description: actions[action].description,
+          description: `In this thread's ace browser: ${actions[action].description}`,
           riskClass: actions[action].riskClass,
           input: z.strictObject(
             Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),

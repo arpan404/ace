@@ -59,6 +59,9 @@ export class ToolRegistry {
   private scheduler: Scheduler;
   private maxTools: number;
   private maxCalls: number;
+  private availability:
+    | ((caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean)
+    | undefined;
   readonly observeCall: CallObserver | undefined;
   constructor(options: {
     scheduler: Scheduler;
@@ -203,16 +206,29 @@ export class ToolRegistry {
       [...this.entries.values()].flatMap((entry) => (entry.capability ? [entry.capability] : [])),
     );
   }
+  setAvailability(
+    read: (caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean,
+  ): void {
+    this.availability = read;
+  }
+  private allowed(name: string, entry: Entry, principal: Principal): boolean {
+    return (
+      allowed(entry, principal) &&
+      (this.availability?.(principal.scope)(name, entry.capability) ?? true)
+    );
+  }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];
     const tools: Tool[] = [];
-    for (const entry of this.entries.values())
-      if (allowed(entry, principal)) tools.push(entry.descriptor());
+    const availability = this.availability?.(principal.scope);
+    for (const [name, entry] of this.entries)
+      if (allowed(entry, principal) && (availability?.(name, entry.capability) ?? true))
+        tools.push(entry.descriptor());
     return tools;
   }
   inputSchema(name: string, principal: Principal): Record<string, unknown> | undefined {
     const entry = this.entries.get(name);
-    return !principal.signal.aborted && entry && allowed(entry, principal)
+    return !principal.signal.aborted && entry && this.allowed(name, entry, principal)
       ? entry.descriptor().inputSchema
       : undefined;
   }
@@ -242,7 +258,7 @@ export class ToolRegistry {
       return result;
     };
     const entry = this.entries.get(name);
-    if (!entry || !allowed(entry, principal))
+    if (!entry || !this.allowed(name, entry, principal))
       return finish(failure("Tool unavailable or capability denied"));
     if (this.active >= this.maxCalls) return finish(failure("Tool capacity reached"));
     if (signal.aborted) return finish(failure("Tool cancelled"));

@@ -25,8 +25,11 @@ export async function startScreen({
       import("../screen-grants.ts"),
       import("../screen-approvals.ts"),
     ]);
-    const grants = new ScreenGrants(store, now, (threadId) =>
-      services.engine?.screenTurn(importThreadId.parse(threadId)),
+    const grants = new ScreenGrants(
+      store,
+      now,
+      (threadId) => services.engine?.screenTurn(importThreadId.parse(threadId)),
+      () => services.mcp?.toolsChanged(),
     );
     const approvals = new ScreenApprovals({
       store,

@@ -5,10 +5,12 @@ import { ToolRegistry, nodeScheduler } from "./registry.ts";
 export type StatusReader = (caller: McpAttribution) => {
   permissionMode: McpStatus["permissionMode"];
   disabled?: Partial<Record<McpCapability, string>>;
+  /** Whether this caller has a current app grant. False stages computer use discovery. */
+  screenApproved?: boolean;
 };
 
 export const aceInstructions =
-  "ace is the local coding environment coordinating your thread and agent tree through the person's installed provider CLIs. Its tools are prefixed ace_; screen_ and device_ aliases and delegate_task are also ace tools. Groups include thread and agents, notifications, browser, screen/computer use, devices, projects, automations, files, preview, terminal and forge. Some groups may be disabled by the person or unavailable on this connection. To check whether ace is available, read ace://status or call ace_status for current availability and permission mode. OpenCode prefixes MCP tools with the server name, so its direct tool is ace_ace_status; Claude uses mcp__ace__ace_status. Use the exact advertised name. A disabled group does not mean ace MCP is absent. Ask the person to enable disabled features; tools cannot grant themselves access.";
+  "ace tools for this thread. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for what is enabled.";
 
 export function createStatusRegistry(
   registry: ToolRegistry,
@@ -35,11 +37,14 @@ export function createStatusRegistry(
           ...McpCapability.options.map((name) => {
             const reason =
               state.disabled?.[name] ??
+              (state.permissionMode === "read-only" && (name === "screen" || name === "devices")
+                ? "Read-only mode refuses this tool group."
+                : undefined) ??
               (!registered.has(name)
-                ? "No backend is configured for this tool group. Ask the person to configure this feature in ace."
+                ? "No backend is configured for this tool group."
                 : undefined) ??
               (!capabilities.includes(name)
-                ? "This provider session has no permission for this tool group. Ask the person to start a session with this group enabled."
+                ? "This provider session has no permission for this tool group."
                 : undefined);
             return reason === undefined
               ? { name, enabled: true }
