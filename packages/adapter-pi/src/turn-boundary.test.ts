@@ -39,5 +39,6 @@ test("rewind points bind to the completed answer after tool results without losi
       parts: [{ type: "text", text: "Second answer" }],
     }),
   ]);
+  expect(Object.values(h.state.items).filter((item) => item.type === "notice")).toEqual([]);
   expect(h.state.status.state).toBe("done");
 });

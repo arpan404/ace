@@ -279,15 +279,17 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       }
       case "extension_ui_request": {
         const entryId = e.method === "notify" ? piTurnBoundary(e.message) : undefined;
-        if (entryId && lastAnswer)
-          return [
-            {
-              type: "item.upsert",
-              agent,
-              item: lastAnswer,
-              draft: { type: "message", nativeId: entryId },
-            },
-          ];
+        if (entryId)
+          return lastAnswer
+            ? [
+                {
+                  type: "item.upsert",
+                  agent,
+                  item: lastAnswer,
+                  draft: { type: "message", nativeId: entryId },
+                },
+              ]
+            : [];
         const sample = e.method === "notify" ? piContextSample(e.message) : undefined;
         if (sample) {
           return [
