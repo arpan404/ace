@@ -82,7 +82,7 @@ export function screenSession(
       break;
     default:
       status =
-        who === "You" ? "Agent paused" : who ? `${who} is in control` : "Nobody is in control";
+        who === "You" ? "You're in control" : who ? `${who} is in control` : "Nobody is in control";
       tone =
         state.controller === "agent"
           ? "working"
@@ -153,15 +153,9 @@ export function agentSessions(states: readonly ScreenState[]): ScreenState[] {
   return states.filter((state) => state.controller === "agent" && state.lifecycle !== "stopped");
 }
 
-/**
- * What the computer-use indicator shows: every agent-held session, and every session still
- * capturing whoever holds it. Stopping or failing clears the controller before the helper
- * confirms capture ended, so capture alone keeps a session on show until `indicator` is off.
- */
+/** The profile and Settings show the same sessions, including human takeover. */
 export function indicatorSessions(states: readonly ScreenState[]): ScreenState[] {
-  return states.filter(
-    (state) => state.indicator || (state.controller === "agent" && state.lifecycle !== "stopped"),
-  );
+  return visibleSessions(states);
 }
 
 export interface GrantView {
