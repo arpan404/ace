@@ -33,6 +33,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
         className,
       )}
       {...props}
+      style={{ ...props.style, backgroundColor: "rgb(0 0 0 / 60%)" }}
     />
   );
 }

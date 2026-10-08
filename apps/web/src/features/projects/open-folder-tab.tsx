@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { AllowFolder } from "./allow-folder.tsx";
 import { AllowedPlaces } from "./folder-notices.tsx";
@@ -161,7 +160,6 @@ export function OpenFolderTab(props: {
           onClick={() => open(target, true)}
         >
           New thread
-          <Kbd aria-hidden keys="mod+enter" />
         </Button>
         <Button
           variant="primary"

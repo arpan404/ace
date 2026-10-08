@@ -1,7 +1,6 @@
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useRef, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { Machine, MachineStatus } from "@/lib/machines.ts";
 
@@ -96,7 +95,6 @@ export function MachinePicker(props: {
           );
         })}
       </div>
-      <Kbd keys="mod+m" className="ml-auto" />
     </div>
   );
 }
