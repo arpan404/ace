@@ -88,9 +88,9 @@ test("a leading / lists commands; Escape dismisses the list", async () => {
   const { message } = await open("idle");
   await userEvent.type(message, "/re");
   const commands = await screen.findByRole("listbox", { name: "Add and commands" });
-  expect(within(commands).getByRole("option", { selected: true }).textContent).toContain("review");
+  expect(within(commands).getByRole("option", { selected: true }).textContent).toContain("Review");
   await userEvent.keyboard("{Tab}");
-  expect(message.textContent).toBe("review ");
+  expect(message.textContent).toBe("Review ");
 
   await userEvent.clear(message);
   await userEvent.type(message, "/p");

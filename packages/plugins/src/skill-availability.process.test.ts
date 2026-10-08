@@ -157,6 +157,9 @@ test("the catalog keeps an authored human title alongside the skill's invocation
         expect.objectContaining({ name: "review", title: "Review a change" }),
       ]),
     });
+    expect(await f.manager.extensions("claude")).toContainEqual(
+      expect.objectContaining({ name: "sample:review", title: "Review a change" }),
+    );
   } finally {
     await f.close();
   }

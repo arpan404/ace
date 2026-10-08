@@ -1,3 +1,4 @@
+import { catalogDisplayName } from "@ace/ui-core";
 import { useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
 import { useEffect, useMemo, useState } from "react";
@@ -121,7 +122,10 @@ export function useSuggestions(
             invocation: { type: "action", action: "attachments" },
           } satisfies CatalogEntry,
         ];
-    const named = entries.filter((entry) => entry.name.toLowerCase().includes(q));
+    const named = entries.filter(
+      (entry) =>
+        entry.name.toLowerCase().includes(q) || catalogDisplayName(entry).toLowerCase().includes(q),
+    );
     items = (
       named.length ? named : entries.filter((entry) => entry.description.toLowerCase().includes(q))
     )
@@ -129,7 +133,7 @@ export function useSuggestions(
         kind,
         group: groups[entry.kind],
         insert: entry.name,
-        label: entry.name,
+        label: entry.kind === "builtin" ? entry.name : catalogDisplayName(entry),
         detail: entry.description,
         entry,
       }))

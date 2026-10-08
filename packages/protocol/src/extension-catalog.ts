@@ -45,6 +45,7 @@ export const CatalogEntry = z.object({
   id: z.string().min(1).max(256),
   kind: CatalogKind,
   name: z.string().min(1).max(256),
+  title: z.string().min(1).max(256).optional(),
   description: z.string().max(2048),
   icon: z.string().max(4096).optional(),
   source: z.object({
@@ -61,6 +62,7 @@ export const CatalogMention = z.object({
   type: z.literal("mention"),
   entryId: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
+  title: z.string().min(1).max(256).optional(),
   kind: CatalogKind,
   icon: z.string().max(4096).optional(),
   arguments: z.string().max(16384).default(""),

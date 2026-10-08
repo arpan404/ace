@@ -20,12 +20,12 @@ test("a skill switch changes only that skill and keeps its sibling enabled", asy
   expect(screen.queryByText("On")).toBeNull();
   await userEvent.click(control);
   await waitFor(() =>
-    expect(within(catalog()).getByRole("link", { name: /Code review/ }).textContent).toContain(
+    expect(within(catalog()).getByRole("link", { name: /Code Review/ }).textContent).toContain(
       "Off",
     ),
   );
   expect(
-    within(catalog()).getByRole("link", { name: /Test-driven development/ }).textContent,
+    within(catalog()).getByRole("link", { name: /Test Driven Development/ }).textContent,
   ).not.toContain("Off");
   const reply = await app.client.request({
     type: "pluginRequest",
@@ -38,7 +38,7 @@ test("a skill switch changes only that skill and keeps its sibling enabled", asy
   });
   await userEvent.click(control);
   await waitFor(() =>
-    expect(within(catalog()).getByRole("link", { name: /Code review/ }).textContent).not.toContain(
+    expect(within(catalog()).getByRole("link", { name: /Code Review/ }).textContent).not.toContain(
       "Off",
     ),
   );
@@ -53,7 +53,7 @@ test("a skill keeps its own setting while its plugin is off and explains how to 
   await userEvent.click(await screen.findByRole("switch", { name: "Enabled" }));
   await waitFor(() =>
     expect(
-      within(catalog()).getByRole("link", { name: /Release notes/ }).textContent,
+      within(catalog()).getByRole("link", { name: /Release Notes/ }).textContent,
     ).not.toContain("Off"),
   );
 });

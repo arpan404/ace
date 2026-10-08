@@ -5,9 +5,7 @@ import type { PluginSnapshot, PluginProjection, ProjectedFile } from "./types.ts
 export function expandRoot(value: string, root: string): string {
   return value.replace(/\$\{(?:ACE|CLAUDE|CURSOR)_PLUGIN_ROOT\}|\$\{PLUGIN_ROOT\}/g, () => root);
 }
-export function body(text: string): string {
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
-}
+export { componentBody as body } from "./component-title.ts";
 export function textFile(plugin: PluginSnapshot, path: string): string {
   const text = plugin.text[normalizePath(path)];
   if (text === undefined) throw new Error(`Component text missing: ${path}`);

@@ -124,7 +124,7 @@ export function SkillSource({ skill }: { skill: Skill }) {
             </p>
           )}
           {draft === undefined && skill.kind === "skill" ? (
-            <Prose text={skillMarkdown(source.data.text)} />
+            <Prose text={skillMarkdown(source.data.text, skill)} />
           ) : draft === undefined ? (
             <pre className="overflow-auto font-mono text-sm leading-normal whitespace-pre-wrap break-words">
               {source.data.text}

@@ -106,7 +106,7 @@ export class FakePluginsWire {
         const ofKind = (kind: Component["kind"]) =>
           components
             .filter((c) => c.kind === kind)
-            .map(({ name, path, description }) => ({ name, path, description }));
+            .map(({ name, path, description, title }) => ({ name, path, description, title }));
         return [
           {
             install,

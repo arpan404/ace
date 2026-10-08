@@ -1,3 +1,4 @@
+import { catalogDisplayName } from "@ace/ui-core";
 import type { CatalogEntry, CatalogMention } from "@ace/protocol";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -57,7 +58,7 @@ export function CommandArguments(props: {
           }}
         >
           <DialogHeader>
-            <DialogTitle>{props.entry.name}</DialogTitle>
+            <DialogTitle>{catalogDisplayName(props.entry)}</DialogTitle>
             <DialogDescription>
               {props.entry.description || "Fill in the command's arguments."}
             </DialogDescription>

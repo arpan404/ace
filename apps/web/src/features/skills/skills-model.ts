@@ -6,7 +6,7 @@ import {
   type PluginOrigin,
   type PluginSkillAvailability,
 } from "@ace/protocol";
-import { humanize, providerNames } from "@ace/ui-core";
+import { extensionDisplayName, providerNames } from "@ace/ui-core";
 import { z } from "zod";
 
 /*
@@ -86,15 +86,24 @@ export function componentsOf(skills: readonly Skill[], plugin: string): Skill[] 
 }
 
 /** A readable title when the package only supplies a command name. */
-export function skillTitle(skill: Pick<Skill, "name" | "title">): string {
-  if (skill.title) return skill.title;
-  const words = humanize(skill.name);
-  return words.charAt(0).toUpperCase() + words.slice(1);
+export function skillTitle(
+  skill: Pick<Skill, "name" | "title"> & Partial<Pick<Skill, "kind" | "plugin">>,
+): string {
+  return extensionDisplayName(
+    skill.name,
+    skill.title,
+    skill.kind === "agent" ? skill.plugin : undefined,
+  );
 }
 
 /** Metadata belongs to the package; the preview shows the instruction body. */
-export function skillMarkdown(text: string): string {
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+export function skillMarkdown(text: string, skill?: Skill): string {
+  const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+  return skill
+    ? body.replace(/^# (.+)$/m, (heading, name: string) =>
+        name === skill.name ? `# ${skillTitle(skill)}` : heading,
+      )
+    : body;
 }
 
 /** The installed version and date, without internal commit identifiers. */

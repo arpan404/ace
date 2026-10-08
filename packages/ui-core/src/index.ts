@@ -90,3 +90,5 @@ export {
   tokensFromInput,
   type ComposerToken,
 } from "./composer-tokens.ts";
+
+export { extensionDisplayName, catalogDisplayName } from "./extension-names.ts";
