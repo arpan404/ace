@@ -82,10 +82,18 @@ function isWork(item: Item): boolean {
 const startOf = (item: Item) =>
   item.type === "tool_call" ? Math.min(item.createdAt, item.call.startedAt) : item.createdAt;
 
+/**
+ * How many of a stretch's earliest steps it remembers, to find its start again should one of
+ * them turn out to be a background call. A turn can run for days, so the stretch keeps these
+ * few, never all of its work.
+ */
+const earliestKept = 16;
+
 interface Stretch {
   /** The root turn it belongs to. */
   run: string | undefined;
-  work: Item[];
+  /** Its earliest steps by start, at most `earliestKept`, oldest first. */
+  earliest: { id: string; start: number }[];
   start: number | undefined;
   /** Its steps that were in flight when they arrived (pruned as they settle). */
   flying: Set<string>;
@@ -96,7 +104,7 @@ interface Stretch {
 }
 
 function newStretch(run: string | undefined): Stretch {
-  return { run, work: [], start: undefined, flying: new Set(), tasksVersion: -1, idle: 0 };
+  return { run, earliest: [], start: undefined, flying: new Set(), tasksVersion: -1, idle: 0 };
 }
 
 export class ThreadLedger {
@@ -348,9 +356,16 @@ export class ThreadLedger {
     } else if (run !== undefined) this.stretch.run = run;
     if (!isWork(item)) return;
     const stretch = this.stretch;
-    stretch.work.push(item);
+    const start = startOf(item);
+    const earliest = stretch.earliest;
+    if (earliest.length < earliestKept || start < (earliest.at(-1)?.start ?? 0)) {
+      let at = earliest.length;
+      while (at > 0 && (earliest[at - 1]?.start ?? 0) > start) at--;
+      earliest.splice(at, 0, { id: item.id, start });
+      if (earliest.length > earliestKept) earliest.pop();
+    }
     if (!this.backgroundCalls.has(item.id))
-      stretch.start = Math.min(stretch.start ?? Number.POSITIVE_INFINITY, startOf(item));
+      stretch.start = Math.min(stretch.start ?? Number.POSITIVE_INFINITY, start);
     if (this.flying.has(item.id)) stretch.flying.add(item.id);
   }
 
@@ -382,13 +397,14 @@ export class ThreadLedger {
     watch: string[];
   } {
     const stretch = this.stretch;
-    // A call of the stretch became a background task: time the stretch without it (rare).
+    // A call of the stretch became a background task: time the stretch without it (rare). Its
+    // earliest steps that stayed in the foreground say when it started.
     if (stretch.tasksVersion !== this.tasksVersion) {
       stretch.tasksVersion = this.tasksVersion;
-      stretch.start = undefined;
-      for (const item of stretch.work)
-        if (!this.backgroundCalls.has(item.id))
-          stretch.start = Math.min(stretch.start ?? Number.POSITIVE_INFINITY, startOf(item));
+      const first = stretch.earliest.find((step) => !this.backgroundCalls.has(step.id));
+      // While it holds every step, none left in the foreground means no work to time yet.
+      if (first) stretch.start = first.start;
+      else if (stretch.earliest.length < earliestKept) stretch.start = undefined;
     }
     let current: Item | undefined;
     const watch: string[] = [];
