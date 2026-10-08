@@ -30,8 +30,7 @@ test("the provider count opens its accounts and cancelling a new API-key form le
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   await screen.findByLabelText("OpenAI API key");
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  await screen.findByText("Sign-in cancelled");
-  await userEvent.click(screen.getByText("Close", { selector: "button" }));
+  await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
   expect(await namedAccounts(app)).not.toContain("Client key");
   expect(within(accounts).queryByText("Client key")).toBeNull();
 });
