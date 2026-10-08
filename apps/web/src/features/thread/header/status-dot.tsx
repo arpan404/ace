@@ -1,6 +1,13 @@
-import type { ThreadStatus } from "@ace/protocol";
-import { threadStatusLabel, type Tone } from "@ace/ui-core";
+import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import {
+  describeLive,
+  liveStatusText,
+  threadLiveFact,
+  threadStatusLabel,
+  type Tone,
+} from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { useNow } from "@/lib/time.ts";
 
 const tones: Record<Tone, string> = {
   working: "bg-status-working",
@@ -13,10 +20,17 @@ const tones: Record<Tone, string> = {
 
 /**
  * The thread's status as a dot after its title on a phone, where no thread list beside it
- * shows one. Named for assistive tech ("Working"), never colour alone.
+ * shows one. Named for assistive tech ("Working", "Waiting on 2 subagents"), never colour alone.
  */
-export function ThreadStatusDot(props: { status: ThreadStatus }) {
-  const { label, tone } = threadStatusLabel(props.status);
+export function ThreadStatusDot(props: {
+  thread: { status: ThreadStatus; live?: ThreadRunMetadata | undefined };
+}) {
+  const now = useNow();
+  const fact = threadLiveFact(props.thread);
+  const live = fact && describeLive(fact, now);
+  const { label, tone } = live
+    ? { label: liveStatusText(live), tone: live.tone }
+    : threadStatusLabel(props.thread.status);
   return (
     <span
       role="img"

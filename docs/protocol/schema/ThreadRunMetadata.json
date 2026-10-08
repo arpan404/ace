@@ -6,6 +6,26 @@
       "maxLength": 256,
       "type": "string"
     },
+    "asking": {
+      "items": {
+        "properties": {
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+          },
+          "kind": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "backgroundTaskCount": {
       "maximum": 9007199254740991,
       "minimum": 0,
@@ -51,10 +71,41 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "step": {
+      "enum": [
+        "tests"
+      ],
+      "type": "string"
+    },
     "subagentCount": {
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "waitingOn": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "watching": {
+      "items": {
+        "properties": {
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
     }
   },
   "type": "object"

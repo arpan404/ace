@@ -15,12 +15,14 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
+import { AssistantMessage } from "./messages.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 
 /*
  * A work log's rows, shown when it opens: each step as a quiet line that expands to its
- * detail. Loaded after first paint (logs start collapsed), with the step wording.
+ * detail, and what the agent said between steps as prose, in order. Loaded after first paint
+ * (logs start collapsed), with the step wording.
  */
 
 const icons: Record<StepIcon, PhosphorIcon> = {
@@ -60,6 +62,13 @@ export function WorkLogSteps(props: {
 export function ToolStep(props: { threadId: string; itemId: string }) {
   const data = useStepDisplay(props.threadId, props.itemId);
   const item = data?.item;
+  // What the agent said between two steps.
+  if (item?.type === "message")
+    return (
+      <li className="py-1.5 pl-1.5">
+        <AssistantMessage threadId={props.threadId} itemId={props.itemId} />
+      </li>
+    );
   if (item?.type === "notice" && reviewedInteraction(item))
     return (
       <li className="py-1 pl-1.5">

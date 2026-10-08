@@ -5,17 +5,69 @@ import {
   type Agent,
   type BackgroundTask,
 } from "@ace/protocol";
+import { isTestCommand } from "./step-purpose.ts";
 /** Retained provider identifiers stay on agents; sidebar hints must fit the wire budget. */
 export function boundedLiveModel(model: string | undefined): string | undefined {
   const parsed = ThreadRunMetadata.shape.model.safeParse(model);
   return parsed.success ? parsed.data : undefined;
 }
-/** Point changes only; callers supply the replaced entity, never retained history. */
+
+type Live = ThreadRunMetadata;
+/** How many running tasks and open requests the sidebar hints keep, newest last. */
+const kept = 8;
+const titleLength = 256;
+
+/** `list` with `entry` appended (replacing one with its id), keeping the newest `kept`. */
+function withEntry<T extends { id: string }>(list: readonly T[] | undefined, entry: T): T[] {
+  return [...(list ?? []).filter((each) => each.id !== entry.id), entry].slice(-kept);
+}
+
+/** `list` without `id`, or the same list when it never held it. */
+function withoutEntry<T extends { id: string }>(
+  list: T[] | undefined,
+  id: string,
+): T[] | undefined {
+  return list?.some((each) => each.id === id) ? list.filter((each) => each.id !== id) : list;
+}
+
+/** `live` with `key` set, or removed when `value` is undefined or empty. */
+function put<K extends keyof Live>(live: Live, key: K, value: Live[K] | undefined): void {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) delete live[key];
+  else live[key] = value;
+}
+
+/**
+ * The root agent's live facts from its status: how many subagents it waits on, and whether its
+ * step in flight runs tests (`command` is that step's shell command, when it has one).
+ */
+function rootFacts(
+  live: Live,
+  status: Agent["status"],
+  command: string | undefined,
+): Pick<Live, "waitingOn" | "step"> {
+  const waitingOn =
+    status.state === "blocked" && status.on === "subagents" && status.refs.length > 0
+      ? status.refs.length
+      : undefined;
+  const step =
+    status.state === "working" && status.itemId !== undefined && command && isTestCommand(command)
+      ? "tests"
+      : undefined;
+  return live.waitingOn === waitingOn && live.step === step
+    ? live
+    : { ...(waitingOn ? { waitingOn } : {}), ...(step ? { step } : {}) };
+}
+
+/**
+ * Point changes only; callers supply the replaced entity, never retained history. For the root
+ * agent's status, `command` is the shell command of the step it names, when it names one.
+ */
 export function liveMetadata(
   thread: Thread,
   payload: EventPayload,
   previousAgent?: Agent,
   previousTask?: BackgroundTask,
+  command?: string,
 ): EventPayload | undefined {
   if (
     payload.type === "thread.updated" &&
@@ -27,7 +79,7 @@ export function liveMetadata(
       type: "thread.client.updated",
       changes: { settledAt: null, settledReason: null, autoSettleAt: null },
     };
-  const live = { provider: thread.provider, ...thread.live };
+  const live: Live = { provider: thread.provider, ...thread.live };
   if (payload.type === "thread.updated" && payload.execution) {
     live.provider = payload.execution.provider;
     live.model = boundedLiveModel(payload.execution.model);
@@ -60,6 +112,31 @@ export function liveMetadata(
         Number(running) -
         Number(previousTask?.status === "running"),
     );
+    const id = payload.type === "background_task.started" ? payload.task.id : payload.taskId;
+    const task = payload.type === "background_task.started" ? payload.task : previousTask;
+    put(
+      live,
+      "watching",
+      running && task && !task.ambient
+        ? withEntry(live.watching, { id, title: task.title.slice(0, titleLength) })
+        : withoutEntry(live.watching, id),
+    );
+  } else if (payload.type === "interaction.opened") {
+    const { interaction } = payload;
+    if (interaction.state !== "pending") return undefined;
+    live.asking = withEntry(live.asking, {
+      id: interaction.id,
+      kind: interaction.request.kind,
+    });
+  } else if (payload.type === "interaction.closed") {
+    const asking = withoutEntry(live.asking, payload.interactionId);
+    if (asking === live.asking) return undefined;
+    put(live, "asking", asking);
+  } else if (payload.type === "agent.status" && payload.agentId === thread.rootAgentId) {
+    const facts = rootFacts(live, payload.status, command);
+    if (facts === live) return undefined;
+    put(live, "waitingOn", facts.waitingOn);
+    put(live, "step", facts.step);
   } else return undefined;
   return { type: "thread.client.updated", changes: { live } };
 }

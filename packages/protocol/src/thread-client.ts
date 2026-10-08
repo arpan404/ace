@@ -2,7 +2,7 @@ import { DeckOwnership } from "./deck-ownership.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { ThreadId, Timestamp } from "./ids.ts";
+import { BackgroundTaskId, InteractionId, ThreadId, Timestamp } from "./ids.ts";
 import { ForgeRepository } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
 
@@ -83,6 +83,26 @@ export const ThreadRunMetadata = z.object({
   options: TurnOptions.optional(),
   subagentCount: z.number().int().nonnegative().optional(),
   backgroundTaskCount: z.number().int().nonnegative().optional(),
+  /**
+   * Background work still running that holds the thread open (ambient helpers left out),
+   * oldest first, at most the newest 8: what "Watching bun run dev:relay" names.
+   */
+  watching: z
+    .array(z.object({ id: BackgroundTaskId, title: z.string().max(256) }))
+    .max(8)
+    .optional(),
+  /**
+   * Requests still waiting on the person, oldest first, at most the newest 8, with what each
+   * asks for: "Waiting for your answer" rather than "Needs you".
+   */
+  asking: z
+    .array(z.object({ id: InteractionId, kind: z.string().max(64) }))
+    .max(8)
+    .optional(),
+  /** How many subagents the root agent waits on, while it waits on them. */
+  waitingOn: z.number().int().positive().optional(),
+  /** What the root agent's step in flight does, when ace recognises it: `tests` runs tests. */
+  step: z.enum(["tests"]).optional(),
   /** Providers/queue recovery can publish authoritative context usage here. */
   contextMeter: z
     .object({

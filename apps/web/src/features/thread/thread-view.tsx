@@ -7,6 +7,7 @@ import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
+import { LiveBadge } from "./header/live-badge.tsx";
 import { ThreadStatusDot } from "./header/status-dot.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
 import { useFileDrop } from "./composer/file-drop.tsx";
@@ -145,13 +146,15 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       <Screen
         title={title ?? "Loading thread…"}
         subtitle={
-          meta?.status.state === "limited" && (
+          meta?.status.state === "limited" ? (
             <Suspense fallback={null}>
               <DeferredLimitBadge.Component threadId={id} />
             </Suspense>
+          ) : (
+            meta && <LiveBadge threadId={id} />
           )
         }
-        status={meta && <ThreadStatusDot status={meta.status} />}
+        status={meta && <ThreadStatusDot thread={meta} />}
         menu={
           thread && (
             <Suspense fallback={null}>

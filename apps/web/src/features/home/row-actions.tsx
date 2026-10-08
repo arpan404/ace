@@ -52,7 +52,7 @@ export function RowActions(props: {
                     icon={MoonIcon}
                     size="sm"
                     label={`Snooze ${title}`}
-                    tip={props.snoozed ? "Snoozed" : "Snooze"}
+                    tip={props.snoozed ? "Snoozed" : "Snooze…"}
                   />
                 }
               />
@@ -65,7 +65,7 @@ export function RowActions(props: {
             icon={props.pinned ? PushPinSlashIcon : PushPinIcon}
             size="sm"
             label={`${props.pinned ? "Unpin" : "Pin"} ${title}`}
-            tip={props.pinned ? "Unpin" : "Pin"}
+            tip={props.pinned ? "Unpin thread" : "Pin thread"}
             shortcut="home.pin"
             onClick={() => actions.setPinned(props.entry, !props.pinned)}
           />

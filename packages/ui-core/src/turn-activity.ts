@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
+import { isTestCommand } from "@ace/projection";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
-import { agentName } from "./agents.ts";
+import { askingLabel, describeLive, type LiveFact } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
 import { formatClock, formatElapsed } from "./time.ts";
@@ -21,8 +22,10 @@ import { describeStep } from "./work-log.ts";
 export type ActivityTone = "working" | "needs-you" | "held" | "paused";
 
 export interface TurnActivity {
-  /** "Working", "Waiting for your approval", "Waiting on a and b", "Rate limited · …". */
+  /** "Working", "Waiting for your approval", "Waiting on 2 subagents", "Rate limited · …". */
   label: string;
+  /** A command the label names, shown as code after it: "Watching `bun run dev:relay`". */
+  code?: string | undefined;
   tone: ActivityTone;
   /**
    * The timer's origin, already moved later by the time spent waiting on a person:
@@ -54,9 +57,10 @@ export interface ActivityOptions {
   stopping?: boolean | undefined;
 }
 
-/** "Working for 1m 14s", or the label alone when the line has no timer. */
+/** "Working for 1m 14s", or the label (and the command it names) when the line has no timer. */
 export function activityText(activity: TurnActivity, now: number): string {
-  if (activity.elapsedFrom === undefined) return activity.label;
+  if (activity.elapsedFrom === undefined)
+    return activity.code ? `${activity.label} ${activity.code}` : activity.label;
   return `${activity.label} for ${formatElapsed(Math.max(0, now - activity.elapsedFrom))}`;
 }
 
@@ -73,20 +77,19 @@ export function pauseLabel(
   return parts.join(" · ");
 }
 
-function list(names: readonly string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
-
-/** "Waiting for your approval" / "… your answer" / "… your review", by what is asked. */
+/** "Waiting for your approval" / "… your review" / "… your answer", by what is asked. */
 function waitingOnYou(interactions: readonly Interaction[]): TurnActivity {
   const kinds = new Set(interactions.map((interaction) => interaction.request.kind));
-  const label = kinds.has("approval")
-    ? "Waiting for your approval"
-    : kinds.has("plan_review")
-      ? "Waiting for your review"
-      : "Waiting for your answer";
+  const label = askingLabel(
+    kinds.has("approval") ? "approval" : kinds.has("plan_review") ? "plan_review" : "question",
+  );
   return { label, tone: "needs-you", elapsedFrom: undefined, current: undefined };
+}
+
+/** The live line for a fact every surface words alike (`live-status.ts`). */
+function factLine(fact: LiveFact, tone: ActivityTone): TurnActivity {
+  const { label, code } = describeLive(fact, 0);
+  return { label, code, tone, elapsedFrom: undefined, current: undefined };
 }
 
 const line = (label: string, tone: ActivityTone): TurnActivity => ({
@@ -158,9 +161,16 @@ function readActivity(
         stretch.start === undefined
           ? undefined
           : stretch.start +
+            stretch.idle +
             ledger.waitedWithin(stretch.start, Number.POSITIVE_INFINITY, stretch.start);
       const step = stretch.current ? describeStep(stretch.current) : undefined;
-      const current = step ? [step.verb, step.target].filter(Boolean).join(" ") : status.detail;
+      const call = stretch.current?.type === "tool_call" ? stretch.current.call : undefined;
+      const current =
+        call?.detail.kind === "shell" && isTestCommand(call.detail.command)
+          ? "Running tests…"
+          : step
+            ? [step.verb, step.target].filter(Boolean).join(" ")
+            : status.detail;
       const label =
         activityLabels[status.activity] ??
         (elapsedFrom === undefined && status.activity === "thinking" ? "Thinking" : "Working");
@@ -168,23 +178,25 @@ function readActivity(
     }
     case "blocked": {
       if (status.on === "human") return waitingOnYou(pending);
-      if (status.on === "subagents") {
-        const names = status.refs.flatMap((id) => {
-          watch.push(`agent:${id}`);
-          const agent = reader.agent(id);
-          return agent ? [agentName(agent)] : [];
-        });
-        return line(names.length ? `Waiting on ${list(names)}` : "Waiting on subagents", "working");
-      }
+      if (status.on === "subagents")
+        return status.refs.length
+          ? factLine({ kind: "subagents", count: status.refs.length }, "working")
+          : line("Waiting on subagents", "working");
       if (status.on === "background_task") {
-        const titles = status.refs.flatMap((id) => {
-          watch.push(`task:${id}`);
+        // Its refs are background tasks and subagents that outlived the turn.
+        const titles: string[] = [];
+        let agents = 0;
+        for (const id of status.refs) {
           const task = reader.task(id);
-          return task ? [task.title] : [];
-        });
-        return line(
-          titles.length ? `Waiting on ${list(titles)}` : "Waiting on a background task",
-          "working",
+          if (task) {
+            watch.push(`task:${id}`);
+            if (!task.ambient) titles.push(task.title);
+          } else if (reader.agent(id)) agents++;
+        }
+        if (!titles.length && agents) return factLine({ kind: "subagents", count: agents }, "held");
+        return factLine(
+          { kind: "watching", count: Math.max(1, titles.length), title: titles[0] },
+          "held",
         );
       }
       if (status.on === "rate_limit" && limitHoldShown(options.threadStatus, reader.queue)) {
@@ -219,6 +231,7 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
     (!!a &&
       !!b &&
       a.label === b.label &&
+      a.code === b.code &&
       a.tone === b.tone &&
       a.elapsedFrom === b.elapsedFrom &&
       a.current === b.current)

@@ -24,18 +24,19 @@ function useWaited(threadId: string, from: number, to: number): number {
 
 /**
  * A work log's headline. At rest it reads "Worked for 4m 12s": from its first step to `until`,
- * the moment its stretch closed (the agent spoke, the turn ended), less any wait on the person
- * in between, so a step that settles later never changes it; a log still open runs to its
- * newest step. It never ticks: a step still unsettled shows
- * that on its own row. Only `live`, the bottom log of a turn the agent is working on, carries
- * the turn's live line ("Working for …", ticking), the same line the footer would otherwise show.
+ * the moment its stretch closed (the agent answered, the turn ended), less any wait on the
+ * person and any `idle` time between two runs in between, so a step that settles later never
+ * changes it; a log still open runs to its newest step. It never ticks: a step still unsettled
+ * shows that on its own row. Only `live`, the bottom log of a turn the agent is working on,
+ * carries the turn's live line ("Working for …", ticking), the same line the footer would
+ * otherwise show.
  */
 export function useWorkLog(
   threadId: string,
   itemIds: readonly string[],
-  live = false,
-  until?: number,
+  options: { live?: boolean | undefined; until?: number | undefined; idle?: number | undefined },
 ): WorkLogHeadline | undefined {
+  const { live = false, until, idle = 0 } = options;
   const summary = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
   const from = summary?.startedAt ?? 0;
   // Frozen: from the first step to the moment the stretch closed, whatever settles later.
@@ -54,7 +55,7 @@ export function useWorkLog(
       awaiting: summary.awaiting,
     };
   return {
-    label: `Worked for ${formatElapsed(Math.max(1000, to - from - waited))}`,
+    label: `Worked for ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
     counts,
     running: false,
     current: undefined,

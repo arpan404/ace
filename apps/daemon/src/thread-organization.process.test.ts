@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "vitest";
-import { Agent, BackgroundTask, Command, DeviceId, type CommandPayload } from "@ace/protocol";
+import {
+  Agent,
+  BackgroundTask,
+  Command,
+  DeviceId,
+  Item,
+  ItemId,
+  type CommandPayload,
+} from "@ace/protocol";
 import { token, fixture } from "./socket-test-support.ts";
 import { ThreadOrganizer } from "./thread-organizer.ts";
 let close: (() => Promise<void>) | undefined;
@@ -257,4 +265,53 @@ test("sidebar metadata counts known subagents and live tasks once across duplica
     subagentCount: 1,
     backgroundTaskCount: 0,
   });
+});
+
+test("sidebar metadata says the root agent is running tests, from its step's stored command", async () => {
+  const f = await setup();
+  const root = Agent.parse({
+    id: "root-tests",
+    threadId: f.thread.id,
+    parentId: null,
+    origin: "root",
+    native: { provider: "codex" },
+    fidelity: "full",
+    cwd: "/repo",
+    status: { state: "idle" },
+    createdAt: 1,
+  });
+  const step = (id: string, command: string) =>
+    Item.parse({
+      id,
+      agentId: root.id,
+      createdAt: 2,
+      complete: false,
+      type: "tool_call",
+      call: {
+        id,
+        agentId: root.id,
+        kind: "shell",
+        title: command,
+        status: "running",
+        detail: { kind: "shell", command },
+        startedAt: 2,
+        raw: [],
+      },
+    });
+  const working = (itemId: string) => ({
+    type: "agent.status" as const,
+    agentId: root.id,
+    status: { state: "working" as const, activity: "tool" as const, itemId: ItemId.parse(itemId) },
+  });
+  f.store.appendEvents(f.thread.id, [
+    { type: "agent.created", agent: root },
+    { type: "item.created", item: step("vitest", "bun run test src/replay.test.ts") },
+    working("vitest"),
+  ]);
+  expect(f.store.getThread(f.thread.id)?.live?.step).toBe("tests");
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: step("build", "bun run build") },
+    working("build"),
+  ]);
+  expect(f.store.getThread(f.thread.id)?.live?.step).toBeUndefined();
 });

@@ -123,11 +123,9 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
 });
 
-test("the live line says which subagents the agent is waiting on", async () => {
+test("the live line counts the subagents the agent is waiting on", async () => {
   await openReplay("finding");
-  expect(
-    await screen.findByRole("status", { name: "Waiting on reconnect-audit and regression-test" }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("status", { name: "Waiting on 2 subagents" })).toBeTruthy();
 });
 
 test("a network retry holds still: no spinner, no shimmer", async () => {

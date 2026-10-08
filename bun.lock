@@ -148,7 +148,11 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/adapter-claude": "workspace:*",
+        "@ace/adapter-codex": "workspace:*",
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
+        "@ace/adapter-testkit": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
@@ -711,6 +715,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/screen": "workspace:*",
         "zod": "^4.6.5",

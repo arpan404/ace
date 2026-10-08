@@ -75,6 +75,9 @@ test("a row is one line of initials, title and marks; only a working row adds wh
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
   expect(within(refund).getByText("BA")).toBeTruthy();
+  expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
+    "Waiting for your approval",
+  );
   // Its linked pull request shows by number; its branch and project are left to its name.
   expect(refund.textContent).toContain("77");
   expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
@@ -84,6 +87,9 @@ test("a row is one line of initials, title and marks; only a working row adds wh
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(within(dedupe).getByText("2")).toBeTruthy();
+  expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
+    "Waiting on 2 subagents",
+  );
   // …or its branch and what it has changed so far.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(within(install).getByText("DS")).toBeTruthy();

@@ -32,7 +32,22 @@ export function liveMetadataChange(
       .get(thread.id, id);
     if (row) oldTask = BackgroundTask.parse(JSON.parse(String(row.value)));
   }
-  return liveMetadata(thread, payload, oldAgent, oldTask);
+  // The root agent's step in flight: its shell command says whether it runs tests.
+  let command: string | undefined;
+  if (
+    payload.type === "agent.status" &&
+    payload.agentId === thread.rootAgentId &&
+    payload.status.state === "working" &&
+    payload.status.itemId
+  ) {
+    const row = db
+      .prepare(
+        "SELECT json_extract(item, '$.call.detail.command') AS command FROM items WHERE id=? AND thread_id=?",
+      )
+      .get(payload.status.itemId, thread.id);
+    if (typeof row?.command === "string") command = row.command;
+  }
+  return liveMetadata(thread, payload, oldAgent, oldTask, command);
 }
 export function migrateThreadClient(db: DatabaseSync): void {
   if (
