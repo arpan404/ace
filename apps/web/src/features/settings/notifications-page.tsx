@@ -1,3 +1,5 @@
+import { NotificationPreferences } from "@/features/activity/index.ts";
+import { lazy, Suspense } from "react";
 import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
@@ -17,40 +19,46 @@ const quarterHours: SelectOption<string>[] = Array.from({ length: 96 }, (_, inde
   return { value: String(index * 15), label };
 });
 
-/**
- * Which notifications this computer shows, and when. The desktop app owns and applies these;
- * a phone keeps its own. A browser has no system notifications to configure.
- */
+const BrowserPushSettings = lazy(() => import("./browser-push-settings.tsx"));
 export function NotificationSettings() {
   const desktop = useDesktopPreferences();
-  if (!desktop.available)
-    return (
-      <SettingSection label="This computer" scope="computer">
-        <p className="max-w-[60ch] text-ui leading-normal text-muted-foreground">
-          Notifications on a computer are set in the ace desktop app, and a phone keeps its own.
-        </p>
-      </SettingSection>
-    );
-  if (!desktop.value) return null;
   return (
-    <SettingSection label={settingRow("notifications.system").title} card scope="computer">
-      <CategorySwitch
-        category="needsYou"
-        title="Needs you"
-        description="Approvals, questions and escalations."
-      />
-      <CategorySwitch
-        category="failed"
-        title="Failures"
-        description="Failed runs and unresponsive agents."
-      />
-      <CategorySwitch
-        category="finished"
-        title="Thread done"
-        description="When a thread settles with no open items."
-      />
-      <QuietHoursRow />
-    </SettingSection>
+    <>
+      <SettingSection label="While ace is open" scope="device">
+        <NotificationPreferences />
+      </SettingSection>
+      {desktop.available ? (
+        desktop.value && (
+          <SettingSection label={settingRow("notifications.system").title} scope="computer">
+            <CategorySwitch
+              category="needsYou"
+              title="Needs you"
+              description="Approvals, questions and escalations."
+            />
+            <CategorySwitch
+              category="failed"
+              title="Failures"
+              description="Failed runs and unresponsive agents."
+            />
+            <CategorySwitch
+              category="finished"
+              title="Thread done"
+              description="When a thread settles with no open items."
+            />
+            <CategorySwitch
+              category="agentSays"
+              title="Agent says"
+              description="Messages an agent asks ace to tell you about."
+            />
+            <QuietHoursRow />
+          </SettingSection>
+        )
+      ) : (
+        <Suspense fallback={null}>
+          <BrowserPushSettings />
+        </Suspense>
+      )}
+    </>
   );
 }
 
@@ -60,7 +68,13 @@ function CategorySwitch(props: { category: DesktopCategory; title: string; descr
   if (!value) return null;
   const notifications = value.notifications;
   return (
-    <SettingRow title={props.title} description={props.description} htmlFor={id} inline>
+    <SettingRow
+      density="compact"
+      title={props.title}
+      description={props.description}
+      htmlFor={id}
+      inline
+    >
       <Switch
         id={id}
         // The desktop shows a category unless it is switched off.

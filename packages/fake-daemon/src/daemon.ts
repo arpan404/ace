@@ -28,6 +28,8 @@ import {
   createThreadListView,
 } from "@ace/projection";
 import {
+  NotificationMessage,
+  type Notification,
   AgentId,
   CommandId,
   DeviceId,
@@ -249,6 +251,12 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
+  /** Push an accepted notification over the same service channel as the production server. */
+  notify(notification: Notification): void {
+    const message = NotificationMessage.parse({ type: "notification", notification });
+    for (const connection of this.connections)
+      if (connection.authenticated) connection.push(message);
+  }
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }

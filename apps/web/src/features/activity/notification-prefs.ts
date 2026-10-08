@@ -24,6 +24,7 @@ export const NotificationPrefs = z.object({
   limits: withDefault(z.boolean(), true),
   /** In a browser tab: a system notification instead, while the tab is in the background. */
   browser: withDefault(z.boolean(), false),
+  agentSays: withDefault(z.boolean(), true),
 });
 export type NotificationPrefs = z.infer<typeof NotificationPrefs>;
 
@@ -33,6 +34,7 @@ const defaults: NotificationPrefs = {
   automations: true,
   limits: true,
   browser: false,
+  agentSays: true,
 };
 const storageKey = "ace.notifications.toasts";
 

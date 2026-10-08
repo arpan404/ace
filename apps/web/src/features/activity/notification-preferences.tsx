@@ -1,13 +1,5 @@
-import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { browserPermission, requestBrowserPermission } from "@/lib/browser-notify.ts";
 import { useNotificationPrefs, type NotificationPrefs } from "./notification-prefs.ts";
@@ -17,6 +9,11 @@ const rows: {
   title: string;
   description: string;
 }[] = [
+  {
+    key: "agentSays",
+    title: "Agent says",
+    description: "Messages an agent asks ace to tell you about.",
+  },
   {
     key: "needsYou",
     title: "Needs you",
@@ -35,7 +32,7 @@ const rows: {
   },
   {
     key: "limits",
-    title: "When an account nears its usage limit",
+    title: "Usage limits",
     description:
       "Before a usage window runs out, when it does, and when the account can work again.",
   },
@@ -53,6 +50,7 @@ export function NotificationPreferences() {
     <div>
       {rows.map((row) => (
         <SettingRow
+          density="compact"
           key={row.key}
           title={row.title}
           description={row.description}
@@ -78,6 +76,7 @@ function BrowserRow(props: { on: boolean; set(on: boolean): void }) {
   const blocked = permission === "denied";
   return (
     <SettingRow
+      density="compact"
       title="Browser notifications"
       description={
         blocked
@@ -99,32 +98,5 @@ function BrowserRow(props: { on: boolean; set(on: boolean): void }) {
         }}
       />
     </SettingRow>
-  );
-}
-
-export function NotificationPreferencesDialog(props: {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-}) {
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Notifications on this device</DialogTitle>
-          <DialogDescription>
-            Choose what pops up while ace is open. System notifications and quiet hours are in{" "}
-            <Link
-              to="/settings/notifications"
-              onClick={() => props.onOpenChange(false)}
-              className="text-foreground underline-offset-4 hover:underline"
-            >
-              Settings › Notifications
-            </Link>
-            .
-          </DialogDescription>
-        </DialogHeader>
-        <NotificationPreferences />
-      </DialogContent>
-    </Dialog>
   );
 }

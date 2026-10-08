@@ -103,13 +103,66 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
   expect(screen.queryByLabelText("Quiet hours start")).toBeNull();
 });
 
-test("a browser offers no login item and says where notifications are set", async () => {
+test("a browser offers notification categories in Settings", async () => {
   const app = harness();
   await app.open("/settings/general");
   await screen.findByRole("switch", { name: "New threads use a worktree" });
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
 
   await app.open("/settings/notifications");
-  expect(await screen.findByText(/set in the ace desktop app/)).toBeTruthy();
+  expect(await screen.findByRole("switch", { name: "Agent says" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Thread done" })).toBeNull();
+});
+
+test("a configured browser can enable and disable push from Notifications settings", async () => {
+  let subscription: { toJSON(): PushSubscriptionJSON; unsubscribe(): Promise<boolean> } | null =
+    null;
+  const registration = {
+    pushManager: {
+      getSubscription: async () => subscription,
+      subscribe: async () => {
+        subscription = {
+          toJSON: () => ({
+            endpoint: "https://push.example.test/browser",
+            keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) },
+          }),
+          unsubscribe: async () => {
+            subscription = null;
+            return true;
+          },
+        };
+        return subscription;
+      },
+    },
+  };
+  vi.stubGlobal("Notification", {
+    permission: "default",
+    requestPermission: async () => "granted",
+  });
+  vi.stubGlobal("PushManager", function PushManager() {});
+  const original = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: {
+      getRegistration: async () => registration,
+      register: async () => registration,
+      ready: Promise.resolve(registration),
+    },
+  });
+  try {
+    const app = harness();
+    app.daemon.seedServices({ notificationPublicKey: "a".repeat(87) });
+    await app.open("/settings/notifications");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Enable push on this browser" }),
+    );
+    await screen.findByRole("button", { name: "Disable push on this browser" });
+    expect(subscription).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Disable push on this browser" }));
+    await screen.findByRole("button", { name: "Enable push on this browser" });
+    expect(subscription).toBeNull();
+  } finally {
+    if (original) Object.defineProperty(navigator, "serviceWorker", original);
+    else Reflect.deleteProperty(navigator, "serviceWorker");
+  }
 });
