@@ -22,7 +22,7 @@ export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 type Destination =
   | View["to"]
   | "/new"
-  | "/offsets/new"
+  | "/offshifts/new"
   | "/accounts"
   | "/archived"
   | "/settings"
@@ -89,13 +89,13 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
         run: go("/new"),
       },
       {
-        // Deck is called Offset in the UI.
+        // Deck is called Offshift in the UI.
         id: "new-deck",
-        label: "New offset",
+        label: "New offshift",
         keys: keymap.newDeck.keys,
         icon: "action",
         ...needsProject,
-        run: go("/offsets/new"),
+        run: go("/offshifts/new"),
       },
     ];
     const groups: PaletteGroup[] = [

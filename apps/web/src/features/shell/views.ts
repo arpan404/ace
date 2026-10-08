@@ -4,10 +4,10 @@ import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  // `deck` is Offsets in the UI: Deck is called Offset there, and its routes are `/offsets…`.
+  // `deck` is Offshifts in the UI: Deck is called Offshift there, and its routes are `/offshifts…`.
   id: "home" | "activity" | "deck" | "automations" | "skills";
   label: string;
-  to: "/" | "/activity" | "/offsets" | "/automations" | "/skills";
+  to: "/" | "/activity" | "/offshifts" | "/automations" | "/skills";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -22,10 +22,10 @@ export interface NavView extends View {
 export const navViews: readonly NavView[] = [
   {
     id: "deck",
-    label: "Offsets",
+    label: "Offshifts",
     icon: CardsIcon,
-    to: "/offsets",
-    matches: ["/offsets"],
+    to: "/offshifts",
+    matches: ["/offshifts"],
     shortcut: "goDeck",
   },
   {

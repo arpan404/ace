@@ -39,7 +39,7 @@ export function useNoProjects(): boolean {
 
 /**
  * The one sidebar. At the top, "ace ▾" (the daemon), Search (a dialog over any screen) and the
- * Activity bell with what needs you; then New thread (Add project while there is none), Offsets,
+ * Activity bell with what needs you; then New thread (Add project while there is none), Offshifts,
  * Automations and Skills; then the thread list (Settings' pages while in Settings) as its only
  * scrolling part; and at the foot the profile, full width, with the Settings gear beside it.
  */

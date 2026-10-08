@@ -1,6 +1,6 @@
 /**
  * Deck (@ace/conductor): multi-agent runs, their plan, lanes and open decisions.
- * Deck is called Offset in the UI: each run is "an offset", the view is "Offsets".
+ * Deck is called Offshift in the UI: each run is "an offshift", the view is "Offshifts".
  */
 export { DeckLandingScreen, NewDeckScreen } from "./deck-landing-screen.tsx";
 export { DeckRunPage } from "./deck-run-page.tsx";

@@ -74,18 +74,18 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
 - **Top** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
   pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
   palette's "Search all threads for …" opens it too) and the Activity bell (`g a`, with the
-  needs-you count). Then New thread (⌘N; Add project while there is none), Offsets (`g d`),
+  needs-you count). Then New thread (⌘N; Add project while there is none), Offshifts (`g d`),
   Automations (`g u`) and Skills (`g s`), listed in `features/shell/views.ts`. Deck is called
-  Offset in the UI (routes `/offsets…`); the code keeps `deck*` names until its own rename.
+  Offshift in the UI (routes `/offshifts…`); the code keeps `deck*` names until its own rename.
 - **Body**: the thread list (`ThreadsSidebar`), the only part that scrolls. A view's list is the
   `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
   keep the thread list), `sidebar` (Settings' pages take the body, through a portal, so they keep
-  the route's providers) or `pane` (Offsets, Automations, Skills and Activity draw their list at
+  the route's providers) or `pane` (Offshifts, Automations, Skills and Activity draw their list at
   the start of their own column).
 - **Foot**: the profile, full width (initials, name, the connection dot; its menu holds
   Appearance, Keyboard shortcuts and Usage & accounts, the only way to `/accounts`), the sign of
   computer use while agents hold an app, and the Settings gear (⌘,).
-- Old addresses still land (`lib/legacy-paths.ts`): `/deck…` → `/offsets…`, `/more` and
+- Old addresses still land (`lib/legacy-paths.ts`): `/deck…` → `/offshifts…`, `/more` and
   `/more/accounts` → `/accounts`, `/more/files` → Home (Files is a pinned tab of each thread's
   side panel), `/more/search?q=` → the search dialog over Home.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
@@ -128,23 +128,23 @@ presentational components that render it (see `home/use-thread-card.ts` and `hom
 
 Each slice owns `src/features/<slice>/` and the route files for its screens:
 
-| Slice                                                                              | Folder                 | Routes                                                                      |
-| ---------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------- |
-| Home (thread list, New thread)                                                     | `features/home`        | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`               |
-| Thread (transcript, composer, header actions)                                      | `features/thread`      | `_home.t.$threadId.tsx`                                                     |
-| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`      | tab kinds of the thread screen (`threadWorkspace`)                          |
-| Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`     | none; loaded with the panel tabs                                            |
-| Activity                                                                           | `features/activity`    | `activity.tsx`, `activity.index.tsx`                                        |
-| Offsets, "Deck" in code (`@ace/conductor`)                                         | `features/deck`        | `offsets.tsx`, `offsets.index.tsx`, `offsets.new.tsx`, `offsets.$runId.tsx` |
-| Automations                                                                        | `features/automations` | `automations.tsx`, `automations.index.tsx`                                  |
-| Skills                                                                             | `features/skills`      | `skills.tsx`, `skills.index.tsx`                                            |
-| Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`    | none; used by Home, the thread ⋯ menu and the palette                       |
-| Projects (Add project: open, create, clone; rename, remove; first-run empty state) | `features/projects`    | none; `/new?folder=` renders its `OpenFolderScreen`                         |
-| Model catalog (pickers)                                                            | `features/models`      | none; used by thread and Home                                               |
-| Usage & accounts                                                                   | `features/accounts`    | `accounts.tsx`                                                              |
-| Search (a dialog over any screen)                                                  | `features/search`      | none; `more.tsx` sends old search links to it                               |
-| Settings                                                                           | `features/settings`    | `settings.*.tsx`                                                            |
-| Palette                                                                            | `features/palette`     | none; register commands in `commands.ts`                                    |
+| Slice                                                                              | Folder                 | Routes                                                                              |
+| ---------------------------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
+| Home (thread list, New thread)                                                     | `features/home`        | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`                       |
+| Thread (transcript, composer, header actions)                                      | `features/thread`      | `_home.t.$threadId.tsx`                                                             |
+| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`      | tab kinds of the thread screen (`threadWorkspace`)                                  |
+| Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`     | none; loaded with the panel tabs                                                    |
+| Activity                                                                           | `features/activity`    | `activity.tsx`, `activity.index.tsx`                                                |
+| Offshifts, "Deck" in code (`@ace/conductor`)                                       | `features/deck`        | `offshifts.tsx`, `offshifts.index.tsx`, `offshifts.new.tsx`, `offshifts.$runId.tsx` |
+| Automations                                                                        | `features/automations` | `automations.tsx`, `automations.index.tsx`                                          |
+| Skills                                                                             | `features/skills`      | `skills.tsx`, `skills.index.tsx`                                                    |
+| Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`    | none; used by Home, the thread ⋯ menu and the palette                               |
+| Projects (Add project: open, create, clone; rename, remove; first-run empty state) | `features/projects`    | none; `/new?folder=` renders its `OpenFolderScreen`                                 |
+| Model catalog (pickers)                                                            | `features/models`      | none; used by thread and Home                                                       |
+| Usage & accounts                                                                   | `features/accounts`    | `accounts.tsx`                                                                      |
+| Search (a dialog over any screen)                                                  | `features/search`      | none; `more.tsx` sends old search links to it                                       |
+| Settings                                                                           | `features/settings`    | `settings.*.tsx`                                                                    |
+| Palette                                                                            | `features/palette`     | none; register commands in `commands.ts`                                            |
 
 Rules:
 

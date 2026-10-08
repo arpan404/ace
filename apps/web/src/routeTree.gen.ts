@@ -16,6 +16,7 @@ import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as DeckRouteImport } from "./routes/deck"
 import { Route as MoreRouteImport } from "./routes/more"
 import { Route as OffsetsRouteImport } from "./routes/offsets"
+import { Route as OffshiftsRouteImport } from "./routes/offshifts"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
@@ -27,9 +28,10 @@ import { Route as AutomationsIndexRouteImport } from "./routes/automations.index
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as DeckSplatRouteImport } from "./routes/deck.$"
 import { Route as MoreSplatRouteImport } from "./routes/more.$"
-import { Route as OffsetsIndexRouteImport } from "./routes/offsets.index"
-import { Route as OffsetsRunIdRouteImport } from "./routes/offsets.$runId"
-import { Route as OffsetsNewRouteImport } from "./routes/offsets.new"
+import { Route as OffsetsSplatRouteImport } from "./routes/offsets.$"
+import { Route as OffshiftsIndexRouteImport } from "./routes/offshifts.index"
+import { Route as OffshiftsRunIdRouteImport } from "./routes/offshifts.$runId"
+import { Route as OffshiftsNewRouteImport } from "./routes/offshifts.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
@@ -79,6 +81,11 @@ const MoreRoute = MoreRouteImport.update({
 const OffsetsRoute = OffsetsRouteImport.update({
   id: "/offsets",
   path: "/offsets",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OffshiftsRoute = OffshiftsRouteImport.update({
+  id: "/offshifts",
+  path: "/offshifts",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -136,20 +143,25 @@ const MoreSplatRoute = MoreSplatRouteImport.update({
   path: "/$",
   getParentRoute: () => MoreRoute,
 } as any)
-const OffsetsIndexRoute = OffsetsIndexRouteImport.update({
+const OffsetsSplatRoute = OffsetsSplatRouteImport.update({
+  id: "/$",
+  path: "/$",
+  getParentRoute: () => OffsetsRoute,
+} as any)
+const OffshiftsIndexRoute = OffshiftsIndexRouteImport.update({
   id: "/",
   path: "/",
-  getParentRoute: () => OffsetsRoute,
+  getParentRoute: () => OffshiftsRoute,
 } as any)
-const OffsetsRunIdRoute = OffsetsRunIdRouteImport.update({
+const OffshiftsRunIdRoute = OffshiftsRunIdRouteImport.update({
   id: "/$runId",
   path: "/$runId",
-  getParentRoute: () => OffsetsRoute,
+  getParentRoute: () => OffshiftsRoute,
 } as any)
-const OffsetsNewRoute = OffsetsNewRouteImport.update({
+const OffshiftsNewRoute = OffshiftsNewRouteImport.update({
   id: "/new",
   path: "/new",
-  getParentRoute: () => OffsetsRoute,
+  getParentRoute: () => OffshiftsRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
@@ -243,6 +255,7 @@ export interface FileRoutesByFullPath {
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
   "/offsets": typeof OffsetsRouteWithChildren
+  "/offshifts": typeof OffshiftsRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -251,8 +264,9 @@ export interface FileRoutesByFullPath {
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$": typeof DeckSplatRoute
   "/more/$": typeof MoreSplatRoute
-  "/offsets/$runId": typeof OffsetsRunIdRoute
-  "/offsets/new": typeof OffsetsNewRoute
+  "/offsets/$": typeof OffsetsSplatRoute
+  "/offshifts/$runId": typeof OffshiftsRunIdRoute
+  "/offshifts/new": typeof OffshiftsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -264,7 +278,7 @@ export interface FileRoutesByFullPath {
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
-  "/offsets/": typeof OffsetsIndexRoute
+  "/offshifts/": typeof OffshiftsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
@@ -277,14 +291,16 @@ export interface FileRoutesByTo {
   "/accounts": typeof AccountsRoute
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
+  "/offsets": typeof OffsetsRouteWithChildren
   "/setup": typeof SetupRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$": typeof DeckSplatRoute
   "/more/$": typeof MoreSplatRoute
-  "/offsets/$runId": typeof OffsetsRunIdRoute
-  "/offsets/new": typeof OffsetsNewRoute
+  "/offsets/$": typeof OffsetsSplatRoute
+  "/offshifts/$runId": typeof OffshiftsRunIdRoute
+  "/offshifts/new": typeof OffshiftsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -297,7 +313,7 @@ export interface FileRoutesByTo {
   "/": typeof HomeIndexRoute
   "/activity": typeof ActivityIndexRoute
   "/automations": typeof AutomationsIndexRoute
-  "/offsets": typeof OffsetsIndexRoute
+  "/offshifts": typeof OffshiftsIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
@@ -315,6 +331,7 @@ export interface FileRoutesById {
   "/deck": typeof DeckRouteWithChildren
   "/more": typeof MoreRouteWithChildren
   "/offsets": typeof OffsetsRouteWithChildren
+  "/offshifts": typeof OffshiftsRouteWithChildren
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -323,8 +340,9 @@ export interface FileRoutesById {
   "/automations/new": typeof AutomationsNewRoute
   "/deck/$": typeof DeckSplatRoute
   "/more/$": typeof MoreSplatRoute
-  "/offsets/$runId": typeof OffsetsRunIdRoute
-  "/offsets/new": typeof OffsetsNewRoute
+  "/offsets/$": typeof OffsetsSplatRoute
+  "/offshifts/$runId": typeof OffshiftsRunIdRoute
+  "/offshifts/new": typeof OffshiftsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -337,7 +355,7 @@ export interface FileRoutesById {
   "/_home/": typeof HomeIndexRoute
   "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
-  "/offsets/": typeof OffsetsIndexRoute
+  "/offshifts/": typeof OffshiftsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
@@ -356,6 +374,7 @@ export interface FileRouteTypes {
     | "/deck"
     | "/more"
     | "/offsets"
+    | "/offshifts"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -364,8 +383,9 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/deck/$"
     | "/more/$"
-    | "/offsets/$runId"
-    | "/offsets/new"
+    | "/offsets/$"
+    | "/offshifts/$runId"
+    | "/offshifts/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -377,7 +397,7 @@ export interface FileRouteTypes {
     | "/skills/$skillId"
     | "/activity/"
     | "/automations/"
-    | "/offsets/"
+    | "/offshifts/"
     | "/settings/"
     | "/skills/"
     | "/t/$threadId"
@@ -390,14 +410,16 @@ export interface FileRouteTypes {
     | "/accounts"
     | "/deck"
     | "/more"
+    | "/offsets"
     | "/setup"
     | "/archived"
     | "/new"
     | "/automations/new"
     | "/deck/$"
     | "/more/$"
-    | "/offsets/$runId"
-    | "/offsets/new"
+    | "/offsets/$"
+    | "/offshifts/$runId"
+    | "/offshifts/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -410,7 +432,7 @@ export interface FileRouteTypes {
     | "/"
     | "/activity"
     | "/automations"
-    | "/offsets"
+    | "/offshifts"
     | "/settings"
     | "/skills"
     | "/t/$threadId"
@@ -427,6 +449,7 @@ export interface FileRouteTypes {
     | "/deck"
     | "/more"
     | "/offsets"
+    | "/offshifts"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -435,8 +458,9 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/deck/$"
     | "/more/$"
-    | "/offsets/$runId"
-    | "/offsets/new"
+    | "/offsets/$"
+    | "/offshifts/$runId"
+    | "/offshifts/new"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -449,7 +473,7 @@ export interface FileRouteTypes {
     | "/_home/"
     | "/activity/"
     | "/automations/"
-    | "/offsets/"
+    | "/offshifts/"
     | "/settings/"
     | "/skills/"
     | "/_home/t/$threadId"
@@ -467,6 +491,7 @@ export interface RootRouteChildren {
   DeckRoute: typeof DeckRouteWithChildren
   MoreRoute: typeof MoreRouteWithChildren
   OffsetsRoute: typeof OffsetsRouteWithChildren
+  OffshiftsRoute: typeof OffshiftsRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
@@ -521,6 +546,13 @@ declare module "@tanstack/react-router" {
       path: "/offsets"
       fullPath: "/offsets"
       preLoaderRoute: typeof OffsetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/offshifts": {
+      id: "/offshifts"
+      path: "/offshifts"
+      fullPath: "/offshifts"
+      preLoaderRoute: typeof OffshiftsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -600,26 +632,33 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof MoreSplatRouteImport
       parentRoute: typeof MoreRoute
     }
-    "/offsets/": {
-      id: "/offsets/"
+    "/offsets/$": {
+      id: "/offsets/$"
+      path: "/$"
+      fullPath: "/offsets/$"
+      preLoaderRoute: typeof OffsetsSplatRouteImport
+      parentRoute: typeof OffsetsRoute
+    }
+    "/offshifts/": {
+      id: "/offshifts/"
       path: "/"
-      fullPath: "/offsets/"
-      preLoaderRoute: typeof OffsetsIndexRouteImport
-      parentRoute: typeof OffsetsRoute
+      fullPath: "/offshifts/"
+      preLoaderRoute: typeof OffshiftsIndexRouteImport
+      parentRoute: typeof OffshiftsRoute
     }
-    "/offsets/$runId": {
-      id: "/offsets/$runId"
+    "/offshifts/$runId": {
+      id: "/offshifts/$runId"
       path: "/$runId"
-      fullPath: "/offsets/$runId"
-      preLoaderRoute: typeof OffsetsRunIdRouteImport
-      parentRoute: typeof OffsetsRoute
+      fullPath: "/offshifts/$runId"
+      preLoaderRoute: typeof OffshiftsRunIdRouteImport
+      parentRoute: typeof OffshiftsRoute
     }
-    "/offsets/new": {
-      id: "/offsets/new"
+    "/offshifts/new": {
+      id: "/offshifts/new"
       path: "/new"
-      fullPath: "/offsets/new"
-      preLoaderRoute: typeof OffsetsNewRouteImport
-      parentRoute: typeof OffsetsRoute
+      fullPath: "/offshifts/new"
+      preLoaderRoute: typeof OffshiftsNewRouteImport
+      parentRoute: typeof OffshiftsRoute
     }
     "/settings/": {
       id: "/settings/"
@@ -803,19 +842,31 @@ const MoreRouteChildren: MoreRouteChildren = {
 const MoreRouteWithChildren = MoreRoute._addFileChildren(MoreRouteChildren)
 
 interface OffsetsRouteChildren {
-  OffsetsRunIdRoute: typeof OffsetsRunIdRoute
-  OffsetsNewRoute: typeof OffsetsNewRoute
-  OffsetsIndexRoute: typeof OffsetsIndexRoute
+  OffsetsSplatRoute: typeof OffsetsSplatRoute
 }
 
 const OffsetsRouteChildren: OffsetsRouteChildren = {
-  OffsetsRunIdRoute: OffsetsRunIdRoute,
-  OffsetsNewRoute: OffsetsNewRoute,
-  OffsetsIndexRoute: OffsetsIndexRoute,
+  OffsetsSplatRoute: OffsetsSplatRoute,
 }
 
 const OffsetsRouteWithChildren =
   OffsetsRoute._addFileChildren(OffsetsRouteChildren)
+
+interface OffshiftsRouteChildren {
+  OffshiftsRunIdRoute: typeof OffshiftsRunIdRoute
+  OffshiftsNewRoute: typeof OffshiftsNewRoute
+  OffshiftsIndexRoute: typeof OffshiftsIndexRoute
+}
+
+const OffshiftsRouteChildren: OffshiftsRouteChildren = {
+  OffshiftsRunIdRoute: OffshiftsRunIdRoute,
+  OffshiftsNewRoute: OffshiftsNewRoute,
+  OffshiftsIndexRoute: OffshiftsIndexRoute,
+}
+
+const OffshiftsRouteWithChildren = OffshiftsRoute._addFileChildren(
+  OffshiftsRouteChildren,
+)
 
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
@@ -870,6 +921,7 @@ const rootRouteChildren: RootRouteChildren = {
   DeckRoute: DeckRouteWithChildren,
   MoreRoute: MoreRouteWithChildren,
   OffsetsRoute: OffsetsRouteWithChildren,
+  OffshiftsRoute: OffshiftsRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,

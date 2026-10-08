@@ -69,25 +69,25 @@ export class FakeConductor {
       case "conductor.pause":
         if (!active(run)) return { ok: false, error: "not_running" };
         this.paused.set(run.id, run.phase);
-        this.replace(logged({ ...run, phase: "paused" }, now, "You paused the offset."));
+        this.replace(logged({ ...run, phase: "paused" }, now, "You paused the offshift."));
         return { ok: true };
       case "conductor.resume": {
         if (run.executionError) {
           const { executionError: _, ...rest } = run;
-          this.replace(logged(rest, now, "You resumed the offset."));
+          this.replace(logged(rest, now, "You resumed the offshift."));
           return { ok: true };
         }
         const phase = this.paused.get(run.id);
         if (run.phase !== "paused" || !phase) return { ok: false, error: "not_paused" };
         this.paused.delete(run.id);
-        this.replace(schedule(logged({ ...run, phase }, now, "You resumed the offset."), now));
+        this.replace(schedule(logged({ ...run, phase }, now, "You resumed the offshift."), now));
         return { ok: true };
       }
       case "conductor.cancel":
         if (run.phase === "merged" || run.phase === "cancelled")
           return { ok: false, error: "finished" };
         this.replace(
-          logged({ ...run, phase: "cancelled", gate: null }, now, "You cancelled the offset."),
+          logged({ ...run, phase: "cancelled", gate: null }, now, "You cancelled the offshift."),
         );
         return { ok: true };
     }
@@ -153,7 +153,7 @@ function schedule(run: FakeDeckRun, now: number): FakeDeckRun {
       : logged(
           { ...run, gate: fakeGate(run, "deadline", "Project deadline reached") },
           now,
-          "The offset reached its deadline.",
+          "The offshift reached its deadline.",
         );
   const merged = new Set(run.cards.filter((c) => c.state === "merged").map((c) => c.id));
   let spent = run.spent;
@@ -184,7 +184,7 @@ function overBudget(run: FakeDeckRun, now: number): FakeDeckRun {
       gate: fakeGate(run, "budget", `Reserved cost ${run.spent + 1} exceeds budget ${run.budget}`),
     },
     now,
-    "The offset used its budget.",
+    "The offshift used its budget.",
   );
 }
 
@@ -256,7 +256,7 @@ function approve(
         round: c.round + 1,
         note: "A new round starts.",
       }));
-      const retried = logged({ ...open, cards }, now, "You asked the offset to retry the card.");
+      const retried = logged({ ...open, cards }, now, "You asked the offshift to retry the card.");
       // The retry is a new lane start; without room for it the deck waits on its budget.
       if (run.spent + 1 > run.budget) return overBudget(retried, now);
       return next({ ...retried, spent: run.spent + 1 });
@@ -299,7 +299,7 @@ function reject(run: FakeDeckRun, gate: FakeGate, now: number, held = false): Fa
   }
   const card = run.cards.find((c) => c.id === gate.cardId);
   if (gate.kind === "budget" || gate.kind === "deadline" || !card)
-    return logged({ ...run, phase: "cancelled", gate: null }, now, "You stopped the offset.");
+    return logged({ ...run, phase: "cancelled", gate: null }, now, "You stopped the offshift.");
   const cards = withCard(run, card.id, (c) => ({
     ...c,
     state: "declined",
@@ -367,7 +367,7 @@ function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
     stages: ["Explore", "Build", "Document", "Ship"],
     cards,
     log: [
-      { at: now, text: "Offset started from the goal." },
+      { at: now, text: "Offshift started from the goal." },
       { at: now, text: `Planner proposed ${cards.length - 1} cards.` },
     ],
     pullRequest: null,

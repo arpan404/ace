@@ -16,7 +16,7 @@ export interface Shortcut {
 
 export const shortcuts: readonly Shortcut[] = [
   { keymapId: "newThread", label: "New Thread", accelerator: "CmdOrCtrl+N" },
-  { keymapId: "newDeck", label: "New Offset", accelerator: "CmdOrCtrl+Shift+N" },
+  { keymapId: "newDeck", label: "New Offshift", accelerator: "CmdOrCtrl+Shift+N" },
   { keymapId: "addProject", label: "Add Project…", accelerator: "CmdOrCtrl+Shift+O" },
   { keymapId: "palette", label: "Command Palette…", accelerator: "CmdOrCtrl+K" },
   { keymapId: "search", label: "Search…", accelerator: "CmdOrCtrl+Shift+K" },

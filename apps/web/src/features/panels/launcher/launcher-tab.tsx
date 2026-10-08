@@ -149,13 +149,13 @@ export function LauncherTab(props: TabViewProps) {
                 tabIndex={grid.active === tools.length ? 0 : -1}
                 onFocus={() => grid.setActive(tools.length)}
                 className={card}
-                onClick={() => void navigate({ to: "/offsets" })}
+                onClick={() => void navigate({ to: "/offshifts" })}
               >
                 <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">Offsets</span>
+                <span className="min-w-0 flex-1 truncate">Offshifts</span>
                 <ArrowUpRightIcon
                   role="img"
-                  aria-label="Opens the Offsets view"
+                  aria-label="Opens the Offshifts view"
                   size={14}
                   className="text-muted-foreground"
                 />

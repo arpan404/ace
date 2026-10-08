@@ -8,8 +8,8 @@ const Search = z.object({
   card: z.catch(z.optional(z.string().check(z.maxLength(128))), undefined),
 });
 
-/** One offset: status line, gate, card graph and lane detail. */
-export const Route = createFileRoute("/offsets/$runId")({
+/** One offshift: status line, gate, card graph and lane detail. */
+export const Route = createFileRoute("/offshifts/$runId")({
   validateSearch: (search) => Search.parse(search),
   component: DeckRun,
 });

@@ -51,10 +51,10 @@ export function laneRole(account: string, model: string, accounts: DeckAccounts)
 }
 
 /**
- * The daemon titles each lane's thread "Offset worker: health" ("Deck worker: health" before the
+ * The daemon titles each lane's thread "Offshift worker: health" ("Deck worker: health" before the
  * rename); retired lanes are known by it.
  */
-const titled = /^(?:Offset|Deck) (planner|worker|reviewer|integrator):/;
+const titled = /^(?:Offshift|Deck) (planner|worker|reviewer|integrator):/;
 
 function roleOf(
   delegation: Delegation,

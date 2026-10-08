@@ -13,8 +13,8 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/", "Home"],
     ["/new", "New thread"],
     ["/activity", "Activity"],
-    ["/offsets", "Offsets"],
-    ["/offsets/new", "New offset"],
+    ["/offshifts", "Offshifts"],
+    ["/offshifts/new", "New offshift"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
     ["/accounts", "Usage & accounts"],
@@ -47,8 +47,10 @@ test("every view and settings page opens in the shell under its own title", asyn
 
 test("old addresses land where their pages live now", async () => {
   for (const [path, name] of [
-    ["/deck", "Offsets"],
-    ["/deck/new", "New offset"],
+    ["/deck", "Offshifts"],
+    ["/deck/new", "New offshift"],
+    ["/offsets", "Offshifts"],
+    ["/offsets/new", "New offshift"],
     ["/more", "Usage & accounts"],
     ["/more/accounts", "Usage & accounts"],
     ["/more/files", "Home"],
@@ -74,9 +76,9 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(views).getByRole("link", { name: "Offsets" }));
-  await title("Offsets");
-  expect(within(views).getByRole("link", { name: "Offsets" }).getAttribute("aria-current")).toBe(
+  await userEvent.click(within(views).getByRole("link", { name: "Offshifts" }));
+  await title("Offshifts");
+  expect(within(views).getByRole("link", { name: "Offshifts" }).getAttribute("aria-current")).toBe(
     "page",
   );
   expect(button("Back").disabled).toBe(false);
@@ -87,7 +89,7 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
-  await title("Offsets");
+  await title("Offshifts");
   expect(button("Forward").disabled).toBe(true);
 });
 

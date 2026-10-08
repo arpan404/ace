@@ -310,7 +310,7 @@ test("the new tab's tools are one Tab stop that arrow keys move through by row a
   await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(cards[3]);
   await userEvent.keyboard("{End}");
-  expect(document.activeElement?.textContent).toMatch(/^Offsets/);
+  expect(document.activeElement?.textContent).toMatch(/^Offshifts/);
   expect(cards.filter((card) => card.tabIndex === 0)).toEqual([document.activeElement]);
   await userEvent.keyboard("{Home}");
   expect(document.activeElement).toBe(first);

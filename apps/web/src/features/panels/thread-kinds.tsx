@@ -181,7 +181,7 @@ export const agentKind = defineTabKind({
 /** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
 export const deckLaneKind = defineTabKind({
   kind: "deck-lane",
-  label: "Offset lane",
+  label: "Offshift lane",
   icon: CardsIcon,
   load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
 });

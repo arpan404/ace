@@ -75,7 +75,7 @@ export class NativeConductorExecutor {
         threadId,
         workspaceId: state.spec.workspaceId,
         provider: model.provider,
-        title: `Offset: ${state.spec.goal.slice(0, 200)}`,
+        title: `Offshift: ${state.spec.goal.slice(0, 200)}`,
         model: model.model,
       });
       if (!result.ok || !result.threadId) throw new Error(result.error);
@@ -125,8 +125,8 @@ export class NativeConductorExecutor {
         }
         const request = {
           requestId,
-          role: `Offset ${effect.lane.role}: ${effect.lane.workstream ?? "plan"}`,
-          task: `Execute offset lane ${effect.lane.id}`,
+          role: `Offshift ${effect.lane.role}: ${effect.lane.workstream ?? "plan"}`,
+          task: `Execute offshift lane ${effect.lane.id}`,
           provider: effect.lane.model.provider,
           model: effect.lane.model.model,
           ...(effect.lane.account === `local.${effect.lane.model.provider}`

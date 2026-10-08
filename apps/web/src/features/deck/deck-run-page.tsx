@@ -73,20 +73,20 @@ export function DeckRunPage(props: {
   const { ready, run } = useDeckRun(props.runId);
   if (!run)
     return (
-      <Screen title="Offsets">
+      <Screen title="Offshifts">
         {ready ? (
           <EmptyState
             icon={CardsIcon}
             heading
-            title="This offset isn't here"
+            title="This offshift isn't here"
             description="It may have been removed, or it lives on another daemon."
             action={
               <span className="flex gap-2">
-                <Link to="/offsets" className={buttonVariants({ variant: "secondary" })}>
-                  Back to Offsets
+                <Link to="/offshifts" className={buttonVariants({ variant: "secondary" })}>
+                  Back to Offshifts
                 </Link>
-                <Link to="/offsets/new" className={buttonVariants({ variant: "primary" })}>
-                  New offset
+                <Link to="/offshifts/new" className={buttonVariants({ variant: "primary" })}>
+                  New offshift
                 </Link>
               </span>
             }
@@ -153,11 +153,11 @@ function RunScreen(props: {
   return (
     <Screen
       title={run.title}
-      subtitle={`${projectName(run.workspaceId)} · Offsets`}
+      subtitle={`${projectName(run.workspaceId)} · Offshifts`}
       menu={
         live ? (
           <MenuItem danger onClick={() => setCancelling(true)}>
-            Cancel offset…
+            Cancel offshift…
           </MenuItem>
         ) : undefined
       }
@@ -166,19 +166,21 @@ function RunScreen(props: {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void send({ type: "conductor.resume", runId: run.id }, "Offset resumed")}
+            onClick={() =>
+              void send({ type: "conductor.resume", runId: run.id }, "Offshift resumed")
+            }
           >
             <Icon icon={PlayIcon} size={14} />
-            Resume offset
+            Resume offshift
           </Button>
         ) : moving ? (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void send({ type: "conductor.pause", runId: run.id }, "Offset paused")}
+            onClick={() => void send({ type: "conductor.pause", runId: run.id }, "Offshift paused")}
           >
             <Icon icon={PauseIcon} size={14} />
-            Pause offset
+            Pause offshift
           </Button>
         ) : undefined
       }
@@ -190,7 +192,7 @@ function RunScreen(props: {
             lede={brief || undefined}
             actions={
               <SegmentedControl
-                label="Offset view"
+                label="Offshift view"
                 value={tab}
                 options={tabs}
                 onValueChange={(next) => props.onNavigate({ tab: next })}
@@ -272,10 +274,10 @@ function RunScreen(props: {
       <Dialog open={cancelling} onOpenChange={setCancelling}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancel this offset?</DialogTitle>
+            <DialogTitle>Cancel this offshift?</DialogTitle>
             <DialogDescription>
               Every lane stops, its sub-agents included, and nothing else merges. Cards already
-              merged into the offset's branch stay there.
+              merged into the offshift's branch stay there.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -287,10 +289,10 @@ function RunScreen(props: {
               variant="danger"
               onClick={() => {
                 setCancelling(false);
-                void send({ type: "conductor.cancel", runId: run.id }, "Stopping the offset");
+                void send({ type: "conductor.cancel", runId: run.id }, "Stopping the offshift");
               }}
             >
-              Cancel offset
+              Cancel offshift
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -389,15 +391,15 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
     run.phase === "waiting"
       ? { title: "Waiting for a free account.", body: deckErrorText(error) }
       : run.phase === "failed"
-        ? { title: "The offset can't take its next step.", body: deckErrorText(error) }
+        ? { title: "The offshift can't take its next step.", body: deckErrorText(error) }
         : run.phase === "stopping"
           ? {
-              title: "Stopping the offset.",
-              body: "Each lane is being interrupted; the offset reads Cancelled once every one of them has stopped.",
+              title: "Stopping the offshift.",
+              body: "Each lane is being interrupted; the offshift reads Cancelled once every one of them has stopped.",
             }
           : run.phase === "cancelled"
             ? {
-                title: "This offset was cancelled.",
+                title: "This offshift was cancelled.",
                 body: "Its threads stay, so you can read what each lane did.",
               }
             : undefined;
@@ -423,7 +425,7 @@ function RunNotice(props: { run: DeckRun; onRetry(): void; onCancel(): void }) {
       {failed &&
         (unrecoverable.has(error) ? (
           <Button size="sm" variant="danger" onClick={props.onCancel}>
-            Cancel offset…
+            Cancel offshift…
           </Button>
         ) : (
           <Button size="sm" onClick={props.onRetry}>
@@ -444,7 +446,7 @@ function PlanPending(props: { run: DeckRun }) {
         {run.phase === "planning" && <Spinner />}
         {run.phase === "planning"
           ? "The planner is splitting the goal into cards."
-          : "This offset has no cards."}
+          : "This offshift has no cards."}
       </p>
       <AgentList label="Planner" agents={run.agents} />
     </div>
@@ -454,7 +456,7 @@ function PlanPending(props: { run: DeckRun }) {
 /** The deck's shape while it loads: title, goal, stepper, then a row of card columns. */
 export function DeckSkeleton() {
   return (
-    <LoadingRegion label="offset" className="flex flex-col gap-3 px-4 pt-11 sm:px-9">
+    <LoadingRegion label="offshift" className="flex flex-col gap-3 px-4 pt-11 sm:px-9">
       <Skeleton className="h-6 w-64 max-w-full" />
       <Skeleton className="h-3.5 w-[28rem] max-w-full" />
       <Skeleton className="mt-3 h-3 w-96 max-w-full" />

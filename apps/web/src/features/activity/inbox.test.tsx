@@ -362,7 +362,7 @@ test("a rebound Next key moves between cards", async () => {
   });
 });
 
-test("an offset worker's question still shows after Activity is left and opened again", async () => {
+test("an offshift worker's question still shows after Activity is left and opened again", async () => {
   await openActivity();
   const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
   expect(await main().findByRole("article", { name })).toBeTruthy();

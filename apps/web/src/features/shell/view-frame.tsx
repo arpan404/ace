@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
+import { cn } from "@/lib/cn.ts";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -18,12 +19,14 @@ interface ViewList {
   setInPage(inPage: boolean): void;
 }
 const ViewListContext = createContext<ViewList | null>(null);
+/** The list is drawn as a pane beside its column, so its heading lines up with the column's title. */
+const InPaneContext = createContext(false);
 
 /**
  * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
  * (Home, and pages that keep it, like Usage & accounts). `sidebar`: the list takes the sidebar's
  * body in its place (Settings' pages). `pane`: the sidebar keeps the threads and the list is a
- * pane at the start of the view's column (Offsets, Automations, Skills, Activity).
+ * pane at the start of the view's column (Offshifts, Automations, Skills, Activity).
  */
 export type ViewListPlace = "threads" | "sidebar" | "pane";
 
@@ -64,7 +67,7 @@ export function ViewFrame(props: {
             aria-label={props.label}
             className="flex w-(--pane-w) min-h-0 shrink-0 flex-col border-r"
           >
-            {props.sidebar}
+            <InPaneContext.Provider value>{props.sidebar}</InPaneContext.Provider>
           </aside>
         )}
         <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
@@ -75,7 +78,7 @@ export function ViewFrame(props: {
 
 /**
  * A view's index page. On a narrow window, where the sidebar is a sheet, the list is the page:
- * tapping Home (or Offsets, Skills…) shows its list, and a row opens the item. On a wide window
+ * tapping Home (or Offshifts, Skills…) shows its list, and a row opens the item. On a wide window
  * the list is already on screen, so `fallback` shows (usually a redirect to the first item).
  */
 export function ViewListPage(props: { title: string; fallback: ReactNode }) {
@@ -102,8 +105,15 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
 
 /** The heading of a view's list in the sidebar, with an optional filter or actions. */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
+  const inPane = useContext(InPaneContext);
   return (
-    <div className="group/heading flex h-10 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
+    <div
+      className={cn(
+        "group/heading flex shrink-0 items-center gap-1.5 pr-2.5 pl-4",
+        // Beside a column, the heading takes the header's height so both titles share a line.
+        inPane ? "h-(--header-h)" : "h-10 pt-1",
+      )}
+    >
       <h2 className="min-w-0 flex-1 truncate text-ui text-muted-foreground">{props.title}</h2>
       {props.actions}
     </div>

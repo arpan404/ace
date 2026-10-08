@@ -400,15 +400,15 @@ const screens: Record<string, Setup> = {
     await page.getByRole("main").waitFor();
   },
   "automation-new": visit("/automations/new", /New automation/),
-  deck: visit("/offsets", "Resumable relay streams"),
+  deck: visit("/offshifts", "Resumable relay streams"),
   "deck-lanes": async (page) => {
-    await visit("/offsets", "Resumable relay streams")(page);
+    await visit("/offshifts", "Resumable relay streams")(page);
     await page.getByRole("button", { name: "Lanes" }).click();
   },
-  "deck-new": visit("/offsets/new", "New offset"),
-  "deck-escalation": visit("/offsets/mobile-cold-start", "Mobile cold start under 1s"),
+  "deck-new": visit("/offshifts/new", "New offshift"),
+  "deck-escalation": visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s"),
   "deck-question": async (page) => {
-    await visit("/offsets/mobile-cold-start", "Mobile cold start under 1s")(page);
+    await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
     await page
       .getByRole("region", { name: "Escalated: Defer the first relay sync" })
       .getByRole("button", { name: "Retry card" })
@@ -429,39 +429,39 @@ const screens: Record<string, Setup> = {
     await asking.waitFor({ state: "detached" });
     await page.getByRole("button", { name: /^Lazy-load fonts and icons/ }).click();
   },
-  "deck-done": visit("/offsets/codex-app-server-048", "Codex app-server 0.48"),
+  "deck-done": visit("/offshifts/codex-app-server-048", "Codex app-server 0.48"),
   "deck-cancelled": async (page) => {
-    await visit("/offsets/mobile-cold-start", "Mobile cold start under 1s")(page);
+    await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
     await page.getByRole("button", { name: "More actions" }).first().click();
-    await page.getByRole("menuitem", { name: "Cancel offset…" }).click();
+    await page.getByRole("menuitem", { name: "Cancel offshift…" }).click();
     await page
-      .getByRole("dialog", { name: "Cancel this offset?" })
-      .getByRole("button", { name: "Cancel offset" })
+      .getByRole("dialog", { name: "Cancel this offshift?" })
+      .getByRole("button", { name: "Cancel offshift" })
       .click();
-    await page.getByText("This offset was cancelled.").waitFor();
+    await page.getByText("This offshift was cancelled.").waitFor();
   },
   "deck-stopped": staged(
     'daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");',
     async (page) => {
-      await visit("/offsets/mobile-cold-start", "Mobile cold start under 1s")(page);
-      await page.getByText("The offset can't take its next step.").waitFor();
+      await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
+      await page.getByText("The offshift can't take its next step.").waitFor();
     },
   ),
   // Decks the design's world doesn't hold, staged on the fake conductor.
   "deck-budget": staged(
     'daemon.servicesWire.planning.conductor.stage("budget");',
-    visit("/offsets/settings-sync", "Sync settings across devices"),
+    visit("/offshifts/settings-sync", "Sync settings across devices"),
   ),
   "deck-unresponsive": staged(
     'daemon.servicesWire.planning.conductor.stage("unresponsive");',
-    visit("/offsets/export-threads", "Export threads as Markdown"),
+    visit("/offshifts/export-threads", "Export threads as Markdown"),
   ),
   "deck-plan-review": staged(
     'daemon.servicesWire.planning.conductor.stage("planning");',
     async (page) => {
-      await visit("/offsets/search-ranking", "Rank search results by recency")(page);
+      await visit("/offshifts/search-ranking", "Rank search results by recency")(page);
       await page.getByRole("button", { name: "Review plan" }).click();
-      await page.getByRole("dialog", { name: "The offset's plan" }).waitFor();
+      await page.getByRole("dialog", { name: "The offshift's plan" }).waitFor();
     },
   ),
   // Skills opens on the first catalog entry.
@@ -560,15 +560,15 @@ const screens: Record<string, Setup> = {
     await page.getByRole("main").getByText("Automations unavailable").waitFor();
   }),
   "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
-    await page.goto("/offsets");
+    await page.goto("/offshifts");
     await page
       .getByRole("status", { name: /^Loading/ })
       .first()
       .waitFor();
   }),
   "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
-    await page.goto("/offsets");
-    await page.getByText("Offsets unavailable").waitFor();
+    await page.goto("/offshifts");
+    await page.getByText("Offshifts unavailable").waitFor();
   }),
   "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
     // The thread's first page downloads the browser: the Browser tab shows its progress.

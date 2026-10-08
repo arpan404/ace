@@ -20,7 +20,7 @@ export const NewDeckInput = z.object({
   maxParallel: z.number().int().min(1).max(8),
   fixRounds: z.number().int().min(0).max(5),
   budget: z
-    .number({ error: "Enter how many lane starts the offset may use." })
+    .number({ error: "Enter how many lane starts the offshift may use." })
     .int("Use a whole number of lane starts.")
     .min(1, "Allow at least one lane start.")
     .max(100_000, "Keep the budget under 100,000 lane starts."),

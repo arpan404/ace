@@ -85,7 +85,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   },
   { label: "Thread list", ids: ["home.pin", "home.select", "home.move"] },
   {
-    label: "Offsets",
+    label: "Offshifts",
     ids: ["deckPlan", "deckLanes", "deckApprove", "deckNextCard", "deckPrevCard"],
   },
 ];
@@ -101,7 +101,7 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   composer: "In the composer",
   terminal: "In a terminal",
   activity: "In Activity",
-  deck: "In an offset",
+  deck: "In an offshift",
   notifications: "In notifications",
 };
 

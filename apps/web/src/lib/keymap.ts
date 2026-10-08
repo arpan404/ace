@@ -39,8 +39,8 @@ export const keymap = {
   palette: { keys: "mod+k", label: "Command palette" },
   search: { keys: "shift+mod+k", label: "Search all threads" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },
-  // Deck is called Offset in the UI; the ids keep the code's name until its rename.
-  newDeck: { keys: "shift+mod+n", web: "alt+shift+mod+n", label: "New offset" },
+  // Deck is called Offshift in the UI; the ids keep the code's name until its rename.
+  newDeck: { keys: "shift+mod+n", web: "alt+shift+mod+n", label: "New offshift" },
   addProject: { keys: "shift+mod+o", label: "Add project" },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
@@ -92,7 +92,7 @@ export const keymap = {
   send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
   goHome: { keys: "g h", label: "Go to Home" },
   goActivity: { keys: "g a", label: "Go to Activity" },
-  goDeck: { keys: "g d", label: "Go to Offsets" },
+  goDeck: { keys: "g d", label: "Go to Offshifts" },
   goAutomations: { keys: "g u", label: "Go to Automations" },
   goSkills: { keys: "g s", label: "Go to Skills" },
   // Activity triage (features/activity): plain keys, never inside a text field.
@@ -111,7 +111,7 @@ export const keymap = {
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",
     scope: "home",
   },
-  // An offset (features/deck).
+  // An offshift (features/deck).
   deckPlan: { keys: "g p", label: "Go to the plan", scope: "deck" },
   deckLanes: { keys: "g l", label: "Go to the lanes", scope: "deck" },
   deckApprove: { keys: "mod+enter", label: "Approve the open decision", scope: "deck" },

@@ -4,7 +4,7 @@ import { matchRanges, rankCommand, type RankItem } from "./command-rank.ts";
 const items: RankItem[] = [
   { label: "New thread on main in ace", command: true },
   { label: "New thread", command: true },
-  { label: "New offset", command: true },
+  { label: "New offshift", command: true },
   { label: "Settings", command: true },
   { label: "Network settings audit", extra: "relay · perf/net" },
   { label: "Move settings into the daemon", extra: "ace · settings-move" },

@@ -84,10 +84,10 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
       await show.click();
       await title.waitFor();
       // The sidebar's places sit below the lights.
-      const offsets = page
+      const offshifts = page
         .getByRole("navigation", { name: "App" })
-        .getByRole("link", { name: "Offsets" });
-      expect((await offsets.boundingBox())?.y).toBeGreaterThanOrEqual(28);
+        .getByRole("link", { name: "Offshifts" });
+      expect((await offshifts.boundingBox())?.y).toBeGreaterThanOrEqual(28);
     },
   );
 

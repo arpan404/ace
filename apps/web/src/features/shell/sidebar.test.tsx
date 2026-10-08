@@ -23,7 +23,7 @@ test("the sidebar's places open their views, mark them, and keep the thread list
   await title("New thread");
   // One sidebar: no rail of views beside it.
   expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
-  for (const place of ["Offsets", "Automations", "Skills"]) {
+  for (const place of ["Offshifts", "Automations", "Skills"]) {
     const link = within(appNav()).getByRole("link", { name: place });
     await userEvent.click(link);
     // The view's own list sits beside its column; the sidebar still lists the threads.
@@ -53,8 +53,8 @@ test("Settings is the gear beside the profile, and its pages take the thread lis
   expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
   expect(list("Threads")).toBeNull();
 
-  await userEvent.click(within(appNav()).getByRole("link", { name: "Offsets" }));
-  await title("Offsets");
+  await userEvent.click(within(appNav()).getByRole("link", { name: "Offshifts" }));
+  await title("Offshifts");
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
 });
 
@@ -136,7 +136,7 @@ test("every view's shortcut opens it from anywhere", async () => {
   await harness().open("/new");
   await title("New thread");
   for (const [keys, heading] of [
-    ["gd", "Offsets"],
+    ["gd", "Offshifts"],
     ["gu", "Automations"],
     ["gs", "Skills"],
     ["ga", "Activity"],

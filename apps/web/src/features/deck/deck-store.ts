@@ -43,18 +43,18 @@ export class DeckCommandError extends Error {
 }
 
 const commandErrors: Record<string, string> = {
-  stale_gate: "That decision is out of date. The offset has moved on.",
-  conductor_unavailable: "This daemon's Offsets service isn't running.",
-  conductor_executor_unavailable: "This daemon can't run offsets: its conductor has no executor.",
-  conductor_command_failed: "The daemon couldn't apply that to the offset.",
-  budget_must_increase: "Raise the budget above what the offset has now.",
+  stale_gate: "That decision is out of date. The offshift has moved on.",
+  conductor_unavailable: "This daemon's Offshifts service isn't running.",
+  conductor_executor_unavailable: "This daemon can't run offshifts: its conductor has no executor.",
+  conductor_command_failed: "The daemon couldn't apply that to the offshift.",
+  budget_must_increase: "Raise the budget above what the offshift has now.",
   deadline_must_be_future: "Pick a deadline later than now.",
   merge_not_ready: "That card can't merge yet.",
-  already_exists: "An offset with that id already exists.",
-  not_running: "The offset isn't running.",
-  not_paused: "The offset isn't paused.",
-  finished: "The offset has already finished.",
-  run_limit: "This daemon holds as many offsets as it can. Remove an old one first.",
+  already_exists: "An offshift with that id already exists.",
+  not_running: "The offshift isn't running.",
+  not_paused: "The offshift isn't paused.",
+  finished: "The offshift has already finished.",
+  run_limit: "This daemon holds as many offshifts as it can. Remove an old one first.",
 };
 
 export function deckErrorMessage(code: string): string {

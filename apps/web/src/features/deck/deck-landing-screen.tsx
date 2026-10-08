@@ -17,17 +17,17 @@ export function DeckLandingScreen() {
   if (first)
     return (
       <ViewListPage
-        title="Offsets"
-        fallback={<Navigate to="/offsets/$runId" params={{ runId: first.id }} replace />}
+        title="Offshifts"
+        fallback={<Navigate to="/offshifts/$runId" params={{ runId: first.id }} replace />}
       />
     );
   if (error && !runs.length)
     return (
-      <Screen title="Offsets">
+      <Screen title="Offshifts">
         <EmptyState
           icon={CardsIcon}
-          title="Offsets unavailable"
-          description="Couldn't reach the daemon's Offsets service."
+          title="Offshifts unavailable"
+          description="Couldn't reach the daemon's Offshifts service."
           action={
             <Button size="sm" onClick={retry}>
               Try again
@@ -37,7 +37,7 @@ export function DeckLandingScreen() {
       </Screen>
     );
   return (
-    <Screen title="Offsets">
+    <Screen title="Offshifts">
       {!ready ? (
         <DeckSkeleton />
       ) : (
@@ -45,10 +45,10 @@ export function DeckLandingScreen() {
           icon={CardsIcon}
           heading
           title="Deal a goal to a team of agents"
-          description="An offset plans the work as cards, gives each card a worker and a reviewer, and merges what passes."
+          description="An offshift plans the work as cards, gives each card a worker and a reviewer, and merges what passes."
           action={
-            <Link to="/offsets/new" className={buttonVariants({ variant: "primary" })}>
-              New offset
+            <Link to="/offshifts/new" className={buttonVariants({ variant: "primary" })}>
+              New offshift
             </Link>
           }
         />
@@ -60,11 +60,11 @@ export function DeckLandingScreen() {
 /** ⌘⇧N: a goal and a few policies start a deck. */
 export function NewDeckScreen() {
   return (
-    <Screen title="New offset">
+    <Screen title="New offshift">
       <Page>
         <PageTitle
-          title="New offset"
-          lede="Describe the goal. The offset drafts a plan of cards, gives each card a worker and an adversarial reviewer, and merges what passes."
+          title="New offshift"
+          lede="Describe the goal. The offshift drafts a plan of cards, gives each card a worker and an adversarial reviewer, and merges what passes."
         />
         <NewDeckForm />
       </Page>

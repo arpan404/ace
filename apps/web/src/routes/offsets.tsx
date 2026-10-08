@@ -1,15 +1,12 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { DeckSidebar } from "@/features/deck/index.ts";
-import { ViewFrame } from "@/features/shell/index.ts";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyPath } from "@/lib/legacy-paths.ts";
 
-/**
- * Offsets: multi-agent runs. The UI calls them Offsets; the code still says Deck (`features/deck`,
- * internally @ace/conductor) until the separate code rename lands.
- */
+/** The short-lived `/offsets…` addresses: the feature is called Offshift, at `/offshifts…`. */
 export const Route = createFileRoute("/offsets")({
-  component: () => (
-    <ViewFrame label="Offsets" sidebar={<DeckSidebar />} place="pane">
-      <Outlet />
-    </ViewFrame>
-  ),
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      href: `${legacyPath(location.pathname) ?? "/offshifts"}${location.searchStr}`,
+      replace: true,
+    });
+  },
 });

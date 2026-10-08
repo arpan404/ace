@@ -43,7 +43,7 @@ export function ThreadDeck(props: { threadId: string }) {
   return (
     <section aria-labelledby="agents-deck">
       <h3 id="agents-deck" className="px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground">
-        Offset
+        Offshift
       </h3>
       <Suspense fallback={<Skeleton className="mx-2 my-2 h-4 w-48" />}>
         <DeckOfThread
