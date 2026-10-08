@@ -21,9 +21,15 @@ import { activeView, navViews } from "./views.ts";
 
 const quick =
   "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground";
-/** A row of the sidebar's group: New thread and the places under it. */
+/**
+ * A row of the sidebar's group: New thread and the places under it, as dense as the thread rows.
+ * New thread is an action, not a place: it never wears the current page's fill, even on its own
+ * page, where it is still `aria-current` for assistive tech (`place` styles the views alone).
+ */
 const row =
-  "flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui text-sidebar-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-foreground aria-[current=page]:[&_svg]:text-foreground";
+  "flex h-8 items-center gap-2 rounded-md px-2 text-ui text-sidebar-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
+const place =
+  "aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground aria-[current=page]:[&_svg]:text-foreground";
 
 /** `aria-current` for a link to the place on screen. */
 const page = (here: boolean) => (here ? ("page" as const) : undefined);
@@ -110,7 +116,7 @@ export function AppSidebar(props: {
             {noProjects ? (
               <button
                 type="button"
-                className={cn(row, "w-full font-medium")}
+                className={cn(row, "w-full")}
                 onClick={() => {
                   leaveSheet();
                   props.onAddProject?.();
@@ -121,7 +127,7 @@ export function AppSidebar(props: {
                 <Kbd shortcut="addProject" variant="bare" className="ml-auto" />
               </button>
             ) : (
-              <Link to="/new" className={cn(row, "font-medium")}>
+              <Link to="/new" className={row}>
                 <Icon icon={NotePencilIcon} />
                 New thread
                 <Kbd shortcut="newThread" variant="bare" className="ml-auto" />
@@ -130,7 +136,11 @@ export function AppSidebar(props: {
           </li>
           {navViews.map((view) => (
             <li key={view.id}>
-              <Link to={view.to} aria-current={page(current === view.id)} className={row}>
+              <Link
+                to={view.to}
+                aria-current={page(current === view.id)}
+                className={cn(row, place)}
+              >
                 <Icon icon={view.icon} active={current === view.id} />
                 {view.label}
               </Link>

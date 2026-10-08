@@ -13,14 +13,16 @@ const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   ...patch,
 });
 
-test("Home puts threads that need you first, then moving ones, then trouble, then the rest", () => {
+test("Home puts threads that need you first, then moving ones, then trouble; finished ones rest in Recent", () => {
   const entries = [
     entry("done", { state: "done" }, now - hour),
     entry("failed", { state: "failed" }, now - hour),
     entry("working", { state: "working", agents: 1 }, now - hour),
     entry("asks", { state: "needs_you", interactions: 1 }, now - 2 * hour),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["asks", "working", "failed", "done"]);
+  const order = arrange(entries, state(), now);
+  expect(order.active).toEqual(["asks", "working", "failed"]);
+  expect(order.recent).toEqual(["done"]);
 });
 
 test("a thread held by a provider limit stays with the moving ones, above trouble", () => {
@@ -29,7 +31,7 @@ test("a thread held by a provider limit stays with the moving ones, above troubl
     entry("done", { state: "done" }, now - hour),
     entry("limited", { state: "limited", until: now + hour }, now - 2 * hour),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["limited", "failed", "done"]);
+  expect(arrange(entries, state(), now).active).toEqual(["limited", "failed"]);
 });
 
 test("pinned threads leave Home order for their own, in the place the person gave each", () => {
@@ -69,16 +71,19 @@ test("recency is the last work, so renaming or pinning a thread doesn't move it 
     entry("worked", { state: "done" }, now - 2 * hour, { activityAt: now - 2 * hour }),
     entry("renamed", { state: "done" }, now, { activityAt: now - 5 * hour }),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["worked", "renamed"]);
+  expect(arrange(entries, state(), now).recent).toEqual(["worked", "renamed"]);
 });
 
-test("a snoozed thread sinks below everything until its time passes", () => {
+test("a snoozed thread rests in Recent, below finished ones, until its time passes", () => {
   const entries = [
     entry("asks", { state: "needs_you", interactions: 1 }, now, { snoozedUntil: now + hour }),
     entry("done", { state: "done" }, now),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["done", "asks"]);
-  expect(arrange(entries, state(), now + 2 * hour).active).toEqual(["asks", "done"]);
+  expect(arrange(entries, state(), now)).toMatchObject({ active: [], recent: ["done", "asks"] });
+  expect(arrange(entries, state(), now + 2 * hour)).toMatchObject({
+    active: ["asks"],
+    recent: ["done"],
+  });
 });
 
 test("threads the daemon settled go to Settled, except one that needs you again", () => {
@@ -89,7 +94,8 @@ test("threads the daemon settled go to Settled, except one that needs you again"
   ];
   const result = arrange(entries, state(), now);
   expect(result.settled).toEqual(["settled"]);
-  expect(result.active).toEqual(["asks", "fresh"]);
+  expect(result.active).toEqual(["asks"]);
+  expect(result.recent).toEqual(["fresh"]);
 });
 
 test("archived and deleted threads leave Home and its project counts", () => {
@@ -98,7 +104,7 @@ test("archived and deleted threads leave Home and its project counts", () => {
     entry("archived", { state: "done" }, now, { archivedAt: now }),
     entry("deleted", { state: "done" }, now, { deletedAt: now }),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["kept"]);
+  expect(arrange(entries, state(), now).recent).toEqual(["kept"]);
   expect(projectCounts(entries)).toEqual([{ id: "web", threads: 1 }]);
 });
 
@@ -107,7 +113,7 @@ test("the project filter keeps only that project's threads", () => {
     entry("a", { state: "done" }, now, { workspaceId: "ace" }),
     entry("w", { state: "done" }, now, { workspaceId: "web" }),
   ];
-  expect(arrange(entries, state({ project: "web" }), now).active).toEqual(["w"]);
+  expect(arrange(entries, state({ project: "web" }), now).recent).toEqual(["w"]);
 });
 
 test("finished work is unread until read on any device, and a hand-set mark always is", () => {
