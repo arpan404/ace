@@ -51,7 +51,10 @@ export function countdown(expiresAt: number, now: number): string {
 export function PairDevice() {
   const backend = useSettingsBackend();
   const remote = useRemoteStatus();
-  const reachable = remote.data?.enabled && ["lan", "tailscale"].includes(remote.data.transport);
+  const reachable =
+    !remote.isFetching &&
+    remote.data?.enabled &&
+    ["lan", "tailscale"].includes(remote.data.transport);
   const queries = useQueryClient();
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<Access>("operate");
@@ -96,13 +99,15 @@ export function PairDevice() {
           <DialogTitle>Pair a device</DialogTitle>
           <DialogDescription>
             The link works once and expires after five minutes.{" "}
-            {reachable
-              ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
-              : remote.isError
-                ? "Couldn't check remote access. Reconnect and try again."
-                : !remote.data
-                  ? "Checking remote access…"
-                  : "Turn on LAN or Tailscale access before pairing."}
+            {remote.isFetching
+              ? "Checking remote access…"
+              : reachable
+                ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
+                : remote.isError
+                  ? "Couldn't check remote access. Reconnect and try again."
+                  : !remote.data
+                    ? "Checking remote access…"
+                    : "Turn on LAN or Tailscale access before pairing."}
           </DialogDescription>
         </DialogHeader>
         {paired ? (

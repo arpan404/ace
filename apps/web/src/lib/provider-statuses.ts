@@ -14,7 +14,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useExplicitDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useModelCatalogState } from "@/lib/model-catalog.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useProviderAccountModels } from "@/features/accounts/index.ts";
+import { useProviderAccountModels } from "./account-views.ts";
 import { useProvidersWatch } from "@/lib/provider-readiness.ts";
 
 /** Read runtime discovery rather than inferring authentication from installed adapters. */
@@ -55,11 +55,12 @@ export function useProviderStatuses() {
   return {
     ...query,
     data: loaded
-      ? reconciled?.map(({ status, model }) => ({
-          ...status,
-          state: providerAccountState(model),
-          accounts: model.accounts,
-        }))
+      ? reconciled?.map((entry) =>
+          Object.assign({}, entry.status, {
+            state: providerAccountState(entry.model),
+            accounts: entry.model.accounts,
+          }),
+        )
       : undefined,
   };
 }

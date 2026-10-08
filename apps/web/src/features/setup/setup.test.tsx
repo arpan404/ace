@@ -114,7 +114,7 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 services connected"),
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
   ).toBeTruthy();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
   expect(within(codex).getByText("Signed in · Personal")).toBeTruthy();

@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
@@ -96,8 +97,13 @@ function ProviderRow(props: { entry: ProviderEntry }) {
   const { install, view } = props.entry;
   const name = install.name;
   const { tone, text, problem } = entryStatus(props.entry);
-  // With no page open, a problem says what it is right in the list.
-  const status = <StatusLine tone={tone} text={problem ? `${text} · ${problem}` : text} />;
+  const status = (
+    <Tip label={problem ?? text}>
+      <span>
+        <StatusLine tone={tone} text={text} />
+      </span>
+    </Tip>
+  );
   return (
     <Row
       label={name}

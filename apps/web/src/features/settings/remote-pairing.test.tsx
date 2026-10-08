@@ -62,3 +62,17 @@ test("remote access off explains the missing listener and prevents making an unu
     within(dialog).getByRole<HTMLButtonElement>("button", { name: "Show pairing code" }).disabled,
   ).toBe(true);
 });
+
+test("turning remote access off changes pairing instructions on the same page", async () => {
+  await harness().open("/settings/remote");
+  const toggle = await screen.findByRole("switch", { name: "Remote access", checked: true });
+  await waitFor(() => expect(toggle.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(toggle);
+  await screen.findByRole("switch", { name: "Remote access", checked: false });
+  await userEvent.click(screen.getByRole("button", { name: "Pair" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  expect(await within(dialog).findByText(/Turn on LAN or Tailscale/)).toBeTruthy();
+  expect(
+    within(dialog).getByRole<HTMLButtonElement>("button", { name: "Show pairing code" }).disabled,
+  ).toBe(true);
+});

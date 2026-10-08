@@ -76,6 +76,8 @@ export function useSetting<T>(setting: SettingDef<T>): [T, (value: T) => Promise
   const set = useCallback(
     async (next: T) => {
       await backend.set(key, next);
+      if (key.startsWith("remote."))
+        await queries.invalidateQueries({ queryKey: ["settings", "remote-status"] });
       if (key === "host.displayName")
         await queries.invalidateQueries({ queryKey: ["machines", "identity"] });
     },
@@ -194,6 +196,8 @@ export function useRemoteStatus() {
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
   return useQuery({
     queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
+    enabled: enabled.loaded && transport.loaded && relay.loaded,
+    staleTime: 0,
     queryFn: () => backend.remoteStatus(),
     retry: false,
   });

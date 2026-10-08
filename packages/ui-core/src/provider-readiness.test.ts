@@ -1,6 +1,6 @@
 import type { ProviderStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { readinessView } from "./provider-readiness.ts";
+import { readinessView, catalogSignal } from "./provider-readiness.ts";
 
 const row = (fields: Partial<ProviderStatus>): ProviderStatus => ({
   provider: "codex",
@@ -67,4 +67,33 @@ test("a missing or switched-off provider is quiet and offers no sign-in", () => 
   ]);
   const off = readinessView(row({ enabled: false, readiness: "not_configured" }));
   expect([off.summary, off.primary]).toEqual(["Turned off", undefined]);
+});
+
+test("an expired isolated login does not turn off the default profile's free models", () => {
+  const models = [
+    { provider: "opencode" as const, instance: "default", hidden: false, free: true },
+  ];
+  const instances = [
+    {
+      provider: "opencode" as const,
+      instance: "work",
+      enabled: true,
+      status: "stale" as const,
+      stale: true,
+      refreshing: false,
+      errorDetail: {
+        code: "auth_expired" as const,
+        message: "Work sign-in expired",
+        hint: "Sign in to Work again.",
+      },
+    },
+  ];
+  const normal = catalogSignal(models, instances, "opencode", "default");
+  const normalView = readinessView(row({ provider: "opencode", auth: "logged_out" }), normal);
+  expect([normalView.ready, normalView.primary]).toEqual([true, undefined]);
+  const work = catalogSignal(models, instances, "opencode", "work");
+  expect(readinessView(row({ provider: "opencode", auth: "unknown" }), work)).toMatchObject({
+    ready: false,
+    primary: "sign_in",
+  });
 });
