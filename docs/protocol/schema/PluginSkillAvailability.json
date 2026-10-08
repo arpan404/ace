@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginSkillAvailability.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "plugin": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    }
+  },
+  "required": [
+    "plugin",
+    "name",
+    "enabled",
+    "providers"
+  ],
+  "type": "object"
+}

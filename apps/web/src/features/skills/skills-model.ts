@@ -4,8 +4,9 @@ import {
   type PluginComponent,
   type PluginInstall,
   type PluginOrigin,
+  type PluginSkillAvailability,
 } from "@ace/protocol";
-import { providerNames } from "@ace/ui-core";
+import { humanize, providerNames } from "@ace/ui-core";
 import { z } from "zod";
 
 /*
@@ -14,18 +15,22 @@ import { z } from "zod";
  * on when its plugin is enabled and available to at least one provider.
  */
 
+export const skillsLoadError = "Couldn't load your skills. Check your connection and try again.";
+
 export type SkillKind = PluginComponent["kind"] | "plugin";
 export interface Skill {
   /** Route id: `plugin~kind~name` for a component, `plugin~name` for a plugin. */
   id: string;
   kind: SkillKind;
   name: string;
+  title?: string | undefined;
   description: string;
   /** The plugin that ships it (a plugin's own name for a plugin). */
   plugin: string;
   /** The component's file inside its plugin; undefined for a plugin. */
   path: string | undefined;
   enabled: boolean;
+  skillAvailability?: PluginSkillAvailability | undefined;
   providers: readonly ProviderKind[];
   /** A plugin's pin: what was reviewed and accepted. Undefined for a component. */
   install?: PluginPin | undefined;
@@ -79,22 +84,19 @@ export function componentsOf(skills: readonly Skill[], plugin: string): Skill[] 
   return skills.filter((skill) => skill.plugin === plugin && skill.kind !== "plugin");
 }
 
-/**
- * The catalog as it reads once `plugin` has this availability: the plugin and everything it
- * ships follow it. Used to show a change at once, before the daemon confirms it.
- */
-export function withAvailability(
-  skills: readonly Skill[],
-  plugin: string,
-  next: { enabled: boolean; providers: readonly ProviderKind[] },
-): Skill[] {
-  const enabled = next.enabled && next.providers.length > 0;
-  return skills.map((skill) =>
-    skill.plugin === plugin ? { ...skill, enabled, providers: next.providers } : skill,
-  );
+/** A readable title when the package only supplies a command name. */
+export function skillTitle(skill: Pick<Skill, "name" | "title">): string {
+  if (skill.title) return skill.title;
+  const words = humanize(skill.name);
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** "Version 2.3.0 · pinned b1c2d3e4f5a6 · installed 12 Sep". */
+/** Metadata belongs to the package; the preview shows the instruction body. */
+export function skillMarkdown(text: string): string {
+  return text.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+}
+
+/** The installed version and date, without internal commit identifiers. */
 export function pinText(pin: PluginPin, now: number): string {
   const accepted = new Date(pin.acceptedAt);
   const sameYear = accepted.getFullYear() === new Date(now).getFullYear();
@@ -103,7 +105,7 @@ export function pinText(pin: PluginPin, now: number): string {
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
   });
-  return `Version ${pin.version} · pinned ${pin.commit.slice(0, 12)} · installed ${date}`;
+  return `Version ${pin.version} · installed ${date}`;
 }
 
 /** "getsentry/sentry @ main": a repository as people type it, with its ref. */
@@ -149,10 +151,12 @@ export function skillCatalog(
     id: componentSkillId(component),
     kind: component.kind,
     name: component.name,
+    title: component.title,
     description: component.description,
     plugin: component.plugin,
     path: component.path,
     enabled: component.enabled && component.providers.length > 0,
+    skillAvailability: component.skillAvailability,
     providers: component.providers,
   }));
   return [...shipped, ...plugins];

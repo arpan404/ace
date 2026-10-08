@@ -4,10 +4,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { useInstallDialog } from "./install-plugin.tsx";
-import type { Skill } from "./skills-model.ts";
+import { skillsLoadError, type Skill } from "./skills-model.ts";
 import { catalogOrder } from "./skills-sidebar.tsx";
 import { useSkills } from "./skills-source.ts";
 
@@ -36,7 +35,7 @@ export function SkillsLandingScreen() {
           icon={CubeIcon}
           heading
           title="Skills unavailable"
-          description={describeDaemonError(daemonErrorCode(skills.error))}
+          description={skillsLoadError}
           action={
             <Button size="sm" onClick={() => void skills.refetch()}>
               Try again

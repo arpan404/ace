@@ -76,3 +76,16 @@ No session event or delta path is added. Preparation and verification stream fil
 ## Tests
 
 Public API tests use temporary SQLite databases and real local Git repositories. They cover traversal and oversized input, both import formats, every provider's projected invocation/configuration, command review, version-bound consent, executable-bit preservation, integrity rejection, update/removal cleanup, crash recovery, concurrent lock rejection, and unchanged hashes of synthetic user configuration files. Additional regressions execute harmless local scripts through projected MCP configurations to guard cwd and active-session resource lifetime, preserve native Cursor selectors, isolate rename-only hashes, cover missing commands/agents/rules and invocation byte caps, exercise competing managers during real Git work, and test authenticated daemon installation/restart, device scopes, actual process launch overrides, ACP session requests, shutdown ownership and session cleanup. Wire regressions cover oversized review rejection before persistence, aggregate summaries, legacy review paging and complete large entries. Detached process guards cover stdout and stderr holders on normal exit and timeout, nested private cwd changes, and successful closed-pipe helpers. A separate process test guards sibling-directory preservation. Daemon guards reject retained-group launches before any side effect and exercise a real ignored-pipe child reading projected command content before shutdown. Lifecycle assertions synchronize through real socket closure rather than immediate signal-delivery observations. Injected timeout callbacks synchronize lifecycle tests without time budgets or sleeps. The owner now requires static-only pre-merge verification. Runtime tests, benchmarks and mutation execution are deferred; the behavior guards and mutation cases are retained for merge-time validation. Earlier measurements are historical evidence only. No provider session or recorder is run.
+
+### Per-skill availability
+
+`plugins.skillAvailability` stores a skill's enabled state and provider allowlist,
+identified by plugin and invocation name. The skill and plugin policies intersect
+when preparing a new provider session. Changing a plugin does not overwrite its
+skills' saved choices. Removing the plugin removes those choices. Existing sessions
+keep their immutable projections until they close.
+
+Catalog components expose optional `skillAvailability` for the skill's own policy;
+`enabled` and `providers` remain the effective policy. Optional `title` retains a
+leading human heading from the instruction body, with the invocation name kept
+separately. Clients without a title use a readable form of the invocation name.

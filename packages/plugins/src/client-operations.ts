@@ -1,8 +1,15 @@
 import { readSourcePage, sourcePage } from "./source-page.ts";
+import { body } from "./project-shared.ts";
 import { inlineSource } from "./inline-source.ts";
 import { cp, open, writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { PluginAvailability, PluginName, PluginReview } from "@ace/protocol/plugins";
+import { ProviderKind } from "@ace/protocol";
+import {
+  PluginAvailability,
+  PluginSkillAvailability,
+  PluginName,
+  PluginReview,
+} from "@ace/protocol/plugins";
 import { limits, normalizePath } from "./manifest.ts";
 import { assertNoSymlinks, inspectPackage, readPackageText } from "./files.ts";
 import { importPlugin } from "./import.ts";
@@ -56,10 +63,33 @@ export class PluginClientOperations {
     this.registry.configure(input);
     return input;
   }
+  skillAvailability(plugin: string, name: string): PluginSkillAvailability {
+    return (
+      this.registry.skillAvailability(plugin, name) ?? {
+        plugin,
+        name,
+        enabled: true,
+        providers: ProviderKind.options,
+      }
+    );
+  }
+  async configureSkill(value: PluginSkillAvailability): Promise<PluginSkillAvailability> {
+    const input = PluginSkillAvailability.parse(value);
+    const snapshot = (await this.snapshots()).find((entry) => entry.install.name === input.plugin);
+    if (!snapshot?.manifest.skills.some((skill) => skill.name === input.name))
+      throw new Error("Skill not installed");
+    this.registry.configureSkill(input);
+    return input;
+  }
   selected(provider: import("./types.ts").Provider, snapshots: PluginSnapshot[]): PluginSnapshot[] {
-    return snapshots.filter((snapshot) => {
+    return snapshots.flatMap((snapshot) => {
       const policy = this.availability(snapshot.install.name);
-      return policy.enabled && policy.providers.includes(provider);
+      if (!policy.enabled || !policy.providers.includes(provider)) return [];
+      const skills = snapshot.manifest.skills.filter((skill) => {
+        const own = this.skillAvailability(snapshot.install.name, skill.name);
+        return own.enabled && own.providers.includes(provider);
+      });
+      return [{ ...snapshot, manifest: { ...snapshot.manifest, skills } }];
     });
   }
   async catalog(offset: number, limit: number) {
@@ -75,15 +105,20 @@ export class PluginClientOperations {
         ] as const)
           for (const entry of entries) {
             if (components.length >= limits.files * 4) throw new Error("Catalog component limit");
+            const path =
+              kind === "skill"
+                ? `${normalizePath(entry.path)}/SKILL.md`
+                : normalizePath(entry.path);
+            const title = /^# ([^\r\n]{1,200})(?:\r?\n|$)/
+              .exec(body(snapshot.text[path] ?? "").trimStart())?.[1]
+              ?.trim();
             components.push({
               plugin: snapshot.install.name,
               name: entry.name,
               kind,
-              path:
-                kind === "skill"
-                  ? `${normalizePath(entry.path)}/SKILL.md`
-                  : normalizePath(entry.path),
+              path,
               description: entry.description ?? "",
+              ...(title && title !== entry.name ? { title } : {}),
             });
           }
       this.components = components;
@@ -94,9 +129,14 @@ export class PluginClientOperations {
     const components = this.components.slice(offset, offset + limit).map((entry) => {
       const availability = policies.get(entry.plugin) ?? this.availability(entry.plugin);
       policies.set(entry.plugin, availability);
+      const own =
+        entry.kind === "skill" ? this.skillAvailability(entry.plugin, entry.name) : undefined;
       return Object.assign({}, entry, {
-        enabled: availability.enabled,
-        providers: availability.providers,
+        enabled: availability.enabled && (own?.enabled ?? true),
+        providers: availability.providers.filter(
+          (provider) => !own || own.providers.includes(provider),
+        ),
+        ...(own ? { skillAvailability: own } : {}),
       });
     });
     return {

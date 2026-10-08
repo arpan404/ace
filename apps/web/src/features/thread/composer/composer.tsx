@@ -64,6 +64,8 @@ export function Composer({
   thread: ThreadRef;
   /** Where this device keeps the unsent draft; without one it lives only while mounted. */
   draftKey?: string | undefined;
+  /** A starting message when this draft has no saved text. */
+  initialText?: string | undefined;
   /** Uploaded files outlive a reload only where the daemon keeps them: an existing thread. */
   keepsAttachments?: boolean | undefined;
   /** The agent is busy: an empty composer offers Stop and a message follows up. */
@@ -146,7 +148,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const [restored] = useState(() =>
     props.draftKey ? readDraft(storage, props.draftKey) : undefined,
   );
-  const [text, setText] = useState(restored?.text ?? "");
+  const [text, setText] = useState(restored?.text ?? props.initialText ?? "");
   const [caret, setCaret] = useState(text.length);
   const [dismissed, setDismissed] = useState<number>();
   const [highlight, setActive] = useState({ key: "", index: 0 });
