@@ -11,6 +11,22 @@ import type { ServicesSeed } from "../services-wire.ts";
  */
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
+    history: (["claude", "codex", "opencode"] as const).map((provider, index) => ({
+      id: `relay-${provider}`,
+      instanceId: `${provider}-default`,
+      provider,
+      nativeId: `fixture-${provider}`,
+      cwd: "/Users/dev/relay",
+      title:
+        ["Trace reconnect ordering", "Keep retry delays bounded", "Audit the background runner"][
+          index
+        ] ?? "Saved session",
+      lastActivity: now - (index + 1) * 3_600_000,
+      messageCount: 12,
+      countAccuracy: "exact" as const,
+      support: { status: "supported" as const },
+      continuation: { status: "supported" as const },
+    })),
     decks: deckRuns(now),
     automations: automationList(Math.floor(now / 60_000) * 60_000, timeZone),
     runs: automationRuns(now),

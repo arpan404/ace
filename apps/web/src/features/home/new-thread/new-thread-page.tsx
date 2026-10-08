@@ -1,3 +1,4 @@
+import { PastSessions } from "@/features/history/index.ts";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
@@ -257,6 +258,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             }
           />
           <SignInNotice provider={provider} />
+          <PastSessions projectId={project} />
           {error && (
             <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
               {error}

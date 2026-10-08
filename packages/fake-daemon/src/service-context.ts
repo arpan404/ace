@@ -8,6 +8,7 @@ export interface FakeServiceContext {
     workspaceId: string;
     title: string;
     provider: Thread["provider"];
+    imported?: Thread["imported"];
   }): void;
   apply?(id: string, facts: readonly import("@ace/core").Fact[]): void;
   thread(id: string): ThreadView | undefined;

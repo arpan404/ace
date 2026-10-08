@@ -20,6 +20,7 @@ export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
 type Destination =
   | View["to"]
+  | "/setup"
   | "/new"
   | "/deck/new"
   | "/more/accounts"
@@ -126,6 +127,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
               if (view.shortcut) command.keys = keymap[view.shortcut].keys;
               return command;
             }),
+          { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
           { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/more/accounts") },
           { id: "go-files", label: "Files", icon: "view", run: go("/more/files") },
           { id: "go-search", label: "Search all threads", icon: "view", run: go("/more/search") },

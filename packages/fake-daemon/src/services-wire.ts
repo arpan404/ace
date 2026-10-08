@@ -1,3 +1,4 @@
+import { FakeHistory } from "./history-wire.ts";
 import {
   BrowserClientMessage,
   ServerMessage,
@@ -24,6 +25,7 @@ import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends PlanningSeed {
+  history?: import("@ace/protocol").HistorySession[];
   /** Seed the small PNG fixture for scoped client attachment reads. */
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
@@ -53,6 +55,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  * `FakeServices`; this reads settings through the same store.
  */
 export class FakeServicesWire {
+  readonly history: FakeHistory;
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -64,6 +67,7 @@ export class FakeServicesWire {
   private settings: FakeSettings;
   constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
+    this.history = new FakeHistory(context);
     bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
     this.settings = settings;
@@ -77,6 +81,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.history) this.history.seed(seed.history);
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
@@ -138,6 +143,7 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (this.history.handle(message, emit)) return;
         try {
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
@@ -162,23 +168,6 @@ export class FakeServicesWire {
           }
           if (message.type === "context.request") {
             emit(await this.context.handle(message, device));
-            return;
-          }
-          if (message.type === "history.import" || message.type === "history.continue") {
-            if (message.requestId)
-              for (const phase of ["preparing", "unsupported"] as const)
-                emit({
-                  type: "history.operation.progress",
-                  requestId: message.requestId,
-                  operation: message.type,
-                  phase,
-                });
-            emit({
-              type: message.type,
-              requestId: message.requestId,
-              status: "unsupported",
-              reason: "No native history sessions in this fixture",
-            });
             return;
           }
           if (message.type === "projects.request") {
