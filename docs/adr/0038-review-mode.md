@@ -49,3 +49,26 @@ Test the public package with pure anchor examples, real temporary git repositori
 Regression tests cover saturated duplicate recovery and completion, fresh busy-command retry, cross-repository and incompatible-worktree dispatch, barrier-controlled executor cleanup after worker exit, live Git descendants at shutdown, counter eviction/reload, exact pagination/exhaustion, EOF suggestions and conflicts, deletion/reinsertion across refreshes, and review commands from the shared bundled CLI. Real-process suites join the repository's process-test manifest and inherit its shared harness deadlines.
 
 The repository owner's delivery rule defers all test execution, benchmarks and mutation runs to merge time. Delivery uses formatting, lint, type checking and source-size checks only. Behavioral tests remain required; mutation cases are documented as not executed (tests run at merge). Earlier benchmark measurements are historical, and verification of the final implementation needs run at merge.
+
+## Production executor and session discovery
+
+The daemon now supplies the engine executor and the authoritative WorkspaceRuntime
+thread root. Sending comments admits a person-authored queued turn with the immutable
+review intent, selected file ranges, excerpts and suggestions. A derived command id
+and its receipt commit with queue admission, so executor retries cannot duplicate a
+turn. The executor checks the canonical worktree again before admission. The review
+worker carries only fixed review error codes back to the client.
+Suggestion application also compares the session checkout with the thread's current
+root and refuses an old session after the thread moves to another checkout.
+
+`review.list` accepts an optional `threadId` filter when discovering sessions without
+a session id. SQLite indexes the session's source thread and cursor. The Changes tab
+loads daemon sessions on open/reconnect and preserves local unsent drafts. A session
+with changes requested supplies the sent state; newly discovered comments in an open
+session remain available to send. Retry of an already recorded comment reuses its
+session. Client refresh remains bounded and exposes at most 400 local comment rows.
+
+AI reviewer execution still returns `review_reviewer_unavailable`. Its existing API
+expects completed structured findings, so a queue receipt alone cannot implement it.
+Automatic anchor refresh after a fixing tree settles remains a separate integration;
+explicit `review.refresh` and suggestion application retain the existing contracts.

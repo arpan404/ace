@@ -1,10 +1,12 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { usePhone } from "@/lib/breakpoints.ts";
 import type { ThreadRef } from "../sources/index.ts";
+import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
 import { ActionsSection } from "./work-card-actions.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
-import { ChangesSection, PullRequestsSection } from "./work-card-git.tsx";
+import { ChangesSection } from "./work-card-git.tsx";
+import { PullRequestsSection } from "./work-card-pr.tsx";
 import { OpenInSection } from "./work-card-open-in.tsx";
 import { SourcesSection } from "./work-card-sources.tsx";
 import { Rule } from "./work-card-parts.tsx";
@@ -37,15 +39,16 @@ export function WorkCard(props: {
   onClose(returnFocus: boolean): void;
 }) {
   const git = useGitFlow(props.thread);
+  const checkout = useCheckoutMove(props.thread);
   const close = () => props.onClose(false);
   return (
     <>
       {props.open && (
         <Floating onClose={props.onClose}>
-          <ProjectRow thread={props.thread} onClose={close} />
+          <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
           <ChangesSection thread={props.thread} git={git} onClose={close} />
           <Rule />
-          <PullRequestsSection git={git} onClose={close} />
+          <PullRequestsSection git={git} />
           <Rule />
           <ActionsSection thread={props.thread} onClose={props.onClose} />
           <Rule />
@@ -55,6 +58,7 @@ export function WorkCard(props: {
         </Floating>
       )}
       {git.dialog}
+      {checkout.dialog}
     </>
   );
 }

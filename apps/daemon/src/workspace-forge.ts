@@ -118,11 +118,8 @@ export class WorkspaceForge {
       throw new Error("repository_mismatch");
     if (!allowed()) return { ok: false, error: "forbidden" };
     if (p.type === "forge.pr.create") {
-      const pr = await backend.createPr(id, p.input, this.lifetime.signal);
-      this.links.link({ threadId: id, pr });
-      const status = await backend.status(pr.number, this.lifetime.signal);
-      this.publish(ThreadId.parse(id), status);
-      return { ok: true, pr };
+      const status = await this.ensurePr(ThreadId.parse(id), cwd, p.input, allowed);
+      return { ok: true, pr: status.ref, prStatus: status };
     }
     if (p.type === "forge.pr.link") {
       const status = await backend.status(p.link.pr.number, this.lifetime.signal);
@@ -144,7 +141,9 @@ export class WorkspaceForge {
       await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
     if (p.type === "forge.pr.auto-merge")
       await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-    return { ok: true };
+    const status = await backend.status(p.link.pr.number, this.lifetime.signal);
+    this.publish(ThreadId.parse(id), status);
+    return { ok: true, pr: status.ref, prStatus: status };
   }
   close(): void {
     this.lifetime.abort();

@@ -219,3 +219,35 @@ it("a pending daemon receipt recovers its durable worker result without replayin
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("an isolated review with no authoritative root refuses rather than reading the project checkout", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-review-root-missing-"));
+  const f = await fixture();
+  const review = createDaemonReview(directory, f.store);
+  try {
+    f.store.appendEvents(f.thread.id, [
+      { type: "thread.client.updated", changes: { details: { mode: "worktree" } } },
+    ]);
+    expect(
+      await review.handle(
+        Command.parse({
+          id: "isolated-open",
+          deviceId: "device",
+          payload: {
+            type: "review.open",
+            source: {
+              workspaceId: f.thread.workspaceId,
+              threadId: f.thread.id,
+              from: { kind: "commit", ref: "HEAD" },
+              to: { kind: "working-tree" },
+            },
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: false, error: "review_workspace_not_found" });
+  } finally {
+    await review.close();
+    await f.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -1,25 +1,24 @@
-import { nextGitStep, pullRequestUrl, type Checkout, type CheckoutPr } from "@ace/ui-core";
+import { nextGitStep, type Checkout } from "@ace/ui-core";
 import {
   DotsThreeIcon,
   GitBranchIcon,
   GitCommitIcon,
   GitDiffIcon,
   GitPullRequestIcon,
+  LinkIcon,
   PaperPlaneTiltIcon,
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
-import { openExternal } from "@/boot/open-external.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useThreadDiffStat } from "@/lib/diffs/use-turns.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { useGitFlow } from "./use-git-flow.tsx";
-import { Fade, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
+import { Fade, RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -200,51 +199,15 @@ function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
         >
           Create draft PR…
         </MenuItem>
+        <MenuItem
+          icon={glyph(LinkIcon)}
+          disabled={!!git.linkBlocked || git.pending}
+          reason={git.linkBlocked}
+          onClick={() => git.open("link-pr")}
+        >
+          Link existing PR…
+        </MenuItem>
       </MenuContent>
     </Menu>
-  );
-}
-
-const prState: Record<CheckoutPr["state"], string> = {
-  open: "open",
-  draft: "draft",
-  merged: "merged",
-  closed: "closed",
-};
-
-/** The branch's pull request (the one the daemon linked to this thread), opening on its forge. */
-export function PullRequestsSection(props: { git: GitFlow; onClose(): void }) {
-  const toast = useToast();
-  const checkout = props.git.checkout;
-  const pr = checkout?.pr;
-  const url =
-    pr && (pr.url ?? (checkout.repository && pullRequestUrl(checkout.repository, pr.number)));
-  return (
-    <section aria-labelledby="work-card-prs">
-      <SectionHead id="work-card-prs" title="Pull requests" />
-      {pr ? (
-        <RowButton
-          aria-label={`Open pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prState[pr.state]}`}
-          disabled={!url}
-          onClick={() => {
-            if (!url) return;
-            void openExternal(url).catch(() => toast.error({ title: "Couldn't open the PR" }));
-            props.onClose();
-          }}
-        >
-          <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
-          <Fade>
-            <span className="text-subtle-foreground">#{pr.number}</span>{" "}
-            {pr.title ?? checkout.branch}
-          </Fade>
-          <span className="shrink-0 text-xs text-subtle-foreground">{prState[pr.state]}</span>
-        </RowButton>
-      ) : (
-        <RowNote>
-          <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
-          {checkout ? "None for this branch yet" : "No branch to open one from"}
-        </RowNote>
-      )}
-    </section>
   );
 }

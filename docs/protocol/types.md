@@ -14660,6 +14660,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"review.list"` |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | sessionId | no | string | {"minLength":1,"maxLength":128} |
 | commentId | no | string | {"minLength":1,"maxLength":128} |
 | cursor | no | string | {"default":"","maxLength":128} |
@@ -14669,8 +14670,8 @@ Example:
 
 ```json
 {
+  "commentId": "example",
   "cursor": "example",
-  "limit": 6,
   "type": "review.list"
 }
 ```

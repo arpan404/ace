@@ -1,3 +1,4 @@
+import { Command } from "@ace/protocol";
 import { coldStartReplay, facts } from "@ace/fake-daemon";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -456,4 +457,38 @@ test("Changes shows working-tree hunks from shell edits without provider edit it
   const diff = await within(panel).findByLabelText("Uncommitted diff", {}, { timeout: 5000 });
   expect(diff.textContent).toContain("+QA shell edit");
   expect(within(panel).queryByText("No changes yet")).toBeNull();
+});
+
+test("Changes discovers a review started on another device when the tab opens", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  const remote = (id: string, payload: unknown) =>
+    app.daemon.command(Command.parse({ id, deviceId: "other-device", payload }));
+  const opened = remote("external-open", {
+    type: "review.open",
+    source: {
+      workspaceId: "ace",
+      threadId: "thread-cold-start",
+      from: { kind: "commit", ref: "HEAD" },
+      to: { kind: "working-tree" },
+    },
+  });
+  expect(
+    remote("external-comment", {
+      type: "review.comment",
+      sessionId: opened.review?.session?.id,
+      position: { file: "apps/server/src/replay.ts", side: "new", start: 2, end: 2 },
+      text: "Check this from my other device",
+    }),
+  ).toMatchObject({ ok: true });
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const review = await within(panel).findByRole("region", { name: "Review" });
+  await within(review).findByText("1 comment to send");
+  await userEvent.click(within(review).getByRole("button", { name: "Comments" }));
+  expect(
+    await screen.findByRole("menuitem", { name: /Check this from my other device/ }),
+  ).toBeTruthy();
 });

@@ -1,4 +1,5 @@
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import type { ReviewSession } from "@ace/protocol";
+import { ArrowClockwiseIcon, CheckCircleIcon, ProhibitIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -41,71 +42,103 @@ const groups = [
 ] as const;
 
 /**
- * The thread's review at a glance, under the toolbar while it has comments: how many still need
- * sending, how many the agent has, how many are resolved; Send sends every unsent one at once,
- * Comments lists them all and jumps to one.
+ * The thread's review at a glance, under the toolbar: whether it is approved, how many
+ * comments still need sending, how many the agent has, how many are resolved. Approve and
+ * Request changes act on the review; Send sends every unsent comment at once; Comments lists
+ * them all and jumps to one.
  */
 export function ReviewBar(props: {
   drafts: readonly ReviewDraft[];
+  session: ReviewSession | undefined;
+  onReview(status: "approved" | "changes-requested"): Promise<void>;
   onSend(keys: readonly string[]): void;
   onJump(file: string): void;
   onRefresh(): Promise<void>;
 }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string>();
   const pending = props.drafts.filter(isPending);
-  const anySent = props.drafts.some((draft) => draft.commentId);
-  if (!props.drafts.length) return null;
+  const status = props.session?.status ?? "open";
+  // Changes requested reads from its pressed icon and the comments waiting for the agent.
+  const summary =
+    [status === "approved" && "Approved", reviewSummary(props.drafts)]
+      .filter(Boolean)
+      .join(" · ") || "No comments · pick lines to comment on them";
+  const act = (next: "approved" | "changes-requested") =>
+    void props.onReview(next).then(
+      () => setError(undefined),
+      (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)),
+    );
   return (
     <section
       aria-label="Review"
       className="flex h-9 shrink-0 items-center gap-2 border-b bg-panel pr-2 pl-3.5 text-sm"
     >
       <span role="status" className="min-w-0 flex-1 truncate text-muted-foreground">
-        {reviewSummary(props.drafts)}
+        {error ? <span className="text-status-failed">{error}</span> : summary}
       </span>
       {refreshing && <Spinner label="Checking comments" />}
-      {anySent && (
-        <IconButton
-          icon={ArrowClockwiseIcon}
-          label="Check what the daemon holds for these comments"
-          size="sm"
-          className="size-7"
-          disabled={refreshing}
-          onClick={() => {
-            setRefreshing(true);
-            void props.onRefresh().finally(() => setRefreshing(false));
-          }}
-        />
+      {/* Comments from other devices and agents, and what became of the ones sent. */}
+      <IconButton
+        icon={ArrowClockwiseIcon}
+        label="Check the daemon for comments"
+        size="sm"
+        className="size-7"
+        disabled={refreshing}
+        onClick={() => {
+          setRefreshing(true);
+          void props.onRefresh().finally(() => setRefreshing(false));
+        }}
+      />
+      <IconButton
+        icon={CheckCircleIcon}
+        label={status === "approved" ? "Approved" : "Approve"}
+        size="sm"
+        className="size-7"
+        pressed={status === "approved"}
+        onClick={() => act("approved")}
+      />
+      <IconButton
+        icon={ProhibitIcon}
+        label={
+          pending.length ? "Request changes: send the comments to the agent" : "Request changes"
+        }
+        size="sm"
+        className="size-7"
+        pressed={status === "changes-requested"}
+        onClick={() => act("changes-requested")}
+      />
+      {props.drafts.length > 0 && (
+        <Menu>
+          <MenuTrigger render={<Button size="sm" variant="ghost" />}>Comments</MenuTrigger>
+          <MenuContent
+            align="end"
+            className="max-h-[min(360px,var(--available-height))] w-[340px] overflow-y-auto"
+          >
+            {groups.map((group) => {
+              const entries = props.drafts.filter(group.match);
+              if (!entries.length) return null;
+              return (
+                <MenuGroup key={group.label} aria-label={group.label}>
+                  <MenuLabel>{group.label}</MenuLabel>
+                  {entries.map((draft) => (
+                    <MenuItem
+                      key={draft.key}
+                      onClick={() => props.onJump(draft.file)}
+                      className="h-auto flex-col items-start gap-0 py-1.5"
+                    >
+                      <span className="block w-full truncate font-mono text-xs text-subtle-foreground">
+                        {draft.file}:{draft.line}
+                      </span>
+                      <span className="block w-full truncate">{draft.text}</span>
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+              );
+            })}
+          </MenuContent>
+        </Menu>
       )}
-      <Menu>
-        <MenuTrigger render={<Button size="sm" variant="ghost" />}>Comments</MenuTrigger>
-        <MenuContent
-          align="end"
-          className="max-h-[min(360px,var(--available-height))] w-[340px] overflow-y-auto"
-        >
-          {groups.map((group) => {
-            const entries = props.drafts.filter(group.match);
-            if (!entries.length) return null;
-            return (
-              <MenuGroup key={group.label} aria-label={group.label}>
-                <MenuLabel>{group.label}</MenuLabel>
-                {entries.map((draft) => (
-                  <MenuItem
-                    key={draft.key}
-                    onClick={() => props.onJump(draft.file)}
-                    className="h-auto flex-col items-start gap-0 py-1.5"
-                  >
-                    <span className="block w-full truncate font-mono text-xs text-subtle-foreground">
-                      {draft.file}:{draft.line}
-                    </span>
-                    <span className="block w-full truncate">{draft.text}</span>
-                  </MenuItem>
-                ))}
-              </MenuGroup>
-            );
-          })}
-        </MenuContent>
-      </Menu>
       {pending.length > 0 && (
         <Button
           size="sm"

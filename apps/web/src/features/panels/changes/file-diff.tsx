@@ -1,6 +1,6 @@
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Fragment, lazy, Suspense } from "react";
+import { Fragment, lazy, Suspense, useState, type PointerEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { ReactNode } from "react";
 import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
@@ -25,6 +25,21 @@ export const targetOf = (line: DiffLine): LineTarget | undefined =>
 const sameTarget = (a: LineTarget | undefined, b: LineTarget | undefined) =>
   !!a && !!b && a.side === b.side && a.line === b.line;
 
+/** Lines on one side of a diff, first to last: what a comment is about. */
+export interface LineRange {
+  side: "old" | "new";
+  start: number;
+  end: number;
+}
+export const inRange = (range: LineRange | undefined, target: LineTarget) =>
+  !!range && range.side === target.side && target.line >= range.start && target.line <= range.end;
+/** The protocol's limit on a comment's lines. */
+const maxRange = 100;
+const ordered = (side: LineRange["side"], a: number, b: number): LineRange => {
+  const start = Math.min(a, b);
+  return { side, start, end: Math.min(Math.max(a, b), start + maxRange - 1) };
+};
+
 /** Above this many rows a file mounts only the rows near the viewport. */
 const virtualAbove = 400;
 const rowHeight = 20;
@@ -47,7 +62,8 @@ export const fileHeight = (file: FileDiff, view: FileView) =>
 /**
  * One changed file: a sticky header that collapses it, then its lines in unified or split
  * layout. Unchanged runs fold; folds with known lines expand on click. `renderAnnotation` renders
- * the comment UI under a line; `onComment` starts one.
+ * the comment UI under a line; `onComment` starts one on the lines picked: a line's +, a drag
+ * from it across more lines, or a shift-click extending the comment being written.
  */
 export function FileDiffBlock(props: {
   id?: string;
@@ -58,7 +74,9 @@ export function FileDiffBlock(props: {
   wrap: boolean;
   highlighted(target: LineTarget): boolean;
   renderAnnotation(target: LineTarget): ReactNode;
-  onComment(target: LineTarget): void;
+  onComment(range: LineRange): void;
+  /** The lines of the comment being written here, which a shift-click extends. */
+  selection?: LineRange | undefined;
   /** Marked viewed at this version of the diff: the path dims. */
   viewed?: boolean;
   /** The header's trailing controls (Viewed, file actions). */
@@ -66,12 +84,46 @@ export function FileDiffBlock(props: {
 }) {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
+  const [drag, setDrag] = useState<LineRange>();
   const renderer = useDiffRenderer(file.rows.length);
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
     row.kind === "fold" && expanded.has(index) && row.lines ? row.lines : [row],
   );
   const indexOf = new Map(file.rows.map((row, index) => [row, index]));
+  // A drag from a line's + across more lines picks them; the comment opens on release.
+  const startPick = (target: LineTarget, event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const from =
+      event.shiftKey && props.selection?.side === target.side ? props.selection.start : target.line;
+    let range = ordered(target.side, from, target.line);
+    setDrag(range);
+    const move = (over: globalThis.PointerEvent) => {
+      const line =
+        over.target instanceof Element
+          ? over.target.closest<HTMLElement>(`[data-side="${target.side}"][data-line]`)?.dataset
+              .line
+          : undefined;
+      if (line === undefined) return;
+      range = ordered(target.side, from, Number(line));
+      setDrag(range);
+    };
+    const end = () => {
+      window.removeEventListener("pointerover", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setDrag(undefined);
+      props.onComment(range);
+    };
+    window.addEventListener("pointerover", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  };
+  const picking = {
+    highlighted: (target: LineTarget) => inRange(drag, target) || props.highlighted(target),
+    onPick: startPick,
+  };
   const expand = (row: DiffRow) => {
     const index = indexOf.get(row);
     if (index !== undefined) onView({ ...view, expanded: new Set(expanded).add(index) });
@@ -128,9 +180,9 @@ export function FileDiffBlock(props: {
           )}
         >
           {props.mode === "unified" ? (
-            <Unified rows={rows} expand={expand} {...props} />
+            <Unified rows={rows} expand={expand} {...props} {...picking} />
           ) : (
-            <Split rows={rows} expand={expand} {...props} />
+            <Split rows={rows} expand={expand} {...props} {...picking} />
           )}
         </div>
       )}
@@ -141,6 +193,7 @@ export function FileDiffBlock(props: {
 type RowsProps = Parameters<typeof FileDiffBlock>[0] & {
   rows: DiffRow[];
   expand(row: DiffRow): void;
+  onPick(target: LineTarget, event: PointerEvent<HTMLButtonElement>): void;
 };
 
 /** Data keys for rows: a row's line numbers, plus an occurrence count where patches repeat. */
@@ -193,7 +246,7 @@ function Unified(props: RowsProps) {
             >
               <Gutter line={row} value={row.old} />
               <Gutter line={row} value={row.new} />
-              <Code line={row} target={target} onComment={props.onComment} />
+              <Code line={row} target={target} onComment={props.onComment} onPick={props.onPick} />
             </div>
             {target && props.renderAnnotation(target)}
           </>
@@ -249,7 +302,12 @@ function SplitRowView(props: RowsProps & { pair: SplitRow }) {
               {line && (
                 <>
                   <Gutter line={line} value={number} />
-                  <Code line={line} target={target} onComment={props.onComment} />
+                  <Code
+                    line={line}
+                    target={target}
+                    onComment={props.onComment}
+                    onPick={props.onPick}
+                  />
                 </>
               )}
             </div>
@@ -288,19 +346,25 @@ function Gutter(props: { line: DiffLine; value: number | undefined }) {
 function Code(props: {
   line: DiffLine;
   target: LineTarget | undefined;
-  onComment(target: LineTarget): void;
+  onComment(range: LineRange): void;
+  onPick(target: LineTarget, event: PointerEvent<HTMLButtonElement>): void;
 }) {
   const { target } = props;
   const sign = props.line.kind === "add" ? "+" : props.line.kind === "del" ? "−" : " ";
   return (
-    <span className="relative min-w-0 pl-3">
+    <span className="relative min-w-0 pl-3" data-side={target?.side} data-line={target?.line}>
       <span className="sr-only">{sign}</span>
       {props.line.text || " "}
       {target && (
         <button
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
-          onClick={() => props.onComment(target)}
+          onPointerDown={(event) => props.onPick(target, event)}
+          // A pointer picks on release (above); a key press comments on this line alone.
+          onClick={(event) => {
+            if (event.detail === 0)
+              props.onComment({ side: target.side, start: target.line, end: target.line });
+          }}
           className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />

@@ -1,7 +1,7 @@
 import { ForgePrStatus } from "@ace/protocol";
 
 const minute = 60_000;
-const repository = { forge: "github", host: "github.com", owner: "arpan404", name: "ace" } as const;
+const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 const iso = (at: number) => new Date(Math.max(0, at)).toISOString();
 
 function pr(
@@ -45,7 +45,7 @@ const check = (name: string, status: "success" | "failure", completedAt: number)
 export function pullRequests(now: number): Record<string, ForgePrStatus> {
   return {
     "thread-pdf-locale": pr(74, "Invoice PDF locale fallback", {
-      repository: { forge: "github", host: "github.com", owner: "arpan404", name: "billing-api" },
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "billing-api" },
       ci: "failure",
       checks: [
         check("lint", "success", now - 28 * minute),
@@ -54,15 +54,15 @@ export function pullRequests(now: number): Record<string, ForgePrStatus> {
       ],
     }),
     "thread-install-page": pr(31, "Rewrite the install page for the daemon", {
-      repository: { forge: "github", host: "github.com", owner: "arpan404", name: "docs-site" },
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "docs-site" },
       comments: [
         {
-          kind: "review",
+          kind: "inline",
           id: 1,
           body: "@you Which port does the daemon default to in docker?",
           author: "mira",
-          file: null,
-          line: null,
+          file: "docs/install.md",
+          line: 12,
           updatedAt: iso(now - 31 * minute),
           replyTo: null,
         },

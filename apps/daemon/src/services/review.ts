@@ -1,9 +1,18 @@
+import { engineReviewExecutor } from "../review-executor.ts";
 import { createDaemonReview } from "../review.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startReview(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services } = context;
 
-  const review = createDaemonReview(config.dataDir, store, options.review ?? {});
+  const workspace = services.workspaceActions;
+  const engine = services.engine;
+  const review = createDaemonReview(config.dataDir, store, {
+    ...(workspace ? { threadWorktree: (id) => workspace.root(id) } : {}),
+    ...(workspace && engine
+      ? { executor: engineReviewExecutor(store, engine, (id) => workspace.root(id)) }
+      : {}),
+    ...options.review,
+  });
   resources.own(() => review.close());
   services.review = review;
 }
