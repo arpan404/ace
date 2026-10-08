@@ -320,6 +320,12 @@ export class FakeBrowser {
     if (entry?.view?.controller === "agent" && entry.page === "pair") this.paint(entry, typed);
   }
   /** Scripting: the preview gateway detected a dev server for this thread. */
+  /** Set, the daemon refuses forwarding and sign-in links with this code (tests, scenarios). */
+  previewRefusal: string | undefined;
+  /** Refuse forwarding and sign-in links with `code` from now on, or accept them again. */
+  refusePreviews(code: string | undefined): void {
+    this.previewRefusal = code;
+  }
   serve(threadId: string, server: PreviewServer): void {
     const entry = this.entry(threadId);
     if (entry.servers.length >= 64 && !entry.servers.some((s) => s.port === server.port))

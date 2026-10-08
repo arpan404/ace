@@ -12368,6 +12368,38 @@ Example:
 }
 ```
 
+## PreviewErrorCode
+
+[JSON Schema](schema/PreviewErrorCode.json), input validation.
+
+Type: ["forbidden","preview_unavailable","preview_not_found","preview_owned_by_another_thread","preview_limit","preview_link_refused","preview_refused"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"preview_unavailable"
+```
+
+## PreviewGatewayStatus
+
+[JSON Schema](schema/PreviewGatewayStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ace-preview.status"` |  |
+| status | yes | integer | {"minimum":400,"maximum":599} |
+| reason | yes | [PreviewRefusal.json](schema/PreviewRefusal.json) |  |
+
+Example:
+
+```json
+{
+  "reason": "link_invalid",
+  "status": 403,
+  "type": "ace-preview.status"
+}
+```
+
 ## PreviewLaunch
 
 [JSON Schema](schema/PreviewLaunch.json), input validation.
@@ -12411,6 +12443,24 @@ Example:
 }
 ```
 
+## PreviewLink
+
+[JSON Schema](schema/PreviewLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":4096,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| sessionMs | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "sessionMs": 4,
+  "url": "https://example.invalid/"
+}
+```
+
 ## PreviewPort
 
 [JSON Schema](schema/PreviewPort.json), input validation.
@@ -12420,7 +12470,19 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-4
+1
+```
+
+## PreviewRefusal
+
+[JSON Schema](schema/PreviewRefusal.json), input validation.
+
+Type: ["signed_out","session_expired","link_invalid","not_previewed","upstream_unavailable"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"session_expired"
 ```
 
 ## PreviewRequest
@@ -12432,15 +12494,14 @@ Example:
 | type | yes | `"preview.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"forward"},"port":{"$ref":"https://ace.local/protocol/v1/PreviewPort.json"}},"required":["op","port"]},{"type":"object","properties":{"op":{"type":"string","const":"unforward"},"port":{"$ref":"https://ace.local/protocol/v1/PreviewPort.json"}},"required":["op","port"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"forward"},"port":{"$ref":"https://ace.local/protocol/v1/PreviewPort.json"}},"required":["op","port"]},{"type":"object","properties":{"op":{"type":"string","const":"unforward"},"port":{"$ref":"https://ace.local/protocol/v1/PreviewPort.json"}},"required":["op","port"]},{"type":"object","properties":{"op":{"type":"string","const":"link"},"port":{"$ref":"https://ace.local/protocol/v1/PreviewPort.json"}},"required":["op","port"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "forward",
-    "port": 5
+    "op": "list"
   },
   "requestId": "example",
   "threadId": "example",
@@ -12459,12 +12520,12 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":128} |
 | previews | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/PreviewDescriptor.json"}} |
+| link | no | [PreviewLink.json](schema/PreviewLink.json) |  |
 
 Example:
 
 ```json
 {
-  "error": "example",
   "ok": true,
   "previews": [],
   "requestId": "example",
@@ -12503,7 +12564,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"https://example.invalid/repo.git"
+"ssh://git@example.invalid/repo.git"
 ```
 
 ## ProjectCommand
@@ -12522,6 +12583,7 @@ Example:
 
 ```json
 {
+  "name": "}#",
   "path": "example",
   "type": "workspace.add"
 }
@@ -12541,7 +12603,7 @@ Example:
 
 ```json
 {
-  "name": "(|'--,",
+  "name": ".'{$+(|'--,",
   "parent": "example",
   "type": "workspace.create"
 }

@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import { connect as connectSocket } from "node:net";
 import { loopbackConnection } from "./loopback.ts";
 import { requestHeaders, responseHeaders } from "./headers.ts";
+import { refuse } from "./refusal.ts";
 
 export type Target = { port: number; origin: string; connect?: () => Duplex };
 function forwardingAgent(target: Target): Agent {
@@ -47,13 +48,7 @@ export function forwardHttp(
   });
   req.once("aborted", () => upstream.destroy());
   req.once("error", () => upstream.destroy());
-  upstream.once("error", () => {
-    if (res.headersSent) res.destroy();
-    else {
-      res.writeHead(502);
-      res.end("Preview upstream unavailable");
-    }
-  });
+  upstream.once("error", () => refuse(req, res, 502, "upstream_unavailable"));
   upstream.once("response", (response) => {
     responseBody = response;
     res.writeHead(

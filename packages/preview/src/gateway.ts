@@ -4,9 +4,10 @@ import { createServer as createHttpsServer, type ServerOptions } from "node:http
 import type { Socket } from "node:net";
 import { z } from "zod";
 import { PreviewPort } from "@ace/protocol/preview";
-import { createPreviewAuth, type DeviceAuthority } from "./auth.ts";
-import { cookieValue, httpCookieName, httpsCookieName } from "./headers.ts";
+import { createPreviewAuth, previewSessionMs, type DeviceAuthority } from "./auth.ts";
+import { cookieValue, sessionCookieNames, sessionCookies } from "./headers.ts";
 import { forwardHttp, forwardUpgrade, type Track } from "./forward.ts";
+import { refuse } from "./refusal.ts";
 
 const Hostname = z
   .string()
@@ -50,7 +51,7 @@ export async function createPreviewGateway(options: GatewayOptions) {
     .max(4096)
     .parse(options.limits?.links ?? 512);
   const protocol = options.tls ? "https" : "http";
-  const cookieName = options.tls ? httpsCookieName : httpCookieName;
+  const cookieNames = sessionCookieNames(options.tls !== undefined);
   const auth = createPreviewAuth({
     secret: randomBytes(32),
     now: options.now ?? Date.now,
@@ -89,6 +90,18 @@ export async function createPreviewGateway(options: GatewayOptions) {
       return () => entry.active.delete(cancel);
     };
   const valid = (entry: Registration) => !closed && byPort.get(entry.port) === entry;
+  /** The device behind either session cookie; `present` tells signed-out from expired. */
+  const session = async (req: IncomingMessage, entry: Registration) => {
+    let present = false;
+    for (const name of cookieNames) {
+      const value = cookieValue(req.headers.cookie, name);
+      if (!value) continue;
+      present = true;
+      const device = await auth.authenticate(value, entry.host);
+      if (device) return { device, present };
+    }
+    return { device: undefined, present };
+  };
   server.on("request", (req, res) => {
     if (activeRequests >= maxConnections) {
       res.writeHead(503);
@@ -102,45 +115,37 @@ export async function createPreviewGateway(options: GatewayOptions) {
     const generation = revocationGeneration;
     void (async () => {
       const entry = lookup(req);
-      if (!entry) {
-        res.writeHead(403);
-        res.end();
-        return;
-      }
+      if (!entry) return refuse(req, res, 403, "not_previewed");
       const url = new URL(req.url ?? "/", entry.origin);
       if (url.pathname === "/.ace-preview/login") {
-        const session =
+        const redeemed =
           req.method === "GET"
             ? await auth.redeem(url.searchParams.get("token") ?? "", entry.host)
             : undefined;
-        if (!session || !valid(entry) || generation !== revocationGeneration) {
-          res.writeHead(401);
-          res.end();
-          return;
-        }
-        res.writeHead(303, {
-          location: "/",
-          "set-cookie": `${cookieName}=${session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${options.tls ? "; Secure" : ""}`,
+        if (!redeemed || !valid(entry) || generation !== revocationGeneration)
+          return refuse(req, res, 401, "link_invalid");
+        const headers = {
+          "set-cookie": sessionCookies(
+            redeemed,
+            options.tls !== undefined,
+            previewSessionMs / 1000,
+          ),
           "cache-control": "no-store",
           "referrer-policy": "no-referrer",
-        });
+        };
+        // A page renewing its session in the background (a fetch, not a navigation) only needs
+        // the cookies; redirecting it would load the app's page for nothing.
+        const fetched =
+          req.headers["sec-fetch-mode"] && req.headers["sec-fetch-mode"] !== "navigate";
+        res.writeHead(fetched ? 204 : 303, fetched ? headers : { ...headers, location: "/" });
         res.end();
         return;
       }
-      const device = await auth.authenticate(
-        cookieValue(req.headers.cookie, cookieName),
-        entry.host,
-      );
-      if (!device || !valid(entry) || generation !== revocationGeneration) {
-        res.writeHead(401);
-        res.end();
-        return;
-      }
+      const { device, present } = await session(req, entry);
+      if (!device || !valid(entry) || generation !== revocationGeneration)
+        return refuse(req, res, 401, present || device ? "session_expired" : "signed_out");
       if (!res.destroyed) forwardHttp(req, res, entry, trackFor(entry, device));
-    })().catch(() => {
-      if (!res.headersSent) res.writeHead(403);
-      res.end();
-    });
+    })().catch(() => refuse(req, res, 403, "not_previewed"));
   });
   server.on("upgrade", (req, socket, head) => {
     socket.pause();
@@ -159,10 +164,7 @@ export async function createPreviewGateway(options: GatewayOptions) {
         socket.destroy();
         return;
       }
-      const device = await auth.authenticate(
-        cookieValue(req.headers.cookie, cookieName),
-        entry.host,
-      );
+      const { device } = await session(req, entry);
       if (!device || !valid(entry) || generation !== revocationGeneration) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
@@ -191,8 +193,19 @@ export async function createPreviewGateway(options: GatewayOptions) {
     for (const cancel of entry.active.keys()) cancel();
     entry.active.clear();
   };
+  const link = async (port: number, mint: (host: string) => Promise<string>) => {
+    const entry = byPort.get(PreviewPort.parse(port));
+    if (!entry || closed) throw new Error("Preview is not registered");
+    const generation = revocationGeneration;
+    const token = await mint(entry.host);
+    if (!valid(entry) || generation !== revocationGeneration)
+      throw new Error("Preview is no longer registered");
+    return `${entry.origin}/.ace-preview/login?token=${encodeURIComponent(token)}`;
+  };
   return {
     port: authorityPort,
+    /** How long a redeemed sign-in lasts. */
+    sessionMs: previewSessionMs,
     register(input: { port: number }) {
       if (closed) throw new Error("Preview gateway closed");
       const port = PreviewPort.parse(input.port);
@@ -214,14 +227,16 @@ export async function createPreviewGateway(options: GatewayOptions) {
       return entry.origin;
     },
     unregister,
-    async mintLink(input: { port: number; deviceToken: string }) {
-      const entry = byPort.get(PreviewPort.parse(input.port));
-      if (!entry || closed) throw new Error("Preview is not registered");
-      const generation = revocationGeneration;
-      const token = await auth.mint(entry.host, input.deviceToken);
-      if (!valid(entry) || generation !== revocationGeneration)
-        throw new Error("Preview is no longer registered");
-      return `${entry.origin}/.ace-preview/login?token=${encodeURIComponent(token)}`;
+    /** A sign-in link for the holder of a device token the authority accepts. */
+    mintLink(input: { port: number; deviceToken: string }) {
+      return link(input.port, (host) => auth.mint(host, input.deviceToken));
+    },
+    /**
+     * A sign-in link for a device identity the owner authenticated another way (an
+     * authorized daemon connection). The authority still vets it here and on every request.
+     */
+    mintDeviceLink(input: { port: number; device: string }) {
+      return link(input.port, (host) => auth.mintFor(host, input.device));
     },
     revokeDevice(deviceId: string) {
       revocationGeneration++;

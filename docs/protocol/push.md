@@ -520,6 +520,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":128} |
 | previews | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/PreviewDescriptor.json"}} |
+| link | no | [PreviewLink.json](schema/PreviewLink.json) |  |
 
 Example:
 
@@ -549,9 +550,9 @@ Example:
 ```json
 {
   "automations": [],
+  "error": "example",
   "ok": false,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -571,7 +572,7 @@ Example:
   "cursor": {
     "before": 6,
     "read": [],
-    "revision": 6,
+    "revision": 1,
     "unread": []
   },
   "requestId": "example",
@@ -591,9 +592,9 @@ Example:
 ```json
 {
   "cursor": {
-    "before": 1,
+    "before": 8,
     "read": [],
-    "revision": 8,
+    "revision": 6,
     "unread": []
   },
   "type": "activity.reads.changed"
@@ -616,9 +617,9 @@ Example:
     "messages": [],
     "next": "example",
     "paused": true,
-    "reason": "snooze",
+    "reason": null,
     "resumeAt": null,
-    "revision": 6,
+    "revision": 1,
     "threadId": "example",
     "total": 3
   },
