@@ -15,6 +15,7 @@ import {
   catchUpView,
   formatAgo,
   formatCount,
+  pluralCount,
   threadStatusLabel,
   whyNotDone,
 } from "@ace/ui-core";
@@ -29,6 +30,9 @@ import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { CatchUp } from "./catch-up.ts";
+import { Prose } from "@/components/markdown/prose.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { DigestFacts } from "./digest-facts.tsx";
 
 /** Pending requests listed with their answers in the card; the live footer holds the rest. */
@@ -36,6 +40,7 @@ const listedRequests = 3;
 
 function readWhy(reader: ThreadReader) {
   return {
+    status: reader.thread?.status,
     rootAgentId: reader.thread?.rootAgentId,
     agents: reader.agentIds().flatMap((id) => {
       const agent = reader.agent(id);
@@ -65,15 +70,22 @@ export function CatchUpCard(props: {
 }) {
   const { digest, sinceAt } = props.catchUp;
   const view = catchUpView(digest);
+  const facts = view.facts.filter((fact) => fact.kind !== "subagents");
   const now = useNow();
   const client = useClient();
   const toast = useToast();
   const workspace = useWorkspaceActions(props.threadId);
-  const status = threadStatusLabel(digest.status);
   const live = useThread(props.threadId, ["thread", "agents", "tasks"], readWhy);
+  const currentStatus = live?.status ?? digest.status;
+  const status = threadStatusLabel(currentStatus);
+  const freshness = useThreadLiveState(props.threadId);
+  const children = live?.agents.filter((agent) => agent.id !== live.rootAgentId) ?? [];
+  const finished = children.filter((agent) =>
+    ["idle", "interrupted", "failed"].includes(agent.status.state),
+  ).length;
   const pending = useInteractions(props.threadId) ?? [];
   const why = whyNotDone({
-    status: digest.status,
+    status: currentStatus,
     rootAgentId: live?.rootAgentId,
     agents: live?.agents ?? [],
     tasks: live?.tasks ?? [],
@@ -104,11 +116,10 @@ export function CatchUpCard(props: {
   return (
     <section
       aria-label="While you were away"
-      style={{ pointerEvents: "auto" }}
       className={cn(
-        "glass fx-rise-in flex w-[min(620px,calc(100vw-2rem))] flex-col gap-2.5 rounded-lg p-3.5 shadow-[var(--glass-shadow)]",
-        // Opened on a phone, the card scrolls inside itself past half the screen.
-        phone && "max-h-[50dvh] overflow-y-auto overscroll-contain py-2.5",
+        "flex w-full max-w-[700px] flex-col gap-2 border-b border-border py-2 text-ui",
+        // Keep the transcript visible while reading an expanded summary.
+        "max-h-[35dvh] overflow-y-auto overscroll-contain",
       )}
     >
       <header className="flex min-w-0 items-center gap-2">
@@ -162,24 +173,24 @@ export function CatchUpCard(props: {
         <IconButton icon={XIcon} label="Dismiss" size="sm" onClick={props.onDismiss} />
       </header>
       <p className="flex items-start gap-2 text-ui">
-        {status.tone === "needs-you" || status.tone === "failed" ? (
-          <Dot tone={status.tone} className="mt-[7px]" />
-        ) : null}
-        <span className={cn(!open && "line-clamp-1")}>
-          <span className="font-medium text-foreground">{status.label}</span>
-          <span className="text-muted-foreground"> · {why.body}</span>
-        </span>
+        <StatusLabel
+          tone={freshness.fresh ? status.tone : "waiting"}
+          label={freshness.staleLabel ?? status.label}
+        />
+        {freshness.fresh && (
+          <span className={cn("text-muted-foreground", !open && "line-clamp-1")}>{why.body}</span>
+        )}
       </p>
       {open && (
         <div id={body} className="flex flex-col gap-2.5">
           <p className="flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
             <span className="shrink-0 text-foreground">{view.headline}</span>
-            {view.facts.length > 0 && (
+            {facts.length > 0 && (
               <span aria-hidden className="text-subtle-foreground">
                 ·
               </span>
             )}
-            <DigestFacts facts={view.facts} />
+            <DigestFacts facts={facts} />
           </p>
           {view.files.length > 0 && (
             <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -197,9 +208,16 @@ export function CatchUpCard(props: {
               </Button>
             </div>
           )}
-          {(view.commandLine || view.subagentLine) && (
+          {(view.commandLine || children.length > 0) && (
             <p className="text-xs text-muted-foreground">
-              {[view.commandLine, view.subagentLine].filter(Boolean).join(" · ")}
+              {[
+                view.commandLine,
+                children.length
+                  ? `${formatCount(finished)} of ${pluralCount(children.length, "subagent")} finished`
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           )}
           {view.failedCommands.length > 0 && (
@@ -235,10 +253,10 @@ export function CatchUpCard(props: {
             </ul>
           )}
           {view.latestMessage && (
-            <p className="line-clamp-2 border-t border-border pt-2.5 text-ui text-muted-foreground">
+            <div className="line-clamp-2 border-t border-border pt-2.5 text-ui text-muted-foreground">
               <span className="text-subtle-foreground">Latest: </span>
-              {view.latestMessage}
-            </p>
+              <Prose text={view.latestMessage} className="inline [&_p]:inline" />
+            </div>
           )}
           {!digest.ready && (
             <p className="text-xs text-subtle-foreground">

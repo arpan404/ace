@@ -1,7 +1,16 @@
-import { useThreadError, useThreadMeta } from "@ace/client-react";
+import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import { ListBulletsIcon } from "@phosphor-icons/react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import {
+  lazy,
+  Suspense,
+  use,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
@@ -52,6 +61,7 @@ import {
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
+import { DeferredRequestStack } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
 import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
@@ -112,7 +122,15 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
   if (isPendingThread(props.threadId)) return <PendingThread threadId={props.threadId} />;
   return (
     <ThreadNavProvider threadId={props.threadId}>
-      <ThreadScreen threadId={props.threadId} target={props.target} />
+      <Suspense
+        fallback={
+          <Screen title="Loading thread…">
+            <TranscriptSkeleton />
+          </Screen>
+        }
+      >
+        <ThreadScreen threadId={props.threadId} target={props.target} />
+      </Suspense>
     </ThreadNavProvider>
   );
 }
@@ -120,6 +138,9 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
+  const requests = useInteractions(props.threadId);
+  // Requests are part of opening the thread, never deferred until browser idle time.
+  if (requests?.length) use(DeferredRequestStack.preload());
   const error = useThreadError(props.threadId);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);

@@ -1,6 +1,6 @@
 import { catchUpSummaryRequest } from "@ace/ui-core";
-import { multiDayDemo } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { dedupeReconnect, multiDayDemo } from "@ace/fake-daemon";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -88,7 +88,7 @@ test("a thread with nothing new since the last read shows no catch-up", async ()
   await app.open(`/t/${threadId}`);
   await screen.findByRole("feed", { name: "Transcript" });
   // Give the card's reads time to settle before asserting it stays away.
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await app.client.threadReadState({ threadId });
   expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
 });
 
@@ -148,4 +148,22 @@ test("on a phone the card opens folded to its status, keeping the transcript in 
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(card.textContent).toContain("Latest: Checkpoint 6 completed.");
   expect(within(card).getByRole("button", { name: "Summarise" })).toBeTruthy();
+});
+
+test("the away summary renders Markdown and follows the same live tree as the thread header", async () => {
+  const app = harness();
+  app.play(dedupeReconnect()).runThrough("follow-up");
+  app.daemon.markReadThrough("thread-dedupe", "relay", "test-device");
+  await app.open("/t/thread-dedupe");
+  const card = await screen.findByRole("region", { name: "While you were away" });
+  expect(card.textContent).toContain("0 of 2 subagents finished");
+  expect(card.textContent).toContain("reconnect-audit");
+  expect(card.textContent).not.toContain("**reconnect-audit**");
+  expect(card.textContent).not.toContain("`seq: 0`");
+  act(() =>
+    app.daemon.apply("thread-dedupe", [
+      { type: "turn.ended", agent: "audit", outcome: "completed" },
+    ]),
+  );
+  await waitFor(() => expect(card.textContent).toContain("1 of 2 subagents finished"));
 });

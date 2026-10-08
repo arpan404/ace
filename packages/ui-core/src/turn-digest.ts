@@ -1,5 +1,6 @@
 import type { TurnDigest, TurnSummary } from "@ace/protocol";
 import { formatSpan } from "./time.ts";
+import { formatCount, pluralCount } from "./counts.ts";
 
 /*
  * How a turn's digest (ADR 0062) reads in one line: the timeline, collapsed turns and the
@@ -25,12 +26,6 @@ export interface DigestFact {
   added?: number;
   removed?: number;
 }
-
-const grouped = new Intl.NumberFormat("en-US");
-/** "1,204": counts in lists read at a glance. */
-export const formatCount = (n: number): string => grouped.format(n);
-const counted = (n: number, one: string, many = `${one}s`) =>
-  `${formatCount(n)} ${n === 1 ? one : many}`;
 
 /** Every tool call of the turn, of any kind. */
 export function toolTotal(digest: TurnDigest): number {
@@ -58,11 +53,11 @@ export function digestLines(digest: TurnDigest): { added: number; removed: numbe
 export function digestFacts(digest: TurnDigest): DigestFact[] {
   const facts: DigestFact[] = [];
   const tools = toolTotal(digest);
-  if (tools) facts.push({ kind: "tools", text: counted(tools, "step") });
+  if (tools) facts.push({ kind: "tools", text: pluralCount(tools, "step") });
   if (digest.files.length) {
     // A digest lists at most 64 files and says when it left some out.
     const files = digest.truncated && digest.files.length >= 64 ? "64+ files" : null;
-    facts.push({ kind: "files", text: files ?? counted(digest.files.length, "file") });
+    facts.push({ kind: "files", text: files ?? pluralCount(digest.files.length, "file") });
     const lines = digestLines(digest);
     if (lines)
       facts.push({
@@ -78,7 +73,7 @@ export function digestFacts(digest: TurnDigest): DigestFact[] {
       tone: "failed",
     });
   if (digest.approvalsAsked)
-    facts.push({ kind: "approvals", text: counted(digest.approvalsAsked, "approval") });
+    facts.push({ kind: "approvals", text: pluralCount(digest.approvalsAsked, "approval") });
   if (digest.approvalsPending)
     facts.push({
       kind: "waiting",
@@ -86,11 +81,11 @@ export function digestFacts(digest: TurnDigest): DigestFact[] {
       tone: "needs-you",
     });
   if (digest.subagentsStarted)
-    facts.push({ kind: "subagents", text: counted(digest.subagentsStarted, "subagent") });
+    facts.push({ kind: "subagents", text: pluralCount(digest.subagentsStarted, "subagent") });
   // A failed command is counted as an error too; say only the errors beyond those.
   const otherErrors = digest.errors - digest.commandsFailed;
   if (otherErrors > 0)
-    facts.push({ kind: "errors", text: counted(otherErrors, "error"), tone: "failed" });
+    facts.push({ kind: "errors", text: pluralCount(otherErrors, "error"), tone: "failed" });
   return facts;
 }
 

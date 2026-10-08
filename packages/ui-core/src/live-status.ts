@@ -1,3 +1,4 @@
+import { pluralCount } from "./counts.ts";
 import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
@@ -29,7 +30,6 @@ export interface LiveStatus {
 }
 
 const hour = 3_600_000;
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /** "Waiting for your approval" / "… your review" / "… your answer", by what is asked. */
 export function askingLabel(request: string): string {
@@ -53,7 +53,7 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
       return { label: limitedLabel(fact.until, now, locale), code: undefined, tone: "waiting" };
     case "subagents":
       return {
-        label: `Waiting on ${plural(fact.count, "subagent", "subagents")}`,
+        label: `Waiting on ${pluralCount(fact.count, "subagent", "subagents")}`,
         code: undefined,
         tone: "working",
       };
@@ -61,7 +61,7 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
       return fact.count === 1 && fact.title
         ? { label: "Watching", code: fact.title, tone: "waiting" }
         : {
-            label: `Watching ${plural(fact.count, "background task", "background tasks")}`,
+            label: `Watching ${pluralCount(fact.count, "background task", "background tasks")}`,
             code: undefined,
             tone: "waiting",
           };

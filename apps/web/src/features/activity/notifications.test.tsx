@@ -53,6 +53,7 @@ test("a thread that starts needing you raises a toast naming the request, and Re
   // Just that request, on its own.
   expect(await screen.findByRole("article", { name: request })).toBeTruthy();
   expect(screen.getAllByRole("article")).toHaveLength(1);
+  await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
 });
 
 test("a needs-you toast goes once the request is answered", async () => {
