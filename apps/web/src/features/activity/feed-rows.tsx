@@ -24,7 +24,7 @@ import {
   privateBrowserGate,
   type ApprovalVerb,
 } from "@ace/ui-core";
-import { eventKey, interactionKey, useActivityState } from "./activity-state.tsx";
+import { interactionKey, useActivityState } from "./activity-state.tsx";
 import { FeedRow } from "./feed-row.tsx";
 import { useFeedSource, type FeedEvent, type FeedKind } from "./feed-source.ts";
 import { requestTitle } from "./question-card.tsx";
