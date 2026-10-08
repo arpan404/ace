@@ -46,6 +46,7 @@ const brands: Record<string, { color: boolean; adapt?: string[]; drop?: string[]
   meta: { color: true },
   minimax: { color: true },
   mistral: { color: true },
+  openrouter: { color: false },
   pi: { color: false },
   qoder: { color: true },
   qwen: { color: true },

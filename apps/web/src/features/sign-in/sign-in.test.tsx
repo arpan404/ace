@@ -102,7 +102,7 @@ test("connecting OpenCode lists its services with what each means; a choice then
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label")),
   ).toEqual(["GitHub Copilot", "OpenAI / ChatGPT", "Claude", "OpenCode Go", "OpenCode Zen"]);
-  expect(within(choices).getByText("Use your GitHub Copilot plan")).toBeTruthy();
+  expect(within(choices).getByRole("img", { name: "GitHub Copilot" })).toBeTruthy();
   await userEvent.click(within(choices).getByRole("button", { name: "GitHub Copilot" }));
   expect(await within(dialog).findByText("Press Enter to continue.")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
@@ -280,4 +280,29 @@ test("a sign-in the daemon refuses as busy says so and offers to try again", asy
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
   expect(await within(dialog).findByText("Codex is already signing in")).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();
+}, 30_000);
+
+test("Pi service selection shows known marks and leads to browser sign-in without a premature error", async () => {
+  const app = harness();
+  stage(app, "pi", { auth: "logged_out" });
+  disconnect(app, "pi");
+  const list = await providersList(app);
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to Pi" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to Pi" });
+  const choices = await within(dialog).findByRole("group", {
+    name: "Which service do you want to connect?",
+  });
+  for (const name of ["GitHub Copilot", "ChatGPT / Codex", "Claude"])
+    expect(within(choices).getByRole("img", { name })).toBeTruthy();
+  expect(within(dialog).queryByText(/could not be completed/)).toBeNull();
+  await userEvent.click(within(choices).getByRole("button", { name: "ChatGPT / Codex" }));
+  expect(
+    (await within(dialog).findByRole("link", { name: /open sign-in page/i })).getAttribute("href"),
+  ).toBe("https://auth.openai.com/codex/device");
+  expect(within(dialog).getByLabelText("Sign-in code").textContent).toBe("ACEF-2048");
+  expect(within(dialog).queryByText(/could not be completed|Finish in a terminal/)).toBeNull();
+  app.daemon.services.providerLogin.complete(session(1));
+  expect(await screen.findByText("Signed in to Pi")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sign in to Pi" })).toBeNull());
+  expect(within(list).queryByRole("button", { name: "Sign in to Pi" })).toBeNull();
 }, 30_000);

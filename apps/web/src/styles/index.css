@@ -321,7 +321,8 @@
 @utility focus-ring-inset {
   outline: none;
   &:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--focus, var(--ring));
+    background-color: var(--accent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--focus, var(--ring)) 35%, var(--border));
   }
 }
 

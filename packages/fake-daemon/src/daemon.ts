@@ -1,3 +1,4 @@
+import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
 import { threadMoveError, threadMoveEvents } from "@ace/projection";
@@ -771,26 +772,7 @@ export class FakeDaemon implements Host {
           return true;
         }
         connection.push({ type: "terminal.result", requestId: message.requestId, ok: true });
-        if (op.op === "subscribe") {
-          const data = "Complete the provider's own sign-in flow.\r\n";
-          connection.push({
-            type: "terminal.output",
-            subscriptionId: op.subscriptionId,
-            event: {
-              type: "data",
-              offset: 0,
-              endOffset: data.length,
-              data,
-              truncatedBefore: false,
-            },
-          });
-          this.services.completeAuthTerminal(op.terminalId);
-          connection.push({
-            type: "terminal.output",
-            subscriptionId: op.subscriptionId,
-            event: { type: "exit", status: { code: 0, signal: null }, nextOffset: data.length },
-          });
-        }
+        authTerminalOutput(flow, op, () => this.services.completeAuthTerminal(op.terminalId));
         if (op.op === "close") this.services.authTerminals.delete(op.terminalId);
         return true;
       }

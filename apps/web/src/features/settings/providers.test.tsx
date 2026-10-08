@@ -83,8 +83,9 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
     { name: "OpenCode services" },
     { timeout: 10_000 },
   );
-  expect(within(services).getAllByText("Connection needs attention")).toHaveLength(2);
-  expect(within(services).getAllByText("Connected · API key").length).toBeGreaterThan(0);
+  expect(within(services).getAllByText("Needs attention")).toHaveLength(2);
+  expect(within(services).getAllByText("Connected").length).toBeGreaterThan(0);
+  expect(within(services).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
   // Local runtimes need no sign-in; they're named once.
   expect(screen.getByText(/models running on this computer: LM Studio, Ollama/)).toBeTruthy();
 

@@ -153,7 +153,10 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       terminalId: stream.terminalId,
       subscriptionId,
       fromOffset,
-    }).catch(() => streams.delete(subscriptionId));
+    }).catch(() => {
+      if (!streams.delete(subscriptionId)) return;
+      stream.listener({ type: "exit", code: 1, nextOffset: fromOffset });
+    });
     return subscriptionId;
   };
   // A stream re-subscribed after a resync keeps its detach working.

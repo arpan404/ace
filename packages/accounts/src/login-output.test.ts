@@ -69,3 +69,24 @@ test("ACP bridges can relay reviewed vendor sign-in links without exposing crede
     loginUrl("acp", "https://cursor.com/loginDeepControl?redirectTarget=private-destination"),
   ).toBeUndefined();
 });
+
+test("Pi relays reviewed SDK challenges while tokens and unrelated upstreams stay private", () => {
+  const browser =
+    "https://claude.ai/oauth/authorize?code=true&client_id=synthetic&scope=profile&state=public-pkce&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcallback";
+  for (const url of [
+    browser,
+    "https://auth.openai.com/codex/device",
+    "https://github.com/login/device",
+  ]) {
+    expect(loginUrl("pi", url)).toBe(url);
+    expect(
+      loginUrl("pi", `${url}${url.includes("?") ? "&" : "?"}access_token=private-value`),
+    ).toBeUndefined();
+  }
+  expect(
+    loginUrl("pi", browser.replace("code=true", "code=private-authorization")),
+  ).toBeUndefined();
+  expect(
+    loginUrl("pi", "https://accounts.google.com/o/oauth2/v2/auth?client_id=synthetic"),
+  ).toBeUndefined();
+});

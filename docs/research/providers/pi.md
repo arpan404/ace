@@ -155,7 +155,7 @@ Use the user's existing Pi login. Interactive Pi owns `/login` and `/logout`; it
 
 The installed CLI has a safe readiness command shape `pi auth check --provider <name> --json --no-refresh`. Its parser also supports `--model`; its safe response reports `status` as `ready`, `not_ready`, or `invalid`, provider, optional auth type/reason. Omitting `--no-refresh` can refresh OAuth credentials; adding `--credentials` returns credential material. `print-api-key` and `print-bearer-token` explicitly print secrets. Never invoke either printer or `--credentials` through discovery. No auth command was executed for this research. See auth command/check sources.
 
-The readiness implementation disables model-network refresh on creation, but credentials can have custom resolution behavior. Discovery should expose only safe status fields and preserve errors as unavailable, without reading or printing credential data. User extensions are not loaded by this stock auth-check path, so a custom extension provider can be absent even though an eventual session can use it. Direct the user to run Pi and `/login <provider>` outside ace when needed. Do not synthesize hosted login or proxy provider credentials.
+The readiness implementation disables model-network refresh on creation, but credentials can have custom resolution behavior. Discovery should expose only safe status fields and preserve errors as unavailable, without reading or printing credential data. User extensions are not loaded by this stock auth-check path, so a custom extension provider can be absent even though an eventual session can use it. Use the embedded native Pi terminal and `/login` for custom services. Do not synthesize hosted login or proxy provider credentials.
 
 Pi documents several subscription and API-key providers. That catalog is not ace's authorization to host their authentication or requests. The adapter uses installed Pi locally under ADR 0002; it does not become a provider gateway.
 
@@ -168,3 +168,47 @@ Discovery should use provider-kit to resolve `pi`, parse a bounded version respo
 Newer minor versions may keep basic RPC but must not silently gain native MCP or other optional features from a version comparison alone. Require a versioned research update and capability evidence before exposing changed commands. Unknown frames and additive fields remain raw and nonfatal, so a future event does not destroy an otherwise valid stream. If `agent_settled` disappears, fail visibly rather than falling back to early `agent_end` completion.
 
 Synthetic tests should use documented frames, including multiple native turns, `agent_end` followed by retry, compaction retries, queue updates, overlapping dialogs, Unicode separators, cancellations, unknown fields, and process exits. They are not recorded fixtures. Actual recorder scenarios require the owner's separate approval and remain unrecorded. Tests, mutations, and benchmarks need execution at merge under the owner's current rule.
+
+## Sign-in update (2026-10-08)
+
+One read-only probe from a fresh scratch directory ran the owner's selected
+`pi --version` and `pi --help`. It reports **1.1.0**. No real login, model prompt,
+SDK import, recorder or credential read was performed. Installed SDK declarations,
+provider docs and non-bundle auth source confirm the same interaction contract in
+0.85.1 and 1.1.0:
+
+- No standalone CLI login subcommand and no RPC login operation is documented.
+- `ModelRuntime.create({refreshOnCreate:false})` avoids model/auth refresh on
+  creation. `login(provider,"oauth",interaction)` owns persistence and returns
+  credentials; ace's isolated child discards the return value. Native `logout`
+  owns deletion.
+- OpenAI Codex selects `device_code`, then emits a verification URI and user code.
+- Anthropic selects `browser`, emits an authorization URL and waits for a local
+  callback. Its optional `manual_code` fallback is raced against that callback;
+  ace leaves it pending and honours the SDK's abort signal. Browser sign-in on a
+  different machine and manual authorization-code forwarding are not implemented.
+- GitHub Copilot asks for an optional enterprise host before its device challenge.
+  ace chooses the blank GitHub.com value. Enterprise login remains available in
+  the native terminal under Other provider.
+- Pi's changelog removed Gemini CLI and Antigravity integrations in **0.71.0**.
+  These are absent from both reviewed releases' built-in OAuth providers.
+
+Primary references: [SDK provider management](https://pi.dev/docs/latest/sdk/providers),
+[0.85.1 ModelRuntime](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/src/core/model-runtime.ts),
+[1.1.0 ModelRuntime](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/src/core/model-runtime.ts),
+[Anthropic OAuth](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/anthropic.ts),
+[OpenAI OAuth](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/openai-codex.ts),
+[Copilot OAuth](https://github.com/earendil-works/pi/blob/v1.1.0/packages/ai/src/auth/oauth/github-copilot.ts),
+[changelog](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/CHANGELOG.md).
+The installed package's public declarations and auth source are authoritative if
+upstream tags are unavailable or latest docs move.
+
+Read-only owner checks also inventoried directory entries under `.claude` (33),
+`.codex` (76), OpenCode config (9), OpenCode data (11) and ace logs (1). No
+credential or transcript contents were read or copied. The safe appearance projection
+of `~/.ace-next/settings.json` contains no theme/accent override. Appearance lives
+in each client's local storage, which was not inspected. Fake screenshots therefore
+exercise amber in all seven presets, light/dark at 1440 and 390 pixels. Synthetic
+fixtures cover a first-login profile without settings, a configured default that
+is signed out while another service is ready, and an unknown release. Real OAuth,
+subscription entitlement and the exact owner-local appearance remain unverified.

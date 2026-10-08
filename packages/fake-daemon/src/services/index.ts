@@ -1,3 +1,4 @@
+import type { FakeAuthTerminal } from "../auth-terminal-output.ts";
 import { fakeProviderAccounts } from "./provider-accounts.ts";
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
 import { FakeProviderInstalls, fakeLatestVersions } from "../provider-install.ts";
@@ -62,16 +63,7 @@ export class FakeServices {
   }
   readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];
-  readonly authTerminals = new Map<
-    string,
-    {
-      session?: string;
-      instanceId: string;
-      action: "login" | "logout";
-      owner: Push;
-      scope?: "operate";
-    }
-  >();
+  readonly authTerminals = new Map<string, FakeAuthTerminal>();
   private accountCounter = 0;
   models: CatalogModel[];
   providerStatuses: import("@ace/protocol").ProviderStatus[];
@@ -257,6 +249,7 @@ export class FakeServices {
         this.authTerminals.set(terminalId, {
           instanceId,
           session: progress.session,
+          provider: progress.provider,
           action: progress.action,
           owner: push,
           scope: "operate",

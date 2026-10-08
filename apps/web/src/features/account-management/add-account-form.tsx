@@ -1,3 +1,5 @@
+import { serviceInfo } from "@ace/ui-core";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -5,6 +7,19 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
 import { apiKeyUpstreamLabel, canAddAccounts, useApiKeySupport } from "./actions.ts";
+
+const apiServices = ApiKeyUpstream.options.map((value) => ({
+  value,
+  label: apiKeyUpstreamLabel(value),
+  icon: (
+    <ProviderIcon
+      provider="opencode"
+      brand={serviceInfo(value).brand}
+      size={16}
+      label={apiKeyUpstreamLabel(value)}
+    />
+  ),
+}));
 
 /**
  * The last row: Add account. It asks only for a name, adds the account and opens its sign-in
@@ -71,17 +86,9 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
               <Select<"openai" | "anthropic" | "openrouter" | "opencode">
                 label="API service"
                 value={upstream}
-                options={(support.data.upstreams ?? []).flatMap((value) => {
-                  const parsed = ApiKeyUpstream.safeParse(value);
-                  return parsed.success
-                    ? [
-                        {
-                          value: parsed.data,
-                          label: apiKeyUpstreamLabel(parsed.data),
-                        },
-                      ]
-                    : [];
-                })}
+                options={apiServices.filter((option) =>
+                  support.data?.upstreams?.includes(option.value),
+                )}
                 onValueChange={setUpstream}
               />
             )}

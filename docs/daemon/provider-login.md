@@ -112,11 +112,12 @@ available through this native-provider service.
 | Codex       | `codex login`, device auth when advertised; `codex logout`                                    | Unsupported help/version or input prompt                                                                                   |
 | Claude Code | `claude auth login`, `--claudeai` when advertised; `claude auth logout`                       | Paste authorization code, key input or unsupported setup                                                                   |
 | OpenCode    | Upstream choices; Copilot via advertised `--provider` and `--method`; GitHub.com confirmation | Go, Zen, OpenAI, Anthropic, other upstreams, Enterprise domain and logout use `opencode auth login/logout` in the terminal |
-| Pi          | Upstream choices and native `/login` or `/logout` instructions                                | Pi's interactive editor has no reviewed standalone safe login command                                                      |
+| Pi          | Installed SDK OAuth for ChatGPT/Codex, Claude and GitHub Copilot; native SDK logout           | Other provider runs `pi` in an owner-scoped embedded PTY                                                                   |
 | Cursor      | Accounts-owned SDK browser stream and SDK logout                                              | SDK availability/auth errors stay SDK errors; no CLI fallback                                                              |
 
 Patterns are gated to the reviewed CLI version families: Codex 0/1, Claude 2, OpenCode
-1/2. Cursor uses the pinned SDK runtime. Version/help probes are metadata-only. We
+1/2. Pi auth admits the reviewed 0.85.1 and 1.1.0 installed SDKs; no SDK is bundled.
+Cursor uses the pinned SDK runtime. Version/help probes are metadata-only. We
 have not tested real OAuth sessions or subscription entitlement. Unknown CLI output
 is private; parsing has an 8 KiB pending-line bound and a 256 KiB total-output bound.
 A CLI with a changed transcript may need the terminal fallback even in those families.
@@ -154,8 +155,10 @@ status probes nor model refreshes send an inference prompt.
 ## Fake daemon
 
 The fake uses the same request and push schemas. Defaults exercise Codex device codes,
-Claude/Cursor browser links, and OpenCode/Pi provider choices followed by Enter and
-a device code. The upstream Go/Zen/Anthropic choices exercise terminal fallback.
+Claude/Cursor browser links, and OpenCode/Pi provider choices. OpenCode Copilot
+asks for Enter before its device code; Pi goes directly to the selected native
+challenge. Pi Other echoes terminal input and completes on `/exit`. OpenCode
+Go/Zen/Anthropic choices exercise terminal fallback.
 Fixtures can set `daemon.services.providerLogin.scenarios[provider]` to `device_code`,
 `browser`, `choice` or `failure`. Complete a browser/device flow with
 `daemon.services.providerLogin.complete(session, success)`; completion is explicit so
@@ -238,8 +241,9 @@ scope on requests and pushes. A device cannot submit to another device's session
 Remove waits for Codex/Claude/Cursor's native logout and refuses on failure.
 It preserves the instance home unless `deleteHome: true`. Deletion validates the
 private direct child of the daemon data directory and never removes implicit CLI
-homes. OpenCode/Pi have no reviewed unattended logout here and permit unregistering
-only with the home preserved.
+homes. OpenCode/Pi account removal has no unattended whole-account logout and
+permits unregistering only with the home preserved. Pi's provider sign-in service
+supports native SDK logout for a selected OAuth service.
 
 ### Verified credential paths
 

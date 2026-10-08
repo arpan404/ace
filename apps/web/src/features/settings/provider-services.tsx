@@ -1,5 +1,4 @@
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
-import { serviceKind } from "@ace/ui-core";
 import { PlusIcon } from "@phosphor-icons/react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
@@ -34,24 +33,24 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
     <SettingSection label="Services">
       <ul aria-label={`${props.name} services`} className="divide-y">
         {listed.map(({ source, error }) => (
-          <li key={source.id} className="flex min-h-9 flex-wrap items-center gap-2 py-1">
+          <li key={source.id} className="flex h-9 items-center gap-2">
             <ProviderTile
               provider={props.provider}
               service={source}
               size="sm"
               className="size-5 rounded-none bg-transparent shadow-none"
             />
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className="truncate font-medium">{source.label}</span>
-              <span className="text-sm text-muted-foreground">
+              <span className="shrink-0 text-sm text-muted-foreground">
                 <StatusLine
                   tone={error ? "problem" : "ready"}
                   text={
                     error
-                      ? "Connection needs attention"
+                      ? "Needs attention"
                       : source.requiresAuth === false
                         ? "Free models available"
-                        : ["Connected", serviceKind(source.kind)].filter(Boolean).join(" · ")
+                        : "Connected"
                   }
                 />
               </span>

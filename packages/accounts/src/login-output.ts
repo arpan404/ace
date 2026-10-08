@@ -27,6 +27,12 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
           ? cursorEndpoints
           : ([
               ...(provider === "acp" ? [...claudeEndpoints, ...cursorEndpoints] : []),
+              ...(provider === "pi"
+                ? [
+                    ...claudeEndpoints,
+                    ["auth.openai.com", /^\/(?:oauth\/authorize|authorize)\/?$/] as const,
+                  ]
+                : []),
               ...(provider === "acp" || provider === "antigravity"
                 ? [["accounts.google.com", /^\/o\/oauth2\/(?:v2\/auth|auth)\/?$/] as const]
                 : []),
@@ -47,6 +53,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "code_challenge_method",
     "audience",
     "originator",
+    ...(provider === "pi" ? ["agent_name", "device_id", "agent_host_id", "prompt", "code"] : []),
     ...(provider === "acp" || provider === "antigravity"
       ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
       : []),
@@ -56,6 +63,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
   for (const [key, value] of url.searchParams) {
     if (!fields.has(key) || /(?:sk-|ghp_|gho_|eyJ)[A-Za-z0-9_-]{12,}/.test(value)) return;
     if (key === "redirectTarget" && value !== "sdk") return;
+    if (key === "code" && value !== "true") return;
     if (key === "redirect_uri") {
       let redirect: URL;
       try {

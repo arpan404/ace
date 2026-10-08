@@ -30,7 +30,6 @@ export function ProviderTile(props: {
   const brand = props.service ? serviceInfo(props.service.id).brand : undefined;
   return (
     <span
-      aria-hidden
       className={cn(
         "grid shrink-0 place-items-center bg-secondary shadow-[inset_0_0_0_1px_var(--border)]",
         tile.box,
@@ -48,7 +47,8 @@ export function ProviderTile(props: {
           acpAgentId={props.acpAgentId}
           brand={brand}
           size={tile.icon}
-          decorative
+          label={props.service?.label}
+          decorative={!props.service}
         />
       )}
     </span>

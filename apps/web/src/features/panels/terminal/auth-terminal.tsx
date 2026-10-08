@@ -42,7 +42,7 @@ function AuthTerminalScreen(props: AuthTerminalProps & { sessions: TerminalSessi
     if (code !== null) exited(code);
   }, [code]);
   return (
-    <div className="h-64 overflow-hidden rounded-card border bg-code p-2 font-mono">
+    <div className="flex h-64 flex-col overflow-hidden rounded-card border bg-code p-2 font-mono">
       <TerminalView
         sessions={sessions}
         id={terminalId}

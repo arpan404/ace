@@ -118,7 +118,7 @@ export function ProviderSetupRow(props: {
             href={plan.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className={buttonVariants({ size: "sm", variant: "primary" })}
+            className={buttonVariants({ size: "sm", variant: "secondary" })}
           >
             {plan.downloadOnly ? `Get ${name}` : "Manage installation"}
           </a>
@@ -127,7 +127,7 @@ export function ProviderSetupRow(props: {
             href={plan.prerequisite.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className={buttonVariants({ size: "sm", variant: "primary" })}
+            className={buttonVariants({ size: "sm", variant: "secondary" })}
           >
             Get {plan.prerequisite.name}
           </a>
@@ -137,7 +137,7 @@ export function ProviderSetupRow(props: {
           updateAvailable ? (
           <Button
             size="sm"
-            variant="primary"
+            variant="secondary"
             onClick={() => {
               setDetails(false);
               void controller.install(action);
@@ -147,7 +147,7 @@ export function ProviderSetupRow(props: {
           </Button>
         ) : needsSignIn ? (
           <SignInButton
-            variant="primary"
+            variant="secondary"
             label={`Sign in to ${name}`}
             target={{ provider, instance: props.instance, name }}
           >

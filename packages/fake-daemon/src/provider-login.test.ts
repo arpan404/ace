@@ -61,7 +61,12 @@ test.each(["codex", "claude", "opencode", "pi", "cursor"] as const)(
           session,
           input: { choice: "github-copilot" },
         });
-        await f.client.request({ type: "provider.login.input", session, input: { confirm: true } });
+        if (provider === "opencode")
+          await f.client.request({
+            type: "provider.login.input",
+            session,
+            input: { confirm: true },
+          });
       }
       const challenge = await f.wait(
         provider === "codex" || provider === "opencode" || provider === "pi"

@@ -154,6 +154,7 @@ export async function prepareProviderLogin(
     };
   }
   const provider = target.provider;
+  const management = services.accountManagement;
   const instanceId = target.instance ?? `${target.provider}-cli-default`;
   const instance = registry.get(instanceId)?.instance;
   if (
@@ -191,7 +192,8 @@ export async function prepareProviderLogin(
             ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
           })
         : await discoverProvider(target.provider, discovery);
-    if (!status.path) throw new Error("CLI not installed");
+    const executable = status.path;
+    if (!executable) throw new Error("CLI not installed");
     const args =
       target.provider === "claude" || target.provider === "opencode"
         ? ["auth", action, "--help"]
@@ -201,7 +203,7 @@ export async function prepareProviderLogin(
         ? ""
         : await (async () => {
             try {
-              const result = await probeOutput(status.path ?? "", args, {
+              const result = await probeOutput(executable, args, {
                 env,
                 signal,
                 timeoutMs: 4000,
@@ -234,7 +236,7 @@ export async function prepareProviderLogin(
     const driver =
       target.method === "api_key" && action === "login"
         ? apiKeyLoginDriver({
-            command: status.path,
+            command: executable,
             args:
               provider === "codex"
                 ? ["login", "--with-api-key"]
@@ -254,12 +256,15 @@ export async function prepareProviderLogin(
             provider: target.provider,
             action,
             ...(target.instance ? { instance: target.instance } : {}),
-            command: status.path,
+            command: executable,
             ...(status.version ? { version: status.version } : {}),
             help,
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
             manager,
+            ...(management
+              ? { openTerminal: (launch) => management.openLoginTerminal(owner, launch) }
+              : {}),
           });
     const result: ProviderLoginDriver = {
       ...driver,
@@ -268,9 +273,13 @@ export async function prepareProviderLogin(
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
         const after =
           provider === "pi"
-            ? await discoverPiStatus({ ...discovery, signal: changeSignal })
+            ? await discoverPiStatus({
+                ...discovery,
+                executable,
+                signal: changeSignal,
+              })
             : await discoverProvider(provider, { ...discovery, signal: changeSignal });
-        if (action === "logout" && after.auth !== "logged_out")
+        if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
           throw new Error("CLI logout unconfirmed");
         if (action === "login" && after.auth === "logged_out")
           throw new Error("CLI is still signed out");
@@ -299,7 +308,7 @@ export async function prepareProviderLogin(
             id: instanceId,
             provider: instance.provider,
             label: instance.label,
-            executable: status.path,
+            executable,
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             ...(instance.implicit
               ? {}

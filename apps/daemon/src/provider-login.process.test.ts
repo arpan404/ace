@@ -161,25 +161,6 @@ test.each(["codex", "claude", "opencode"] as const)(
   },
 );
 
-test("Pi returns its native terminal recipe after provider selection", async () => {
-  const f = await harness("pi");
-  await f.start();
-  await f.wait("awaiting_input");
-  await f.sessions.handle("phone", {
-    type: "provider.login.input",
-    requestId: "choose",
-    session: "login-one",
-    input: { choice: "github-copilot" },
-  });
-  expect(await f.wait("failed")).toMatchObject({
-    manual: {
-      action: "open_terminal",
-      command: "pi",
-      instruction: expect.stringContaining("/login"),
-    },
-  });
-});
-
 test("split browser links and standalone device codes produce complete safe challenges", async () => {
   const f = await harness(
     "codex",
