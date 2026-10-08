@@ -63,13 +63,34 @@ root, then supplies `SessionContext.aceMcp` to the selected account-bound adapte
 Closing, exiting, failed startup or engine abort revokes that credential. Adapters
 scrub its exact bearer from provider payloads before persistence.
 
-The current adapters use Codex app-server configuration, Claude Agent SDK
-`mcpServers`, a session-owned OpenCode server configuration, and ACP session
-`mcpServers` for Cursor, Antigravity and generic ACP. ACP HTTP support must be
-advertised during initialization; an unsupported installed CLI fails with an
-update hint. This does not establish support for the separate Cursor SDK adapter
-or OpenCode v2 workstreams before they consume the same connection contract.
+The adapters deliver guidance through Codex `developerInstructions`, Claude's
+appended system prompt, OpenCode's native session instruction entry, Cursor's
+always-applied rule in a private additional workspace, and Pi's
+`before_agent_start` system-prompt hook. ACP has no portable system-instruction
+field; ace supplies labeled guidance in native prompt context each turn.
+Cursor's private rule carries no credentials and is removed when its SDK host closes.
 
-The offline provider tests use real child processes and authenticated loopback
-HTTP without contacting a provider. They and the credential-redaction benchmark
-need run at merge. No runtime tests, probes or benchmarks ran during this change.
+Codex sends `X-Ace-Instructions: native` to omit MCP server instructions from
+discovery. Its CLI otherwise copies server instructions into every description.
+The same guidance is delivered once through its native instruction field.
+Browser tools operate this thread's ace browser, including localhost. Computer
+use requires an explicit native app task. A refused tool is a stopping condition.
+
+Disabled groups are absent from discovery and denied on direct calls. Screen and
+device groups are also absent in read-only threads. Before a current app grant,
+screen discovery exposes only `screen_request_app`. Browser bundle IDs require
+a human grant from the thread's Computer use panel. Browser Always grants are
+rejected and existing saved Always grants give no browser authority.
+
+Settings, app grants, turn boundaries and permission changes publish list changes.
+Current clients receive them through `subscriptions/listen`. Native legacy HTTP
+connections opt in with `X-Ace-Notifications: stream`; their bounded sessions and
+GET notification streams end with the credential lease. Other legacy clients
+retain stateless serving. ACP's stdio bridge relays current-protocol subscriptions
+to legacy notifications. Pi refreshes its registered and active tools on changes.
+Clients that do not consume notifications see current availability on their next
+list request; direct calls always recheck it.
+
+See [tool-list measurements](../../../docs/daemon/tool-list-measurements.md) for
+before/after size estimates and the isolated reproduction command. Verification
+uses fake provider processes and temporary stores, without real provider prompts.

@@ -249,6 +249,7 @@ export class FakeScreen {
           displays: [],
           windows: [
             { bundleId: "com.apple.TextEdit", windowId: 1, title: "Untitled" },
+            { bundleId: "com.apple.Safari", windowId: 4, title: "Browser settings" },
             { bundleId: "com.apple.calculator", windowId: 2, title: "Calculator" },
             { bundleId: "com.apple.iphonesimulator", windowId: 3, title: "iPhone Simulator" },
           ],

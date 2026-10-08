@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ScreenBundle, ScreenGrant, ThreadId, type ScreenAgentScope } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
-import { sensitiveApp } from "@ace/screen/sensitive-app";
+import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
 export { sensitiveApp } from "@ace/screen/sensitive-app";
 /** SQLite decisions, without retaining the event history or opening the native helper. */
 export class ScreenGrants {
@@ -10,7 +10,9 @@ export class ScreenGrants {
     privateStore: Store,
     privateNow: () => number,
     turn: (threadId: string) => string | undefined,
+    changed: () => void = () => {},
   ) {
+    this.changed = changed;
     this.store = privateStore;
     this.now = privateNow;
     this.turn = turn;
@@ -21,6 +23,7 @@ export class ScreenGrants {
         DELETE FROM screen_grants WHERE scope='turn';`);
     });
   }
+  private readonly changed: () => void;
   private readonly store: Store;
   private readonly now: () => number;
   private readonly turn: (threadId: string) => string | undefined;
@@ -39,6 +42,7 @@ export class ScreenGrants {
     this.store.atomic((db) =>
       db.prepare("UPDATE screen_settings SET enabled=? WHERE id=1").run(enabled ? 1 : 0),
     );
+    this.changed();
   }
   list(threadId?: string): ScreenGrant[] {
     return this.store
@@ -107,7 +111,7 @@ export class ScreenGrants {
       turnGrant ||
       grants.some(
         (grant) =>
-          grant.scope === "always" ||
+          (grant.scope === "always" && !browserApp(bundleId)) ||
           (scope && grant.scope === "thread" && grant.thread_id === scope.threadId),
       )
     );
@@ -124,12 +128,15 @@ export class ScreenGrants {
     threadId?: string,
   ): void {
     const bundle = ScreenBundle.parse(bundleId);
+    if (allowed && scope === "always" && browserApp(bundle))
+      throw new Error("Web browsers require a turn or thread grant from the person in ace's UI");
     if (!allowed) {
       this.store.atomic((db) =>
         db
           .prepare("DELETE FROM screen_grants WHERE bundle_id=? AND scope=? AND thread_id=?")
           .run(bundle, scope, scope === "always" ? "" : ThreadId.parse(threadId)),
       );
+      this.changed();
       return;
     }
     const thread = scope === "always" ? "" : ThreadId.parse(threadId);
@@ -152,5 +159,6 @@ export class ScreenGrants {
         "INSERT INTO screen_grants VALUES (?,?,?,?,?) ON CONFLICT(bundle_id,scope,thread_id) DO UPDATE SET turn_id=excluded.turn_id,granted_at=excluded.granted_at",
       ).run(bundle, scope, thread, turn, this.now());
     });
+    this.changed();
   }
 }

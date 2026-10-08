@@ -38,7 +38,7 @@ export async function availability(url: string, authorization: string) {
       .result;
   };
   const instructions = z.string().parse((await request("server/discover"))["instructions"]);
-  if (!instructions.includes("ace_status") || !instructions.includes("disabled"))
+  if (!instructions.includes("ace_status") || !instructions.includes("enabled"))
     throw new Error("ace discovery instructions are missing");
   const tools = z
     .array(z.object({ name: z.string(), description: z.string() }))

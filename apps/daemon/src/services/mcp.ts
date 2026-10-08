@@ -1,6 +1,8 @@
+import { logError } from "@ace/diagnostics";
+import { toolResultObserver } from "../tool-result-mcp.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
 import { agentControlCall } from "./agent-control-failure.ts";
-import { agentControlToolkit } from "@ace/mcp-server";
+import { type CallObserver, agentControlToolkit } from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
@@ -10,13 +12,47 @@ import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
 
-  const observations = measurementObserver({
+  const measurements = measurementObserver({
     store,
     now: context.now,
     id: context.id,
     context: () => services.context,
   });
-  resources.own(observations.close);
+  const results = toolResultObserver({
+    store,
+    now: context.now,
+    id: context.id,
+    context: () => services.context,
+    screen: () => services.screen,
+  });
+  const observeCall: CallObserver = (name, input, call) => {
+    const callbacks = [
+      results.observeCall(name, input, call),
+      measurements.observeCall(name, input, call),
+    ];
+    return async (result) => {
+      for (const capture of callbacks) {
+        try {
+          await capture?.(result);
+        } catch (error) {
+          context.log.log("error", "MCP result capture failed", logError(error));
+        }
+      }
+    };
+  };
+  const observations = {
+    observeCall,
+    lease(sessionId: string) {
+      const stopMeasurement = measurements.lease(sessionId);
+      const stopResult = results.lease(sessionId);
+      return () => {
+        stopMeasurement();
+        stopResult();
+      };
+    },
+  };
+  resources.own(measurements.close);
+  resources.own(results.close);
   const mcp = await startDaemonMcp(
     store,
     [
@@ -52,19 +88,20 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         return { intentId: record.childId };
       }),
     observations,
-    (_caller) => ({
+    (caller) => ({
       permissionMode: "ask",
+      get screenApproved() {
+        return services.screen?.hasAppApproval(caller) ?? false;
+      },
       disabled: {
         ...(!services.screen?.isEnabled()
           ? {
-              screen:
-                "Computer use is disabled. Ask the person to enable it in Settings → Computer use.",
+              screen: "Computer use is disabled.",
             }
           : {}),
         ...(!services.devices?.isEnabled()
           ? {
-              devices:
-                "Devices are disabled. Ask the person to enable devices in the thread's Devices panel.",
+              devices: "Devices are disabled.",
             }
           : {}),
       },
@@ -72,6 +109,32 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
+  if (services.devices) {
+    resources.own(services.devices.watchEnabled(mcp.toolsChanged));
+    const grants = new Map<string, string>();
+    resources.own(
+      services.devices.watch((state) => {
+        const threadId = state.approved ? state.threadId : undefined;
+        if (grants.get(state.device.id) !== threadId) {
+          if (threadId) grants.set(state.device.id, threadId);
+          else grants.delete(state.device.id);
+          mcp.toolsChanged();
+        }
+      }),
+    );
+  }
+  resources.own(
+    store.subscribe((events) => {
+      if (
+        events.some(({ payload }) =>
+          payload.type === "thread.updated"
+            ? payload.permission !== undefined
+            : ["run.started", "run.ended", "thread.client.updated"].includes(payload.type),
+        )
+      )
+        mcp.toolsChanged();
+    }),
+  );
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";

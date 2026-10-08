@@ -1,5 +1,7 @@
 import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
 import { z } from "zod";
+import { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
+export { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 
 export const ScreenEndpoint = z
   .string()
@@ -8,6 +10,22 @@ export const ScreenEndpoint = z
   .meta({
     "x-ace-constraint": "Absolute unix: path without NUL, CR or LF, or an ace-screen named pipe.",
     examples: ["unix:/example/frames.sock"],
+  });
+export const ScreenAppURL = z
+  .string()
+  .min(1)
+  .max(8192)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  })
+  .meta({
+    "x-ace-constraint": "Absolute app URL without embedded credentials.",
+    examples: ["https://example.com", "ace-fixture://identity"],
   });
 export const ScreenError = z.object({
   code: z.enum([
@@ -30,14 +48,40 @@ export const ScreenError = z.object({
     "window_offscreen",
     "secure_input_required",
     "clipboard_changed",
+    "window_ambiguous",
+    "key_unsupported",
+    "modifier_unsupported",
+    "no_key_window",
+    "delivery_unconfirmed",
   ]),
   message: z.string().max(1024),
+  phase: z.enum(["rejected-before-dispatch", "dispatched", "partial"]).optional(),
+  candidates: z
+    .array(
+      z.object({
+        windowId: z.number().int().positive(),
+        bundleId: ScreenBundle.optional(),
+        title: z.string().max(1024),
+        bounds: z
+          .object({
+            x: z.number().finite(),
+            y: z.number().finite(),
+            w: z.number().finite(),
+            h: z.number().finite(),
+          })
+          .optional(),
+      }),
+    )
+    .max(2048)
+    .optional(),
 });
 export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
   .object({
     version: z.literal(2),
     background: z.boolean().optional(),
+    windowSelection: z.boolean().optional(),
+    permissionEvents: z.boolean().optional(),
     maxSessions: z.number().int().min(1).max(8).optional(),
     platform: z.enum(["macos", "windows", "linux-x11", "linux-wayland"]),
     capture: z.object({ windows: z.boolean(), displays: z.boolean(), changeDriven: z.boolean() }),
@@ -202,6 +246,9 @@ export const ScreenUIActResult = z.object({
   fallback: z.boolean(),
   mode: z.enum(["background", "foreground"]).optional(),
   snapshot: ScreenUITreeResult.optional(),
+  warnings: z.array(z.string().max(1024)).max(8).optional(),
+  phase: z.enum(["rejected-before-dispatch", "dispatched", "partial"]).optional(),
+  notes: z.array(z.string().max(1024)).max(8).optional(),
   method: z.string().max(64).optional(),
   boundsCentre: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
 });
@@ -209,10 +256,6 @@ export type ScreenUITreeResult = z.infer<typeof ScreenUITreeResult>;
 export type ScreenUIFindResult = z.infer<typeof ScreenUIFindResult>;
 export type ScreenUIActOptions = z.infer<typeof ScreenUIActOptions>;
 const point = { x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() };
-const modifiers = z
-  .array(z.enum(["command", "shift", "option", "control", "alt", "meta", "super"]))
-  .max(4)
-  .default([]);
 export const ScreenInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pointer.move"), ...point }),
   z.object({
@@ -228,7 +271,7 @@ export const ScreenInput = z.discriminatedUnion("kind", [
     toY: z.number().finite().nonnegative(),
     button: z.enum(["left", "right"]).default("left"),
   }),
-  z.object({ kind: z.literal("key.press"), key: z.string().min(1).max(32), modifiers }),
+  z.object({ kind: z.literal("key.press"), key: ScreenKey, modifiers: ScreenKeyModifiers }),
   z.object({ kind: z.literal("text.type"), text: z.string().max(4096) }),
   z.object({
     kind: z.literal("scroll"),
@@ -266,6 +309,18 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
   Envelope.extend({ op: z.literal("permissions") }),
   Envelope.extend({ op: z.literal("targets") }),
+  Envelope.extend({
+    op: z.literal("open.url"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+    url: z.string().min(1).max(8192),
+  }),
+  Envelope.extend({
+    op: z.literal("menu.press"),
+    path: z.array(z.string().min(1).max(256)).min(1).max(8),
+    target: ScreenTarget.optional(),
+    allowlist: z.array(ScreenBundle).max(64).optional(),
+  }),
   Envelope.extend({ op: z.literal("stop") }),
   Envelope.extend({
     op: z.literal("start"),
@@ -322,10 +377,7 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({
     op: z.literal("key.press"),
     key: z.string().min(1).max(64),
-    modifiers: z
-      .array(z.enum(["control", "shift", "alt", "meta", "super"]))
-      .max(4)
-      .default([]),
+    modifiers: ScreenKeyModifiers,
   }),
   Envelope.extend({ op: z.literal("text.type"), text: z.string().max(4096) }),
   Envelope.extend({
@@ -351,11 +403,8 @@ export const ScreenUITreeInput = ScreenUITreeOptions;
 export const ScreenUIFindInput = ScreenUIFindOptions;
 export const ScreenUIActInput = ScreenUIActOptions;
 export const ScreenNamedKey = z.object({
-  key: z.string().min(1).max(64),
-  modifiers: z
-    .array(z.enum(["control", "shift", "alt", "meta", "super", "command", "option"]))
-    .max(4)
-    .default([]),
+  key: ScreenKey,
+  modifiers: ScreenKeyModifiers,
 });
 export const ScreenTransportFrameHeader = z.union([ScreenFrameHeaderV2]);
 export type ScreenTransportFrameHeader = z.infer<typeof ScreenTransportFrameHeader>;

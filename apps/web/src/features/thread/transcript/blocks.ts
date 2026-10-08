@@ -394,7 +394,9 @@ export function buildBlocks(source: BlockSource): Block[] {
           group("work", id);
           break;
         case "notice": {
-          if (item.measurement) {
+          // A measurement, or the daemon's audit of a computer-use action: both are steps of the
+          // work, and the log folds an audit into the call it records.
+          if (item.measurement || item.code === "screen.step") {
             group("work", id);
             break;
           }

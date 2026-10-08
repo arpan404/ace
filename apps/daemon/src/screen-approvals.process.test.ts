@@ -2,7 +2,7 @@ import { expect, test, onTestFinished } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Command } from "@ace/protocol";
+import { Command, McpScope } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { createDevThread } from "./commands.ts";
 import { ScreenGrants } from "./screen-grants.ts";
@@ -288,17 +288,32 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
     signal: new AbortController().signal,
   };
   await startScreen(context);
+  const { startMcp } = await import("./services/mcp.ts");
+  const { invoke } = await import("./browser-mcp-test-support.ts");
+  await startMcp(context);
   h.engine.bindHostInteractions((command) => context.services.screenApprovals?.resolve(command));
   await screen.enable(true);
   await screen.approve("dev.example.audit", true);
   const state = await screen.start({ kind: "window", bundleId: "dev.example.audit", windowId: 1 });
   screen.delegateAgent(state.sessionId, { threadId, agentId });
-  const owner = JSON.stringify([threadId, agentId]);
-  await expect(
-    screen.input(state.sessionId, "agent", { kind: "text.type", text: "dont-leak-me" }, owner),
-  ).rejects.toMatchObject({ code: "secure_input_required" });
+  const mcp = context.services.mcp;
+  if (!mcp) throw new Error("Missing audit MCP service");
+  const lease = mcp.openSession(
+    McpScope.parse({ sessionId: "audit-mcp", threadId, agentId, capabilities: ["screen"] }),
+    new AbortController().signal,
+  );
+  const connection = { url: mcp.url, bearer: lease.bearer };
+  const denied = await (await invoke(connection, "screen_type", { text: "dont-leak-me" })).json();
+  expect(denied).toMatchObject({
+    result: {
+      isError: true,
+      content: [{ text: expect.stringContaining("secure_input_required") }],
+    },
+  });
   screen.secureInput(state.sessionId, true);
-  await screen.input(state.sessionId, "agent", { kind: "text.type", text: "dont-leak-me" }, owner);
+  const accepted = await (await invoke(connection, "screen_type", { text: "dont-leak-me" })).json();
+  expect(accepted.result.isError).not.toBe(true);
+  expect(accepted).toMatchObject({ result: { content: expect.any(Array) } });
   const steps = Object.values(h.store.snapshotThread(threadId).items).filter(
     (item) => item.type === "notice" && item.code === "screen.step",
   );
@@ -390,4 +405,36 @@ test("host approval deadlines expire and prevent late approval from granting acc
     ),
   ).toBeUndefined();
   expect(h.grants.allows("dev.test.app", h.caller)).toBe(false);
+});
+
+test.each([
+  "com.apple.Safari",
+  "com.google.Chrome",
+  "company.thebrowser.Browser",
+  "org.mozilla.firefox",
+  "com.brave.Browser.beta",
+])("%s computer use requires a human UI grant and never accepts Always", async (bundleId) => {
+  const h = await fixture();
+  h.grants.enable(true);
+  await expect(
+    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "approval_required" });
+  expect(
+    Object.values(h.store.snapshotThread(h.thread.id).interactions).filter(
+      (entry) => entry.state === "pending",
+    ),
+  ).toEqual([]);
+  expect(() => h.grants.approve(bundleId, true, "always")).toThrow("turn or thread grant");
+  h.grants.approve(bundleId, true, "thread", h.thread.id);
+  await h.approvals.request(
+    bundleId,
+    "Human granted browser settings",
+    h.caller,
+    new AbortController().signal,
+  );
+  expect(h.grants.allows(bundleId, h.caller)).toBe(true);
+  h.grants.approve(bundleId, false, "thread", h.thread.id);
+  await expect(
+    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
+  ).rejects.toMatchObject({ code: "approval_required" });
 });

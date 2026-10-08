@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { ScreenAgentScope } from "@ace/protocol";
 import { manager, ready } from "./testing/support.ts";
+import { helperGate } from "./testing/gate.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -59,7 +60,9 @@ it("an already expired controller is rejected before permission inspection chang
 });
 
 it("expiry during permission inspection prevents the native input effect", async () => {
-  const { screen, id } = await setup();
+  const gate = await helperGate();
+  cleanups.push(gate.close);
+  const { screen, id } = await setup({ PERMISSION_GATE_PORT: gate.port });
   let leaseActive = true;
   screen.controller(id, "agent", owner, {
     authorize() {
@@ -69,17 +72,17 @@ it("expiry during permission inspection prevents the native input effect", async
       leaseActive = false;
     },
   });
-  const unwatch = screen.watch((state) => {
-    if (state.sessionId === id && state.controller === "agent") leaseActive = false;
-  });
+  const denied = expect(
+    screen.input(id, "agent", { kind: "text.type", text: "denied" }, owner),
+  ).rejects.toThrow("Device lease expired");
   try {
-    await expect(
-      screen.input(id, "agent", { kind: "text.type", text: "denied" }, owner),
-    ).rejects.toThrow("Device lease expired");
-    expect((await screen.targets()).windows[0]?.title).toContain(";actions:0;");
+    await gate.reached;
+    leaseActive = false;
   } finally {
-    unwatch();
+    gate.release();
+    await denied;
   }
+  expect((await screen.targets()).windows[0]?.title).toContain(";actions:0;");
 });
 
 it("a human screen takeover releases external authority and receives ordinary input control", async () => {

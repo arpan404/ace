@@ -1,7 +1,7 @@
 import ApplicationServices
 import AppKit
 
-struct UIBounds: Codable { let x: Double; let y: Double; let w: Double; let h: Double
+struct UIBounds: Codable, Equatable { let x: Double; let y: Double; let w: Double; let h: Double
     var rect: CGRect { CGRect(x: x, y: y, width: w, height: h) }
 }
 struct UINode: Codable {
@@ -50,7 +50,10 @@ func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     let values = copied as? [CFTypeRef] ?? []
     func value(_ index: Int) -> CFTypeRef? { index < values.count ? values[index] : nil }
     let role = axText(value(0), cap: 128) ?? "AXUnknown"
-    let secure = textSecurity(element) != .ordinary
+    var absence = AXError.failure
+    if let subrole = value(2), CFGetTypeID(subrole) == AXValueGetTypeID() { _ = AXValueGetValue(subrole as! AXValue, .axError, &absence) }
+    let secure = classifyTextMetadata(role: value(0) as? String, subrole: value(2) as? String,
+        roleRead: value(0) as? String != nil, subroleRead: value(2) as? String != nil || absence == .attributeUnsupported || absence == .noValue) != .ordinary
     let bounds = axBounds(value(4), value(5))
     var states: [String] = []
     for (index, name) in [(6, "focused"), (7, "selected"), (9, "expanded")] { if (value(index) as? Bool) == true { states.append(name) } }
@@ -76,8 +79,7 @@ func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
     snapshot.truncated = snapshot.truncated || count.intValue > 256
     return snapshot
 }
-func axActions(_ element: AXUIElement, secure: Bool) -> [String] {
-    let native = axActionNames(element)
+func axActions(_ element: AXUIElement, secure: Bool, native: [String]) -> [String] {
     var actions: [String] = []
     if !native.isEmpty { actions.append("performSecondaryAction") }
     if native.contains(kAXPressAction) { actions.append("press") }
@@ -92,8 +94,8 @@ func axActions(_ element: AXUIElement, secure: Bool) -> [String] {
 /// The focused window can remain accessible on another Space when AXWindows is empty.
 func axWindows(_ application: AXUIElement) -> [AXUIElement] {
     var windows = axChildren(application, maximum: 128, attribute: kAXWindowsAttribute)
-    if let value = axAttribute(application, kAXFocusedWindowAttribute), CFGetTypeID(value) == AXUIElementGetTypeID(), !windows.contains(where: { CFEqual($0, value) }) {
-        windows.append(value as! AXUIElement)
+    for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+        if let value = axAttribute(application, attribute), CFGetTypeID(value) == AXUIElementGetTypeID(), !windows.contains(where: { CFEqual($0, value) }) { windows.append(value as! AXUIElement) }
     }
     return windows
 }

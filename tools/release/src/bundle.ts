@@ -36,7 +36,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -90,6 +90,11 @@ export async function bundleDaemon(
                 contents = contents.replace('"./worker.ts"', '"./review-worker.mjs"');
               if (args.path.endsWith("/history-import/src/index.ts"))
                 contents = contents.replace('"./worker.ts"', '"./history-import-worker.mjs"');
+              if (args.path.endsWith("/browser/src/process-guardian.ts"))
+                contents = contents.replace(
+                  '"./process-guardian-entry.ts"',
+                  '"./browser-process-guardian.mjs"',
+                );
               if (args.path.endsWith("/browser/src/recording.ts"))
                 contents = contents.replace(
                   '"./encoder-process.ts"',
@@ -165,6 +170,7 @@ export async function bundleDaemon(
     ["packages/review/src/worker.ts", "review-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
     ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
+    ["packages/browser/src/process-guardian-entry.ts", "browser-process-guardian.mjs"],
     ["packages/notify/src/worker-entry.ts", "notification-worker.mjs"],
     ["packages/models/src/storage-worker.ts", "model-storage-worker.mjs"],
     ["packages/diagnostics/src/log-worker.ts", "diagnostics-log-worker.mjs"],

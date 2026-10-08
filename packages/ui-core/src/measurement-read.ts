@@ -4,6 +4,7 @@ import {
   type Attachment,
   type ToolCall,
 } from "@ace/protocol";
+import { imagePart } from "./mcp-result.ts";
 
 /*
  * Daemon evidence takes precedence. Older steps are read leniently from stored payloads. ace's tools
@@ -25,9 +26,6 @@ const maxNodes = 4096;
 const maxDepth = 12;
 const maxText = 256 * 1024;
 
-const field = (value: unknown, key: string): unknown =>
-  typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
-
 /** The measurement in a text part, or `undefined` for any other text. */
 function parseMeasurement(text: string): InteractionMeasurement | undefined {
   if (text.length > maxText || !text.startsWith("{") || !text.includes('"verdict"'))
@@ -38,18 +36,6 @@ function parseMeasurement(text: string): InteractionMeasurement | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** An image part as a `data:` URL: MCP's `{ data, mimeType }` or Anthropic's `source`. */
-function imagePart(value: unknown): string | undefined {
-  if (field(value, "type") !== "image") return undefined;
-  const source = field(value, "source") ?? value;
-  const data = field(source, "data");
-  const mimeType = field(source, "mimeType") ?? field(source, "media_type");
-  if (typeof data !== "string" || typeof mimeType !== "string") return undefined;
-  if (!/^image\/(jpeg|png|webp)$/.test(mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(data))
-    return undefined;
-  return `data:${mimeType};base64,${data}`;
 }
 
 /** Prefer daemon evidence; retain payload reading for older transcript steps. */

@@ -83,9 +83,11 @@ struct Request: Decodable {
     let secureInputAllowed: Bool?
     let humanDeviceInput: Bool?
     let bundleId: String?
+    let url: String?
+    let path: [String]?
     let range: TextRange?
     struct TextRange: Decodable { let location: Int; let length: Int }
-    enum CodingKeys: String, CodingKey { case observeMs, maxWindowMs, filmstrip, settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
+    enum CodingKeys: String, CodingKey { case url, path, observeMs, maxWindowMs, filmstrip, settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
@@ -108,6 +110,8 @@ struct Request: Decodable {
         secureInputAllowed = try c.decodeIfPresent(Bool.self, forKey: .secureInputAllowed)
         humanDeviceInput = try c.decodeIfPresent(Bool.self, forKey: .humanDeviceInput)
         bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        path = try c.decodeIfPresent([String].self, forKey: .path)
         range = try c.decodeIfPresent(TextRange.self, forKey: .range)
         permission = try c.decodeIfPresent(String.self, forKey: .permission); name = try c.decodeIfPresent(String.self, forKey: .name)
     }
@@ -115,14 +119,19 @@ struct Request: Decodable {
 struct HelperError: Error, CustomStringConvertible {
     let description: String
     let code: String
-    init(_ message: String, code: String = "internal") { description = message; self.code = code }
+    let phase: String
+    let candidates: [WindowCandidate]
+    init(_ message: String, code: String = "internal", phase: String = "rejected-before-dispatch", candidates: [WindowCandidate] = []) { description = message; self.code = code; self.phase = phase; self.candidates = candidates }
 }
 func reply(_ request: Request, data: Any? = nil, error: Error? = nil) {
     var object: [String: Any] = ["version": request.version, "id": request.id, "ok": error == nil]
     if let data { object["data"] = data }
     if let error {
         let message = String(String(describing: error).prefix(1024))
-        object["error"] = request.version == 1 ? message : ["code": (error as? HelperError)?.code ?? "internal", "message": message]
+        let fault = error as? HelperError
+        var details: [String: Any] = ["code": fault?.code ?? "internal", "message": message, "phase": fault?.phase ?? "rejected-before-dispatch"]
+        if let candidates = fault?.candidates, !candidates.isEmpty, let bytes = try? JSONEncoder().encode(candidates), let value = try? JSONSerialization.jsonObject(with: bytes) { details["candidates"] = value }
+        object["error"] = request.version == 1 ? message : details
     }
     if let bytes = try? JSONSerialization.data(withJSONObject: object), bytes.count <= 64 * 1024 {
         FileHandle.standardOutput.write(bytes + Data([10]))

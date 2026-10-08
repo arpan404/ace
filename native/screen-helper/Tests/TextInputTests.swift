@@ -49,5 +49,15 @@ final class TextInputTests: XCTestCase {
         XCTAssertThrowsError(try input.type("secret", secureAllowed: true))
         XCTAssertEqual(document, "original")
     }
+    @MainActor func testSlowFallbackStopsAtACharacterBoundaryAndReportsPartialText() throws {
+        let field = AXUIElementCreateApplication(42)
+        var now: UInt64 = 0, text = ""
+        let input = ValidatedTextInput(destination: { TextDestination(element: field, security: .ordinary) },
+            replaceSelection: { _, _ in false }, postCharacter: { character in text.append(character); now += 1_000_000_000 }, clock: { now })
+        do { try input.type("abc", secureAllowed: false); XCTFail("Must stop slow fallback") }
+        catch let error as HelperError { XCTAssertEqual(error.code, "delivery_unconfirmed"); XCTAssertEqual(error.phase, "partial") }
+        catch { XCTFail("Unexpected error") }
+        XCTAssertEqual(text, "a")
+    }
 
 }

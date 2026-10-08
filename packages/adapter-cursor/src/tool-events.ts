@@ -1,3 +1,4 @@
+import { aceToolInput } from "@ace/core";
 import type { Fact, Key } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { object, nativeIdentity, string, type CursorEnvelope } from "./contracts.ts";
@@ -126,6 +127,16 @@ export class ToolEvents {
           facts.push(...result);
         }
       }
+      const detail = toolDetail(name, tool.args, native.result);
+      const ace = aceToolInput({ kind: toolKind(name), title: name, detail });
+      const realError = ace ? object(object(native.result).value) : {};
+      const errorText = Array.isArray(realError.content)
+        ? realError.content
+            .map((block) => string(object(block).text) ?? "")
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 4096)
+        : string(realError.message);
       facts.push({
         type: "item.upsert",
         agent,
@@ -137,10 +148,10 @@ export class ToolEvents {
             kind: toolKind(name),
             title: name,
             status: tool.failed ? "failed" : status,
-            detail: toolDetail(name, tool.args, native.result),
+            detail,
             raw: [event?.raw ?? { type: "cursor.sdk.tool", name, data: event }],
             ...(tool.failed
-              ? { error: "Cursor tool failed or was denied by execution policy" }
+              ? { error: errorText || "Cursor tool failed or was denied by execution policy" }
               : {}),
           },
         },

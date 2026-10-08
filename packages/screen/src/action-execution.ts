@@ -1,4 +1,4 @@
-import { ScreenPermissions, type ScreenState } from "@ace/protocol";
+import { type ScreenState } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
 import { authorizeInput } from "./policy.ts";
@@ -11,8 +11,7 @@ type ActionRuntime = {
   fail(session: Session, error: Error): void;
   audit(state: ScreenState, action: string, outcome: string): void;
 };
-/** Per-session ordering plus a shared native execution slot. No agent command is buffered in
- * the native helper behind another app's action with a stale authority envelope. */
+/** Per-session ordering; only foreground input and clipboard work share a host lane. */
 export function executeSessionAction<T>(
   runtime: ActionRuntime,
   session: Session,
@@ -38,12 +37,19 @@ export function executeSessionAction<T>(
   const action = session.actionTail
     .then(async () => {
       await session.pointerCleanup;
-      return runtime.host.execute(validate, async () => {
-        const permissions = ScreenPermissions.parse(
-          await session.helper.request({ op: "permissions" }),
-        );
-        session.state.permissions = permissions;
-        runtime.emit(session);
+      const execute =
+        session.state.mode === "foreground"
+          ? runtime.host.executeShared.bind(runtime.host)
+          : runtime.host.execute.bind(runtime.host);
+      return execute(validate, async () => {
+        const permissions = await session.helper.permissions();
+        if (
+          session.state.permissions.screenRecording !== permissions.screenRecording ||
+          session.state.permissions.accessibility !== permissions.accessibility
+        ) {
+          session.state.permissions = permissions;
+          runtime.emit(session);
+        }
         if (!permissions.screenRecording)
           runtime.fail(session, new Error("Screen Recording permission revoked"));
         if (!permissions.accessibility || !permissions.screenRecording)

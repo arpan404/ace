@@ -145,9 +145,15 @@ impl Runtime {
             let logical_width = p.size.0;
             std::thread::spawn(move || {
                 let _read = read;
-                if let Err(e) =
-                    crate::pipewire::capture(fd, node, fps, logical_width, _read.as_raw_fd(), cancelled, publisher)
-                {
+                if let Err(e) = crate::pipewire::capture(
+                    fd,
+                    node,
+                    fps,
+                    logical_width,
+                    _read.as_raw_fd(),
+                    cancelled,
+                    publisher,
+                ) {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
                 }
@@ -223,7 +229,11 @@ impl Runtime {
                         .window
                         .as_ref()
                         .ok_or_else(|| Fault::new("not_supported", "No safe fallback target"))?;
-                    let live = self.x.as_ref().ok_or_else(|| internal("No X11 target"))?.check(w)?;
+                    let live = self
+                        .x
+                        .as_ref()
+                        .ok_or_else(|| internal("No X11 target"))?
+                        .check(w)?;
                     let (x, y) = crate::policy::element_center(&b, &live.bounds)?;
                     self.click(x, y, "left").await?;
                     Ok(json!({"fallback":true,"method":"pointer.click"}))
@@ -234,6 +244,11 @@ impl Runtime {
             "action" => self.legacy(r).await,
             "pointer.move" | "pointer.click" | "pointer.drag" | "key.press" | "text.type"
             | "scroll" => self.input(r).await,
+            "open.url" | "menu.press" => Err(Fault::new(
+                "not_supported",
+                "Background app operations are unavailable on Linux",
+            )
+            .phase("rejected-before-dispatch")),
             _ => Err(Fault::new("not_supported", "Unknown command")),
         }
     }
@@ -366,7 +381,8 @@ pub async fn run() -> Result<()> {
             Ok(result) => result,
             Err(_) => {
                 if r.op == "start" {
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.stop()).await;
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.stop())
+                        .await;
                 }
                 Err(Fault::new("timeout", "Command timed out"))
             }

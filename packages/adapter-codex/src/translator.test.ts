@@ -318,3 +318,25 @@ test("process death expires questions and fails surviving work", () => {
   expect(h.state.status.state).toBe("failed");
   expect(Object.values(h.state.interactions)[0]?.state).toBe("expired");
 });
+
+test("MCP item errors preserve the native error message on the tool row", () => {
+  const h = setup();
+  h.start();
+  h.item(
+    {
+      id: "ace-error",
+      type: "mcpToolCall",
+      server: "ace",
+      tool: "screen_click",
+      arguments: { x: 1, y: 2 },
+      status: "failed",
+      error: { message: "Text destination changed" },
+    },
+    true,
+  );
+  const item = Object.values(h.state.items).find((entry) => entry.type === "tool_call");
+  expect(item).toMatchObject({
+    complete: true,
+    call: { status: "failed", error: "Text destination changed" },
+  });
+});

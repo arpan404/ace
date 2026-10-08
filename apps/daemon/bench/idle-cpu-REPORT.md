@@ -1,0 +1,45 @@
+# Daemon idle CPU investigation
+
+Current main did not reproduce the installed build's reported 65–110% CPU. The installed application was neither opened nor inspected. Baseline was origin/main `88805977`, bundled by this worktree's release tools with Node 24.13.0. Main already contains the Cursor parser fix and exponential discovery backoff. This change fixes remaining repeating work; it does not establish that every cause of the older installed build's CPU usage is gone.
+
+SQLite `.backup` created private diagnostic copies of the durable ace databases and history index. Settings were copied. Locks, tokens, endpoint files, instance homes, browser profiles, worktrees, and transient database snapshots were excluded. The copy contained 19 threads and 17,383 events. Only the copies were sanitized: workspace paths became temporary paths, account bindings and executable schedules were removed, and configured executable paths were removed from settings. CLI runs used a temporary HOME, an empty PATH/model-instance list, and the development command handler. No real provider CLI was prompted. A separate run selected the owner's Claude and Codex history homes through `ACE_HISTORY_INSTANCES`. The history importer reads only recognized transcript and database paths, using private snapshots for provider SQLite. Credential files were never selected. All three scratch homes were deleted afterward.
+
+Each comparison warmed up for ten seconds after endpoint publication and measured 180 seconds using process-wide `process.cpuUsage()`, including worker isolates, and child monotonic elapsed time. These CPU/RSS numbers use no profiler or telemetry interval. They are diagnostic observations, not qualified timing results: host load ranged far above the existing timing gate. The history homes were receiving filesystem changes throughout the comparison, so that case includes background scan work rather than strictly idle time. No browser client was attached. RSS is the final process sample, not peak memory.
+
+| Scenario                                 | Main CPU, one core | Patched CPU, one core |  Main RSS | Patched RSS |
+| ---------------------------------------- | -----------------: | --------------------: | --------: | ----------: |
+| Empty temporary home                     |              0.59% |                 0.39% | 141.0 MiB |   159.2 MiB |
+| Copied realistic store                   |              0.71% |                 0.48% | 150.4 MiB |   183.8 MiB |
+| Copied store plus changing history homes |              4.63% |                 2.57% | 240.5 MiB |   191.0 MiB |
+
+Raw measurements are summarized in [idle-cpu-results.json](idle-cpu-results.json). A separate compiled bench measurement with Node 24.13.0 reopened a synthetic store containing 16 completed sessions and 16,000 historical deltas. Over 60.005 seconds it averaged **0.59% CPU and 202.5 MiB RSS**, below 2% and 256 MiB. It was also observed on an overloaded host, so the automatic gate must still qualify it on an idle host. Source/Node 26 measurements are not used to qualify release RSS.
+
+Node CPU profiles were collected separately for empty, copied-store and history runs. Sampling itself raises observed idle CPU to roughly 4%; the existing all-isolate telemetry preload also performs synchronous filesystem writes every 500 ms. Neither observer belongs in the new CPU gate. Profiles remain local under `.ace-dev/idlecpu-diagnostics`; owner databases/transcripts and raw profiles are not committed.
+
+The history-run worker profiles contained the following largest relevant self sample totals. Percentages are relative to 362.3 seconds of aggregate worker samples, including idle samples, and include native-call waits. They are sampling attribution, not exact CPU seconds. Minified frame locations were matched to our own generated bundle.
+
+| Function                              | Self samples | Share of worker samples | Trigger and recurrence                                                   |
+| ------------------------------------- | -----------: | ----------------------: | ------------------------------------------------------------------------ |
+| `scan.ts` batch `flush`, minified `f` |       7.66 s |                   2.11% | Four-file sampling batches and SQLite commits, repeated on changes       |
+| `ScanUpdates.summarize`               |       6.37 s |                   1.76% | Reconcile changed native sessions and ancestors after each scan          |
+| `Catalog.put`                         |       2.90 s |                   0.80% | Updated JSONL/database summaries, repeated on changed sources            |
+| `Hash.update`                         |       0.96 s |                   0.26% | Provider database/WAL snapshot copying; whole-database digest was unused |
+
+In the copied-store main-isolate profile, the full-stream search flush had 0.62 seconds of self samples and preview flushes had another 0.30 seconds. These callbacks recurred every 100 ms even after both indexes had drained. Empty-home profiles showed the same recurrence. Discovery was isolated separately through a deterministic catalog regression: instance-level `no_models`, `parse_failure`, and `cli_too_old` produced another discovery failure after one minute despite unchanged connection metadata. Source-level `no_models` was already handled correctly on main.
+
+Search now stops its timer when the persisted counters for both indexes reach zero. Appends, remaining startup work, and history publication wake indexing again, retaining the existing bounded 100 ms batches and cancellation behavior. No history-sized queue or polling query was added. History watcher notifications coalesce for one second, with at least five seconds between background scan starts; explicit scans remain authoritative. The existing fingerprint cache and incremental inventory stay responsible for avoiding unchanged transcript reads. No repeating history timer remains once a change batch drains. Provider database copying no longer computes the unused base-file digest; it still uses no-follow reads, before/after file identity fingerprints, WAL-prefix digests, race retries, and cancellation. Terminal discovery errors wait for the normal six-hour maximum age, or an explicit refresh/login/settings/version/connection change. Transient failures retain the existing bounded concurrency and exponential backoff.
+
+No wire/protocol schema changes. Public host-side additions are `SearchIndex.hasPendingWrites()` and optional history watch/scan scheduler injection for deterministic boundary tests. The daemon bench adds internal readiness, seed, and sample IPC operations. `check:perf` includes the 60-second CPU check using the existing load qualification and unchanged RSS limit. Seeding occurs in an earlier process so its temporary allocations are outside the measured daemon lifetime; the measured process reopens the real persisted SQLite store. Benchmark homes also isolate provider and XDG paths and disable inherited measurement preloads.
+
+Executed behaviour checks, one file per invocation:
+
+- Discovery backoff: terminal metadata does not rediscover on unchanged probes; explicit refresh recovers; existing transient backoff, jitter, cap and change-reset cases pass. 17 tests.
+- Daemon history watch: native changes refresh lists; bursty writes wait for one throttled scan; the deadline cancels after settlement and shutdown. 2 tests.
+- History incremental inventory: changed/deleted/renamed files retain unrelated sessions; unchanged inventory visits zero files; worker retirement retains changes; cancellation drains. 5 tests.
+- SQLite snapshot races: concurrent WAL appends/checkpoints publish consistent inventories without modifying provider WAL/shared memory. 2 tests.
+- Search lifecycle: startup/cancellation failures release SQLite; settled search cancels polling; later streamed messages become searchable. 4 tests.
+- Search socket and output checks: committed queries, scheduled stream indexing, current startup status, and full output search pass. 6 tests across two separate invocations.
+
+Static verification passed: formatting, lint, typecheck, file-size, UI and dependency checks. Dependency-cruiser reports its existing TypeScript 7 compatibility warning. The full test suite was not run, per the task's merge-only policy. An attempted daemon performance gate hit its existing ten-second idle-import startup deadline under heavy host load; budgets were not changed. The standalone compiled 60-second measurement completed successfully. The full `check:perf` and idle-host qualification remain for the orchestrator.
+
+Open question: whether the installed build's earlier discovery failures and/or activity from connected clients explain the entire reported 65–110%. Testing that older app or owner projects was outside the authorized isolation rules. History directories that change continuously still consume work, as the 2.57% sample shows; this change coalesces it rather than claiming that ongoing provider activity is idle.
