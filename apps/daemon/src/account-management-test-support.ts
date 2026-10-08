@@ -54,7 +54,7 @@ if (args[0] === '--version') {
       fs.writeFileSync(path.join(home, 'fixture-model-pid'), String(process.pid));
       return;
     }
-    const result = request.method === 'model/list' ? {data:[{id:'fixture',model:'fixture-account-model',displayName:'Fixture model',isDefault:true,supportedReasoningEfforts:[],defaultReasoningEffort:'high'}],nextCursor:null} : {};
+    const result = request.method === 'model/list' ? {data:[{id:'fixture',model:fs.existsSync(path.join(home, 'fixture-model-name')) ? fs.readFileSync(path.join(home, 'fixture-model-name'), 'utf8') : 'fixture-account-model',displayName:'Fixture model',isDefault:true,supportedReasoningEfforts:[],defaultReasoningEffort:'high'}],nextCursor:null} : {};
     console.log(JSON.stringify({id:request.id,result}));
   });
 } else if (args.length && !args.includes('login') && !args.includes('logout')) {

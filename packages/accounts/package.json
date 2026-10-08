@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./labels": "./src/labels.ts",
     "./availability": "./src/availability.ts"
   },
   "scripts": {

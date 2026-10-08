@@ -521,7 +521,13 @@ export class FakeServices {
         this.accounts.push(account);
       } else {
         if (!account || (account.implicit && request.type !== "accounts.setDefault")) return fail();
-        if (request.type === "accounts.rename") account.label = request.label;
+        if (request.type === "accounts.rename") {
+          account.label = request.label;
+          account.shortLabel = request.shortLabel ?? account.shortLabel;
+          account.badgeColor =
+            request.badgeColor === null ? undefined : (request.badgeColor ?? account.badgeColor);
+          this.host.broadcast?.({ type: "usage.limits_changed", account });
+        }
         if (request.type === "accounts.setDefault") {
           if (account.provider !== request.provider) return fail();
           for (const entry of this.accounts)
