@@ -138,7 +138,7 @@ test("on the deck, a number key never approves a request that defaults to no, ev
 
   within(card).getByRole("button", { name: "Deny" }).focus();
   await userEvent.keyboard("1");
-  expect(await within(card).findByText(/defaults to no: click Allow once/)).toBeTruthy();
+  expect(await within(card).findByText(/Read the request, then click Allow once/)).toBeTruthy();
   expect(app.daemon.isPending("thread-careful", "truncate")).toBe(true);
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));

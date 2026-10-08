@@ -37,6 +37,7 @@ export const BlockView = memo(function BlockView(props: {
           threadId={threadId}
           itemIds={block.itemIds}
           live={props.live ?? false}
+          ongoing={block.ongoing}
           until={block.until}
           idle={block.idle}
         />

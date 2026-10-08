@@ -103,7 +103,8 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
       )
       .finally(() => setRefreshing(false));
   };
-  const ci = pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
+  const state = error !== undefined ? "Unavailable" : refreshing ? "Checking…" : prState[pr.state];
+  const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
     <Popover
       open={openNow}
@@ -116,7 +117,7 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
       <PopoverTrigger
         render={
           <RowButton
-            aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prState[pr.state]}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
+            aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
             className="aria-expanded:bg-accent"
           />
         }
@@ -128,7 +129,7 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
             {pr.title ?? git.checkout?.branch}
           </TruncatedText>
         </Tip>
-        <span className="shrink-0 text-xs text-subtle-foreground">{prState[pr.state]}</span>
+        <span className="shrink-0 text-xs text-subtle-foreground">{state}</span>
         {ci && ci !== "none" && <ToneIcon tone={ci} />}
       </PopoverTrigger>
       <PopoverContent

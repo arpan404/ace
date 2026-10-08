@@ -1,8 +1,17 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+import { useEffect, useRef } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
 import { layers, popupSurface } from "./menu-styles.ts";
 
-const Popover = PopoverPrimitive.Root;
+/** Navigation dismisses both controlled and uncontrolled popovers through Base UI. */
+function Popover(props: PopoverPrimitive.Root.Props) {
+  const router = useRouter({ warn: false });
+  const actions = useRef<PopoverPrimitive.Root.Actions>(null);
+  const ref = props.actionsRef ?? actions;
+  useEffect(() => router?.subscribe("onBeforeNavigate", () => ref.current?.close()), [router, ref]);
+  return <PopoverPrimitive.Root {...props} actionsRef={ref} />;
+}
 const PopoverTrigger = PopoverPrimitive.Trigger;
 const PopoverClose = PopoverPrimitive.Close;
 const PopoverTitle = PopoverPrimitive.Title;

@@ -31,7 +31,7 @@ export interface ServicesSeed extends AutomationSeed {
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
   >;
-  historyTranscripts?: Record<string, { role: "user" | "assistant"; text: string }[]>;
+  historyTranscripts?: Record<string, { role: "user" | "assistant"; text: string; at?: number }[]>;
   history?: import("@ace/protocol").HistorySession[];
   /** Seed the small PNG fixture for scoped client attachment reads. */
   notificationPublicKey?: string;

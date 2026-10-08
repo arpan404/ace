@@ -92,13 +92,17 @@ test("a thread with nothing new since the last read shows no catch-up", async ()
   expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
 });
 
-test("an approval waiting since the reader left is answered from the card", async () => {
+test("an away summary counts an approval and leaves its answer on the composer", async () => {
   const app = awayFromThread({ pending: true });
   await app.open(`/t/${threadId}`);
   const card = await screen.findByRole("region", { name: "While you were away" });
   expect(card.textContent).toContain("Needs you");
-  const waiting = within(card).getByRole("list", { name: "Waiting on you" });
-  expect(waiting.textContent).toContain("Roll the migration out to production");
+  expect(card.textContent).toContain("One approval is waiting for you");
+  expect(within(card).queryByRole("button", { name: "Allow once" })).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Review" })).toBeNull();
+  const waiting = await screen.findByRole("article", {
+    name: "Roll the migration out to production",
+  });
   expect(app.daemon.isPending(threadId, "approve-rollout")).toBe(true);
 
   await userEvent.click(within(waiting).getByRole("button", { name: "Allow once" }));

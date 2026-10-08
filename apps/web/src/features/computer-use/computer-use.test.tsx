@@ -347,3 +347,23 @@ test("sharing a window grants only this thread, starts capture and delegates to 
   ]);
   expect(await within(panel).findByRole("article", { name: "TextEdit" })).toBeTruthy();
 });
+
+test("Open live sessions dismisses the indicator before showing Settings", async () => {
+  const { app, world } = await openSettings();
+  await world.agentApp("com.apple.calculator");
+  await app.open("/t/thread-checkout");
+  const indicator = await screen.findByRole(
+    "button",
+    { name: "Agents are using 1 app" },
+    { timeout: 4000 },
+  );
+  await userEvent.click(indicator);
+  await userEvent.click(await screen.findByRole("link", { name: "Open live sessions" }));
+  await page();
+  expect(screen.queryByRole("link", { name: "Open live sessions" })).toBeNull();
+  expect(
+    await within(await screen.findByRole("list", { name: "Live sessions" })).findByText(
+      "Calculator",
+    ),
+  ).toBeTruthy();
+});

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./branch-name": "./src/branch-name.ts",
     "./pinned-directory": "./src/pinned-directory.ts"
   },
   "scripts": {

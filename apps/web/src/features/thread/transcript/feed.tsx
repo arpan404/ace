@@ -43,7 +43,7 @@ import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } fro
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
-import { useWatched, type Watched } from "./use-watched.ts";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];

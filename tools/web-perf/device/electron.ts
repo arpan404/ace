@@ -144,9 +144,9 @@ try {
     sourceClock.offset,
   );
   await page.addInitScript({ content: meter });
-  await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 60000 });
+  await page.getByRole("button", { name: "New thread", exact: true }).waitFor({ timeout: 60000 });
   await page.goto(`app://ace/t/${thread.id}`);
-  await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 60000 });
+  await page.getByRole("combobox", { name: "Message" }).waitFor({ timeout: 60000 });
   await page.keyboard.press("Control+Shift+m");
   await page.getByRole("button", { name: "Enable devices", exact: true }).click({ timeout: 30000 });
   await page.getByRole("button", { name: new RegExp(`^${deviceName}`) }).click({ timeout: 30000 });

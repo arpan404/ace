@@ -67,9 +67,13 @@ export function ProviderSetupRow(props: {
       : progressNames[progress?.state ?? "planning"]
     : failed
       ? "Install failed"
-      : progress?.state === "cancelled"
-        ? "Cancelled"
-        : undefined;
+      : progress?.state === "succeeded"
+        ? progress.action === "uninstall"
+          ? "Removed"
+          : progressNames.succeeded
+        : progress?.state === "cancelled"
+          ? "Cancelled"
+          : undefined;
   return (
     <div className="flex min-w-0 flex-col">
       <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
@@ -77,7 +81,18 @@ export function ProviderSetupRow(props: {
         <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>
         {status ? (
           <span role={failed ? "alert" : "status"}>
-            <StatusLabel tone={failed ? "failed" : busy ? "working" : "idle"} label={status} />
+            <StatusLabel
+              tone={
+                failed
+                  ? "failed"
+                  : busy
+                    ? "working"
+                    : progress?.state === "succeeded"
+                      ? "done"
+                      : "idle"
+              }
+              label={status}
+            />
           </span>
         ) : missing ? (
           <StatusLabel tone="idle" label="Not installed" />
@@ -85,7 +100,7 @@ export function ProviderSetupRow(props: {
           <StatusLabel tone="needs-you" label="Update available" />
         ) : props.view ? (
           <StatusLine
-            tone={props.view.tone}
+            tone={props.view.ready ? "ready" : props.view.tone}
             text={props.view.ready ? "Ready" : props.view.summary}
           />
         ) : (

@@ -1,4 +1,4 @@
-import type { Agent, BackgroundTask, ThreadStatus } from "@ace/protocol";
+import type { Agent, BackgroundTask, Interaction, ThreadStatus } from "@ace/protocol";
 
 /**
  * "Why isn't this done?" in plain words. ADR 0004: a thread is done only when every agent,
@@ -12,6 +12,7 @@ export interface WhyInput {
   tasks: readonly BackgroundTask[];
   /** Pending interactions that wait for a person. */
   waitingOnYou: number;
+  requests?: readonly Pick<Interaction, "request">[];
   /** Messages this client queued that the agent hasn't picked up yet. */
   queued?: number;
 }
@@ -51,7 +52,18 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
   const open: string[] = [];
   const settles: string[] = [];
   if (input.waitingOnYou > 0) {
-    open.push(`${plural(input.waitingOnYou, "question is", "questions are")} waiting for you`);
+    if (input.requests) {
+      const names = {
+        approval: "approval",
+        question: "question",
+        plan_review: "plan review",
+        elicitation: "input request",
+      };
+      for (const [kind, name] of Object.entries(names)) {
+        const n = input.requests.filter((interaction) => interaction.request.kind === kind).length;
+        if (n) open.push(`${plural(n, `${name} is`, `${name}s are`)} waiting for you`);
+      }
+    } else open.push(`${plural(input.waitingOnYou, "request is", "requests are")} waiting for you`);
     settles.push(input.waitingOnYou === 1 ? "you answer it" : "you answer them");
   }
   const root = input.agents.find((agent) => agent.id === input.rootAgentId);

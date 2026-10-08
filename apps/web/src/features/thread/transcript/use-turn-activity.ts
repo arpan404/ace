@@ -6,7 +6,7 @@ import { useThreadReset } from "../lib/thread-account.ts";
 import { pauseLabel, providerNames } from "@ace/ui-core";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useStopping } from "../composer/stop-state.ts";
-import { useWatched, type Watched } from "./use-watched.ts";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
 const off: readonly ThreadKey[] = [];
 const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: [] };

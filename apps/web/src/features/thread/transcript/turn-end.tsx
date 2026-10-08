@@ -9,7 +9,7 @@ import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
 import { useThreadReset } from "../lib/thread-account.ts";
-import { useWatched, type Watched } from "./use-watched.ts";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
 const FailedTurn = DeferredFailedTurn.Component;
 

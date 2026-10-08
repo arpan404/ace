@@ -77,3 +77,27 @@ test("with the remote unreachable a listed branch uses its cached copy and an un
     error: "worktree_base_not_found",
   });
 });
+
+test("a prepared worktree names its branch from the readable thread title", () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const result = daemon.command(
+    Command.parse({
+      id: "title",
+      deviceId: "device",
+      payload: {
+        type: "thread.prepare",
+        threadId: "thread-title",
+        workspaceId: "workspace",
+        provider: "codex",
+        mode: "worktree",
+        title: "Fix Réplay: restart budget!",
+        base: { ref: "main" },
+      },
+    }),
+  );
+  expect(result.ok).toBe(true);
+  const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-title") });
+  expect(view?.kind === "thread" && view.thread.details?.branch).toBe(
+    "ace/fix-replay-restart-budget",
+  );
+});

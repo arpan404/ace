@@ -16,7 +16,7 @@ export interface FakeServiceContext {
     provider: Thread["provider"];
     imported?: Thread["imported"];
   }): void;
-  apply?(id: string, facts: readonly import("@ace/core").Fact[]): void;
+  apply?(id: string, facts: readonly import("@ace/core").Fact[], at?: number): void;
   thread(id: string): ThreadView | undefined;
   threads(): Thread[];
   update(id: string, payload: EventPayload): void;

@@ -1,7 +1,14 @@
 import { hasOpenCodeV2, supportsOpenCodeV2, openCodeV2Records } from "./opencode-messages.ts";
 import { orderedMessages, orderedParts } from "./storage-order.ts";
 import { basename, join } from "node:path";
-import { readJsonLines, readRange, object, string, RECORD_LIMIT } from "@ace/native-session";
+import {
+  readJsonLines,
+  readRange,
+  object,
+  string,
+  timestamp,
+  RECORD_LIMIT,
+} from "@ace/native-session";
 import type { ProviderHome } from "./contracts.ts";
 import type { Source } from "./catalog.ts";
 import { openProviderDb, supportsOpenCode } from "./provider-db.ts";
@@ -49,7 +56,13 @@ export async function* sourceRecords(
             readRange(instance.homeDir, part, record.offset, record.bytes, signal);
           if ("value" in record)
             yield {
-              value: { ...object(record.value), role: string(message.role) },
+              value: {
+                ...object(record.value),
+                role: string(message.role),
+                timestamp:
+                  timestamp(object(object(record.value).time).created) ??
+                  timestamp(object(message.time).created),
+              },
               bytes: record.bytes,
               chunks,
             };
@@ -70,7 +83,7 @@ export async function* sourceRecords(
     }
     db.exec("BEGIN"); // Consistent read-only snapshot, including live WAL.
     const rows = db.prepare(
-      "SELECT id,octet_length(data) AS bytes FROM message WHERE session_id=? ORDER BY time_created,id",
+      "SELECT id,time_created,octet_length(data) AS bytes FROM message WHERE session_id=? ORDER BY time_created,id",
     );
     const parts = db.prepare(
       "SELECT id,octet_length(data) AS bytes FROM part WHERE message_id=? ORDER BY id",
@@ -100,6 +113,7 @@ export async function* sourceRecords(
       const bytes = Number(row.bytes);
       const chunks = () => read("message", id, bytes);
       let role: string | undefined;
+      let at = timestamp(row.time_created);
       if (bytes > RECORD_LIMIT)
         throw new Error("OpenCode SQLite record exceeds bounded decoder limit");
       else {
@@ -108,7 +122,8 @@ export async function* sourceRecords(
         try {
           const value: unknown = JSON.parse(Buffer.concat(buffers).toString("utf8"));
           role = string(object(value).role);
-          yield { value: { ...object(value), id }, bytes, chunks };
+          at = timestamp(object(object(value).time).created) ?? at;
+          yield { value: { ...object(value), id, timestamp: at }, bytes, chunks };
         } catch {
           yield { opaque: true, bytes, chunks };
         }
@@ -129,6 +144,7 @@ export async function* sourceRecords(
                 role,
                 id: partId,
                 messageID: id,
+                timestamp: at,
               },
               bytes: size,
               chunks: partChunks,

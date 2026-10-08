@@ -34,7 +34,12 @@ function useWaited(threadId: string, from: number, to: number): number {
 export function useWorkLog(
   threadId: string,
   itemIds: readonly string[],
-  options: { live?: boolean | undefined; until?: number | undefined; idle?: number | undefined },
+  options: {
+    ongoing?: boolean | undefined;
+    live?: boolean | undefined;
+    until?: number | undefined;
+    idle?: number | undefined;
+  },
 ): WorkLogHeadline | undefined {
   const { live = false, until, idle = 0 } = options;
   const summary = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
@@ -55,7 +60,10 @@ export function useWorkLog(
       awaiting: summary.awaiting,
     };
   return {
-    label: `Worked for ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
+    label:
+      options.ongoing || until === undefined
+        ? "Work so far"
+        : `Worked for ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
     counts,
     running: false,
     current: undefined,

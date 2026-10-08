@@ -1,5 +1,4 @@
 import type { ThreadStatus } from "@ace/protocol";
-import { formatElapsed } from "@ace/ui-core";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
@@ -7,15 +6,14 @@ import { StopIcon } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useTicker } from "../lib/clock.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { AttachedCard } from "./attached-card.tsx";
 import { useComposerCompact } from "./composer-compact.ts";
 import { stripControl, stripRow } from "./composer-styles.ts";
 
 /**
- * What the agents are doing, in the composer's tab while they work: "2 agents working · 1m 12s
- * · Running bun install", and Stop. The step in flight drops on a narrow composer. It reads the
+ * What the agents are doing, in the composer's tab while they work, and Stop.
+ * The elapsed timer belongs to the transcript; this strip names the activity. The step in flight drops on a narrow composer. It reads the
  * turn's one live line, so it never disagrees with the transcript's.
  */
 export function StatusStrip(props: {
@@ -26,7 +24,6 @@ export function StatusStrip(props: {
 }) {
   const compact = useComposerCompact();
   const activity = useTurnActivity(props.threadId);
-  const now = useTicker(activity?.elapsedFrom !== undefined);
   const live = useThreadLiveState(props.threadId);
   if (!activity && !live.canStop) return null;
   const agents = props.status?.state === "working" ? props.status.agents : 1;
@@ -38,10 +35,6 @@ export function StatusStrip(props: {
       : props.stopping
         ? "Working"
         : (activity?.label ?? "Working"));
-  const elapsed =
-    activity?.elapsedFrom === undefined
-      ? undefined
-      : formatElapsed(Math.max(0, now - activity.elapsedFrom));
   return (
     <AttachedCard label="Agents" strip cardKey="status">
       <div className={cn(stripRow, "gap-2 pl-3.5")}>
@@ -58,7 +51,6 @@ export function StatusStrip(props: {
             mark={activity?.tone === "working" ? <Spinner /> : <Dot tone="limited" />}
             className="min-w-0 shrink truncate"
           />
-          {elapsed && <span className="shrink-0 tabular-nums">· {elapsed}</span>}
           {!compact && activity?.current && (
             <span className="min-w-0 truncate text-subtle-foreground">· {activity.current}</span>
           )}

@@ -1,15 +1,7 @@
 import type { ThreadReader } from "@ace/client";
-import {
-  useClient,
-  useInteraction,
-  useInteractions,
-  useIntentSender,
-  useThreadMeta,
-} from "@ace/client-react";
+import { useClient } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import {
-  approvalCopy,
-  deliberateApproval,
   catchUpSummaryRequest,
   catchUpView,
   formatAgo,
@@ -33,11 +25,10 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { DigestFacts } from "./digest-facts.tsx";
-import { useWatched } from "../transcript/use-watched.ts";
+import { useWatched } from "@/lib/use-watched.ts";
 
-/** Pending requests listed with their answers in the card; the live footer holds the rest. */
-const listedRequests = 3;
-const whyKeys = ["thread", "agents", "tasks"] as const;
+/** Count the current pending requests; their actions live in the composer. */
+const whyKeys = ["thread", "agents", "tasks", "interactions"] as const;
 
 function readWhy(reader: ThreadReader) {
   const value = {
@@ -46,6 +37,10 @@ function readWhy(reader: ThreadReader) {
     agents: reader.agentIds().flatMap((id) => {
       const agent = reader.agent(id);
       return agent ? [agent] : [];
+    }),
+    requests: reader.interactionIds().flatMap((id) => {
+      const interaction = reader.interaction(id);
+      return interaction?.state === "pending" ? [interaction] : [];
     }),
     tasks: reader.taskIds().flatMap((id) => {
       const task = reader.task(id);
@@ -56,6 +51,7 @@ function readWhy(reader: ThreadReader) {
     value,
     watch: [
       ...value.agents.map((agent) => `agent:${agent.id}`),
+      ...value.requests.map((interaction) => `interaction:${interaction.id}`),
       ...value.tasks.map((task) => `task:${task.id}`),
     ],
   };
@@ -65,7 +61,7 @@ function readWhy(reader: ThreadReader) {
  * "While you were away": what happened since this device last read the thread, from the
  * daemon's digest. Turns finished, the status now and why, files, commands and failures,
  * subagents and errors, the newest thing the agent said, and the requests waiting on the
- * person with their answers right here. Summarise is an explicit, ordinary message to the
+ * person. Summarise is an explicit, ordinary message to the
  * thread's agent; nothing here asks a provider by itself. On a phone the card opens folded to
  * its heading and the status, so the transcript keeps the screen; opened, it scrolls inside a
  * capped height rather than pushing the transcript away.
@@ -91,13 +87,14 @@ export function CatchUpCard(props: {
   const finished = children.filter((agent) =>
     ["idle", "interrupted", "failed"].includes(agent.status.state),
   ).length;
-  const pending = useInteractions(props.threadId) ?? [];
+  const pending = live?.requests ?? [];
   const why = whyNotDone({
     status: currentStatus,
     rootAgentId: live?.rootAgentId,
     agents: live?.agents ?? [],
     tasks: live?.tasks ?? [],
     waitingOnYou: pending.length,
+    requests: pending,
   });
   const [asked, setAsked] = useState<"sending" | "sent">();
   const phone = usePhone();
@@ -243,23 +240,6 @@ export function CatchUpCard(props: {
               ))}
             </ul>
           )}
-          {pending.length > 0 && (
-            <ul aria-label="Waiting on you" className="flex flex-col gap-1.5">
-              {pending.slice(0, listedRequests).map((id) => (
-                <PendingRequest
-                  key={id}
-                  threadId={props.threadId}
-                  interactionId={id}
-                  onLive={props.onLive}
-                />
-              ))}
-              {pending.length > listedRequests && (
-                <li className="text-xs text-subtle-foreground">
-                  and {formatCount(pending.length - listedRequests)} more at the end of the thread
-                </li>
-              )}
-            </ul>
-          )}
           {view.latestMessage && (
             <div className="line-clamp-2 border-t border-border pt-2.5 text-ui text-muted-foreground">
               <span className="text-subtle-foreground">Latest: </span>
@@ -274,55 +254,5 @@ export function CatchUpCard(props: {
         </div>
       )}
     </section>
-  );
-}
-
-/** One request waiting on the person: an approval answers here, anything else at the end. */
-function PendingRequest(props: { threadId: string; interactionId: string; onLive(): void }) {
-  const interaction = useInteraction(props.threadId, props.interactionId);
-  const mode = useThreadMeta(props.threadId)?.permission?.effective;
-  const { send, intent } = useIntentSender();
-  if (!interaction || interaction.state !== "pending") return null;
-  const request = interaction.request;
-  const sending = intent?.state === "pending" || intent?.state === "acked";
-  // ace's own tools and default-to-no requests are answered on their full card, with its risk.
-  const deliberate = deliberateApproval(request);
-  const copy = request.kind === "approval" ? approvalCopy(request, { mode }) : undefined;
-  const title =
-    request.kind === "approval"
-      ? (copy?.title ?? request.title)
-      : request.kind === "question"
-        ? (request.questions[0]?.text ?? "A question")
-        : request.kind === "plan_review"
-          ? (request.title ?? "Review the plan")
-          : request.message;
-  return (
-    <li className="flex min-w-0 items-center gap-2 text-ui">
-      <Dot tone="needs-you" />
-      <span className="min-w-0 flex-1 truncate text-foreground">{title}</span>
-      {copy && !deliberate ? (
-        copy.decisions.map((decision) => (
-          <Button
-            key={decision.option.id}
-            size="sm"
-            variant={decision.verb === "deny" ? "ghost" : "secondary"}
-            disabled={sending}
-            onClick={() =>
-              void send({
-                type: "interaction.resolve",
-                interactionId: interaction.id,
-                resolution: { kind: "approval", optionId: decision.option.id },
-              }).catch(() => {})
-            }
-          >
-            {decision.label}
-          </Button>
-        ))
-      ) : (
-        <Button size="sm" onClick={props.onLive}>
-          {deliberate ? "Review" : "Answer"}
-        </Button>
-      )}
-    </li>
   );
 }
