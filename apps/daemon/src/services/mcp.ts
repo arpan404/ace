@@ -242,13 +242,8 @@ export function createMcpSession(context: SocketContext): SocketService {
             break;
         }
         reply(result ?? null);
-      } catch (error) {
-        fail(
-          "mcp_failed",
-          error instanceof Error ? error.message : "Provider MCP control failed",
-          false,
-          { requestId: message.requestId },
-        );
+      } catch {
+        fail("mcp_failed", "Provider MCP control failed", false, { requestId: message.requestId });
       }
       return true;
     },

@@ -19,7 +19,7 @@ test("native MCP controls require thread authority and stop working after the pr
         ];
       },
       async replace(servers) {
-        if ("broken" in servers) throw new Error("Native connection refused");
+        if ("broken" in servers) throw new Error("synthetic native stderr sentinel");
         dynamic = servers;
         return { added: Object.keys(servers), removed: [], errors: {} };
       },
@@ -51,6 +51,28 @@ test("native MCP controls require thread authority and stop working after the pr
     servers: { rejected: {} },
   });
   expect(await reader.next()).toMatchObject({ type: "error", code: "forbidden" });
+  reader.send({
+    type: "mcp.provider.sources",
+    provider: f.thread.provider,
+    requestId: "provider-read",
+  });
+  expect(await reader.next()).toMatchObject({
+    type: "mcp.result",
+    provider: f.thread.provider,
+    requestId: "provider-read",
+    result: { live: true },
+  });
+  reader.send({
+    type: "mcp.provider.disable",
+    provider: f.thread.provider,
+    name: "project",
+    requestId: "provider-denied",
+  });
+  expect(await reader.next()).toMatchObject({
+    type: "error",
+    code: "forbidden",
+    requestId: "provider-denied",
+  });
   const host = await f.connect();
   await host.next();
   host.send({
@@ -93,7 +115,7 @@ test("native MCP controls require thread authority and stop working after the pr
     type: "error",
     code: "mcp_failed",
     requestId: "broken",
-    message: "Native connection refused",
+    message: "Provider MCP control failed",
   });
   lifetime.abort();
   host.send({ type: "mcp.status", threadId: f.thread.id, requestId: "expired" });
