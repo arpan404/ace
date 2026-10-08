@@ -19,5 +19,5 @@ export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
-export { ForkDialog } from "./transitions/fork-dialog.tsx";
+export { ForkDialog } from "./transitions/fork-dialog-lazy.tsx";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
