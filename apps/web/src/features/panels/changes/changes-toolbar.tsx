@@ -8,6 +8,8 @@ import {
   TreeViewIcon,
 } from "@phosphor-icons/react";
 import type { Turn } from "@ace/ui-core";
+import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
+export { scopeLabel, type Scope };
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -24,9 +26,6 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import type { DiffPrefs } from "../services.ts";
 import { DiffStat } from "./diff-stat.tsx";
 
-/** Which edits Changes shows: the latest turn's, every turn's, or one turn's (by run id). */
-export type Scope = "last" | "all" | (string & {});
-
 const control = "size-7";
 
 /**
@@ -35,20 +34,12 @@ const control = "size-7";
  * a base branch's diff.
  */
 const unavailable = [
-  { label: "Staged", reason: "ace doesn't report the git index yet" },
+  { label: "Staged", reason: "Staged changes aren't available yet" },
   {
     label: "Branch",
-    reason: "Comparing with the base branch needs a branch diff ace can't send yet",
+    reason: "Comparing with the base branch isn't available yet",
   },
 ] as const;
-
-export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
-  if (scope === "working-tree") return "Uncommitted";
-  if (scope === "all") return "All turns";
-  if (scope === "last") return "Last turn";
-  const turn = turns.find((candidate) => candidate.id === scope);
-  return turn ? `Turn ${turn.number}` : "Last turn";
-}
 
 /** The scope menu: last turn, all turns, one turn, and the checkout scopes that can't open yet. */
 export function ScopeMenu(props: {

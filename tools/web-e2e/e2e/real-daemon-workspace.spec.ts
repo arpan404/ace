@@ -58,17 +58,16 @@ test("running an action, a terminal and Commit work on a real daemon's checkout"
   await page.keyboard.press("Escape");
 
   // Commit the uncommitted README edit with a message of our own.
-  await (await openWorkCard(page)).getByRole("button", { name: "Git actions" }).click();
-  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
+  await (await openWorkCard(page)).getByRole("button", { name: "Commit & push" }).click();
   const dialog = page.getByRole("dialog", { name: "Commit changes" });
   await dialog.getByRole("textbox", { name: "Commit message" }).fill("Describe the e2e project");
+  await dialog.getByRole("checkbox", { name: "Push after committing" }).uncheck();
   await dialog.getByRole("button", { name: "Commit", exact: true }).click();
   await expect(page.getByText("Committed", { exact: true })).toBeVisible();
-  // Nothing is left to commit: the card's git actions say so.
-  await (await openWorkCard(page)).getByRole("button", { name: "Git actions" }).click();
-  const again = page.getByRole("menuitem", { name: /^Commit…/ });
-  await expect(again).toBeDisabled();
-  await expect(again).toContainText("Nothing uncommitted");
+  // Once everything is committed, the card offers the next step.
+  const again = await openWorkCard(page);
+  await expect(again.getByRole("button", { name: "Commit & push" })).toHaveCount(0);
+  await expect(again.getByRole("button", { name: "Push", exact: true })).toBeVisible();
 });
 
 test("Open in hands the daemon's validated editor launch to this machine", async ({ page }) => {

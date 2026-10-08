@@ -19,7 +19,7 @@ import { AttachedCard } from "./attached-card.tsx";
 /**
  * Where a thread runs, attached to the composer: its own worktree or the local checkout, the
  * branch and how far it is from its upstream, what a worktree started from (and whether the
- * remote could be reached then), the path, the machine and the PR. The daemon fixes the place
+ * remote could be reached then), the path and the machine. The daemon fixes the place
  * when the thread starts, so this reports it; the path can be copied.
  */
 export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; onClose(): void }) {
@@ -28,7 +28,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
   const toast = useToast();
   const host = useMachineName(details?.machine);
   const worktree = checkout?.mode === "worktree";
-  const path = details?.worktree;
+  const path = details?.worktree ?? details?.workspace?.path;
   const base = details?.base ? baseRecordText(details.base) : undefined;
   const sync = checkout
     ? [
@@ -81,6 +81,11 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
             <Row term="Branch">
               <span className="font-mono">{checkout.branch ?? "detached HEAD"}</span>
               {sync && <span className="text-subtle-foreground"> · {sync}</span>}
+            </Row>
+          )}
+          {checkout?.head && (
+            <Row term="Commit">
+              <span className="font-mono">{checkout.head.slice(0, 7)}</span>
             </Row>
           )}
           {worktree && (base || checkout?.baseBranch) && (

@@ -7,8 +7,8 @@ import { ActionsSection } from "./work-card-actions.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
 import { ChangesSection } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
-import { OpenInSection } from "./work-card-open-in.tsx";
 import { SourcesSection } from "./work-card-sources.tsx";
+import { OpenInSection } from "./work-card-open-in.tsx";
 import { Rule } from "./work-card-parts.tsx";
 
 /** The phone sheet's scrim and both shapes' sizes (inline: one-off values, ADR 0056 CSS budget). */
@@ -26,7 +26,7 @@ const ownPopups =
 /**
  * The thread's work card, toggled by the list button in the header (⌥⌘O): the project, its
  * changes and branch with Commit & push, pull requests, the project's actions (scripts) to run,
- * the apps to open the checkout in, and the tool sources its agents have. It floats under the
+ * the apps to open the checkout in, and checkout actions. It floats under the
  * header's right end, over the conversation; on a phone it is a sheet. A click outside it or
  * Escape closes it, and it keeps nothing between openings.
  *

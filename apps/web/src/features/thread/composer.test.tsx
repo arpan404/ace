@@ -157,11 +157,11 @@ test("once the agent is idle, the tab shows where the thread runs and raises its
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
 
-  // Commit… from the work card's branch row.
+  // The branch row opens the commit form; pushing stays optional.
   await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Commit…/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
 

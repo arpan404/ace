@@ -1,3 +1,4 @@
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Fragment, lazy, Suspense, useState, type PointerEvent } from "react";
@@ -356,19 +357,21 @@ function Code(props: {
       <span className="sr-only">{sign}</span>
       {props.line.text || " "}
       {target && (
-        <button
-          type="button"
-          aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
-          onPointerDown={(event) => props.onPick(target, event)}
-          // A pointer picks on release (above); a key press comments on this line alone.
-          onClick={(event) => {
-            if (event.detail === 0)
-              props.onComment({ side: target.side, start: target.line, end: target.line });
-          }}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
-        >
-          <PlusIcon aria-hidden size={10} weight="bold" />
-        </button>
+        <Tip label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}>
+          <button
+            type="button"
+            aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
+            onPointerDown={(event) => props.onPick(target, event)}
+            // A pointer picks on release (above); a key press comments on this line alone.
+            onClick={(event) => {
+              if (event.detail === 0)
+                props.onComment({ side: target.side, start: target.line, end: target.line });
+            }}
+            className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
+          >
+            <PlusIcon aria-hidden size={10} weight="bold" />
+          </button>
+        </Tip>
       )}
     </span>
   );

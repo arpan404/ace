@@ -39,11 +39,11 @@ test("running another script opens a terminal tab of its own, printing as it run
 test("Commit, then Create PR, opens a pull request for the branch", async ({ page }) => {
   await page.goto("/t/thread-retry-budget");
   const card = await openWorkCard(page);
-  await card.getByRole("button", { name: "Git actions" }).click();
-  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
+  await card.getByRole("button", { name: "Commit & push" }).click();
   // The form steps in front of the card.
   await expect(workCard(page)).toHaveCount(0);
   const commit = page.getByRole("dialog", { name: "Commit changes" });
+  await commit.getByRole("checkbox", { name: "Push after committing" }).uncheck();
   await commit.getByRole("button", { name: "Commit", exact: true }).click();
   await expect(page.getByText("Committed", { exact: true })).toBeVisible();
 
@@ -73,12 +73,10 @@ test("toasts stand in the main pane's bottom-right corner, above the composer an
   const panel = page.getByRole("region", { name: "Thread panel" });
   await panel.waitFor();
   // Beside the panel the column is narrow: the work card still opens from the header.
-  await (await openWorkCard(page)).getByRole("button", { name: "Git actions" }).click();
-  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
-  await page
-    .getByRole("dialog", { name: "Commit changes" })
-    .getByRole("button", { name: "Commit", exact: true })
-    .click();
+  await (await openWorkCard(page)).getByRole("button", { name: "Commit & push" }).click();
+  const commit = page.getByRole("dialog", { name: "Commit changes" });
+  await commit.getByRole("checkbox", { name: "Push after committing" }).uncheck();
+  await commit.getByRole("button", { name: "Commit", exact: true }).click();
   const toast = page.getByRole("dialog", { name: "Committed" });
   await expect(toast).toBeVisible();
 

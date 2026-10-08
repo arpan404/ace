@@ -48,7 +48,7 @@ export function measureTab(element: HTMLElement): {
     1 + tabChrome(element.dataset.closeRoom === "true") + (badge > 0 ? badgeGap + badge : 0);
   return {
     natural: fixed + title,
-    least: fixed + Math.min(title, leastTitle),
+    least: fixed + (title <= 100 ? title : Math.min(title, leastTitle)),
     badge: Math.max(0, badge - dotWidth),
   };
 }
