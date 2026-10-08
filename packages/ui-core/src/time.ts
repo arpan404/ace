@@ -31,6 +31,12 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** "0.4s", "4.2s", "12s", "1m 3s": a short job's duration, to a tenth of a second under ten. */
+export function formatDuration(ms: number): string {
+  if (ms < 9_950) return `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+  return formatElapsed(ms);
+}
+
 /** "42s", "6m", "1h 12m": how long something ran between two moments, to the minute. */
 export function formatSpan(from: number, to: number): string {
   const seconds = Math.max(0, Math.round((to - from) / 1000));

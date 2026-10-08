@@ -3,13 +3,18 @@ import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@
 import { provisionalTitle, providerNames, type TurnActivity } from "@ace/ui-core";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, type ComponentType, type ReactNode } from "react";
+import { useEffect, useId, type ComponentType, type ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
+import { Composer } from "./composer/composer.tsx";
+import { ComposerDock } from "./composer/composer-dock.tsx";
 import { startedTitle } from "./composer/send-store.ts";
+import { WorktreeCreationCard } from "./worktree/creation-card.tsx";
+import { WorktreeStrip } from "./worktree/creation-strip.tsx";
+import { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
 
 /** What the new thread is doing before it exists: a worktree first, then its provider. */
 function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnActivity {
@@ -24,9 +29,12 @@ function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnA
 /**
  * A new thread from the moment Enter is pressed on New thread (UX audit SY-2): the header
  * reads its provisional title, the person's message is its first bubble, and the live line
- * says what's being prepared. When the daemon's receipt names the thread and its first window
- * has arrived, the route moves to it in place; the transcript there opens on the same bubble.
- * A refused start keeps the bubble with the reason, Retry and Edit.
+ * says what's being prepared. A worktree being made shows as its steps instead, with Cancel and
+ * Don't use worktree, and the composer's tab says so. When the daemon's receipt (or the
+ * worktree's own report) names the thread and its first window has arrived, the route moves to
+ * it in place; the transcript there opens on the same bubble. A refused start keeps the bubble
+ * with the reason, Retry and Edit; a worktree that failed or was cancelled keeps its card with
+ * Retry and Don't use worktree.
  */
 export function PendingThreadView(props: {
   threadId: string;
@@ -44,7 +52,11 @@ export function PendingThreadView(props: {
   const entry = usePendingSends(props.threadId).find((send) => send.commandId === commandId);
   const intent = useIntent(commandId);
   const ready = useConnectionState() === "ready";
-  const realId = intent?.state === "acked" ? intent.threadId : undefined;
+  const payload = entry?.payload;
+  const worktree = useWorktreeCreation(isWorktreeCreate(payload) ? commandId : undefined);
+  const progress = worktree.state?.progress;
+  const made = progress?.state === "done" || progress?.state === "local";
+  const realId = intent?.state === "acked" ? intent.threadId : made ? progress.threadId : undefined;
   // Leasing the real thread loads its first window, so the move to it shows no skeleton.
   const meta = useThreadMeta(realId);
   const navigate = useNavigate();
@@ -53,7 +65,6 @@ export function PendingThreadView(props: {
       void navigate({ to: "/t/$threadId", params: { threadId: realId }, replace: true });
   }, [realId, meta, navigate]);
   const projectName = useProjectName();
-  const payload = entry?.payload;
   const workspaceId = payload?.type === "thread.create" ? payload.workspaceId : undefined;
   // New thread worked the title out as it sent; after a reload, the same rule on the message.
   const title =
@@ -93,10 +104,56 @@ export function PendingThreadView(props: {
                 {props.parts.bubble}
               </div>
             </div>
-            {payload && !failed && <props.parts.Line activity={startingLine(payload, !!realId)} />}
+            {progress ? (
+              <WorktreeCreationCard state={worktree.state} onAction={worktree.act} />
+            ) : (
+              payload && !failed && <props.parts.Line activity={startingLine(payload, !!realId)} />
+            )}
           </div>
         </div>
+        {isWorktreeCreate(payload) && (
+          <PendingComposer
+            thread={{ id: props.threadId, workspaceId: payload.workspaceId, title, draft: true }}
+            tab={<WorktreeStrip progress={progress} />}
+          />
+        )}
       </div>
     </Screen>
+  );
+}
+
+const isWorktreeCreate = (
+  payload: PendingSend["payload"] | undefined,
+): payload is Extract<PendingSend["payload"], { type: "thread.create" }> =>
+  payload?.type === "thread.create" && payload.mode === "worktree";
+
+const never = async () => false;
+
+/**
+ * The composer where the thread's will be, while the thread is still being made: its shape and
+ * its tab (what the worktree is doing), with nothing to send until the thread exists.
+ */
+function PendingComposer(props: {
+  thread: { id: string; workspaceId: string; title: string; draft: true };
+  tab: ReactNode;
+}) {
+  const reason = useId();
+  return (
+    <ComposerDock>
+      <p id={reason} className="sr-only">
+        You can send more once the thread has started.
+      </p>
+      <Composer
+        thread={props.thread}
+        busy={false}
+        onSubmit={never}
+        attached={props.tab}
+        unavailable={{
+          reason: "The thread is still starting",
+          describedBy: reason,
+          short: "Starting the thread…",
+        }}
+      />
+    </ComposerDock>
   );
 }
