@@ -54,7 +54,15 @@ export function Overflow(props: {
               <DotsThreeIcon aria-hidden size={16} />
               More options
             </MenuTrigger>
-            <MenuContent align="end">{props.menu}</MenuContent>
+            <MenuContent
+              align="end"
+              onClick={(event) => {
+                if (event.target instanceof Element && event.target.closest('[role="menuitem"]'))
+                  setOpen(false);
+              }}
+            >
+              {props.menu}
+            </MenuContent>
           </Menu>
         )}
       </PopoverContent>

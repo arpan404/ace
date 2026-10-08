@@ -19,6 +19,7 @@ export interface HeaderProps {
   title: ReactNode;
   /** Muted beside the title: the project on a thread, the page in Settings. */
   subtitle?: ReactNode;
+  breadcrumb?: ReactNode;
   /** Items for the header's ⋯ menu, at its right. */
   menu?: ReactNode;
   /** After the ⋯ menu: the screen's own tool buttons (a thread's work card). */
@@ -127,14 +128,19 @@ export function AppHeader(
     >
       <HeaderNav />
       <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2">
-        <h1
-          className={cn(
-            "min-w-0 text-base font-semibold tracking-[-0.005em]",
-            phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
+        <div className="min-w-0">
+          {props.breadcrumb && (
+            <div className="truncate text-xs text-muted-foreground">{props.breadcrumb}</div>
           )}
-        >
-          {props.title}
-        </h1>
+          <h1
+            className={cn(
+              "min-w-0 text-base font-semibold tracking-[-0.005em]",
+              phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
+            )}
+          >
+            {props.title}
+          </h1>
+        </div>
         {phone && props.status}
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a worktree's branch) truncates first.

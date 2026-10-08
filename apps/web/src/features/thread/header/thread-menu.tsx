@@ -33,6 +33,7 @@ export function ThreadMenuItems(props: {
   thread: ThreadRef;
   onRename(): void;
   onFork(point: ForkPoint): void;
+  onMerge(): void;
 }) {
   const meta = useThreadMeta(props.thread.id);
   const point = useLatestForkPoint(props.thread.id);
@@ -53,6 +54,7 @@ export function ThreadMenuItems(props: {
       onLeave={() => void navigate({ to: "/" })}
       extra={
         <>
+          {meta.lineage && <MenuItem onClick={props.onMerge}>Bring back to parent…</MenuItem>}
           {/* Side chat has no daemon support yet (PN-07): no shortcut to promise, no tab to open. */}
           <MenuItem
             icon={<ChatsCircleIcon aria-hidden size={16} />}
