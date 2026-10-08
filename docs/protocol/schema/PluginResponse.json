@@ -6,6 +6,23 @@
       "additionalProperties": false,
       "properties": {
         "availability": {
+          "$ref": "https://ace.local/protocol/v1/PluginSkillAvailability.json"
+        },
+        "type": {
+          "const": "plugins.skillAvailability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "availability"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
           "$ref": "https://ace.local/protocol/v1/PluginAvailability.json"
         },
         "type": {

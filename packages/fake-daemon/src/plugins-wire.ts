@@ -5,6 +5,7 @@ import {
   ServerMessage,
   type PluginClientMessage,
   type PluginAvailability,
+  type PluginSkillAvailability,
   type PluginComponent,
   type PluginExecution as Execution,
 } from "@ace/protocol";
@@ -22,6 +23,7 @@ interface Source {
 }
 interface Component {
   name: string;
+  title?: string | undefined;
   kind: PluginComponent["kind"];
   path: string;
   description: string;
@@ -31,6 +33,7 @@ interface Component {
 /** A component a seeded or marketplace plugin ships: a skill, command, agent or rule. */
 export interface FakePluginComponent {
   name: string;
+  title?: string | undefined;
   kind: PluginComponent["kind"];
   path: string;
   description: string;
@@ -60,12 +63,28 @@ export class FakePluginsWire {
   private reviews = new Map<string, PluginReview>();
   private installs = new Map<string, PluginInstall>();
   private policies = new Map<string, PluginAvailability>();
+  private skillPolicies = new Map<string, PluginSkillAvailability>();
   private marketplace = new Map<string, FakePlugin>();
   /** Where each review's plugin was fetched from, kept for the install it becomes. */
   private sources = new Map<string, { repository: string; ref: string }>();
   /** Where each installed plugin came from (`plugins.origins`). */
   private origins = new Map<string, { repository: string; ref: string }>();
   private counter = 0;
+  private componentAvailability(plugin: string, component: Component) {
+    const parent = this.availability(plugin);
+    if (component.kind !== "skill") return parent;
+    const own = this.skillPolicies.get(`${plugin}/${component.name}`) ?? {
+      plugin,
+      name: component.name,
+      enabled: true,
+      providers: ProviderKind.options,
+    };
+    return {
+      enabled: parent.enabled && own.enabled,
+      providers: parent.providers.filter((provider) => own.providers.includes(provider)),
+      skillAvailability: own,
+    };
+  }
   private availability(name: string) {
     const policy = this.policies.get(name);
     return {
@@ -186,7 +205,21 @@ export class FakePluginsWire {
         this.installs.delete(request.name);
         this.policies.delete(request.name);
         this.components.delete(request.name);
+        for (const [key, policy] of this.skillPolicies)
+          if (policy.plugin === request.name) this.skillPolicies.delete(key);
         return reply({ type: "plugins.removed", name: request.name });
+      case "plugins.skillAvailability": {
+        if (
+          !this.installs.has(request.plugin) ||
+          !this.components
+            .get(request.plugin)
+            ?.some((entry) => entry.kind === "skill" && entry.name === request.name)
+        )
+          throw new Error("not_found");
+        const { type: _type, ...availability } = request;
+        this.skillPolicies.set(`${request.plugin}/${request.name}`, availability);
+        return reply({ type: "plugins.skillAvailability", availability });
+      }
       case "plugins.availability": {
         if (!this.installs.has(request.name)) throw new Error("not_found");
         const availability = {
@@ -209,8 +242,9 @@ export class FakePluginsWire {
                   kind: component.kind,
                   path: component.path,
                   description: component.description,
+                  title: component.title,
                 },
-                this.availability(plugin),
+                this.componentAvailability(plugin, component),
               ),
             ),
           );
@@ -328,6 +362,7 @@ async function example(virtual: boolean): Promise<Component> {
 function built(components: readonly FakePluginComponent[]): Component[] {
   return components.map((component) => ({
     name: component.name,
+    title: component.title,
     kind: component.kind,
     path: component.path,
     description: component.description,

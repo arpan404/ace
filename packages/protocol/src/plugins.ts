@@ -81,10 +81,20 @@ export const PluginAvailability = z.object({
   providers: z.array(ProviderKind).max(ProviderKind.options.length),
 });
 export type PluginAvailability = z.infer<typeof PluginAvailability>;
+/** A skill's own policy; its plugin's policy also applies at session startup. */
+export const PluginSkillAvailability = z.object({
+  plugin: PluginName,
+  name: PluginName,
+  enabled: z.boolean(),
+  providers: PluginAvailability.shape.providers,
+});
+export type PluginSkillAvailability = z.infer<typeof PluginSkillAvailability>;
 export const PluginComponent = z.object({
   plugin: PluginName,
   name: PluginName,
   kind: z.enum(["skill", "command", "agent", "rule"]),
+  skillAvailability: PluginSkillAvailability.optional(),
+  title: z.string().min(1).max(200).optional(),
   path: z.string().max(512),
   description: text,
   enabled: z.boolean(),
@@ -92,6 +102,7 @@ export const PluginComponent = z.object({
 });
 export type PluginComponent = z.infer<typeof PluginComponent>;
 export const PluginRequest = z.discriminatedUnion("type", [
+  PluginSkillAvailability.extend({ type: z.literal("plugins.skillAvailability") }),
   z.strictObject({
     type: z.literal("plugins.availability"),
     name: PluginName,
@@ -148,6 +159,10 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export const PluginResponse = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("plugins.skillAvailability"),
+    availability: PluginSkillAvailability,
+  }),
   z.strictObject({ type: z.literal("plugins.availability"), availability: PluginAvailability }),
   z.strictObject({
     type: z.literal("plugins.catalog"),

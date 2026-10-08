@@ -313,6 +313,9 @@ export class PluginManager {
   configure(value: PluginAvailability) {
     return this.client.configure(value);
   }
+  configureSkill(value: import("@ace/protocol/plugins").PluginSkillAvailability) {
+    return this.client.configureSkill(value);
+  }
   async selected(provider: import("./types.ts").Provider) {
     return this.client.selected(provider, await this.installed());
   }

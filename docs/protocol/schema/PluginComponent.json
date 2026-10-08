@@ -34,6 +34,14 @@
       },
       "maxItems": 7,
       "type": "array"
+    },
+    "skillAvailability": {
+      "$ref": "https://ace.local/protocol/v1/PluginSkillAvailability.json"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [

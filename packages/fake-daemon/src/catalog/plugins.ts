@@ -25,10 +25,11 @@ export function pluginCatalog(now: number): PluginSeed {
           },
           {
             name: "tdd",
+            title: "Test-driven development",
             kind: "skill",
             path: "skills/tdd/SKILL.md",
             description: "Red, green, refactor with integration tests",
-            text: "# tdd\n\nWrite one failing behaviour test, make it pass with the smallest change,\nthen refactor with the suite green. Prefer real edges over mocks.\n",
+            text: "# Test-driven development\n\nWrite one failing behaviour test, make it pass with the smallest change,\nthen refactor with the suite green. Prefer real edges over mocks.\n",
           },
           {
             name: "diagnosing-bugs",
@@ -39,6 +40,7 @@ export function pluginCatalog(now: number): PluginSeed {
           },
           {
             name: "pr-desc",
+            title: "PR description",
             kind: "command",
             path: "commands/pr-desc.md",
             description: "Write the PR description from the diff",

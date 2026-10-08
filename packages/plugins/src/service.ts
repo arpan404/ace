@@ -10,6 +10,11 @@ export class PluginService {
   async handle(input: unknown): Promise<PluginResponse> {
     const request = PluginRequest.parse(input);
     switch (request.type) {
+      case "plugins.skillAvailability":
+        return PluginResponse.parse({
+          type: "plugins.skillAvailability",
+          availability: await this.manager.configureSkill(request),
+        });
       case "plugins.availability":
         return PluginResponse.parse({
           type: "plugins.availability",
