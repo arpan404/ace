@@ -102,7 +102,7 @@ function Floating(props: { onClose(returnFocus: boolean): void; children: ReactN
         className={
           phone
             ? "fx-rise-in fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-y-auto rounded-t-xl bg-popover px-2 shadow-glass outline-none"
-            : "isolate fx-rise-in absolute top-2 right-3 z-10 flex flex-col overflow-y-auto rounded-xl bg-popover p-2 shadow-glass outline-none"
+            : "isolate fx-rise-in absolute top-2 right-3 z-40 flex flex-col overflow-y-auto rounded-xl bg-popover p-2 shadow-glass outline-none"
         }
       >
         {phone && (
