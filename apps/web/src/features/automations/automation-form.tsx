@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { ModelField } from "@/features/model-picker/index.ts";
@@ -79,7 +78,11 @@ export function AutomationEditor(props: {
       });
     } catch (error) {
       committed.current = false;
-      setSaveError(error instanceof Error ? error.message : "ace refused that.");
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't save the automation. Check its fields and try again.",
+      );
     }
   });
   const changed = useStore(form.store, (state) => !state.isDefaultValue);
@@ -103,13 +106,7 @@ export function AutomationEditor(props: {
   const workspaceOptions = [...new Set([props.initial.workspace, ...props.workspaces])]
     .filter(Boolean)
     .map((value) => ({ value, label: props.workspaceName(value) }));
-  // A file trigger can't be made here, but one made elsewhere keeps its own segment.
-  const triggers = [
-    triggerOptions.schedule,
-    triggerOptions.github,
-    ...(props.initial.trigger === "file" ? [triggerOptions.file] : []),
-    triggerOptions.manual,
-  ];
+  const triggers = Object.values(triggerOptions);
   return (
     <form
       ref={formElement}
@@ -222,8 +219,9 @@ export function AutomationEditor(props: {
         <form.Field name="trigger">
           {(field) => (
             <Row label="When it runs" className="items-start">
-              <SegmentedControl
+              <Select
                 label="When it runs"
+                className="w-full min-w-0"
                 value={field.state.value}
                 options={triggers}
                 onValueChange={(value) => field.handleChange(value)}
@@ -257,7 +255,7 @@ export function AutomationEditor(props: {
                   {(field) => (
                     <InlineRow
                       title="If a run was missed"
-                      description="When this machine was asleep or ace was stopped at the time."
+                      description="When this machine was asleep or ace was closed at the time."
                     >
                       <Select
                         label="If a run was missed"
@@ -374,7 +372,7 @@ function TriggerFields(props: { form: AutomationFormApi; trigger: AutomationForm
           {(field) => {
             const error = visible(field.state.meta);
             return (
-              <Row label="Paths to watch, one per line" htmlFor="automation-paths" errors={error}>
+              <Row label="File globs, one per line" htmlFor="automation-paths" errors={error}>
                 <Textarea
                   id="automation-paths"
                   name="paths"

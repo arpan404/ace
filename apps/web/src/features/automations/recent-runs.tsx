@@ -1,93 +1,129 @@
 import type { AutomationRun } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useRef, useState } from "react";
 import { SettingSection } from "@/components/setting-row.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
-import { runKey } from "@/lib/activity-item-keys.ts";
-import { runSummary, runTone, runDurationMinutes } from "./labels.ts";
+import { runSummary } from "./labels.ts";
+import { RunOutput } from "./run-output.tsx";
 import { formatWhen } from "./schedule.ts";
-import { useAutomationRuns } from "./use-automations.ts";
+import { useAutomationHistory } from "./use-automations.ts";
 
-/** An automation's recent runs, newest first; each opens its thread, or its details. */
+/** Runs belong to this automation, newest first, with older pages on demand. */
 export function RecentRuns(props: { automationId: string }) {
-  const runs = useAutomationRuns();
-  const mine = useMemo(
-    () => (runs.data ?? []).filter((run) => run.automationId === props.automationId),
-    [runs.data, props.automationId],
-  );
+  const history = useAutomationHistory(props.automationId);
   return (
     <SettingSection label="Recent runs">
-      {runs.data === undefined ? (
-        runs.isError ? (
-          <p className="border-t py-3.5 text-sm text-muted-foreground">
-            Couldn't load recent runs.
-          </p>
+      {history.runs === undefined ? (
+        history.isError ? (
+          <p className="py-2 text-sm text-muted-foreground">Couldn't load recent runs.</p>
         ) : (
           <ListSkeleton label="recent runs" shape="row" rows={3} />
         )
-      ) : mine.length ? (
+      ) : history.runs.length ? (
         <ul aria-label="Recent runs">
-          {mine.map((run) => (
+          {history.runs.map((run) => (
             <RunItem key={run.id} run={run} />
           ))}
         </ul>
       ) : (
-        <p className="border-t py-3.5 text-sm text-muted-foreground">
+        <p className="py-2 text-sm text-muted-foreground">
           No runs yet. Run it now to see what it does.
         </p>
+      )}
+      {history.isError && (
+        <Button variant="ghost" size="sm" onClick={() => void history.refetch()}>
+          Try again
+        </Button>
+      )}
+      {history.hasNextPage && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={history.isFetchingNextPage}
+          onClick={() => void history.fetchNextPage()}
+        >
+          {history.isFetchingNextPage ? "Loading…" : "Show older"}
+        </Button>
       )}
     </SettingSection>
   );
 }
 
-const triggerShort: Record<AutomationRun["trigger"], string> = {
+const statuses = {
+  running: { tone: "working", label: "Running…" },
+  succeeded: { tone: "done", label: "Finished" },
+  failed: { tone: "failed", label: "Failed" },
+  skipped: { tone: "idle", label: "Skipped" },
+} as const;
+const triggers: Record<AutomationRun["trigger"], string> = {
   schedule: "Scheduled",
   github: "GitHub event",
   file: "File change",
   manual: "By hand",
 };
 
-/** How long a finished run took, "4 min"; undefined while it runs. */
-function took(run: AutomationRun): string | undefined {
-  const minutes = runDurationMinutes(run);
-  return minutes === undefined ? undefined : `${minutes} min`;
-}
-
-const fullDate = (at: number) =>
-  new Date(at).toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
-
-/** "Today 02:00 · 4 min · Scheduled". */
-function runLine(run: AutomationRun, now: number): string {
-  return [formatWhen(run.startedAt, now), took(run), triggerShort[run.trigger]]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 function RunItem(props: { run: AutomationRun }) {
   const { run } = props;
   const now = useNow();
+  const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
   const summary = runSummary(run);
+  const status = statuses[run.status];
   return (
-    <li className="flex items-center gap-4 border-t py-3.5 last:border-b">
-      {run.status === "running" ? <Spinner /> : <Dot tone={runTone(run)} label={run.status} />}
-      <div className="min-w-0 flex-1">
-        <div className="text-ui font-medium">{summary}</div>
-        <div title={fullDate(run.startedAt)} className="mt-0.5 text-sm text-muted-foreground">
-          {runLine(run, now)}
-        </div>
-      </div>
-      <Link
-        to="/activity"
-        search={{ item: runKey(run.id) }}
+    <li className="border-t last:border-b">
+      <button
+        ref={opener}
+        type="button"
         aria-label={`Open the run ${summary}`}
-        className={buttonVariants({ variant: "ghost", size: "sm" })}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex h-9 w-full items-center gap-3 rounded-sm text-left focus-ring-inset hover:bg-accent"
       >
-        Open
-      </Link>
+        <span className="min-w-0 flex-1 truncate text-ui">
+          {run.status === "running" ? triggers[run.trigger] : summary}
+        </span>
+        <span
+          className="shrink-0 text-xs text-muted-foreground tabular-nums"
+          title={new Date(run.startedAt).toLocaleString()}
+        >
+          {formatWhen(run.startedAt, now)}
+        </span>
+        <StatusLabel {...status} />
+      </button>
+      {open && (
+        <section aria-label={`Run details for ${run.title}`} className="pb-3">
+          <p className="text-sm text-muted-foreground">
+            {triggers[run.trigger]} · {new Date(run.startedAt).toLocaleString()}
+            {run.finishedAt !== undefined &&
+              ` · ${Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000))} min`}
+          </p>
+          <RunOutput run={run} />
+          <div className="mt-3 flex items-center justify-end gap-2">
+            {run.threadId && (
+              <Link
+                to="/t/$threadId"
+                params={{ threadId: run.threadId }}
+                className={buttonVariants({ variant: "ghost", size: "sm" })}
+              >
+                Open thread
+              </Link>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setOpen(false);
+                opener.current?.focus();
+              }}
+            >
+              Close
+            </Button>
+          </div>
+        </section>
+      )}
     </li>
   );
 }

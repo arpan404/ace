@@ -30,20 +30,16 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
-  "enabled": true,
+  "concurrency": 9,
+  "enabled": false,
   "id": "example",
   "jitterMs": 0,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "event": "ci_failed",
-    "kind": "github",
-    "label": "example",
-    "pollIntervalMs": 60000,
-    "repository": "PBdrXqs/mEUR89i4TB"
+    "kind": "manual"
   },
   "workspace": "example",
   "worktree": true
@@ -86,6 +82,24 @@ Example:
 }
 ```
 
+## AutomationPollError
+
+[JSON Schema](schema/AutomationPollError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| message | yes | string | {"maxLength":8192} |
+| at | yes | integer | {"minimum":0,"maximum":8640000000000000} |
+
+Example:
+
+```json
+{
+  "at": 5,
+  "message": "example"
+}
+```
+
 ## AutomationRequest
 
 [JSON Schema](schema/AutomationRequest.json), input validation.
@@ -103,12 +117,11 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 3,
+    "concurrency": 8,
     "enabled": false,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 6,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
     "provider": "antigravity",
     "title": "example",
@@ -184,13 +197,14 @@ Example:
 | type | yes | `"automation.inbox"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
 
 Example:
 
 ```json
 {
-  "limit": 2,
+  "limit": 7,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -207,7 +221,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
-| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]}},"required":["id","nextRunAt"]}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
 
@@ -215,19 +229,9 @@ Example:
 
 ```json
 {
-  "automations": [],
-  "error": "example",
   "ok": true,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "id": "example",
-    "startedAt": 8,
-    "status": "failed",
-    "title": "example",
-    "trigger": "file"
-  },
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -256,10 +260,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 3,
-  "status": "running",
+  "result": "example",
+  "startedAt": 1,
+  "status": "failed",
   "title": "example",
-  "trigger": "github"
+  "trigger": "file"
 }
 ```
 
@@ -317,7 +322,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -339,11 +344,12 @@ Example:
 
 ```json
 {
-  "event": "issue_labelled",
+  "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60000,
-  "pullRequest": 4,
-  "repository": "Byl/U"
+  "label": "example",
+  "pollIntervalMs": 60009,
+  "pullRequest": 5,
+  "repository": "lKskxK8o3m/2lig2kF"
 }
 ```
 

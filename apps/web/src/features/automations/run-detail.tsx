@@ -3,7 +3,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { runSummary, runTone, runDurationMinutes } from "./labels.ts";
+import { RunOutput } from "./run-output.tsx";
+import { runTone, runDurationMinutes } from "./labels.ts";
 
 const triggers: Record<AutomationRun["trigger"], string> = {
   schedule: "On its schedule",
@@ -32,7 +33,7 @@ export function AutomationRunDetail(props: { run: AutomationRun }) {
         Automation run
       </p>
       <h2 className="mt-2 text-xl leading-snug font-semibold tracking-title">{run.title}</h2>
-      <p className="mt-3 whitespace-pre-wrap break-words text-ui">{runSummary(run)}</p>
+      <RunOutput run={run} />
       {run.status === "failed" && (
         <p className="mt-2 text-sm text-muted-foreground">
           Open the automation to check its settings and try again.

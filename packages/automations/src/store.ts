@@ -1,7 +1,13 @@
 import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
-import { Automation, AutomationRun, AutomationInbox, type AutomationEvent } from "@ace/protocol";
+import {
+  Automation,
+  AutomationRun,
+  AutomationInbox,
+  type AutomationEvent,
+  AutomationPollError,
+} from "@ace/protocol";
 import { canAdmit } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 
@@ -9,6 +15,7 @@ const JobMetadata = z.object({
   automation: Automation,
   nominal: z.number().nullable(),
   due: z.number().nullable(),
+  lastPollError: AutomationPollError.optional(),
 });
 export type JobMetadata = z.infer<typeof JobMetadata>;
 const Job = JobMetadata.extend({ state: z.unknown() });
@@ -35,6 +42,8 @@ export class AutomationStore {
       CREATE INDEX IF NOT EXISTS automation_due ON automation_jobs(due,id) WHERE due IS NOT NULL;
       CREATE INDEX IF NOT EXISTS automation_schedule_due ON automation_jobs(due,id) WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule';
       CREATE TABLE IF NOT EXISTS automation_runs(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, automation_id TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, input TEXT, UNIQUE(automation_id,event_key));
+      CREATE TABLE IF NOT EXISTS automation_poll_errors(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS automation_history ON automation_runs(automation_id,seq);
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
       CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);`);
     // Migrate inline snapshots once; leave the legacy column empty for compatibility.
@@ -88,6 +97,7 @@ export class AutomationStore {
       this.sql(
         "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
       ).run(automation.id, body, nominal ?? null, due ?? null, "{}");
+      if (automation.trigger.kind !== "github") this.clearPollError(automation.id);
       this.sql(
         "INSERT INTO automation_state VALUES(?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
       ).run(automation.id, snapshot);
@@ -95,6 +105,7 @@ export class AutomationStore {
   }
   remove(id: string): void {
     this.transaction(() => {
+      this.clearPollError(id);
       this.sql("DELETE FROM automation_state WHERE id=?").run(id);
       this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
     });
@@ -115,12 +126,17 @@ export class AutomationStore {
     return row ? Automation.parse(JSON.parse(String(row.body))) : undefined;
   }
   metadata(id: string): JobMetadata | undefined {
-    const row = this.sql("SELECT body,nominal,due FROM automation_jobs WHERE id=?").get(id);
+    const row = this.sql(
+      "SELECT j.body,j.nominal,j.due,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_poll_errors e ON e.id=j.id WHERE j.id=?",
+    ).get(id);
     return row
       ? JobMetadata.parse({
           automation: JSON.parse(String(row.body)),
           nominal: row.nominal,
           due: row.due,
+          lastPollError: row.pollError
+            ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
+            : undefined,
         })
       : undefined;
   }
@@ -133,13 +149,16 @@ export class AutomationStore {
   *jobs(): Iterable<JobMetadata> {
     let count = 0;
     for (const row of this.sql(
-      "SELECT body,nominal,due FROM automation_jobs ORDER BY id LIMIT 1001",
+      "SELECT j.body,j.nominal,j.due,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_poll_errors e ON e.id=j.id ORDER BY j.id LIMIT 1001",
     ).iterate()) {
       if (++count > 1000) throw new Error("Automation limit exceeded");
       yield JobMetadata.parse({
         automation: JSON.parse(String(row.body)),
         nominal: row.nominal,
         due: row.due,
+        lastPollError: row.pollError
+          ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
+          : undefined,
       });
     }
   }
@@ -168,6 +187,14 @@ export class AutomationStore {
   }
   savePoll(id: string, state: unknown): void {
     this.sql("UPDATE automation_state SET state=? WHERE id=?").run(JSON.stringify(state), id);
+  }
+  savePollError(id: string, error: AutomationPollError): void {
+    this.sql(
+      "INSERT INTO automation_poll_errors VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+    ).run(id, JSON.stringify(AutomationPollError.parse(error)));
+  }
+  clearPollError(id: string): void {
+    this.sql("DELETE FROM automation_poll_errors WHERE id=?").run(id);
   }
   claim(
     automation: Automation,
@@ -252,12 +279,17 @@ export class AutomationStore {
         input: Input.parse(JSON.parse(String(row.input))),
       }));
   }
-  inbox(limit = 50, before?: number): AutomationInbox {
+  inbox(limit = 50, before?: number, automationId?: string): AutomationInbox {
     z.number().int().min(1).max(100).parse(limit);
     if (before !== undefined) z.number().int().positive().parse(before);
-    const rows = this.sql(
-      "SELECT seq,body FROM automation_runs WHERE seq < ? ORDER BY seq DESC LIMIT ?",
-    ).all(before ?? Number.MAX_SAFE_INTEGER, limit + 1);
+    const rows =
+      automationId === undefined
+        ? this.sql(
+            "SELECT seq,body FROM automation_runs WHERE seq < ? ORDER BY seq DESC LIMIT ?",
+          ).all(before ?? Number.MAX_SAFE_INTEGER, limit + 1)
+        : this.sql(
+            "SELECT seq,body FROM automation_runs WHERE automation_id=? AND seq < ? ORDER BY seq DESC LIMIT ?",
+          ).all(automationId, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
     const page = rows.slice(0, limit);
     return AutomationInbox.parse({
       runs: page.map((row) => AutomationRun.parse(JSON.parse(String(row.body)))),

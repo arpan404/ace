@@ -182,8 +182,8 @@ export class AutomationService {
   list(): Automation[] {
     return this.store.list().map((job) => job.automation);
   }
-  inbox(limit = 50, before?: number) {
-    return this.store.inbox(limit, before);
+  inbox(limit = 50, before?: number, automationId?: string) {
+    return this.store.inbox(limit, before, automationId);
   }
   trigger(id: string, input: unknown, kind: AutomationRun["trigger"] = "manual"): AutomationRun {
     if (!this.live) throw new Error("Automation service is stopped");
@@ -336,13 +336,24 @@ export class AutomationService {
         this.trigger(job.automation.id, event, "github");
       }
       if (
-        result.changed &&
         this.live &&
         generation === this.generation &&
         this.runtime.current(job.automation.id) === revision
       )
-        this.store.savePoll(job.automation.id, result.state);
+        this.store.transaction(() => {
+          if (result.changed) this.store.savePoll(job.automation.id, result.state);
+          this.store.clearPollError(job.automation.id);
+        });
     } catch (error) {
+      if (
+        this.live &&
+        generation === this.generation &&
+        this.runtime.current(job.automation.id) === revision
+      )
+        this.store.savePollError(job.automation.id, {
+          message: message(error),
+          at: this.deps.now(),
+        });
       this.report(error);
     }
   }
@@ -369,12 +380,17 @@ export class AutomationService {
           return {
             ...base,
             automations: this.list(),
-            schedules: this.store
-              .list()
-              .map((job) => ({ id: job.automation.id, nextRunAt: this.live ? job.due : null })),
+            schedules: this.store.list().map((job) => ({
+              id: job.automation.id,
+              nextRunAt: this.live ? job.due : null,
+              lastPollError: job.lastPollError,
+            })),
           };
         case "automation.inbox":
-          return { ...base, inbox: this.inbox(request.limit, request.before) };
+          return {
+            ...base,
+            inbox: this.inbox(request.limit, request.before, request.automationId),
+          };
       }
     } catch (error) {
       return {

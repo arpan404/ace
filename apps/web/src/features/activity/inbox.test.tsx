@@ -74,6 +74,9 @@ test("a CI failure and an automation run each have their own page", async () => 
   await userEvent.click(screen.getByRole("tab", { name: "Runs" }));
   await userEvent.click(feed.getByTitle("Failed: npm registry timeout, retried once"));
   const run = await main().findByRole("article", { name: "Nightly dependency audit" });
+  expect(within(run).getByRole("region", { name: "Run error" }).textContent).toContain(
+    "npm registry timeout, retried once",
+  );
   expect(within(run).getByText("Took")).toBeTruthy();
   expect(within(run).getByRole("link", { name: /Open automation/ })).toBeTruthy();
 });
@@ -404,4 +407,16 @@ test("All opens the first run when nothing needs you, and empty tabs clear that 
   expect(main().queryByRole("article")).toBeNull();
   await userEvent.click(sidebar.getByRole("tab", { name: /Needs you/ }));
   expect(await main().findByText("You're all caught up")).toBeTruthy();
+});
+
+test("Activity run output links to the produced thread", async () => {
+  await openActivity(`/activity?item=${encodeURIComponent("run:run-review-212")}`);
+  const run = await main().findByRole("article", { name: "Review pull requests on open" });
+  expect(within(run).getByRole("region", { name: "Run output" }).textContent).toContain(
+    "#212 · approved with 1 note",
+  );
+  await userEvent.click(within(run).getByRole("link", { name: /Open thread/ }));
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
+  ).toBeTruthy();
 });

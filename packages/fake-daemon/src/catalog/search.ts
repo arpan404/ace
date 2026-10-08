@@ -2,6 +2,7 @@ import type { ProviderKind } from "@ace/protocol";
 
 export type FakeSearchKind = "thread" | "message" | "tool_call" | "artifact";
 export interface FakeSearchHit {
+  itemId?: string;
   threadId: string;
   threadTitle: string;
   workspaceId: string;
@@ -12,6 +13,7 @@ export interface FakeSearchHit {
 }
 
 interface Entry {
+  itemId: string;
   threadId: string;
   threadTitle: string;
   workspaceId: string;
@@ -159,7 +161,8 @@ const rows: readonly [string, string, string, ProviderKind, FakeSearchKind, numb
   ],
 ];
 const corpus: readonly Entry[] = rows.map(
-  ([threadId, threadTitle, workspaceId, provider, kind, ageMinutes, text]) => ({
+  ([threadId, threadTitle, workspaceId, provider, kind, ageMinutes, text], index) => ({
+    itemId: `search-item-${index}`,
     threadId,
     threadTitle,
     workspaceId,
@@ -201,6 +204,7 @@ export function searchThreads(
     }
 
     hits.push({
+      ...(entry.kind === "thread" ? {} : { itemId: entry.itemId }),
       threadId: entry.threadId,
       threadTitle: entry.threadTitle,
       workspaceId: entry.workspaceId,

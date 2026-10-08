@@ -1,10 +1,11 @@
 import type { Automation, AutomationRun } from "@ace/protocol";
-import { useClient } from "@ace/client-react";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useClient, useConnectionState } from "@ace/client-react";
+import { useQueryClient, useInfiniteQuery, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import {
   automationInbox,
+  automationHistory,
   listAutomations,
   putAutomation,
   removeAutomation,
@@ -75,6 +76,7 @@ export function useAutomations() {
     queryKey: keys.list,
     read: (client, signal) => listAutomations(client, signal),
     select,
+    refetchInterval: idlePollMs,
   });
 }
 
@@ -103,6 +105,22 @@ export function useAutomationRuns() {
     read: (client, signal) => automationInbox(client, inboxLimit, signal),
     refetchInterval: (query) => (running(query.state.data) ? runningPollMs : idlePollMs),
   });
+}
+
+export function useAutomationHistory(id: string) {
+  const client = useClient();
+  const ready = useConnectionState() === "ready";
+  const query = useInfiniteQuery({
+    queryKey: [...keys.inbox, id],
+    enabled: ready,
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam, signal }) => automationHistory(client, id, pageParam, signal),
+    getNextPageParam: (page) => page.before ?? undefined,
+    refetchInterval: (state) =>
+      state.state.data?.pages.some((page) => running(page.runs)) ? runningPollMs : idlePollMs,
+  });
+  const runs = useMemo(() => query.data?.pages.flatMap((page) => page.runs), [query.data]);
+  return { ...query, runs };
 }
 
 /** Writes. Each resolves once the daemon has committed it, then both reads refresh. */
