@@ -62,7 +62,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     const text = string(object(list(params["prompt"])[0])["text"]);
-    if (text === "attachment-proof") {
+    if (text.startsWith("/catalog-") || text === "attachment-proof") {
       send({ method: "test/attachments", params: { prompt: params["prompt"] } });
       result(message["id"], { stopReason: "end_turn" });
       return;

@@ -1,3 +1,9 @@
+import { watchCatalogMetadata } from "./metadata-watch.ts";
+import { boundExtensions, filterExtensions, mergeExtensions } from "./extension-view.ts";
+import { loadedPluginRoots, installedPluginRoots } from "./plugin-roots.ts";
+import type { DiscoveryRoot } from "./roots.ts";
+import { translateMentions } from "./mentions.ts";
+import type { CatalogEntry, ContentPart } from "@ace/protocol";
 import type { LibraryContext } from "./types.ts";
 import { z } from "zod";
 import { ProviderKind, type CommandResolution } from "@ace/protocol";
@@ -11,6 +17,15 @@ const context = z.object({
 });
 
 interface Entry {
+  stopMetadata(): void;
+  extras: CatalogEntry[];
+  extrasAt: number;
+  refreshing?: Promise<void> | undefined;
+  pluginFiles?: { key: string; files: CommandFiles; ready: Promise<void>; pending: boolean };
+  nativePluginRoots?: DiscoveryRoot[];
+  pluginsSerial?: Promise<void>;
+  ready: Promise<void>;
+  stale: boolean;
   runtime: Set<string>;
   catalog: CommandCatalog;
   files: CommandFiles;
@@ -20,8 +35,10 @@ export class CommandLibrary implements CommandService {
   private readonly entries = new Map<string, Entry>();
   private readonly contexts: (thread: string) => unknown;
   private readonly instances: () => readonly ProviderInstance[];
+  private readonly extras: ((context: LibraryContext) => Promise<CatalogEntry[]>) | undefined;
   private readonly aceHome: string;
   private readonly now: () => number;
+  private readonly listeners = new Set<() => void>();
   private serial: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private closed = false;
@@ -31,7 +48,9 @@ export class CommandLibrary implements CommandService {
     instances: readonly ProviderInstance[] | (() => readonly ProviderInstance[]);
     aceHome: string;
     now: () => number;
+    extras?: (context: LibraryContext) => Promise<CatalogEntry[]>;
   }) {
+    this.extras = options.extras;
     this.contexts = options.context;
     this.aceHome = z.string().min(1).max(4096).parse(options.aceHome);
     this.now = options.now;
@@ -46,6 +65,7 @@ export class CommandLibrary implements CommandService {
           id: z.string().min(1).max(128),
           provider: ProviderKind,
           home: z.string().min(1).max(4096),
+          skillsHome: z.string().min(1).max(4096).optional(),
         }),
       )
       // The account registry admits 256 accounts, alongside seven legacy CLI identities.
@@ -72,14 +92,18 @@ export class CommandLibrary implements CommandService {
     const instance = this.readInstances().find(
       (i) => i.id === ctx.instance && i.provider === ctx.provider,
     );
-    const key = `${ctx.workspace}\0${ctx.instance}\0${instance?.home ?? ""}`;
+    const key = `${ctx.workspace}\0${ctx.provider}\0${ctx.instance}\0${instance?.home ?? ""}`;
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= 8) {
         const first = Array.from(this.entries).find(([, value]) => value.runtime.size === 0)?.[0];
         if (first === undefined) throw new Error("Active command contexts limit exceeded");
         if (first !== undefined) {
-          await this.entries.get(first)?.files.close();
+          const evicted = this.entries.get(first);
+          evicted?.stopMetadata();
+          await evicted?.refreshing;
+          await evicted?.files.close();
+          await evicted?.pluginFiles?.files.close();
           this.entries.delete(first);
         }
       }
@@ -88,23 +112,44 @@ export class CommandLibrary implements CommandService {
         catalog,
         discoveryRoots(instance ? [instance] : [], this.aceHome, ctx.workspace),
       );
-      entry = { catalog, files, runtime: new Set() };
+      entry = {
+        catalog,
+        files,
+        stopMetadata: () => {},
+        runtime: new Set(),
+        stale: true,
+        extras: [],
+        extrasAt: -Infinity,
+        ready: Promise.resolve(),
+      };
+      const created = entry;
+      created.stopMetadata = watchCatalogMetadata(instance, ctx.workspace, () => {
+        created.extrasAt = -Infinity;
+        this.notify();
+      });
+      files.subscribe(() => {
+        created.extrasAt = -Infinity;
+        this.notify();
+      });
+      created.ready = files
+        .start()
+        .then(() => {
+          created.stale = false;
+          this.notify();
+        })
+        .catch(() => {
+          created.stale = true;
+        });
       this.entries.set(key, entry);
-      try {
-        await files.start();
-      } catch (error) {
-        await files.close();
-        this.entries.delete(key);
-        throw error;
-      }
     } else {
       this.entries.delete(key);
       this.entries.set(key, entry);
     }
+    this.refreshExtras(entry, ctx);
     return { entry, target: { provider: ctx.provider, instance: ctx.instance, session: thread } };
   }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    if (this.closed || this.pending >= 16)
+    if (this.closed || this.pending >= 80)
       return Promise.reject(new Error("Command service admission limit"));
     this.pending++;
     const run = this.serial.then(work);
@@ -116,6 +161,7 @@ export class CommandLibrary implements CommandService {
   list(thread: string, query: string, limit: number) {
     return this.enqueue(async () => {
       const { entry, target } = await this.get(thread);
+      await entry.ready;
       return entry.catalog.list(target, query, limit);
     });
   }
@@ -132,6 +178,7 @@ export class CommandLibrary implements CommandService {
         ...parsed,
         instance: selected,
       });
+      await entry.ready;
       return entry.catalog.list(target, query, limit);
     });
   }
@@ -143,11 +190,12 @@ export class CommandLibrary implements CommandService {
   ): Promise<CommandResolution> {
     return this.enqueue(async () => {
       const { entry, target } = await this.get(thread);
+      await entry.ready;
       return entry.catalog.resolve(target, id, args, positional);
     });
   }
   updateRuntime(thread: string, frame: unknown): Promise<boolean> {
-    if (this.closed || this.pending >= 16)
+    if (this.closed || this.pending >= 80)
       return Promise.reject(new Error("Command service admission limit"));
     const token = { cancelled: false };
     let tokens = this.updates.get(thread);
@@ -158,7 +206,17 @@ export class CommandLibrary implements CommandService {
       const { entry, target } = await this.get(thread);
       if (token.cancelled) return false;
       const accepted = entry.catalog.updateRuntime(target, frame);
-      if (accepted) entry.runtime.add(thread);
+      const roots =
+        target.provider === "claude" ? loadedPluginRoots(frame, target.instance) : undefined;
+      if (roots) {
+        entry.nativePluginRoots = roots;
+        await this.setPluginRoots(entry, target.instance);
+      }
+      if (accepted) {
+        entry.extrasAt = this.now();
+        entry.runtime.add(thread);
+        this.notify();
+      }
       return accepted;
     }).finally(() => {
       tokens.delete(token);
@@ -170,7 +228,136 @@ export class CommandLibrary implements CommandService {
     for (const entry of this.entries.values()) {
       entry.catalog.clearRuntime(thread);
       entry.runtime.delete(thread);
+      this.notify();
     }
+  }
+  invalidateExtras(): void {
+    for (const entry of this.entries.values()) entry.extrasAt = -Infinity;
+    this.notify();
+  }
+  private refreshExtras(entry: Entry, ctx: LibraryContext): void {
+    if (!this.extras || entry.refreshing || this.now() - entry.extrasAt < 30_000) return;
+    entry.extrasAt = this.now();
+    entry.refreshing = this.extras(ctx)
+      .then(async (entries) => {
+        entry.extras = boundExtensions(entries);
+        await this.setPluginRoots(entry, ctx.instance);
+        this.notify();
+      })
+      .catch(() => {})
+      .finally(() => {
+        entry.refreshing = undefined;
+        this.notify();
+      });
+  }
+  private setPluginRoots(entry: Entry, instance: string): Promise<void> {
+    const work = (entry.pluginsSerial ?? Promise.resolve()).then(() =>
+      this.replacePluginRoots(entry, instance),
+    );
+    entry.pluginsSerial = work.catch(() => {});
+    return work;
+  }
+  private async replacePluginRoots(entry: Entry, instance: string): Promise<void> {
+    const roots = [
+      ...new Map(
+        [...(entry.nativePluginRoots ?? []), ...installedPluginRoots(entry.extras, instance)].map(
+          (root) => [root.path, root],
+        ),
+      ).values(),
+    ].slice(0, 32);
+    const key = JSON.stringify(roots);
+    if ((!roots.length && !entry.pluginFiles) || entry.pluginFiles?.key === key) return;
+    await entry.pluginFiles?.files.remove();
+    const files = new CommandFiles(entry.catalog, roots);
+    files.subscribe(() => {
+      entry.extrasAt = -Infinity;
+      this.notify();
+    });
+    const discovery = {
+      key,
+      files,
+      pending: true,
+      ready: Promise.resolve(),
+    };
+    entry.pluginFiles = discovery;
+    discovery.ready = files
+      .start()
+      .then(() => {
+        discovery.pending = false;
+        this.notify();
+      })
+      .catch(() => {
+        discovery.pending = false;
+        this.notify();
+      });
+  }
+  subscribeCatalog(listener: () => void): () => void {
+    if (this.closed || this.listeners.size >= 64) throw new Error("Catalog subscription limit");
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  private notify(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch {
+        /* A disconnected client cannot stop discovery. */
+      }
+    }
+  }
+  listCatalog(thread: string, query = "", limit = 100) {
+    return this.enqueue(async () => {
+      const { entry, target } = await this.get(thread);
+      const snapshot = entry.catalog.extensionSnapshot(target);
+      return {
+        entries: filterExtensions(
+          mergeExtensions(snapshot.entries, entry.extras, snapshot.native),
+          query,
+          limit,
+          target.provider,
+        ),
+        stale: entry.stale || entry.refreshing !== undefined || entry.pluginFiles?.pending === true,
+      };
+    });
+  }
+  listCatalogDraft(draft: string, input: LibraryContext, query = "", limit = 100) {
+    return this.enqueue(async () => {
+      const parsed = context.parse(input);
+      const selected =
+        parsed.instance === parsed.provider
+          ? (this.readInstances().find((i) => i.provider === parsed.provider)?.id ??
+            parsed.instance)
+          : parsed.instance;
+      const { entry, target } = await this.getContext(`draft:${draft}`, {
+        ...parsed,
+        instance: selected,
+      });
+      const snapshot = entry.catalog.extensionSnapshot(target);
+      return {
+        entries: filterExtensions(
+          mergeExtensions(snapshot.entries, entry.extras, snapshot.native),
+          query,
+          limit,
+          target.provider,
+        ),
+        stale: entry.stale || entry.refreshing !== undefined || entry.pluginFiles?.pending === true,
+      };
+    });
+  }
+  prepareMentions(thread: string, input: readonly ContentPart[]): Promise<ContentPart[]> {
+    return this.enqueue(async () => {
+      const { entry, target } = await this.get(thread);
+      await entry.ready;
+      await entry.refreshing;
+      await entry.pluginFiles?.ready;
+      const snapshot = entry.catalog.extensionSnapshot(target);
+      return translateMentions(
+        input,
+        target.provider,
+        mergeExtensions(snapshot.entries, entry.extras, snapshot.native),
+        (id, positional, values) => entry.catalog.resolve(target, id, values, positional),
+      );
+    });
   }
   recordUse(thread: string, id: string): Promise<void> {
     return this.enqueue(async () => {
@@ -180,8 +367,14 @@ export class CommandLibrary implements CommandService {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.listeners.clear();
     await this.serial;
-    for (const entry of this.entries.values()) await entry.files.close();
+    for (const entry of this.entries.values()) {
+      entry.stopMetadata();
+      await entry.refreshing;
+      await entry.files.close();
+      await entry.pluginFiles?.files.close();
+    }
     this.entries.clear();
   }
 }

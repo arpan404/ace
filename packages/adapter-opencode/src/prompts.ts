@@ -31,7 +31,7 @@ export class SessionPrompts {
   observe(dir: string, channel: string, value: unknown): void {
     if (channel !== "http") return;
     const data = object(value);
-    if (!String(data.path).endsWith("/prompt")) return;
+    if (!/\/(?:prompt|command)$/.test(String(data.path))) return;
     if (dir === "send") this.started = true;
     if (dir === "recv" && typeof data.status === "number" && data.status >= 400)
       this.rejected = true;
@@ -44,22 +44,34 @@ export class SessionPrompts {
       await p.barrier();
       this.started = this.rejected = false;
       const id = messageId(p.runtime.wallTime(), ++this.sequence, p.runtime.entropy(16));
+      let admitted = false;
       try {
         if (commandId) p.correlate?.({ commandId, nativeId: id });
         p.frame("note", "input.sending", { id, commandId });
-        const reply = z
-          .object({ id: z.literal(id), sessionID: z.literal(p.session()) })
-          .passthrough()
-          .parse(
-            await p.client.session.prompt({
+        const { commands, ...body } = promptBody(input, p.directory(), id);
+        if (commands.length) {
+          for (const command of commands) {
+            await p.client.session.command({
               sessionID: p.session(),
-              ...promptBody(input, p.directory(), id),
+              name: command.name,
+              text: `${body.text}${command.arguments ? `\n\nCommand arguments: ${command.arguments}` : ""}`,
+              ...(body.files ? { files: body.files } : {}),
+              ...(body.agents ? { agents: body.agents } : {}),
+              ...(body.skills ? { skills: body.skills } : {}),
               delivery,
-            }),
-          );
-        p.frame("note", "input.accepted", reply);
+            });
+            admitted = true;
+          }
+          p.frame("note", "input.accepted", { id, sessionID: p.session() });
+        } else {
+          const reply = z
+            .object({ id: z.literal(id), sessionID: z.literal(p.session()) })
+            .passthrough()
+            .parse(await p.client.session.prompt({ sessionID: p.session(), ...body, delivery }));
+          p.frame("note", "input.accepted", reply);
+        }
       } catch {
-        if (this.rejected || !this.started) {
+        if (!admitted && (this.rejected || !this.started)) {
           p.frame("note", "input.rejected", { id });
           throw new Error("OpenCode rejected input admission");
         }

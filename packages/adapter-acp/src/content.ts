@@ -27,6 +27,7 @@ export function decodeContent(value: unknown): ContentPart[] {
   return [];
 }
 export function encodeContent(part: ContentPart): unknown {
+  if (part.type === "mention") throw new Error("Unresolved ACP mention");
   if (part.type === "text") return part;
   if (part.type === "file")
     if (part.content)

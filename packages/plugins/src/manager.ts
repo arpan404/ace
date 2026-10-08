@@ -1,3 +1,4 @@
+import { pluginCatalog } from "./extension-catalog.ts";
 import { mkdir, opendir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withDirectoryLock } from "./lock.ts";
@@ -315,6 +316,16 @@ export class PluginManager {
   }
   async selected(provider: import("./types.ts").Provider) {
     return this.client.selected(provider, await this.installed());
+  }
+  async extensions(provider: import("@ace/protocol").ProviderKind) {
+    const snapshots = await this.catalogSnapshots();
+    return pluginCatalog(
+      provider,
+      snapshots.filter((s) => {
+        const p = this.availability(s.install.name);
+        return p.enabled && p.providers.includes(provider);
+      }),
+    );
   }
   catalog(offset: number, limit: number) {
     return this.client.catalog(offset, limit);

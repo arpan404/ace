@@ -78,7 +78,123 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
         ? { unavailable: true }
         : {}),
     };
+    if (init?.success && init.data.skills?.includes(v.name))
+      d.extension = {
+        id: d.id,
+        kind: "skill",
+        name: v.name,
+        description: v.description,
+        source: { provider: target.provider, scope: "global" },
+        invocation: { type: "slash", name: v.name },
+      };
     result.commands.push(d);
+  }
+  if (init?.success) {
+    const servers = z
+      .array(z.object({ name: z.string().min(1).max(128), status: z.string().max(128) }))
+      .max(128)
+      .safeParse(init.data.mcp_servers);
+    if (servers.success)
+      for (const server of servers.data) {
+        if (result.commands.length >= 512) break;
+        const id = `${source}#mcp-server:${server.name}`;
+        result.commands.push({
+          id,
+          name: server.name,
+          nativeName: server.name,
+          namespace: "provider",
+          provider: target.provider,
+          instance: target.instance,
+          session: target.session,
+          description: `MCP server (${server.status})`,
+          arguments: {},
+          scope: "runtime",
+          body: "",
+          format: "runtime",
+          raw: {},
+          priority: 30,
+          extension: {
+            id,
+            kind: "plugin",
+            name: `MCP: ${server.name}`,
+            description: `MCP server (${server.status})`,
+            source: { provider: target.provider, scope: "global" },
+            invocation: {
+              type: "unavailable",
+              reason: "Select an advertised tool from this server",
+            },
+          },
+        });
+      }
+    const plugins = z
+      .array(
+        z.object({ name: z.string().min(1).max(128), path: z.string().max(4096) }).passthrough(),
+      )
+      .max(128)
+      .safeParse(init.data.plugins);
+    if (plugins.success)
+      for (const plugin of plugins.data) {
+        if (result.commands.length >= 512) break;
+        result.commands.push({
+          id: `${source}#plugin:${plugin.name}`,
+          name: plugin.name,
+          nativeName: plugin.name,
+          namespace: "provider",
+          provider: target.provider,
+          instance: target.instance,
+          session: target.session,
+          description: "Enabled provider plugin",
+          arguments: {},
+          scope: "runtime",
+          body: "",
+          format: "runtime",
+          raw: {},
+          priority: 30,
+          extension: {
+            id: `${source}#plugin:${plugin.name}`,
+            name: plugin.name,
+            kind: "plugin",
+            description: "Enabled provider plugin",
+            source: {
+              provider: target.provider,
+              scope: "plugin",
+              plugin: plugin.name,
+              path: plugin.path,
+            },
+            invocation: { type: "plugin", name: plugin.name },
+          },
+        });
+      }
+    const tools = z.array(z.string().max(256)).max(512).safeParse(init.data.tools);
+    if (tools.success)
+      for (const tool of tools.data) {
+        const match = /^mcp__(.+?)__(.+)$/.exec(tool);
+        if (!match?.[1] || !match[2] || result.commands.length >= 512) continue;
+        result.commands.push({
+          id: `${source}#tool:${tool}`,
+          name: tool,
+          nativeName: tool,
+          namespace: "provider",
+          provider: target.provider,
+          instance: target.instance,
+          session: target.session,
+          description: `Tool from ${match[1]}`,
+          arguments: {},
+          scope: "runtime",
+          body: "",
+          format: "runtime",
+          raw: {},
+          priority: 30,
+          extension: {
+            id: `${source}#tool:${tool}`,
+            name: match[2],
+            kind: "mcp-tool",
+            description: `Tool from ${match[1]}`,
+            source: { provider: target.provider, scope: "global" },
+            invocation: { type: "tool", name: tool, server: match[1] },
+          },
+        });
+      }
   }
   return result;
 }

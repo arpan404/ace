@@ -1,3 +1,6 @@
+import { discoverClaudePlugins } from "../catalog-claude-discovery.ts";
+import { discoverCodexExtensions } from "../catalog-discovery.ts";
+import { createCatalogSession } from "./catalog.ts";
 import { realpath } from "node:fs/promises";
 import { warmup } from "./warmup.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
@@ -29,10 +32,13 @@ async function initializeCommands({
   resources,
   services,
   now,
+  signal,
 }: ServiceContext) {
   const integration = options.commands ?? {};
   const registered = () => services.accountRegistry?.list() ?? [];
   const defaults = defaultCommandInstances(process.env);
+  let discoveryTail: Promise<unknown> = Promise.resolve();
+  let pendingDiscovery = 0;
   const library = createDaemonCommandLibrary(
     store,
     config.dataDir,
@@ -76,7 +82,53 @@ async function initializeCommands({
         return selected?.id ?? thread.provider;
       }),
     now,
+    async (ctx) => {
+      const admitted = pendingDiscovery < 8;
+      if (admitted) pendingDiscovery++;
+      const discover = admitted
+        ? discoveryTail
+            .then(async () => {
+              if (!["codex", "claude"].includes(ctx.provider) || signal.aborted) return [];
+              const instance =
+                registered().find((i) => i.instance.id === ctx.instance)?.instance ??
+                (ctx.instance === ctx.provider
+                  ? registered().find(
+                      (i) => i.instance.provider === ctx.provider && i.instance.implicit,
+                    )?.instance
+                  : undefined);
+              if (!instance || integration.instances) return [];
+              const env = { ...process.env, ...instance.env };
+              const executable =
+                services.providerConfigurations?.for(ctx.provider, instance.id)?.binaryPath ??
+                ctx.provider;
+              const probe =
+                ctx.provider === "claude" ? discoverClaudePlugins : discoverCodexExtensions;
+              return probe({ executable, cwd: ctx.workspace, env, signal }).catch(() => []);
+            })
+            .finally(() => {
+              pendingDiscovery--;
+            })
+        : Promise.resolve([]);
+      if (admitted) discoveryTail = discover.catch(() => {});
+      return [
+        ...(await discover),
+        ...((await services.plugins?.extensions(ctx.provider)) ?? []),
+        ...(services.automations?.list() ?? [])
+          .filter((a) => a.enabled && a.provider === ctx.provider && a.workspace === ctx.workspace)
+          .slice(0, 128)
+          .map((a) => ({
+            id: `ace:workflow:${a.id}`,
+            kind: "workflow" as const,
+            name: a.title,
+            description: "Run this automation",
+            source: { provider: "ace" as const, scope: "project" as const },
+            invocation: { type: "action" as const, action: `automation.run:${a.id}` },
+          })),
+      ];
+    },
   );
+  if (services.plugins)
+    resources.own(services.plugins.subscribeCatalog(() => library.invalidateExtras()));
   resources.own(() => library.close());
   if (integration.events) {
     const disconnect = connectDaemonCommandEvents(library, integration.events);
@@ -85,8 +137,13 @@ async function initializeCommands({
   services.commands = library;
 }
 export function createCommandsSession(context: SocketContext): SocketService {
+  const catalog = createCatalogSession(context);
   return {
-    async handle(message) {
+    close() {
+      catalog.close?.();
+    },
+    async handle(message, socketDevice) {
+      if (await catalog.handle?.(message, socketDevice)) return true;
       if (message.type !== "commands.list" && message.type !== "commands.resolve") return false;
       const reject = (code: string, detail: string) =>
         context.fail(code, detail, false, { requestId: message.requestId });

@@ -6,6 +6,7 @@ export function piInput(input: ContentPart[]) {
     images: { type: "image"; data: string; mimeType: string }[] = [];
   let bytes = 0;
   for (const part of parts) {
+    if (part.type === "mention") throw new Error("Unresolved Pi mention");
     const value = part.type === "text" ? part.text : part.type === "file" ? part.path : part.url;
     if (value.length > 1024 * 1024) throw new Error("Pi input exceeds frame budget");
     bytes += Buffer.byteLength(value) + 256;

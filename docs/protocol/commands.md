@@ -1255,14 +1255,15 @@ Example:
 ```json
 {
   "accountId": "example",
-  "context": {
-    "mentions": []
-  },
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "source": {
+        "bytes": 8,
+        "encoding": "utf-16le",
+        "streamId": "example"
+      },
+      "text": "example",
+      "type": "text"
     }
   ],
   "model": "example",
@@ -1298,13 +1299,13 @@ Example:
   "delivery": "queue",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "text": "example",
+      "type": "text"
     }
   ],
   "model": "example",
   "threadId": "example",
+  "trigger": "subagent_result",
   "type": "thread.send"
 }
 ```

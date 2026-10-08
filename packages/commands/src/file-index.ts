@@ -2,7 +2,7 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import type { Stats } from "node:fs";
 import { CommandCatalog } from "./catalog.ts";
 import { FileRecovery, statVersion } from "./recovery.ts";
-import { parseMarkdown, parseOpenCodeConfig } from "./parse.ts";
+import { parseMarkdown, parseOpenCodeConfig, parseCodexAgent } from "./parse.ts";
 import type { CommandFileIo } from "./secure-io.ts";
 import type { DirectoryReader } from "./posix.ts";
 import { key, sourceId, type RegisteredRoot } from "./file-keys.ts";
@@ -180,7 +180,7 @@ export class FileIndex {
       if (
         root.format === "opencode-config" ||
         depth > 8 ||
-        (root.format === "codex" && path !== root.path)
+        (root.format === "codex" && !root.skill && path !== root.path)
       ) {
         this.queue({ ...job, kind: "remove" });
         return;
@@ -217,7 +217,10 @@ export class FileIndex {
     if (
       !stat.isFile() ||
       (root.format !== "opencode-config" &&
-        (!path.endsWith(".md") || (root.skill && basename(path) !== "SKILL.md")))
+        (!(root.format === "codex" && root.kind === "agent"
+          ? path.endsWith(".toml")
+          : path.endsWith(".md")) ||
+          (root.skill && basename(path) !== "SKILL.md")))
     ) {
       this.queue({ ...job, kind: "remove" });
       return;
@@ -231,10 +234,16 @@ export class FileIndex {
     const id = sourceId(root, path),
       name = root.skill
         ? basename(dirname(path))
-        : relative(root.path, path).replace(/\.md$/, "").split(sep).join(":");
+        : relative(root.path, path)
+            .replace(/\.(?:md|toml)$/, "")
+            .split(sep)
+            .join(":");
     const ctx = {
       source: id,
       name,
+      path,
+      ...(root.kind === undefined ? {} : { kind: root.kind }),
+      ...(root.plugin === undefined ? {} : { plugin: root.plugin }),
       scope: root.scope,
       ...(root.instance === undefined ? {} : { instance: root.instance }),
       ...(root.skill === undefined ? {} : { skill: root.skill }),
@@ -245,9 +254,11 @@ export class FileIndex {
       this.counters.readBytes += read.bytes;
       this.remember(job, read.stat);
       const parsed =
-        root.format === "opencode-config"
-          ? parseOpenCodeConfig(read.text, ctx)
-          : parseMarkdown(read.text, { ...ctx, format: root.format });
+        root.format === "codex" && root.kind === "agent"
+          ? parseCodexAgent(read.text, ctx)
+          : root.format === "opencode-config"
+            ? parseOpenCodeConfig(read.text, ctx)
+            : parseMarkdown(read.text, { ...ctx, format: root.format });
       if (!this.catalog.replaceSource(id, parsed)) {
         this.report(root, path, "Catalog admission limit exceeded");
         return;
@@ -312,6 +323,10 @@ export class FileIndex {
       else await this.scan(job);
     }
     return this.pending;
+  }
+  clear(): void {
+    for (const source of this.sources.values()) this.catalog.removeSource(source);
+    this.sources.clear();
   }
   async close(): Promise<void> {
     this.jobs.clear();

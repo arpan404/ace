@@ -324,6 +324,319 @@
                     {
                       "additionalProperties": false,
                       "properties": {
+                        "arguments": {
+                          "default": "",
+                          "maxLength": 16384,
+                          "type": "string"
+                        },
+                        "entryId": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "icon": {
+                          "maxLength": 4096,
+                          "type": "string"
+                        },
+                        "invocation": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "slash",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "path": {
+                                  "maxLength": 4096,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "skill",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "path": {
+                                  "maxLength": 4096,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "mention",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "plugin",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "agent",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "name": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "server": {
+                                  "maxLength": 256,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "tool",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "name",
+                                "server"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "commandId": {
+                                  "maxLength": 256,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "parameters": {
+                                  "additionalProperties": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "default": {
+                                        "anyOf": [
+                                          {
+                                            "maxLength": 16384,
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      },
+                                      "required": {
+                                        "default": false,
+                                        "type": "boolean"
+                                      },
+                                      "type": {
+                                        "enum": [
+                                          "string",
+                                          "number",
+                                          "boolean"
+                                        ],
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "required"
+                                    ],
+                                    "type": "object",
+                                    "x-ace-constraint": "An argument default must have the declared type."
+                                  },
+                                  "maxProperties": 64,
+                                  "propertyNames": {
+                                    "maxLength": 128,
+                                    "minLength": 1,
+                                    "pattern": "^[a-zA-Z0-9_.:-]+$",
+                                    "type": "string"
+                                  },
+                                  "type": "object",
+                                  "x-ace-constraint": "At most 64 arguments."
+                                },
+                                "type": {
+                                  "const": "prompt",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "commandId"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "action": {
+                                  "maxLength": 128,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "action",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "action"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "reason": {
+                                  "maxLength": 2048,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "unavailable",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "reason"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "kind": {
+                          "enum": [
+                            "skill",
+                            "command",
+                            "plugin",
+                            "agent",
+                            "workflow",
+                            "mcp-tool",
+                            "builtin"
+                          ],
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "mention",
+                          "type": "string"
+                        },
+                        "values": {
+                          "additionalProperties": {
+                            "anyOf": [
+                              {
+                                "maxLength": 16384,
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          },
+                          "maxProperties": 64,
+                          "propertyNames": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[a-zA-Z0-9_.:-]+$",
+                            "type": "string"
+                          },
+                          "type": "object",
+                          "x-ace-constraint": "At most 64 arguments."
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "entryId",
+                        "name",
+                        "kind",
+                        "arguments"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
                         "source": {
                           "additionalProperties": false,
                           "properties": {

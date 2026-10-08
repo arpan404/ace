@@ -1,5 +1,6 @@
 import { waitForAceTools } from "./mcp-ready.ts";
 import { developerInstructions } from "@ace/mcp-server";
+import { createExtensionCatalog } from "./extension-catalog.ts";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
@@ -27,6 +28,7 @@ export class OpenCodeSession implements ProviderSession {
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
+  private catalog: ReturnType<typeof createExtensionCatalog>;
   private controller = new AbortController();
   private translator: OpenCodeTranslator;
   private ownership: SessionOwnership;
@@ -67,6 +69,7 @@ export class OpenCodeSession implements ProviderSession {
     });
     this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
+    this.catalog = createExtensionCatalog(this.client, ctx.cwd, this.emit, () => this.closed);
     this.prompts = new SessionPrompts({
       client: this.client,
       runtime: server.runtime,
@@ -188,26 +191,7 @@ export class OpenCodeSession implements ProviderSession {
         s.recovering = false;
         s.emit("note", "lifecycle", { type: "resynced" });
       }
-      try {
-        const commands = z
-          .object({
-            data: z
-              .array(
-                z.object({ name: z.string(), description: z.string().optional() }).passthrough(),
-              )
-              .max(512),
-          })
-          .parse(await s.client.command.list({ location: { directory: ctx.cwd } }));
-        s.emit("note", "commands.runtime", {
-          sessionUpdate: "available_commands_update",
-          availableCommands: commands.data,
-        });
-      } catch {
-        s.emit("note", "commands.runtime", {
-          sessionUpdate: "available_commands_update",
-          availableCommands: [],
-        });
-      }
+      await s.catalog.start();
       ctx.signal.throwIfAborted();
       return s;
     } catch (error) {
@@ -299,6 +283,7 @@ export class OpenCodeSession implements ProviderSession {
     if (!this.owns(data)) return;
     const e = NativeEvent.parse(data),
       p = e.data;
+    this.catalog.changed(e.type);
     if (e.type === "location.shutdown" && e.location) {
       this.lostLocations.add(e.location.directory);
       const owners = this.ownership.atLocation(e.location.directory);

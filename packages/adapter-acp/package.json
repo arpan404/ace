@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ace/agent-registry": "workspace:*",
+    "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",
