@@ -63,8 +63,8 @@
 
   /*
    * Status hues: working blue, needs you amber, waiting and limited violet (a limited row's dot is
-   * a hollow violet ring), failed red, done green. Pills, dots, rings and badges read them
-   * through `data-tone` (below) as --tone.
+   * a hollow violet ring), failed red, done green. Status words, dots, rings and badges read
+   * them through `data-tone` (below) as --tone and --tone-text.
    */
   --color-status-needs-you: var(--status-needs-you);
   --color-status-working: var(--status-working);
@@ -181,27 +181,37 @@
 }
 
 @layer base {
-  /* One status vocabulary: any element with `data-tone` gets its hue as --tone. */
+  /*
+   * One status vocabulary: any element with `data-tone` gets its hue as --tone (dots, rings,
+   * icons) and, as --tone-text, that hue made AA on every surface for words (src/theme/status-text.ts).
+   */
   [data-tone="working"] {
     --tone: var(--status-working);
+    --tone-text: var(--status-working-text);
   }
   [data-tone="needs-you"] {
     --tone: var(--status-needs-you);
+    --tone-text: var(--status-needs-you-text);
   }
   [data-tone="waiting"] {
     --tone: var(--status-waiting);
+    --tone-text: var(--status-waiting-text);
   }
   [data-tone="failed"] {
     --tone: var(--status-failed);
+    --tone-text: var(--status-failed-text);
   }
   [data-tone="done"] {
     --tone: var(--status-done);
+    --tone-text: var(--status-done-text);
   }
   [data-tone="unresponsive"] {
     --tone: var(--status-unresponsive);
+    --tone-text: var(--status-unresponsive-text);
   }
   [data-tone="idle"] {
     --tone: var(--subtle-foreground);
+    --tone-text: var(--subtle-foreground);
   }
 }
 

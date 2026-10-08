@@ -31,7 +31,7 @@ export const DeferredThreadHotkeys = deferredComponent(() =>
 export const DeferredWorkCard = deferredComponent(() =>
   import("./header/work-card.tsx").then((module) => module.WorkCard),
 );
-/** "Limited until 15:20" beside the project in the header, while the thread is held at a limit. */
+/** "Limited until 15:20" after the title in the header, while the thread is held at a limit. */
 export const DeferredLimitBadge = deferredComponent(() =>
   import("./header/limit-badge.tsx").then((module) => module.LimitBadge),
 );
