@@ -10,6 +10,7 @@ import {
 import { formatSpan, type ProjectBadge, type TaskPill, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -61,18 +62,6 @@ export function ProjectMark(props: { badge: ProjectBadge; className?: string }) 
   );
 }
 
-// Tinted tones share one mix rule and each names its status colour in a small class of its own.
-const tinted = "text-[color-mix(in_oklab,var(--tone)_85%,var(--foreground))]";
-const pillTone: Record<TaskPill["tone"], string> = {
-  working: `${tinted} [--tone:var(--status-working)]`,
-  "needs-you":
-    "rounded-full bg-status-needs-you/13 px-1.5 text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
-  waiting: `${tinted} [--tone:var(--status-waiting)]`,
-  failed: `${tinted} [--tone:var(--status-failed)]`,
-  done: `${tinted} [--tone:var(--status-done)]`,
-  idle: "text-muted-foreground",
-};
-
 function PillIcon(props: { pill: TaskPill }) {
   switch (props.pill.icon) {
     case "working":
@@ -94,27 +83,24 @@ function Elapsed(props: { since: number }) {
   return <span className="tabular-nums">{formatSpan(props.since, now)}</span>;
 }
 
-/** The status in a few words and a mark; a working thread counts the time it has been at it. */
-export function RowPill(props: { pill: TaskPill }) {
+/** The status in a few coloured words and a mark; a working thread counts the time it has been at it. */
+function RowStatus(props: { pill: TaskPill }) {
   const { pill } = props;
   return (
-    <span
-      data-tone={pill.tone}
-      className={cn(
-        "inline-flex h-[18px] shrink-0 items-center gap-1 text-xs font-medium whitespace-nowrap",
-        pillTone[pill.tone],
-      )}
+    <StatusLabel
+      tone={pill.tone}
+      label={pill.label}
+      mark={<PillIcon pill={pill} />}
+      className="gap-1"
     >
-      <PillIcon pill={pill} />
-      {pill.label}
       {pill.since !== undefined && <Elapsed since={pill.since} />}
-    </span>
+    </StatusLabel>
   );
 }
 
 /**
  * The row's first line: the project's badge and name, then on the right a pin and a snooze,
- * and the status pill or, for a thread at rest, how long ago it last moved. The right side
+ * and the status in words or, for a thread at rest, how long ago it last moved. The right side
  * gives way to Settle and Snooze on hover and focus.
  */
 export function RowHead(props: { card: ThreadCard }) {
@@ -127,7 +113,7 @@ export function RowHead(props: { card: ThreadCard }) {
         {card.flags.pinned && <Icon icon={PushPinIcon} size={12} />}
         {card.wake && <Icon icon={MoonIcon} size={12} />}
         {card.pill ? (
-          <RowPill pill={card.pill} />
+          <RowStatus pill={card.pill} />
         ) : (
           <span className="text-xs tabular-nums">{card.age}</span>
         )}

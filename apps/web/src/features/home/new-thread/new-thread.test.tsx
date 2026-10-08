@@ -212,14 +212,12 @@ test("the last model, account and work mode are remembered for the next thread",
   await chooseModel("Sonnet 5.5", "Claude Code", /^Model: Opus 5\.5/);
   await userEvent.click(await screen.findByRole("button", { name: "Account work" }));
   await closeModelControl();
-  await userEvent.click(screen.getByRole("button", { name: /^Environment: Worktree/ }));
-  const card = await screen.findByRole("region", { name: "Where this thread runs" });
-  await userEvent.click(within(card).getByRole("radio", { name: /^Local checkout/ }));
-  // Choosing the local checkout is the whole choice: the card goes, and with it the base.
-  await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
-  );
-  expect(screen.getByRole("button", { name: "Environment: Local" })).toBeTruthy();
+  const worktree = await screen.findByRole("checkbox", { name: "Worktree" });
+  expect(worktree.getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(worktree);
+  // The local checkout is the whole choice: no branch to start from.
+  expect(worktree.getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByRole("button", { name: /^Start from:/ })).toBeNull();
   cleanup();
 
   const made = app({ storage });
@@ -227,7 +225,9 @@ test("the last model, account and work mode are remembered for the next thread",
   expect(
     await screen.findByRole("button", { name: "Model: Sonnet 5.5, work, provider default effort" }),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Environment: Local" })).toBeTruthy();
+  expect(
+    (await screen.findByRole("checkbox", { name: "Worktree" })).getAttribute("aria-checked"),
+  ).toBe("false");
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
@@ -241,7 +241,7 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   // The last thread was started in ace.
   storage.setItem("ace.home.newThread", JSON.stringify({ project: "ace" }));
   await app({ storage }).open("/new");
-  await screen.findByRole("heading", { name: "What should we work on in ace?" });
+  await screen.findByRole("button", { name: "Project: ace" });
 
   await userEvent.click(
     await screen.findByRole("button", { name: "Project filter: All projects" }),
@@ -254,7 +254,7 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   );
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
-  await screen.findByRole("heading", { name: "What should we work on in relay?" });
+  await screen.findByRole("button", { name: "Project: relay" });
 
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
@@ -263,7 +263,7 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   );
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
-  await screen.findByRole("heading", { name: "What should we work on in relay?" });
+  await screen.findByRole("button", { name: "Project: relay" });
 });
 
 test("a worktree thread starts from the chosen branch, on the chosen account and effort", async () => {
@@ -278,13 +278,11 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   expect(
     await screen.findByRole("button", { name: "Model: GPT-5 Codex, personal, High effort" }),
   ).toBeTruthy();
-  await userEvent.click(await screen.findByRole("button", { name: /^Environment: Worktree/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Start from:/ }));
   await userEvent.type(await screen.findByRole("combobox", { name: "Start from branch" }), "dev");
   const local = await screen.findByRole("group", { name: "Local" });
   await userEvent.click(within(local).getByRole("option", { name: /^develop/ }));
-  expect(
-    await screen.findByRole("button", { name: "Environment: Worktree · develop" }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Start from: develop" })).toBeTruthy();
 
   await userEvent.type(await prompt(), "Add jitter to the retry backoff{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Add jitter to the retry backoff" });
@@ -301,9 +299,9 @@ test("a new worktree starts from the remote's fresh default branch unless anothe
   const made = app();
   await made.open("/new?project=relay");
   // The local main is behind origin's: the fresher remote copy is the default.
-  const pill = await screen.findByRole("button", { name: "Environment: Worktree · origin/main" });
-  await userEvent.click(pill);
-  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  const from = await screen.findByRole("button", { name: "Start from: origin/main" });
+  await userEvent.click(from);
+  const card = await screen.findByRole("dialog", { name: "Start from a branch" });
   const remote = within(card).getByRole("group", { name: "On origin" });
   expect(within(remote).getByRole("option", { name: /^origin\/main/ }).textContent).toContain(
     "default",
@@ -322,7 +320,7 @@ test("a new worktree starts from the remote's fresh default branch unless anothe
   ).toEqual(["origin/fix/login-timeout"]);
   await userEvent.keyboard("{Enter}");
   expect(
-    await screen.findByRole("button", { name: "Environment: Worktree · origin/fix/login-timeout" }),
+    await screen.findByRole("button", { name: "Start from: origin/fix/login-timeout" }),
   ).toBeTruthy();
   expect(document.activeElement).toBe(await prompt());
 
@@ -340,12 +338,14 @@ test("when the remote can't be reached, the thread starts from the last fetched 
   const made = app();
   made.daemon.setRemoteReachable(false);
   await made.open("/new?project=relay");
-  await screen.findByRole("button", { name: "Environment: Worktree · origin/main" });
+  await screen.findByRole("button", { name: "Start from: origin/main" });
   await userEvent.type(await prompt(), "Bump the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Bump the retry budget" });
 
   const created = await started(made);
   expect(created?.details?.base).toMatchObject({ remote: "origin", fetch: "unreachable" });
+  // Once its agent is stopped, the composer's tab shows where it runs, and raises the details.
+  await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
   await userEvent.click(await screen.findByRole("button", { name: /^Environment: Worktree/ }));
   const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(card).getByText(/^origin\/main at [0-9a-f]{7}$/)).toBeTruthy();

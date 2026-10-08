@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import {
   Menu,
   MenuContent,
@@ -10,10 +10,11 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { AddProjectItem } from "@/features/projects/index.ts";
+import { composerStrip } from "@/features/thread/index.ts";
 
 /**
- * The project a new thread starts in, as part of the page's question ("What should we work on
- * in ace?"): the name is a quiet menu of the registered projects, with Add project at its foot.
+ * The project a new thread starts in, first on the composer's environment tab: its name opens a
+ * menu of the registered projects, with Add project at its foot.
  */
 export function ProjectPicker(props: {
   projects: readonly string[];
@@ -27,12 +28,13 @@ export function ProjectPicker(props: {
     <Menu>
       <MenuTrigger
         aria-label={`Project: ${props.project === undefined ? "Choose a project" : value}`}
-        className="-mx-1 inline-flex items-center gap-1 rounded-md px-1 text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent"
+        className={`${composerStrip} shrink-0 text-foreground`}
       >
-        <span className="underline decoration-dotted underline-offset-4">{value}</span>
-        <CaretDownIcon aria-hidden size={14} className="text-subtle-foreground" />
+        <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+        <span className="max-w-32 truncate">{value}</span>
+        <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </MenuTrigger>
-      <MenuContent align="start" className="max-h-[50vh] min-w-[220px] overflow-y-auto">
+      <MenuContent side="top" align="start" className="max-h-[50vh] min-w-[220px] overflow-y-auto">
         <MenuGroup>
           <MenuLabel>Projects</MenuLabel>
           <MenuRadioGroup

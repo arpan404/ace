@@ -1,9 +1,8 @@
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
-  EnvironmentPill,
   PermissionPicker,
   preloadComposerParts,
   rememberAttachments,
@@ -20,24 +19,27 @@ import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import {
-  baseName,
   defaultWorktreeBase,
   permissionAdmission,
+  permissionCoverage,
+  permissionCoverageNote,
+  permissionModeOf,
+  permissionOption,
+  permissionOptions,
   providerNames,
   speedOffTier,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ModelPicker } from "./model-picker.tsx";
-import { ProjectPicker } from "./project-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
-/** Where the thread runs, opened from the composer's environment pill. */
-const DeferredEnvironmentCard = deferredComponent(() =>
-  import("./environment-card.tsx").then((module) => module.NewThreadEnvironmentCard),
+/** Where the thread runs, on the tab attached to the composer. */
+const DeferredEnvironment = deferredComponent(() =>
+  import("./environment-strip.tsx").then((module) => module.NewThreadEnvironment),
 );
 
 /**
@@ -65,8 +67,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const project = pickProject(projects, requested, choices.project, filter);
   const projectName = project === undefined ? undefined : name(project);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
-  const [environment, setEnvironment] = useState(false);
-  const environmentId = useId();
   const page = useRef<HTMLDivElement>(null);
   const { create, error } = useCreateThread();
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
@@ -157,10 +157,8 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     });
   };
 
-  const closeEnvironment = () => {
-    setEnvironment(false);
-    page.current?.querySelector("textarea")?.focus();
-  };
+  const toMessage = () => page.current?.querySelector("textarea")?.focus();
+  const providerName = provider ? providerNames[provider] : "This provider";
 
   // The first run: nothing to start a thread in until a project is added.
   if (loaded && !projects.length)
@@ -176,22 +174,8 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
         className="flex h-full flex-col justify-center overflow-y-auto px-5 pt-8 pb-[12vh] sm:px-8"
       >
         <div className="mx-auto w-full max-w-(--column)">
-          <h2
-            aria-label={`What should we work on${projectName ? ` in ${projectName}` : ""}?`}
-            className="mb-5 px-1 text-2xl font-semibold tracking-title text-foreground"
-          >
-            What should we work on in{" "}
-            <ProjectPicker
-              projects={projects}
-              projectName={name}
-              project={project}
-              onProject={(next) => {
-                setRequested(next);
-                setBase(undefined);
-                choose({ project: next });
-              }}
-            />
-            ?
+          <h2 className="mb-6 px-1 text-2xl font-semibold tracking-title text-foreground">
+            What should we work on?
           </h2>
           <Composer
             thread={draftThread}
@@ -200,26 +184,28 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             onSubmit={send}
             autoFocus
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
+            shortPlaceholder="Describe a change or a bug"
             attached={
-              environment ? (
-                <Suspense fallback={null}>
-                  <DeferredEnvironmentCard.Component
-                    id={environmentId}
-                    mode={resolved.mode}
-                    onMode={(mode) => {
-                      choose({ mode });
-                      if (mode === "local") closeEnvironment();
-                    }}
-                    branches={branches}
-                    base={base}
-                    onBase={(next) => {
-                      setBase(next);
-                      closeEnvironment();
-                    }}
-                    onClose={closeEnvironment}
-                  />
-                </Suspense>
-              ) : undefined
+              <Suspense fallback={null}>
+                <DeferredEnvironment.Component
+                  projects={projects}
+                  projectName={name}
+                  project={project}
+                  onProject={(next) => {
+                    setRequested(next);
+                    setBase(undefined);
+                    choose({ project: next });
+                  }}
+                  mode={resolved.mode}
+                  onMode={(mode) => choose({ mode })}
+                  branches={branches}
+                  base={base}
+                  onBase={(next) => {
+                    setBase(next);
+                    toMessage();
+                  }}
+                />
+              </Suspense>
             }
             trailing={
               <ModelPicker
@@ -246,29 +232,28 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
               />
             }
             controls={
-              <>
-                <EnvironmentPill
-                  place={resolved.mode}
-                  detail={resolved.mode === "worktree" && base ? baseName(base) : undefined}
-                  open={environment}
-                  controls={environmentId}
-                  onToggle={() => setEnvironment(!environment)}
-                />
-                <PermissionPicker
-                  mode={admitted.mode}
-                  capabilities={permissions.capabilities}
-                  provider={provider}
-                  loading={!!provider && (permissions.loading || defaultMode === undefined)}
-                  unavailable={
-                    permissions.failed
-                      ? "The daemon couldn't say what this provider can gate"
-                      : undefined
-                  }
-                  inherited={!chosen}
-                  fallback={admitted.fallback}
-                  onChange={(mode) => setPermission(mode ?? undefined)}
-                />
-              </>
+              <PermissionPicker
+                current={admitted.mode && permissionOption(admitted.mode)}
+                detail={
+                  admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                }
+                inherited={!chosen}
+                menu={{
+                  options: permissionOptions(permissions.capabilities, providerName),
+                  value: admitted.mode,
+                  loading: !!provider && (permissions.loading || defaultMode === undefined),
+                  unavailable: permissions.failed
+                    ? "The daemon couldn't say what this provider can gate"
+                    : undefined,
+                  coverage: permissionCoverageNote(
+                    permissions.capabilities,
+                    providerName,
+                    admitted.mode,
+                  ),
+                  fallback: admitted.fallback,
+                }}
+                onChange={(id) => setPermission((id && permissionModeOf(id)) || undefined)}
+              />
             }
           />
           <SignInNotice provider={provider} />

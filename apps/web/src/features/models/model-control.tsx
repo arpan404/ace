@@ -2,7 +2,6 @@ import { effortLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon, LightningIcon } from "@phosphor-icons/react";
 import { Suspense, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -21,8 +20,8 @@ export function preloadModelControl(): Promise<unknown> {
 const warm = () => void preloadModelControl();
 
 /**
- * The composer's model chip, "◆ Opus 4.1 · High ▾": the provider's mark, the model and its
- * effort (the model alone when the composer is narrow). A switch not in effect yet reads
+ * The composer's model, as plain text: "Opus 4.1 High ▾", the model in the ink colour and its
+ * effort a step quieter (the model alone when the composer is narrow). A switch not in effect yet reads
  * "Opus 4.1 → Sonnet 4.5" with a small clock. It opens a small popover with effort, speed, the
  * account and the way to another model, above the composer rather than over it.
  */
@@ -50,21 +49,15 @@ export function ModelControl(props: {
           onFocus={warm}
           className={cn(props.className, "max-w-64")}
         >
-          {view.provider ? (
-            <ProviderIcon provider={view.provider} size={14} decorative />
-          ) : (
-            view.catalog === "loading" && <Spinner />
-          )}
+          {!view.label && view.catalog === "loading" && <Spinner />}
           {switching?.from && !props.compact && (
             <span className="min-w-0 shrink-[2] truncate text-subtle-foreground">
               {switching.from} →
             </span>
           )}
-          <span className="min-w-0 truncate">{view.label ?? view.placeholder}</span>
+          <span className="min-w-0 truncate text-foreground">{view.label ?? view.placeholder}</span>
           {!props.compact && view.label && view.effort && (
-            <span className="shrink-0 font-normal text-subtle-foreground">
-              · {effortLabel(view.effort)}
-            </span>
+            <span className="shrink-0 font-normal">{effortLabel(view.effort)}</span>
           )}
           {view.fast && <LightningIcon aria-hidden size={12} weight="fill" className="shrink-0" />}
           {switching && (

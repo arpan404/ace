@@ -146,8 +146,6 @@ test("New thread on main starts a thread in the same project", async () => {
   const menu = await rightClick(/Partial refunds/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: /New thread on main/ }));
   await screen.findByRole("heading", { level: 1, name: "New thread" });
-  expect(
-    screen.getByRole("heading", { level: 2, name: "What should we work on in billing-api?" }),
-  ).toBeTruthy();
-  expect(await screen.findByRole("button", { name: "Environment: Worktree · main" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: billing-api" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Start from: main" })).toBeTruthy();
 });

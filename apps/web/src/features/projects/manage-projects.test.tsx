@@ -103,7 +103,7 @@ test("a project with running threads is removed only by archiving them", async (
 test("projects added on another device appear without a reload", async () => {
   const made = withProjects(false);
   await made.open("/new");
-  await screen.findByRole("heading", { name: "What should we work on in docs?" });
+  await screen.findByRole("button", { name: "Project: docs" });
   const other = fakeClient(made.daemon);
   await ready(other);
   await other.projects.add({ path: "/home/dev/site" });

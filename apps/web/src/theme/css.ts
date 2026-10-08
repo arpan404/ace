@@ -1,8 +1,9 @@
 import type { Theme } from "./presets.ts";
+import { statusTextColours } from "./status-text.ts";
 
 /**
  * One theme as a CSS rule scoped to `[data-theme="<id>"]`. Foreground aliases are emitted
- * here so components only ever read shadcn token names.
+ * here so components only ever read shadcn token names, and each status hue as readable text.
  */
 export function themeRule(theme: Theme): string {
   const t = theme.tokens;
@@ -16,6 +17,7 @@ export function themeRule(theme: Theme): string {
     "--sidebar-primary": t["--foreground"],
     "--sidebar-primary-foreground": t["--primary-foreground"],
     "--sidebar-accent-foreground": t["--foreground"],
+    ...statusTextColours(theme),
   };
   const body = Object.entries(declarations)
     .map(([name, value]) => `${name}:${sanitize(value)}`)
