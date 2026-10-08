@@ -56,7 +56,7 @@ The main process connects to the daemon as its own `desktop` notification device
 - It suppresses alerts for the thread on screen in a focused window.
 - A newer alert for a thread replaces that thread's earlier one, and bursts across threads collapse into a summary.
 
-Approve, Deny and inline Reply become durable intents whose ids derive from the alert, so a repeat is the same command and the daemon's first answer wins. The daemon emits needs-you, done, failed, unresponsive and background-done today. The desktop derives "limited" from rate-limit waits. Deck, automation and CI categories exist, but nothing emits them until the daemon publishes those events. The daemon's `notifications.*` settings are not read by any code yet. The desktop's own toggles and quiet hours apply locally, and quiet hours are also sent as device preferences.
+Approve, Deny and inline Reply become durable intents whose ids derive from the alert, so a repeat is the same command and the daemon's first answer wins. The daemon emits needs-you, done, failed, unresponsive and background-done today. The desktop derives "limited" from rate-limit waits. Automation and CI categories exist, but nothing emits them until the daemon publishes those events. The daemon's `notifications.*` settings are not read by any code yet. The desktop's own toggles and quiet hours apply locally, and quiet hours are also sent as device preferences.
 
 ### Embedded browser backend
 

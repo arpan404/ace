@@ -1,6 +1,8 @@
 # 0017: Conductor project orchestration
 
-Date: 2026-10-02. Status: proposed, implemented behind executor ports.
+Date: 2026-10-02. Status: Superseded/removed 2026-10-07 — feature removed; use agent orchestration.
+
+Upgrade behavior is documented in [Offshift removal](../daemon/offshift-removal.md).
 
 ## Context
 

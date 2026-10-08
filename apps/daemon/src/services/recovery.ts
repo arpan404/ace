@@ -19,10 +19,27 @@ export function recoveryPorts(
     async preferences(id) {
       const thread = id ? store.getThread(id) : undefined;
       const workspace = thread ? store.getWorkspacePath(thread.workspaceId) : undefined;
-      const result = await services.settings?.read({
-        keys: ["threads.followUpBehavior", "threads.continueAfterRestart", "threads.limitPolicy"],
-        scope: { ...(id ? { thread: id } : {}), ...(workspace ? { workspace } : {}) },
-      });
+      const keys = [
+        "threads.followUpBehavior",
+        "threads.continueAfterRestart",
+        "threads.limitPolicy",
+      ] as const;
+      const scope = { ...(id ? { thread: id } : {}), ...(workspace ? { workspace } : {}) };
+      let missingWorkspace = false;
+      let result;
+      try {
+        result = await services.settings?.read({ keys: [...keys], scope });
+      } catch (error) {
+        // Upgrade cleanup can remove a clean worktree while retaining its threads.
+        // Read the remaining settings layers, but never resume into a missing checkout.
+        if (!(workspace && error instanceof Error && "code" in error && error.code === "ENOENT"))
+          throw error;
+        missingWorkspace = true;
+        result = await services.settings?.read({
+          keys: [...keys],
+          scope: id ? { thread: id } : {},
+        });
+      }
       const values = Object.fromEntries(
         result?.entries.map((entry) => [entry.key, entry.value]) ?? [],
       );
@@ -30,7 +47,8 @@ export function recoveryPorts(
         followUpBehavior: z
           .enum(["steer", "queue"])
           .parse(values["threads.followUpBehavior"] ?? "queue"),
-        continueAfterRestart: z.boolean().parse(values["threads.continueAfterRestart"] ?? false),
+        continueAfterRestart:
+          !missingWorkspace && z.boolean().parse(values["threads.continueAfterRestart"] ?? false),
         limitPolicy: z
           .enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"])
           .parse(values["threads.limitPolicy"] ?? "manual"),

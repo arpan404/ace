@@ -57,8 +57,6 @@ Every case is **not executed (tests run at merge)**.
 
 ## Integration follow-up
 
-PR #83 owns Deck execution. It must persist the per-deck override and pass it to Engine.spawn for every card, planner, worker, reviewer and integrator lane, including retries and replacements. A Deck requesting full access from a restricted existing coordinator needs its own explicitly opted-in root thread; a child cannot expand its current parent's authority.
-
 The Claude web agent owns all UI changes. Use PermissionClient.getCapabilities(provider, backend), permissionGuarantee, PermissionClient, permissionModes, threadPermission and permissionReview from @ace/client, plus ClientApi.command/request and keyed thread readers. Composer and New thread must show the chosen provider's guarantee level, gates and limitations. See the PR description for exact requests.
 
 Static verification: typecheck, lint, formatting of changed backend/docs files, check:size, check:deps and docs:protocol --check. All tests and provider runtime validation remain **needs run at merge**. No probes or tests are executed locally.
@@ -119,12 +117,12 @@ All runtime assertions **need run at merge**. The B4 regression was written befo
 | Lose physical secret classification through a symlink                       | permissions.process.test.ts ordinary filename pointing to workspace .env                                     | not executed (tests run at merge) |
 | Lose ancestor links on restart or trust only the intermediate cached mode   | permission-ancestry.process.test.ts cold SQLite/Engine reopen before descendant admission                    | not executed (tests run at merge) |
 
-The #83 merge preserves Deck ownership/handoff fields together with engine spawn inheritance, host plan gates together with permission-option validation, and provider availability together with the read-only guarantee API. Combined protocol documentation is regenerated from schemas. No conductor executor code was edited for the still-pending per-deck mode override. The merged deterministic turn provider now advertises its simulated permission modes; otherwise default engine admission would refuse it. Public engine behavior coverage requires its reply and done state under default auto-review and each explicit mode. A public delegation case requires Deck display ownership, ask inheritance and widening refusal on the same child.
+Engine spawn inheritance, host approvals, permission-option validation and provider availability preserve the read-only guarantee API. Protocol documentation is regenerated from schemas. The merged deterministic turn provider now advertises its simulated permission modes; otherwise default engine admission would refuse it. Public engine behavior coverage requires its reply and done state under default auto-review and each explicit mode. A public delegation case requires ask inheritance and widening refusal on the same child.
 
-| Integration mutation                                                         | Guarding behavior                                                                                                      | Result                            |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| Omit permission capability metadata on the scripted turn provider            | turn-provider-permissions.process.test.ts completes real engine turns under default auto-review and all explicit modes | not executed (tests run at merge) |
-| Drop Deck ownership or permission parent while combining delegation creation | permission-ownership.process.test.ts public prepared root and delegate retain ownership and ask ceiling                | not executed (tests run at merge) |
+| Integration mutation                                              | Guarding behavior                                                                                                      | Result                            |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Omit permission capability metadata on the scripted turn provider | turn-provider-permissions.process.test.ts completes real engine turns under default auto-review and all explicit modes | not executed (tests run at merge) |
+| Lose the permission parent on a delegated child | permission-ownership.process.test.ts prepared delegates inherit ask and refuse widening | not executed (tests run at merge) |
 
 Only the permitted static checks run locally. Dependency links were refreshed with bun install --ignore-scripts --frozen-lockfile after merging main; no lifecycle scripts ran. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.
 

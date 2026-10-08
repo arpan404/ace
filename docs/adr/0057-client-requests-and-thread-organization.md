@@ -12,7 +12,7 @@ New thread creation carries account, workspace mode, base branch, model and exec
 
 Auto-settle reads typed settings, tracks inactivity from execution events, and persists its decision. A snooze is an absolute daemon timestamp. Manual unsettle resets the inactivity deadline. PR terminal state can trigger settlement only after execution is done. Timers select indexed due rows in bounded batches and recheck current status before writing, including after restart. Clients display these persisted facts instead of evaluating their own clocks.
 
-Plugin requests and browser messages join the canonical wire unions additively. Existing plugin trust review remains mandatory. Conductor and automations reads use their public stores and bounded progress/list APIs; unavailable execution ports report unavailable rather than simulate work. Attachment preparation before creation uses a device-owned draft scope that is explicitly adopted into the created thread, retaining attachment authorization and lifecycle ownership.
+Plugin requests and browser messages join the canonical wire unions additively. Existing plugin trust review remains mandatory. Automation reads use their public stores and bounded progress/list APIs; unavailable execution ports report unavailable rather than simulate work. Attachment preparation before creation uses a device-owned draft scope that is explicitly adopted into the created thread, retaining attachment authorization and lifecycle ownership.
 
 Tests cover public socket results, replay, restart, idempotency, selection delivery, organization and read correlation. They are written but not executed under the owner's merge-only test policy. Benchmarks are non-gating and unmeasured until merge.
 
@@ -30,7 +30,7 @@ A cached catalog never authorizes current physical source bytes. Source reads op
 
 Context mention reads use the same persisted execution binding as scripts, Git and checkpoints. An unready isolated binding cannot fall back to the registered project. Draft adoption continues to authorize against the logical project root; composition reads the actual prepared execution root.
 
-Integration train 3 keeps these services in the named startup graph: workspace actions initialize before engine admission; preview, organization, automation and conductor initialization follow endpoint publication. Optional failures degrade by service name. Context combines draft ownership and execution-root authority with the agent-control family reference policy and queue attachment retention. The ADR moved to 0057 because main allocated 0056 to in-app devices, now [ADR 0064](0064-in-app-devices.md).
+Integration train 3 keeps these services in the named startup graph: workspace actions initialize before engine admission; preview, organization and automation initialization follow endpoint publication. Optional failures degrade by service name. Context combines draft ownership and execution-root authority with the agent-control family reference policy and queue attachment retention. The ADR moved to 0057 because main allocated 0056 to in-app devices, now [ADR 0064](0064-in-app-devices.md).
 
 ### Moving between projects
 

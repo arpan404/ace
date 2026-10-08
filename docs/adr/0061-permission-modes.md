@@ -8,9 +8,9 @@ Checked origin/main and open PRs #82 and #83 before writing this record. Main en
 
 ## Decision
 
-PermissionMode is an ace policy, separate from provider plan modes and workspace local/worktree modes. Its values are read-only, ask, auto-review and full-access. Auto-review is the shipped default. Full access requires an explicit setting or thread/deck selection. On-failure does not survive as an ace mode: failure-triggered sandbox escape is neither a risk review nor a portable permission contract.
+PermissionMode is an ace policy, separate from provider plan modes and workspace local/worktree modes. Its values are read-only, ask, auto-review and full-access. Auto-review is the shipped default. Full access requires an explicit setting or thread selection. On-failure does not survive as an ace mode: failure-triggered sandbox escape is neither a risk review nor a portable permission contract.
 
-The schema lives in @ace/protocol. Pure resolution and deterministic review belong to @ace/core; the engine owns settings reads, physical path containment, durable decisions and provider resolution intents. Settings use permissions.defaultMode, resolved thread settings over workspace over global over defaults. A thread permissionMode override takes precedence. A host-owned spawn API accepts a permission mode and optional parent thread. Deck supplies its override through that API to every card and lane thread, including replacements and retries. This branch does not change the conductor executor in PR #83.
+The schema lives in @ace/protocol. Pure resolution and deterministic review belong to @ace/core; the engine owns settings reads, physical path containment, durable decisions and provider resolution intents. Settings use permissions.defaultMode, resolved thread settings over workspace over global over defaults. A thread permissionMode override takes precedence. A host-owned spawn API accepts a permission mode and optional parent thread.
 
 Delegated children inherit their parent's effective mode. An explicit child selection can only lower it, in the order read-only < ask < auto-review < full-access. Durable parent links constrain every later turn and mode change, including settings changes, provider switches and resumed work. Spawn, fork inheritance, setters and turn admission compute the minimum across the complete ancestry, bounded to 64 parent edges. Idle intermediate records may retain their previous turn policy; they cannot hide a tightened ancestor. Provider-specific options cannot grant permissions. Agent-control tools do not expose the permission command or human approval resolution.
 
@@ -57,7 +57,7 @@ An optional provider-session reviewer may be injected at the host boundary in a 
 
 Auto-review never grants full access. Restricted provider options and ambient permission grants cannot override the resolved mode. Children cannot exceed their parent. Mode changes occur at turn boundaries. Uncertain approvals remain human work. Full access is an explicit opt-in. Surfaced approvals still pass through the durable one-shot reviewer, which approves ordinary actions while retaining the secret/credential exception.
 
-The Claude web agent will add mode pickers, scoped defaults and audit rendering through @ace/client. Deck's executor will persist its run override and pass it into the generic engine spawn API for each lane/card thread. Behavior tests are written but not executed locally, per the owner's merge-only test rule. Runtime claims need run at merge.
+The Claude web agent will add mode pickers, scoped defaults and audit rendering through @ace/client. Behavior tests are written but not executed locally, per the owner's merge-only test rule. Runtime claims need run at merge.
 
 ## Browser origin approvals
 

@@ -2,7 +2,7 @@
 
 Date: 2026-10-03. Status: accepted.
 
-Extend ADR 0057 through correlated requests and durable thread commands. Keep the conductor and all UI work outside this change.
+Extend ADR 0057 through correlated requests and durable thread commands. Keep UI work outside this change.
 
 A New thread already has a device-owned context draft. `commands.list` takes either `threadId` or `draft: { draftId, workspaceId, provider, instanceId? }`. The host verifies draft ownership, expiry and the canonical workspace root before and after discovery. Discovery reads file and builtin commands without creating an empty thread or opening a provider session. Session-only runtime commands cannot leak into the draft catalog. An explicit instance must match the provider; absent selection uses the first configured provider instance. Clients should pass their selected account instance. Retain `thread.prepare` for agent-control callers, add `mode` and `baseBranch`, and use `thread.create` for the first user send from a context draft.
 
