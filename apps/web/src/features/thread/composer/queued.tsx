@@ -110,7 +110,7 @@ function QueuedPill(props: {
       </li>
     );
   return (
-    <li className="fx-rise-in inline-flex min-h-8 max-w-full flex-wrap items-center gap-2 px-2.5 text-sm text-muted-foreground">
+    <li className="fx-rise-in inline-flex min-h-8 max-w-full items-center gap-2 px-2.5 text-sm text-muted-foreground">
       <StatusLabel
         tone={uncertain ? "needs-you" : "idle"}
         mark={
