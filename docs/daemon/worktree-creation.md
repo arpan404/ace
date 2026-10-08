@@ -59,6 +59,11 @@ The fake daemon sends the same wire messages. Set `FakeDaemonOptions.worktreeCre
 sleeping. Direct synchronous fake `command()` remains available for fixture seeding; wire
 creation and `commandAsync()` simulate the steps. Root setup scripts are simulated in the fake.
 
-The web card, disclosure, and client-side bindings are owned by the following UI implementation.
-It should render the first message on the pending command route until the create receipt supplies
-an admitted thread, and use the retained progress for Cancel, Retry, and "Don't use worktree".
+The web app renders the first message on the pending command route with a card under it: one line
+per reached step, checkout's percent, a "More details" disclosure over `details`, and the actions
+in `actions`. The composer's tab mirrors the state. `WorktreeCreations` (`@ace/client/worktree-creations`)
+holds the newest progress per command ID, asks `get` when a view opens it and after each
+reconnect, and sends the actions. Retry and local fallback reopen the create's failed intent, so
+the next receipt moves the route to the admitted thread. That thread shows
+`details.worktreeCreation` under its first message as one folded line, such as
+"Worktree ready · branch · 4.2s". Set `?fakeWorktree=slow` in `dev:fake` to watch the steps.

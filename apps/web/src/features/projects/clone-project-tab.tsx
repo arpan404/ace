@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import type { Machine } from "@/lib/machines.ts";
@@ -213,20 +214,11 @@ function CloneProgress(props: {
           Cancel clone
         </Button>
       </div>
-      <div
-        role="progressbar"
-        aria-label="Clone progress"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={value}
-        aria-valuetext={value === undefined ? label : `${label}, ${value}%`}
-        className="h-1 overflow-hidden rounded-full bg-input"
-      >
-        <div
-          className="h-full origin-left bg-ring transition-transform duration-(--dur-1) ease-smooth"
-          style={{ transform: `scaleX(${(value ?? 4) / 100})` }}
-        />
-      </div>
+      <ProgressBar
+        label="Clone progress"
+        value={value}
+        valueText={value === undefined ? label : `${label}, ${value}%`}
+      />
     </div>
   );
 }

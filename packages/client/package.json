@@ -12,7 +12,8 @@
     "./project-calls": "./src/project-calls.ts",
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",
-    "./screen-stream": "./src/screen-stream.ts"
+    "./screen-stream": "./src/screen-stream.ts",
+    "./worktree-creations": "./src/worktree-creations.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.runtime.json",

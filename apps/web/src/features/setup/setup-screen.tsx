@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
 import { useCatalogSignals } from "@/lib/provider-signals.ts";
@@ -149,20 +150,12 @@ function Progress(props: { ready: number; total: number }) {
   const text = `${props.ready} of ${props.total} ready`;
   return (
     <div className="flex flex-1 items-center gap-3">
-      <div
-        role="progressbar"
-        aria-label="Providers ready"
-        aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={props.ready}
-        aria-valuetext={text}
-        className="h-1 flex-1 overflow-hidden rounded-full bg-foreground/10"
-      >
-        <div
-          className="h-full rounded-full bg-status-done transition-[width] duration-(--dur-3)"
-          style={{ width: `${(props.ready / total) * 100}%` }}
-        />
-      </div>
+      <ProgressBar
+        label="Providers ready"
+        value={Math.round((props.ready / total) * 100)}
+        valueText={text}
+        className="flex-1"
+      />
       <span className="text-sm text-muted-foreground tabular-nums">{text}</span>
     </div>
   );

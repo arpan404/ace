@@ -50,7 +50,12 @@ export class FakeWorktreeCreations {
     const p = command.payload;
     const progress: Progress = {
       commandId: command.id,
-      ...("threadId" in p && p.threadId ? { threadId: ThreadId.parse(p.threadId) } : {}),
+      // The id admission gives the thread, as the daemon's draft records it after normalizing.
+      ...("threadId" in p && p.threadId
+        ? { threadId: ThreadId.parse(p.threadId) }
+        : p.type === "thread.create"
+          ? { threadId: ThreadId.parse(`thread-${command.id}`) }
+          : {}),
       attempt: (prior?.progress.attempt ?? 0) + 1,
       state: "running",
       step: "preparing",
