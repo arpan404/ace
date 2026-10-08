@@ -93,7 +93,7 @@ export function SessionsMenu(props: { scope: string }) {
       </span>
       <MenuContent
         align="end"
-        className="max-h-[min(420px,var(--available-height))] min-w-[260px] overflow-auto"
+        className="max-h-[min(420px,var(--available-height))] min-w-65 overflow-auto"
       >
         <MenuGroup>
           <MenuLabel>Your terminals</MenuLabel>

@@ -3,7 +3,9 @@ import {
   availability,
   decodeIndex,
   limits,
+  publicUrl,
   REGISTRY_URL,
+  runtimes,
   type AgentEntry,
   type RegistryIndex,
 } from "./decode.ts";
@@ -84,7 +86,7 @@ export class AgentCatalog {
       .map((agent) => {
         const profile =
           this.source === REGISTRY_URL ? matchProfile(agent.id, agent.version) : undefined;
-        return {
+        const listed: RegistryAgent = {
           acpAgentId: this.agentId(agent.id),
           name: agent.name,
           version: agent.version,
@@ -97,7 +99,9 @@ export class AgentCatalog {
           loginHint: profile?.loginHint ?? "Use the agent CLI's own login or configuration command",
           visibility: "limited",
           isolation: "unsupported",
+          runtimes: runtimes(agent, this.#options.target),
         };
+        return Object.assign(listed, links(agent));
       });
     return {
       ok: true as const,
@@ -173,4 +177,14 @@ export class AgentCatalog {
     this.#abort?.abort();
     await this.#flight;
   }
+}
+/** The entry's icon, homepage and license, when upstream gives usable ones. */
+function links(agent: AgentEntry): Pick<RegistryAgent, "icon" | "homepage" | "license"> {
+  const icon = publicUrl(agent.icon);
+  const homepage = publicUrl(agent.website) ?? publicUrl(agent.repository);
+  return {
+    ...(icon ? { icon } : {}),
+    ...(homepage ? { homepage } : {}),
+    ...(agent.license ? { license: agent.license } : {}),
+  };
 }

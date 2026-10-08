@@ -15,6 +15,7 @@ import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
+import { FakeRegistry } from "./registry.ts";
 import { fakeProviderPermissions } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
@@ -59,13 +60,13 @@ export class FakeServices {
   readonly settings: FakeSettings;
   /** Activity's read cursor (`activity.reads`); `set` stages one. */
   readonly activityReads: FakeActivityReads;
-  installations: import("@ace/protocol").RegistryInstallation[] = [];
+  /** The ACP registry: its cached index, installations and installs in progress. */
+  readonly registry: FakeRegistry;
   /**
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
    * adapter, so `permissions.capabilities` for any other answers `provider_unavailable`.
    */
   installed = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"]);
-  localCommands = new Set(["fake-acp"]);
   /** Upstream sources (OpenCode's, Pi's) whose models can't be read: OpenRouter by default. */
   failingSources = new Set(["openrouter"]);
   private host: ServiceHost;
@@ -131,6 +132,11 @@ export class FakeServices {
         return terminalId;
       },
     );
+    this.registry = new FakeRegistry({
+      // Wall-clock facts, like quota resets above; steps on real timers so dev:fake animates.
+      now: () => Date.now(),
+      schedule: (callback, delayMs) => void setTimeout(callback, delayMs),
+    });
     this.commands = commandCatalog();
     this.usage = new FakeUsage(now);
     this.activityReads = new FakeActivityReads(
@@ -145,6 +151,7 @@ export class FakeServices {
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push, device = "fake-device"): boolean {
     if (this.providerLogin.handle(message, device, push)) return true;
+    if (this.registry.handle(message, push)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
         ...message.filter,
@@ -401,46 +408,6 @@ export class FakeServices {
       return { type: "accounts.changed", requestId: request.requestId, account: account ?? null };
     }
     switch (message.type) {
-      case "registry.list":
-        return {
-          type: "registry.result",
-          requestId: message.requestId,
-          result: {
-            ok: true,
-            agents: [],
-            installations: this.installations,
-            stale: false,
-            refreshing: false,
-            source: "fixture",
-          },
-        };
-      case "registry.bind": {
-        if (
-          !message.acpAgentId.startsWith("local:") ||
-          !this.localCommands.has(message.command) ||
-          this.installations.some((entry) => entry.installationId === message.installationId)
-        )
-          return {
-            type: "registry.result",
-            requestId: message.requestId,
-            result: { ok: false, reason: "Registry operation unavailable or invalid" },
-          };
-        const installation = {
-          acpAgentId: message.acpAgentId,
-          installationId: message.installationId,
-          instanceId: message.instanceId,
-          version: message.version,
-          source: "user-local",
-          profileRevision: "generic-v1",
-          evidence: "user_local_binding" as const,
-        };
-        this.installations.push(installation);
-        return {
-          type: "registry.result",
-          requestId: message.requestId,
-          result: { ok: true, installation },
-        };
-      }
       case "accounts.list":
         return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
       case "accounts.status":

@@ -67,7 +67,7 @@ export function ProviderSettings() {
           title={<span className="font-medium">Add an agent</span>}
           status={
             <span className="text-muted-foreground">
-              Any agent that speaks ACP, started by a command
+              Search the ACP registry, or add one by command
             </span>
           }
           action={<AddAcpAgent />}
@@ -86,7 +86,7 @@ export function ProviderSettings() {
 /** One row of a providers card: a tile, a name over a line of status, an action. */
 function Row(props: { tile: ReactNode; title: ReactNode; status: ReactNode; action?: ReactNode }) {
   return (
-    <div className="group relative flex min-h-16 items-center gap-3.5 px-4 py-3 transition-colors duration-(--dur-1) has-[a:hover]:bg-accent">
+    <div className="group relative flex min-h-16 items-center gap-3.5 px-4 py-3 transition-colors duration-(--dur-1) hover:bg-accent">
       {props.tile}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-ui">
         {props.title}
@@ -133,7 +133,7 @@ function ProviderRow(props: { entry: ProviderEntry }) {
           <CaretRightIcon
             aria-hidden
             size={14}
-            className="pointer-events-none text-subtle-foreground transition-transform duration-(--dur-1) group-has-[a:hover]:translate-x-0.5 group-has-[a:hover]:text-foreground"
+            className="pointer-events-none text-subtle-foreground transition-transform duration-(--dur-1) group-hover:translate-x-0.5 group-hover:text-foreground"
           />
         </>
       }

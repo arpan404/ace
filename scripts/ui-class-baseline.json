@@ -120,9 +120,6 @@
   "apps/web/src/features/search/search-page.tsx": {
     "radius": 1
   },
-  "apps/web/src/features/settings/add-acp-agent.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/shell/screen.tsx": {
     "bare-outline": 1
   },

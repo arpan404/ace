@@ -50,7 +50,7 @@ export function ViewRowBody(props: {
   );
   return (
     <>
-      <span className="mt-px grid size-[26px] place-items-center rounded-sm bg-secondary text-muted-foreground group-data-[status=active]:text-foreground">
+      <span className="mt-px grid size-6.5 place-items-center rounded-sm bg-secondary text-muted-foreground group-data-[status=active]:text-foreground">
         <Icon icon={props.icon} size={14} />
       </span>
       <span className="min-w-0">

@@ -60,7 +60,7 @@ export function FeedRow(props: {
       <span
         data-tone={!props.picked && props.mark === "needs-you" ? "needs-you" : undefined}
         className={cn(
-          "mt-px grid size-[26px] place-items-center rounded-sm",
+          "mt-px grid size-6.5 place-items-center rounded-sm",
           props.picked ? "bg-primary text-primary-foreground" : "bg-secondary",
           !props.picked && props.mark === "needs-you" && "text-(--tone-text)",
           !props.picked && props.mark === "unread" && "text-foreground",
