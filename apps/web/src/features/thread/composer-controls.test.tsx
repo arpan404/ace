@@ -118,7 +118,9 @@ test("the model chip opens effort and speed for the thread's model", async () =>
   const popover = await openModelControl("Model: Opus 5.5, Personal, provider default effort");
   expect(within(popover).getByRole("heading", { name: "Opus 5.5" })).toBeTruthy();
   expect(within(popover).getByText("Default effort")).toBeTruthy();
-  expect(within(popover).getByText("Account")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, provider default effort" }),
+  ).toBeTruthy();
   expect(within(popover).getByRole("button", { name: "Change model: Opus 5.5" })).toBeTruthy();
   // Opus has no default ace knows of: the provider's own is the slider's first stop, and each
   // stop is named.

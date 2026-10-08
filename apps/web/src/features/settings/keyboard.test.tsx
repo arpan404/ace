@@ -166,7 +166,7 @@ test("retrying an older refused change never undoes a newer one that was saved",
     (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
   );
   await waitFor(async () =>
-    expect((await screen.findAllByRole("button", { name: "Retry", hidden: true })).length).toBe(2),
+    expect((await screen.findAllByRole("button", { name: "Retry", hidden: true })).length).toBe(1),
   );
   expect((await shortcut("Settings")).textContent).toBe("Shift+Ctrl+Y");
   expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A");

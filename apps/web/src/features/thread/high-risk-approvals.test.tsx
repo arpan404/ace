@@ -108,6 +108,7 @@ test("Activity reads risk from the actual linked shell step and blocks A", async
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: "Run cleanup" });
   await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
+  await userEvent.click(within(card).getByRole("button", { name: /^Expand request:/ }));
   await userEvent.keyboard("a");
   expect(await within(card).findByText(/Read the request/)).toBeTruthy();
   expect(app.daemon.isPending("thread-risk", "risk")).toBe(true);

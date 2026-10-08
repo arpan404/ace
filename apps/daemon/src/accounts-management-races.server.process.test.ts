@@ -94,7 +94,7 @@ test("disconnect cancels startup and retains the account until status discovery 
         fromOffset: 0,
       },
     });
-    expect(await f.owner.next()).toMatchObject({ type: "terminal.result", ok: true });
+    // Subscribe acknowledges after startup; disconnect while this request is still pending.
     await poll(async () => {
       try {
         return (await lstat(join(home, "fixture-status-pid"))).isFile();

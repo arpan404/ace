@@ -20,7 +20,7 @@ test("on a phone, tapping a request opens its decision and Deny answers the agen
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/activity");
-  await userEvent.click(await screen.findByRole("button", { name: /^Install @fontsource/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /Install @fontsource/ }));
   const request = await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
   expect(await within(request).findByText("bun add @fontsource/noto-sans-jp@5.1.0")).toBeTruthy();
   await userEvent.click(within(request).getByRole("button", { name: "Deny" }));

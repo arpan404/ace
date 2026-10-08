@@ -259,7 +259,7 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
   if (!old) throw new Error("Missing failed provider");
   expect(h.engine.queue(id)).toMatchObject({
     paused: true,
-    reason: "manual",
+    reason: "not_sent",
     messages: [{ input: [{ type: "text", text: "first" }], state: "queued" }],
   });
   h.registry.register(

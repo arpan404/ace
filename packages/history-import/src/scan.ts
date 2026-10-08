@@ -130,7 +130,8 @@ export async function scan(
           throw new Error("Session changed before sampling");
         let prompt = sample.records.map(userPrompt).find(Boolean) ?? "";
         let input = sample.records.some(hasUserInput);
-        if (isStorage || !sample.exact) {
+        const headInput = sample.records.slice(0, sample.headCount).some(hasUserInput);
+        if (isStorage || (!sample.exact && !headInput)) {
           if (!isStorage) result.reads++;
           for await (const record of sourceRecords(
             instance,

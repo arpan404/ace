@@ -52,7 +52,7 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
   const zen = within(list).getByRole("group", { name: "OpenCode Zen" });
   expect(within(zen).getAllByText("Free")).toHaveLength(3);
   const model = within(zen).getByRole("option", { name: /^Big Pickle, Free/ });

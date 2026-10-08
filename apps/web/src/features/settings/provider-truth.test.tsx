@@ -117,7 +117,7 @@ test("leaving the provider page during update resumes the same job on the Provid
   await within(group).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await waitFor(() => expect(within(group).queryByRole("progressbar")).toBeNull());
-  expect(within(group).getByText("Ready")).toBeTruthy();
+  expect(await within(group).findByText("Installed")).toBeTruthy();
 });
 
 test("a live limit update changes the provider and account surfaces together", async () => {

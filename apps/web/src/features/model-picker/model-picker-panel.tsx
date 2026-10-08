@@ -77,10 +77,12 @@ export function ModelPickerPanel(props: {
     entry.reason && troubled.has(entry.provider) ? { ...entry, reason: undefined } : entry,
   );
   const now = useNow();
+  // Settings and automations choose a provider model without routing it to an account.
+  const providerOnly = props.only && !props.models.some((model) => model.instance !== undefined);
   const entries = pickerEntries(
     providers,
     props.models,
-    accounts.data ?? [],
+    providerOnly ? [] : (accounts.data ?? []),
     now,
     (at) =>
       `Limit reached${at === undefined ? " · reset time unknown" : ` · ${formatResetCountdown(at, now)}`}`,

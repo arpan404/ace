@@ -283,7 +283,7 @@ test("the subagents line opens to the agents started, with their model, and open
   const tree = within(feed).getByRole("tree", { name: "Subagents" });
   const [row] = within(tree).getAllByRole("treeitem");
   expect(row?.getAttribute("aria-label")).toMatch(/^protocol-docs: /);
-  expect(row?.textContent).toContain("Codex · gpt-5.5-codex");
+  expect(row?.textContent).toContain("Codex · GPT-5.5 Codex");
 
   await userEvent.click(within(tree).getByRole("link", { name: "Open protocol-docs's thread" }));
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
@@ -297,7 +297,7 @@ test("a usage-limit pause marks where the turn stopped, and stays there after th
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const pause = await within(feed).findByRole("note", {
-    name: "Paused · Codex usage limit · reset time unknown",
+    name: "Paused · Codex usage limit",
   });
   const ask = within(feed).getByText("Remove the legacy feature-flag reader");
   expect(follows(ask, pause)).toBe(true);

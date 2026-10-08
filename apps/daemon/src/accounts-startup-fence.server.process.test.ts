@@ -48,7 +48,7 @@ test("disconnect while Cursor fencing prevents the SDK auth helper from launchin
         fromOffset: 0,
       },
     });
-    expect(await f.owner.next()).toMatchObject({ type: "terminal.result", ok: true });
+    // Subscribe acknowledges after startup; disconnect while this request is still pending.
     await fencing.promise;
     const other = await f.connect();
     await other.next();

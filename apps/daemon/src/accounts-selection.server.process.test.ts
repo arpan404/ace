@@ -108,14 +108,15 @@ test.each([false, true])(
         const created = socket.store.listThreads().find((thread) => thread.id !== socket.thread.id);
         if (!created) throw new Error("Created thread missing");
         expect(created.status).toEqual({ state: "waiting", on: "queue" });
-        expect(engine.queue(created.id)).toMatchObject({ paused: true, reason: "manual" });
+        expect(engine.queue(created.id)).toMatchObject({ paused: true, reason: "not_sent" });
         expect(
           socket.store.readItemPage(created.id, Number.MAX_SAFE_INTEGER, 100, 262144).items,
         ).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
               type: "notice",
-              level: "error",
+              level: "info",
+              code: "input_queued",
               detail: expect.stringContaining("Managed home"),
             }),
           ]),

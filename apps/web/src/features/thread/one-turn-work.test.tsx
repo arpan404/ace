@@ -10,7 +10,7 @@ const follows = (a: Element, b: Element) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 const logs = (feed: HTMLElement) =>
-  within(feed).queryAllByRole("button", { name: /^Work(ed|ing) for/ });
+  within(feed).queryAllByRole("button", { name: /^(?:Work(ed|ing) for|Work so far)/ });
 
 test("one turn that talks between steps, finishes a background task and starts a subagent reads as one Worked for", async () => {
   const app = harness();

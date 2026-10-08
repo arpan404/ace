@@ -147,3 +147,23 @@ test("in the thread, a number key approves an ordinary request", async () => {
     { timeout: 5000 },
   );
 }, 15_000);
+
+test("in Activity, Enter on a focused default-to-no Deny answers without granting or folding the request", async () => {
+  const app = harness();
+  app.play(asking("deny-enter", "Remove the old audit data?", true)).runUntilBlocked();
+  await app.open("/activity");
+  const card = await openActivityRequest("Remove the old audit data?");
+  const deny = within(card).getByRole("button", { name: "Deny" });
+  await waitFor(() => {
+    deny.focus();
+    expect(document.activeElement).toBe(deny);
+  });
+  expect(app.daemon.isPending("thread-deny-enter", "deny-enter")).toBe(true);
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(app.daemon.resolution("thread-deny-enter", "deny-enter")).toEqual({
+      kind: "approval",
+      optionId: "deny",
+    }),
+  );
+});

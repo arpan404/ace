@@ -260,10 +260,23 @@ test("an over-limit message explains the correction and never reaches the provid
     ).toBe(true);
     await h.engine.flush();
     expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+    expect(h.engine.queue(id)).toMatchObject({
+      paused: true,
+      reason: "not_sent",
+      messages: [
+        {
+          id: "too-large",
+          input: [{ type: "text", text: "Read four.txt" }],
+          context: { attachments: [reference] },
+          state: "queued",
+        },
+      ],
+    });
     expect(Object.values(h.store.snapshotThread(id).items)).toContainEqual(
       expect.objectContaining({
         type: "notice",
-        level: "error",
+        level: "info",
+        code: "input_queued",
         commandId: "too-large",
         detail: expect.stringContaining("send them in separate messages"),
       }),

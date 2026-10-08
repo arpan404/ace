@@ -19,6 +19,17 @@ test.each(["append", "checkpoint"])(
       "PRAGMA journal_mode=WAL; CREATE TABLE session(id TEXT,directory TEXT,title TEXT,time_updated INTEGER,parent_id TEXT); CREATE TABLE message(id TEXT,session_id TEXT,time_created INTEGER,data TEXT); CREATE TABLE part(id TEXT,message_id TEXT,data TEXT)",
     );
     db.prepare("INSERT INTO session VALUES(?,?,?,?,NULL)").run("session", cwd, "before", 1);
+    db.prepare("INSERT INTO message VALUES(?,?,?,?)").run(
+      "message",
+      "session",
+      1,
+      JSON.stringify({ role: "user" }),
+    );
+    db.prepare("INSERT INTO part VALUES(?,?,?)").run(
+      "part",
+      "message",
+      JSON.stringify({ type: "text", text: "Inspect the snapshot" }),
+    );
     let committed = false;
     let after: Buffer | undefined;
     let shm: Buffer | undefined;

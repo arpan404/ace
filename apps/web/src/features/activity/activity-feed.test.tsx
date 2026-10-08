@@ -68,7 +68,8 @@ test("an approval is selected in the feed and answered only in the detail", asyn
   expect(within(feed).queryByRole("button", { name: /^(Approve|Deny)$/ })).toBeNull();
   await userEvent.click(within(row).getByRole("button"));
   const detail = await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
-  await userEvent.click(within(detail).getByRole("button", { name: "Deny" }));
+  await userEvent.click(within(detail).getByRole("button", { name: /^Expand request:/ }));
+  await userEvent.click(await within(detail).findByRole("button", { name: "Deny" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution("thread-refund-tax", "approve-font")).toEqual({

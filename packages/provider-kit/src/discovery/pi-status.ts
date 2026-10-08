@@ -37,8 +37,10 @@ export async function discoverPiStatus(
     } finally {
       await file.close();
     }
-  } catch {
-    // No settings file is normal before the first login. Probe only native readiness facts.
+  } catch (error) {
+    // An absent file is normal before first login; rejected settings must never reach the CLI.
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      return { ...result, error: "Pi settings or readiness probe unavailable" };
   }
   if (result.version !== "0.85.1" && result.version !== "1.1.0")
     return { ...result, error: "Pi auth status is unsupported for this version" };

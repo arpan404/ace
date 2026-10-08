@@ -66,7 +66,8 @@ test(
         if (
           !events.some(
             (event) =>
-              event.payload.type === "thread.created" && event.payload.thread.title === "other",
+              event.payload.type === "thread.created" &&
+              event.payload.thread.imported?.native.nativeId === "other",
           )
         )
           return;

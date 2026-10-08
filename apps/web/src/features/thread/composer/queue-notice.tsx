@@ -22,6 +22,7 @@ import { useThreadAccount } from "../lib/thread-account.ts";
 import type { QueueControls } from "./use-queue.ts";
 
 import { useThreadModelAvailability } from "../lib/model-availability.ts";
+import { RetainedInputDetail } from "./retained-input-detail.tsx";
 
 const icons: Record<Notice["kind"], typeof PauseIcon> = {
   limited: HourglassMediumIcon,
@@ -88,6 +89,12 @@ export function QueueNotice(props: {
         <div className="min-w-0">
           <p className="font-medium text-foreground">{notice.title}</p>
           {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
+          {notice.kind === "not_sent" && (
+            <RetainedInputDetail
+              threadId={props.threadId}
+              commandId={props.queue.messages[0]?.id}
+            />
+          )}
         </div>
       </div>
       <div className="flex items-center gap-1">

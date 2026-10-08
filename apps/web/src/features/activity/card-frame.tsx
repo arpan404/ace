@@ -39,7 +39,12 @@ export function CardFrame(props: {
   const body = `activity-${props.cardKey}`;
   const isFocused = focused === props.cardKey;
   const isPicked = picked.has(props.cardKey);
-  useHotkey("enter", () => setExpanded(!expanded), { enabled: isFocused });
+  useHotkey("enter", () => setExpanded(!expanded), {
+    enabled: isFocused,
+    // Focused controls own Enter: a feed row opens its item and buttons activate themselves.
+    when: (event) =>
+      !(event.target instanceof Element) || !event.target.closest("button, a, [role=button]"),
+  });
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     if (isFocused) ref.current?.scrollIntoView?.({ block: "nearest" });

@@ -20,12 +20,9 @@ export function catalogDisplay(db: DatabaseSync) {
     return {
       ...summary,
       title: sessionTitle(
-        typeof title === "string" && title !== summary.nativeId
-          ? title
-          : summary.title === summary.nativeId
-            ? ""
-            : summary.title,
-        summary.title === summary.nativeId ? "" : summary.title,
+        typeof title === "string" && title !== summary.nativeId ? title : "",
+        // The scanner already distinguished provider labels from the person's real prompt.
+        summary.title,
         summary.lastActivity,
       ),
       ...(typeof reason === "string"

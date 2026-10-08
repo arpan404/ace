@@ -93,14 +93,37 @@ test("a vanished model shows one actionable notice and picking a replacement sen
 
 test("a not-sent message has one retry notice and no active work until retried", async () => {
   const app = await blocked("not_sent");
-  // A repeated pre-delivery failure keeps the same message and retry state.
+  const correction = "The attachments exceed the message limit; send them in separate messages.";
+  act(() =>
+    app.daemon.apply(id, [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "kept-correction",
+        draft: {
+          type: "notice",
+          level: "info",
+          text: "Message kept",
+          code: "input_queued",
+          commandId: CommandId.parse("queued-hi"),
+          detail: correction,
+          complete: true,
+        },
+      },
+    ]),
+  );
+  // A repeated pre-delivery failure keeps the same message and its actionable correction.
   act(() => app.daemon.sessionOpenFailed(id, "not_sent"));
-  expect(await screen.findByRole("region", { name: "Message not sent" })).toBeTruthy();
+  const notice = await screen.findByRole("region", { name: "Message not sent" });
+  expect(await within(notice).findByText(correction)).toBeTruthy();
+  expect(screen.getAllByText(correction)).toHaveLength(1);
+  expect(screen.queryByText("Not sent")).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByText("Working")).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(screen.queryByText(correction)).toBeNull();
 });
 
 test("a restart with queued input offers only continuation until it resumes", async () => {
