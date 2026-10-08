@@ -132,17 +132,14 @@ test("each chip names its file's kind and size, and Delete removes it, focus mov
   expect(document.activeElement).toBe(message);
 });
 
-test("a long name keeps its extension in view while its middle gives way", async () => {
+test("a long attachment name can be read in full in its preview", async () => {
   const user = userEvent.setup();
   await openComposer();
   const name = "quarterly-infrastructure-cost-review-final-v3.xlsx";
   await user.upload(screen.getByLabelText("Files to attach"), new File(["x"], name));
-  const chip = await screen.findByRole("button", { name: `Preview ${name}` });
-  const shown = chip.querySelector("span.truncate")?.parentElement;
-  // The whole name reads in order; only the part before the tail truncates.
-  expect(shown?.textContent).toBe(name);
-  expect(shown?.lastElementChild?.textContent).toMatch(/\.xlsx$/);
-  expect(shown?.lastElementChild?.classList.contains("truncate")).toBe(false);
+  await user.click(await screen.findByRole("button", { name: `Preview ${name}` }));
+  const preview = await screen.findByRole("dialog", { name });
+  expect(within(preview).getByRole("heading", { name }).textContent).toBe(name);
 });
 
 test("files adding up past the message limit are refused before uploading, naming the limit", async () => {

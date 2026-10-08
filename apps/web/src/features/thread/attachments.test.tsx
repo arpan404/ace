@@ -115,7 +115,8 @@ test("files show their name, size and type, never the path they were stored at",
   const files = await within(feed).findByRole("list", { name: "Attached files" });
   expect(within(files).getByRole("button", { name: "report.pdf, 1.2 MB · PDF" })).toBeTruthy();
   // A path the agent named is a label: this device has no bytes to open.
-  expect(within(files).getByLabelText("plan.md, Markdown").tagName).toBe("SPAN");
+  expect(within(files).getByText("plan.md")).toBeTruthy();
+  expect(within(files).queryByRole("button", { name: "plan.md, Markdown" })).toBeNull();
   expect(feed.textContent).not.toContain("/Users/");
 });
 
@@ -244,4 +245,12 @@ test("a saved artifact opens its checkout file and downloads the original bytes"
   expect(within(panel).getByRole("tab", { name: "index.ts" })).toBeTruthy();
   expect(within(feed).getByText("src/index.ts")).toBeTruthy();
   expect(feed.textContent).not.toContain("/work/shop");
+  await user.click(within(panel).getByRole("button", { name: "Edit file" }));
+  const draft = await within(panel).findByRole("textbox", { name: "Edit src/index.ts" });
+  await user.type(draft, "\n// Unsaved note");
+  await user.click(within(feed).getByRole("button", { name: "Open saved file" }));
+  expect(
+    (within(panel).getByRole("textbox", { name: "Edit src/index.ts" }) as HTMLTextAreaElement)
+      .value,
+  ).toContain("// Unsaved note");
 });
