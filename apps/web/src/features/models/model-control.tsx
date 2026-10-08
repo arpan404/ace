@@ -1,3 +1,4 @@
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon, LightningIcon } from "@phosphor-icons/react";
 import { Suspense, useRef, useState } from "react";
@@ -49,6 +50,13 @@ export function ModelControl(props: {
           onFocus={warm}
           className={cn(props.className, "max-w-64")}
         >
+          {view.provider && (
+            <ProviderAccountIcon
+              provider={view.provider}
+              instance={view.instance ?? view.account}
+              size={16}
+            />
+          )}
           {!view.label && view.catalog === "loading" && <Spinner />}
           {switching?.from && !props.compact && (
             <span className="min-w-0 shrink-[2] truncate text-subtle-foreground">
@@ -56,11 +64,6 @@ export function ModelControl(props: {
             </span>
           )}
           <span className="min-w-0 truncate text-foreground">{view.label ?? view.placeholder}</span>
-          {view.accountLabel && (
-            <span className="max-w-24 shrink-0 truncate text-subtle-foreground">
-              · {view.accountLabel}
-            </span>
-          )}
           {!props.compact && view.label && view.effort && (
             <span className="shrink-0 font-normal">{effortLabel(view.effort)}</span>
           )}

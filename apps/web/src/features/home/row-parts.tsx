@@ -4,7 +4,7 @@ import { formatSpan, type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { useSeconds } from "@/lib/time.ts";
 
@@ -135,11 +135,12 @@ function ChangeMark(props: { card: ThreadCard }) {
 }
 
 /** The provider's mark, with the count of subagents working beside it. */
-function ProviderMark(props: { card: ThreadCard }) {
+function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
     <span className="inline-flex items-center gap-0.5">
-      <ProviderIcon
+      <ProviderAccountIcon
+        instance={props.instance}
         provider={card.provider}
         acpAgentId={card.acpAgentId}
         size={card.provider === "opencode" ? 24 : 16}
@@ -153,7 +154,7 @@ function ProviderMark(props: { card: ThreadCard }) {
 }
 
 /** Branch on hover, readable changes on hover and in the open row. */
-export function RowDetail(props: { card: ThreadCard }) {
+export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
     <span
@@ -167,8 +168,8 @@ export function RowDetail(props: { card: ThreadCard }) {
       <span className="shrink-0">
         <ChangeMark card={card} />
       </span>
-      <span className="hidden shrink-0 group-hover/row:mr-11 group-hover/row:inline-flex">
-        <ProviderMark card={card} />
+      <span className="hidden shrink-0 group-hover/row:mr-11 group-hover/row:inline-flex group-data-[status=active]/link:inline-flex">
+        <ProviderMark card={card} instance={props.instance} />
       </span>
     </span>
   );

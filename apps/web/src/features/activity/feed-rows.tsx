@@ -47,6 +47,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
       : undefined;
   return (
     <FeedRow
+      threadId={props.threadId}
       icon={glyph(requestIcons[request.kind])}
       title={
         copy

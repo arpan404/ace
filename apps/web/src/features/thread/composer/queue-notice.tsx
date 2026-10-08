@@ -1,3 +1,4 @@
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { AddAccountButton } from "@/features/account-management/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
@@ -50,7 +51,11 @@ export function QueueNotice(props: {
       aria-label={notice.title}
       className="fx-rise-in mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-1 text-ui"
     >
-      <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
+      {notice.kind === "limited" && account ? (
+        <ProviderAccountIcon provider={account.provider} account={account} size={16} />
+      ) : (
+        <Icon icon={icons[notice.kind]} size={16} className="text-muted-foreground" />
+      )}
       {/* The words keep a readable width; the actions wrap under them when they can't fit. */}
       <div className="min-w-65 flex-1">
         <p className="font-medium text-foreground">{notice.title}</p>

@@ -78,7 +78,18 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                   {selected && <span className="sr-only">, selected</span>}
                   <span className="sr-only">. {details.join(", ")}</span>
                 </span>
-                {detail && <RowDetail card={card} />}
+                {!settled && (
+                  <RowDetail
+                    card={card}
+                    instance={
+                      (entry.switch?.state === "queued"
+                        ? entry.switch.selection.instanceId
+                        : undefined) ??
+                      entry.live?.account ??
+                      entry.execution?.instanceId
+                    }
+                  />
+                )}
                 <span aria-hidden className="contents">
                   <RowMeta card={card} />
                 </span>

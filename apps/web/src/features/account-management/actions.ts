@@ -36,8 +36,14 @@ export function useAccountActions() {
     }
   };
   return {
-    rename: (instanceId: string, label: string) =>
-      settle(client.request({ type: "accounts.rename", instanceId, label })),
+    rename: (
+      instanceId: string,
+      label: string,
+      badge: {
+        shortLabel: string;
+        badgeColor: import("@ace/protocol/accounts").AccountBadgeColor | null;
+      },
+    ) => settle(client.request({ type: "accounts.rename", instanceId, label, ...badge })),
     setDefault: (provider: NativeAccountProvider, instanceId: string) =>
       settle(client.request({ type: "accounts.setDefault", provider, instanceId })),
     /** Forget the account; its sign-in folder stays on disk. */

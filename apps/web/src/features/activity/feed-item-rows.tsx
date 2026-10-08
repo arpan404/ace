@@ -97,6 +97,7 @@ export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
   };
   return (
     <FeedRow
+      threadId={event.threadId}
       icon={<Icon icon={eventIcons[event.kind]} size={16} />}
       title={event.title}
       description={`${projectName(event.project)} · ${event.context}`}
@@ -123,6 +124,7 @@ export function RunItemRow(props: { run: AutomationRun; read: boolean }) {
   const key = runKey(run.id);
   return (
     <FeedRow
+      threadId={run.threadId}
       icon={<Dot tone={automationRunTone(run)} label={run.status} />}
       title={run.title}
       description={automationRunSummary(run)}
