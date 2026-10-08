@@ -38,7 +38,7 @@ async function dismissedOnDaemon(app: Harness) {
 
 const progress = () => screen.findByRole("progressbar", { name: "Providers ready" });
 
-test("a first launch opens setup; a sign-in fills progress live, and Start a thread finishes setup", async () => {
+test("a first launch opens setup; signing in updates readiness, and Add a project opens the folder chooser", async () => {
   const app = firstRun();
   await app.open("/");
   const cards = await screen.findByRole(
@@ -65,8 +65,9 @@ test("a first launch opens setup; a sign-in fills progress live, and Start a thr
   );
   expect(within(claude).queryByRole("button", { name: "Sign in to Claude Code" })).toBeNull();
   expect(screen.getByRole("heading", { level: 2, name: "You're ready to go" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Start a thread" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Search folders" })).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
 }, 30_000);
 
@@ -88,7 +89,7 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();
 }, 30_000);
 
-test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; providers needing action offer sign-in", async () => {
+test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; each provider offers only its next action", async () => {
   // The fake's machine: Claude Code signed in, OpenCode and Pi connected through their
   // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out, Cursor expired.
   const app = harness({ onboarding: "pending" });
@@ -115,7 +116,7 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Start a thread" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
 }, 30_000);
 
 test("an agent that isn't installed waits apart, its install command a click away", async () => {

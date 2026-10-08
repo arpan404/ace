@@ -56,13 +56,16 @@ async function openFolder(made: ReturnType<typeof harness>) {
   return box();
 }
 
-test("the first run offers the three ways in, and a searched folder opens with Enter", async () => {
+test("the first run offers one Add project entry in each area, and a searched folder opens with Enter", async () => {
   const made = firstRun();
   await made.open("/");
   await screen.findByRole("heading", { level: 1, name: "Add your first project" });
-  expect(screen.getByRole("button", { name: "Create a project" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Clone a repository" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Open a folder" }));
+  const sidebar = screen.getByRole("navigation", { name: "App" });
+  expect(within(sidebar).getAllByRole("button", { name: /^Add project/ })).toHaveLength(1);
+  const main = screen.getByRole("main");
+  expect(within(main).getAllByRole("button", { name: "Add a project" })).toHaveLength(1);
+  expect(within(main).getByText(/folder on one of your machines/)).toBeTruthy();
+  await userEvent.click(within(main).getByRole("button", { name: "Add a project" }));
 
   const search = await box();
   expect(document.activeElement).toBe(search);
@@ -268,7 +271,8 @@ test("⌘1–⌘3 switch tabs, and so do ← and → from an empty box", async (
 test("a new project's name is checked as you type, and it can start as a Git repository", async () => {
   const made = firstRun();
   await made.open("/new");
-  await userEvent.click(await screen.findByRole("button", { name: "Create a project" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(within(await dialog()).getByRole("tab", { name: /^New project/ }));
   await dialog();
   const name = screen.getByRole("textbox", { name: "Name" });
   await userEvent.type(name, "a/b");
@@ -294,7 +298,8 @@ test("a new project's name is checked as you type, and it can start as a Git rep
 test("New project goes where the location search points, and ⌘Enter creates it", async () => {
   const made = firstRun();
   await made.open("/new");
-  await userEvent.click(await screen.findByRole("button", { name: "Create a project" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(within(await dialog()).getByRole("tab", { name: /^New project/ }));
   await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "notes");
   const location = screen.getByRole("combobox", { name: "Search for a location" });
   await userEvent.type(location, "cod");
@@ -317,7 +322,9 @@ test("while the daemon is away the dialog says so and adds nothing", async () =>
   await option("code");
   made.daemon.refuseConnections(true);
   made.daemon.disconnectAll();
-  expect(await screen.findByText(/Reconnecting to the daemon… Folders and actions/)).toBeTruthy();
+  expect(
+    await screen.findByText(/Reconnecting to this computer… Folders and actions/),
+  ).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
       true,
@@ -332,7 +339,7 @@ test("with home outside projects.roots, browsing opens the first root and adds f
     roots: ["/srv"],
   });
   await made.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   const search = await box();
   expect(within(await folders()).getByRole("group", { name: "In /srv" })).toBeTruthy();
   await userEvent.type(search, "/srv/www/");
@@ -351,7 +358,7 @@ test("a home reached through a symlink still opens at home when a root holds its
     { roots: ["/srv", "/mnt/users"], homeLink: "/home/dev" },
   );
   await made.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await dialog();
   expect(await option("code")).toBeTruthy();
   expect(within(await folders()).queryByRole("option", { name: /^www/ })).toBeNull();
@@ -415,4 +422,14 @@ test("a folder whose later folders can't be read keeps the rest and reads again 
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await option("f100")).toBeTruthy();
   expect(screen.queryByText(/Couldn't read the rest of this folder/)).toBeNull();
+});
+
+test("double-clicking a folder adds it once and shows one confirmation", async () => {
+  const made = firstRun();
+  const search = await openFolder(made);
+  await userEvent.type(search, "weather");
+  await userEvent.dblClick(await option("weather"));
+  await screen.findByRole("button", { name: "Project: weather" });
+  expect(registered(made)).toEqual([`${home}/code/weather`]);
+  expect(await screen.findAllByText("Added weather")).toHaveLength(1);
 });

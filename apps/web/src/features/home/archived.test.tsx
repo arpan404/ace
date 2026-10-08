@@ -45,8 +45,8 @@ async function archive(app: App, title: RegExp, id: string) {
   await waitFor(() => expect(listed(app, id)?.archivedAt).toBeDefined());
 }
 
-async function openArchiveFromFilter() {
-  await userEvent.click(screen.getByRole("button", { name: /^Project filter/ }));
+async function openArchiveFromProfile() {
+  await userEvent.click(screen.getByRole("button", { name: /, account$/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Archived threads/ }));
   return screen.findByRole("list", { name: "Archived threads" });
 }
@@ -56,7 +56,7 @@ test("an archived thread waits in Archived, and Restore brings it back to Home",
   await archive(app, /Backpressure/, "thread-fan-out");
   expect(card(/Backpressure/)).toBeNull();
 
-  const archived = await openArchiveFromFilter();
+  const archived = await openArchiveFromProfile();
   await userEvent.click(
     within(archived).getByRole("button", { name: "Restore Backpressure on broadcast fan-out" }),
   );
@@ -68,7 +68,7 @@ test("an archived thread waits in Archived, and Restore brings it back to Home",
 test("Delete in Archived asks first, then deletes the thread on the daemon", async () => {
   const app = await openHome();
   await archive(app, /Invoice PDF/, "thread-pdf-locale");
-  const archived = await openArchiveFromFilter();
+  const archived = await openArchiveFromProfile();
 
   await userEvent.click(within(archived).getByRole("button", { name: /^Delete Invoice PDF/ }));
   const dialog = await screen.findByRole("dialog", { name: /^Delete “Invoice PDF/ });

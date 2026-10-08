@@ -1,8 +1,6 @@
 import type { InstalledEditor } from "@ace/protocol";
-import { useMutation } from "@tanstack/react-query";
-import { launchEditor } from "@/boot/editor-launch.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
+import { useEditorLaunch } from "@/lib/use-editor-launch.ts";
 import { useEditorAppIcon, useEditors } from "@/lib/editors.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
@@ -14,24 +12,10 @@ import { RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx"
  */
 export function OpenInSection(props: { thread: ThreadRef; onClose(): void }) {
   const sources = useThreadSources();
-  const toast = useToast();
-  const { editors, current, choose, error } = useEditors();
-  const open = useMutation({
-    mutationFn: async (editorId: string) => {
-      const launch = await sources.workspace.openIn(props.thread, editorId);
-      await launchEditor({
-        editorId: launch.editor.id,
-        editorName: launch.editor.name,
-        path: launch.path,
-      });
-      return launch.editor;
-    },
-    onSuccess: (editor) => {
-      choose(editor.id);
-      toast.add({ title: `Opened in ${editor.name}` });
-    },
-    onError: (failure) =>
-      toast.error({ title: "Couldn't open the editor", description: failure.message }),
+  const { editors, current, error } = useEditors();
+  const open = useEditorLaunch(async (editorId) => {
+    const launch = await sources.workspace.openIn(props.thread, editorId);
+    return { editorId: launch.editor.id, editorName: launch.editor.name, path: launch.path };
   });
   const ordered = current
     ? [current, ...(editors ?? []).filter((editor) => editor.id !== current.id)]
@@ -42,7 +26,7 @@ export function OpenInSection(props: { thread: ThreadRef; onClose(): void }) {
       {!editors ? (
         <RowNote>{error ? "Couldn't list the editors" : "Looking for editors"}</RowNote>
       ) : !ordered.length ? (
-        <RowNote>No editors found on the daemon's machine</RowNote>
+        <RowNote>No editors installed</RowNote>
       ) : (
         <ul aria-label="Editors" className="flex flex-col">
           {ordered.map((editor) => (

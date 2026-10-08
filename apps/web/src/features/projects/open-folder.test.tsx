@@ -109,7 +109,7 @@ test("the desktop app's folder picker adds the chosen folder", async () => {
   desktopBridge({ chosen: `${home}/code/weather` });
   const made = host();
   await made.open("/new");
-  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);

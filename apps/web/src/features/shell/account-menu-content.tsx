@@ -1,4 +1,11 @@
-import { ChartBarIcon, InfoIcon, KeyboardIcon, MoonIcon, UserIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  ChartBarIcon,
+  InfoIcon,
+  KeyboardIcon,
+  MoonIcon,
+  UserIcon,
+} from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
@@ -75,6 +82,12 @@ export function AccountMenuContent() {
         onClick={() => void navigate({ to: "/accounts" })}
       >
         Usage & accounts
+      </MenuItem>
+      <MenuItem
+        icon={<ArchiveIcon aria-hidden />}
+        onClick={() => void navigate({ to: "/archived" })}
+      >
+        Archived threads
       </MenuItem>
       {version && (
         <>

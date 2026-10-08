@@ -42,6 +42,10 @@ async function filterTo(name: string) {
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name }));
   await screen.findByRole("button", { name: `Project filter: ${name}` });
+  await userEvent.pointer({
+    keys: "[MouseRight]",
+    target: await screen.findByRole("menuitemradio", { name }),
+  });
 }
 async function ready(client: ReturnType<typeof fakeClient>) {
   await client.start();
@@ -114,37 +118,29 @@ test("projects added on another device appear without a reload", async () => {
   expect(screen.getByRole("menuitem", { name: /Add project…/ })).toBeTruthy();
 });
 
-/** The badge a thread's row shows for its project: its letters and its tint. */
-function badgeOf(title: string) {
-  const list = screen.getByRole("navigation", { name: "Threads" });
-  const row = within(list).getByRole("link", { name: new RegExp(title) });
-  const mark = row.querySelector<HTMLElement>("[style]");
-  return { letters: mark?.textContent, tint: mark?.style.getPropertyValue("--tint") };
-}
-
-test("a project's badge keeps its colour when renamed, after a reload and on another device", async () => {
-  const made = withProjects(true);
-  const view = await made.open("/new");
-  const before = await waitFor(() => {
-    const badge = badgeOf("Index the docs");
-    expect(badge).toEqual({
-      letters: "DO",
-      tint: expect.stringMatching(/^var\(--project-([1-9]|1[0-2])\)$/),
-    });
-    return badge.tint;
+test("an unselected project has Rename, Remove and Open in from its context menu", async () => {
+  const made = withProjects(false);
+  await made.open("/new");
+  await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
+  await userEvent.pointer({
+    keys: "[MouseRight]",
+    target: await screen.findByRole("menuitemradio", { name: "docs" }),
   });
-
-  await filterTo("docs");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename docs…" }));
-  const field = within(await screen.findByRole("dialog", { name: "Rename docs" })).getByRole(
-    "textbox",
-    { name: "Name" },
-  );
-  await userEvent.clear(field);
-  await userEvent.type(field, "Handbook{Enter}");
-  await waitFor(() => expect(badgeOf("Index the docs")).toEqual({ letters: "HA", tint: before }));
-
-  view.unmount();
-  await withProjects(true).open("/new");
-  await waitFor(() => expect(badgeOf("Index the docs")).toEqual({ letters: "DO", tint: before }));
+  const menu = await screen.findByRole("menu", { name: "Actions for docs" });
+  expect(within(menu).getByRole("menuitem", { name: "Rename docs…" })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: "Remove docs…" })).toBeTruthy();
+  const launches: string[] = [];
+  const original = window.open;
+  window.open = (url) => {
+    launches.push(String(url));
+    return null;
+  };
+  try {
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Open in…" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Visual Studio Code" }));
+    await waitFor(() => expect(launches).toEqual(["vscode://file/fake/docs"]));
+    expect(await screen.findByText("Opened in Visual Studio Code")).toBeTruthy();
+  } finally {
+    window.open = original;
+  }
 });

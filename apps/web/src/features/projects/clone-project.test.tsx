@@ -22,7 +22,8 @@ const address = () => screen.findByRole("textbox", { name: "Repository address" 
 
 async function openClone(made: ReturnType<typeof harness>) {
   await made.open("/new");
-  await userEvent.click(await screen.findByRole("button", { name: "Clone a repository" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("tab", { name: /^Clone/ }));
   await screen.findByRole("dialog", { name: "Add project" });
 }
 
