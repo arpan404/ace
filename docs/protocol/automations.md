@@ -30,19 +30,21 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
+  "concurrency": 7,
   "enabled": false,
   "id": "example",
-  "jitterMs": 0,
-  "missedRun": "skip",
+  "jitterMs": 5,
+  "missedRun": "run_once",
+  "model": "example",
+  "permissionMode": "example",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "claude",
   "title": "example",
   "trigger": {
     "kind": "manual"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -95,7 +97,7 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 9,
   "message": "example"
 }
 ```
@@ -117,19 +119,23 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
-    "enabled": false,
+    "concurrency": 9,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 6,
-    "missedRun": "skip",
+    "jitterMs": 5,
+    "missedRun": "run_once",
+    "model": "example",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -229,8 +235,19 @@ Example:
 
 ```json
 {
+  "error": "example",
   "ok": true,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "finishedAt": 4,
+    "id": "example",
+    "startedAt": 2,
+    "status": "skipped",
+    "title": "example",
+    "trigger": "github"
+  },
   "schedules": [],
   "type": "automation.result"
 }
@@ -261,10 +278,10 @@ Example:
   "eventKey": "example",
   "id": "example",
   "result": "example",
-  "startedAt": 1,
+  "startedAt": 3,
   "status": "failed",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -344,12 +361,10 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "issue_labelled",
   "kind": "github",
-  "label": "example",
   "pollIntervalMs": 60009,
-  "pullRequest": 5,
-  "repository": "lKskxK8o3m/2lig2kF"
+  "repository": "tLD/cTzD9."
 }
 ```
 

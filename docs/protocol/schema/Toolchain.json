@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/Toolchain.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "available": {
+      "type": "boolean"
+    },
+    "detail": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "hint": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "id": {
+      "enum": [
+        "git",
+        "xcode",
+        "android"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "available",
+    "detail",
+    "hint"
+  ],
+  "type": "object"
+}

@@ -1,3 +1,4 @@
+import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import type { DeviceRow } from "@ace/ui-core";
 import {
   AndroidLogoIcon,
@@ -91,6 +92,7 @@ export function DevicesTab(props: { threadId: string }) {
               Enable devices
             </Button>
             {view.problem && <Problem problem={view.problem} />}
+            <ToolchainHints devices />
           </div>
         }
       />
@@ -115,6 +117,7 @@ export function DevicesTab(props: { threadId: string }) {
         <DeviceList rows={view.rows} open={open} onOpen={(row) => actions.open(deviceTab(row))} />
       )}
       <div className="flex flex-col gap-2 px-4 pt-3">
+        <ToolchainHints devices />
         {view.problem && <Problem problem={view.problem} />}
         {view.notes.map((note) => (
           <Problem key={note.message} problem={note} />

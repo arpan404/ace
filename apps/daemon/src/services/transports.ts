@@ -12,6 +12,7 @@ export async function startRelayTransport(options: ServerOptions, auth: RemoteAu
     ...(options.providerLogin ? { providerLogin: options.providerLogin } : {}),
     ...(options.accountManagement ? { accountManagement: options.accountManagement } : {}),
     ...(options.files ? { files: options.files } : {}),
+    ...(options.supportFiles ? { supportFiles: options.supportFiles } : {}),
     ...(options.threadFiles ? { threadFiles: options.threadFiles } : {}),
     ...(options.devices ? { appDevices: options.devices } : {}),
     ...(options.browser ? { browser: options.browser } : {}),

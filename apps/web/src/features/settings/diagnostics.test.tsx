@@ -9,7 +9,7 @@ test("daemon diagnostics and the development daemon stay off General, under Adva
   expect(await screen.findByRole("region", { name: "Threads" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Connection" })).toBeNull();
   expect(screen.queryByText("Demo connection")).toBeNull();
-  expect(screen.queryByRole("table", { name: "Pending work" })).toBeNull();
+  expect(screen.queryByRole("table", { name: "Daemon queues" })).toBeNull();
   view.unmount();
 
   await app.open("/settings/advanced");

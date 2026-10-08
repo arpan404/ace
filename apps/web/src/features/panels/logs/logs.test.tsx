@@ -168,10 +168,10 @@ test("a level filter keeps to warnings and errors, and the thread's Logs come ba
 test("the daemon's log scope leads with its health and copies where its log is kept", async () => {
   await openLogs("turn-1");
   const panel = await showLogs("Cap cold-start replay at 200 events");
-  await pickSource(panel, "ace");
-  expect(await within(panel).findByRole("tab", { name: "ace log", selected: true })).toBeTruthy();
+  await pickSource(panel, "App");
+  expect(await within(panel).findByRole("tab", { name: "App log", selected: true })).toBeTruthy();
   const health = await within(panel).findByText("Event loop");
-  const note = within(panel).getByText("ace's own log isn't streamed yet.");
+  const note = within(panel).getByText("App logs are available in the support bundle.");
   // The health comes first; the missing log is one line after it.
   expect(health.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -179,4 +179,8 @@ test("the daemon's log scope leads with its health and copies where its log is k
   await user.click(within(panel).getByRole("button", { name: "Copy log folder path" }));
   expect(await navigator.clipboard.readText()).toBe("/Users/dev/.ace-next/logs");
   expect(await screen.findByText("Copied the log folder's path")).toBeTruthy();
+  await userEvent.click(
+    within(panel).getByRole("link", { name: /Run checks or export a support bundle/ }),
+  );
+  expect(await screen.findByRole("button", { name: "Run checks" })).toBeTruthy();
 });

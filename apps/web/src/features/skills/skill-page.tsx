@@ -1,3 +1,4 @@
+import { SkillSource } from "./skill-source.tsx";
 import { ArrowsClockwiseIcon, CubeIcon, TrashIcon } from "@phosphor-icons/react";
 import { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
@@ -15,11 +16,10 @@ import {
   MenuItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { SkeletonText } from "@/components/ui/skeleton.tsx";
+
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CompactViewRowBody, compactViewRowClass } from "@/components/ui/view-row.tsx";
-import { Prose } from "@/components/markdown/prose.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useInstallDialog } from "./install-plugin.tsx";
@@ -33,11 +33,10 @@ import {
   pluginSkillId,
   sourceText,
   skillTitle,
-  skillMarkdown,
   skillsLoadError,
   type Skill,
 } from "./skills-model.ts";
-import { useSetAvailability, useSkillSource, useSkills } from "./skills-source.ts";
+import { useSetAvailability, useSkills } from "./skills-source.ts";
 
 /** One skill, command, agent, rule or plugin: on or off, who may load it, and its source. */
 export function SkillPage(props: { skillId: string }) {
@@ -190,6 +189,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
           <SettingSection label={isPlugin ? "Plugin" : "Details"}>
             {!isPlugin && (
               <SettingRow
+                inline
                 title={
                   <Link
                     to="/skills/$skillId"
@@ -229,7 +229,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
             )}
           </SettingSection>
           {isPlugin && components.length > 0 && <Contents components={components} />}
-          {skill.path && <SourcePreview skill={skill} />}
+          {skill.path && <SkillSource key={skill.id} skill={skill} />}
         </div>
       </div>
     </Screen>
@@ -346,28 +346,6 @@ function Contents(props: { components: readonly Skill[] }) {
           </ul>
         );
       })}
-    </SettingSection>
-  );
-}
-
-function SourcePreview(props: { skill: Skill }) {
-  const source = useSkillSource(props.skill);
-  return (
-    <SettingSection label="Preview">
-      {source.isError ? (
-        <p className="text-ui text-muted-foreground">
-          Couldn't load the preview. Check your connection and reopen this skill.
-        </p>
-      ) : source.data === undefined ? (
-        <SkeletonText lines={4} />
-      ) : (
-        <>
-          <Prose text={skillMarkdown(source.data.text)} />
-          {source.data.truncated && (
-            <p className="mt-2 text-sm text-muted-foreground">Preview shortened.</p>
-          )}
-        </>
-      )}
     </SettingSection>
   );
 }

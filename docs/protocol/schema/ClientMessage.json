@@ -549,6 +549,9 @@
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticsRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PermissionCapabilitiesRequest.json"
     },
     {
@@ -677,6 +680,10 @@
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "const": "support",
           "type": "string"
         },
         "threadId": {

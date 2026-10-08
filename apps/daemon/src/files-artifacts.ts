@@ -1,3 +1,4 @@
+import { publishArtifact } from "./publish-artifact.ts";
 import { open, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -33,35 +34,14 @@ export function daemonArtifacts(
     if (store.getThread(threadId)?.workspaceId !== workspace)
       throw new FileError("FORBIDDEN", "Artifact source belongs to another workspace");
   };
-  const publish = async (
+  const publish = (
     size: number,
+    path: string,
     name: string,
-    display: string,
     category: "output" | "support",
     write: (temporary: string) => Promise<void>,
     assertAuthorized: () => void,
-  ) => {
-    const release = files.reserveArtifactExport(size);
-    const temporary = join(root, `.export-${name}`);
-    let published = false;
-    try {
-      await write(temporary);
-      assertAuthorized();
-      await rename(temporary, join(root, name));
-      const id = await files.registerArtifact({
-        root,
-        path: name,
-        name: display.slice(0, 256),
-        category,
-      });
-      published = true;
-      return id;
-    } finally {
-      release();
-      await rm(temporary, { force: true });
-      if (!published) await rm(join(root, name), { force: true });
-    }
-  };
+  ) => publishArtifact(files, root, { size, path, name, category, write }, assertAuthorized);
   return {
     async support(hostId: string) {
       const temporary = join(root, `.support-${randomUUID()}`);

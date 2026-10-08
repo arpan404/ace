@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/DiagnosticReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "type": "number"
+    },
+    "checks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DiagnosticCheck.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "at",
+    "checks"
+  ],
+  "type": "object"
+}

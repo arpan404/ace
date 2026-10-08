@@ -134,7 +134,8 @@ export class FakeFilesWire {
             const channel = channels.get(message.channel);
             if (!channel) throw new Error("NOT_FOUND");
             const path = channel.key.slice(channel.key.indexOf("\0") + 1);
-            if (this.key(channel.threadId, path) !== channel.key) throw new Error("FORBIDDEN");
+            if (channel.threadId && this.key(channel.threadId, path) !== channel.key)
+              throw new Error("FORBIDDEN");
             if (message.type === "files.pull") {
               if (channel.kind !== "read") throw new Error("INVALID_MESSAGE");
               const offset = channel.offset;
@@ -178,6 +179,39 @@ export class FakeFilesWire {
             return;
           }
           const op = message.operation;
+          if (message.scope === "support" && op.op === "artifact.support") {
+            const artifactId = `support-${++this.sequence}`;
+            const bytes = new TextEncoder().encode(
+              op.includeThreads
+                ? "Redacted support fixture with conversations"
+                : "Redacted support fixture without conversations",
+            );
+            this.files.set(artifactId, { bytes, version: artifactId });
+            emit({ type: "files.result", requestId: message.requestId, value: { artifactId } });
+            return;
+          }
+          if (message.scope === "support" && op.op === "artifact.download") {
+            const file = this.files.get(op.artifactId);
+            if (!file) throw new Error("NOT_FOUND");
+            const channel = allocate();
+            channels.set(channel, {
+              kind: "read",
+              key: op.artifactId,
+              threadId: "",
+              requestId: message.requestId,
+              file,
+              offset: op.offset,
+            });
+            emit({
+              type: "files.ready",
+              requestId: message.requestId,
+              channel,
+              offset: op.offset,
+              size: file.bytes.length,
+              validator: file.version,
+            });
+            return;
+          }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
           if (op.op === "download" || op.op === "stat" || op.op === "artifact.download") {

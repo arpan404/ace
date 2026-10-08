@@ -22,7 +22,7 @@ export function DaemonSettings() {
   const host = useHostName() ?? "This machine";
   const fake = connection.mode === "fake";
   return (
-    <SettingSection label="Connection" card scope="device">
+    <SettingSection label="Connection" scope="device">
       <SettingRow
         id="daemon.connection"
         title={host}

@@ -1,3 +1,4 @@
+import { startSupportFiles } from "./support-files.ts";
 import { logError } from "@ace/diagnostics";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
@@ -11,6 +12,7 @@ import { loadHostId } from "../local-files.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startFiles(owner: ServiceContext): Promise<void> {
+  await startSupportFiles(owner);
   const { config, store, now, id, log, resources, services } = owner;
   const context = { home: homedir(), env: process.env };
   let files: FilesService | undefined;
@@ -79,6 +81,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     if (sweeping) return;
     sweeping = (async () => {
       await scoped.sweep(owner.signal);
+      await services.supportFiles?.sweep(owner.signal);
     })()
       .catch((error: unknown) => log.log("error", "File retention failed", logError(error)))
       .finally(() => {
@@ -97,12 +100,18 @@ export function createFilesSession(context: SocketContext): SocketService {
   const getChunks = () => {
     const device = context.device();
     const files = context.options.threadFiles;
-    if (!device || !files) return undefined;
+    if (!device) return undefined;
     chunks ??= chunkFilesChannel({
       device,
       send: context.send,
-      async resolve(threadId) {
-        if (!context.canReadThread(threadId)) throw new Error("File thread unavailable");
+      async resolve(threadId, scope) {
+        if (scope === "support") {
+          const service = context.options.supportFiles;
+          if (!service) throw new Error("Support export unavailable");
+          return { service, allowed: (access) => context.connected() && context.authorize(access) };
+        }
+        if (!threadId || !files || !context.canReadThread(threadId))
+          throw new Error("File thread unavailable");
         const root = files.root(threadId);
         const service = await files.get(threadId);
         return {
@@ -141,11 +150,32 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
+      if (message.type === "files.request" && message.scope === "support") {
+        const op = message.operation;
+        // Global access exposes only the dedicated support registry, never workspace files.
+        if (op.op !== "artifact.support" && op.op !== "artifact.download") {
+          context.fail("forbidden", "Thread scope required", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
+        // Conversation exports cover the whole host, so paired/read-only devices cannot ask for them.
+        if (
+          ((op.op === "artifact.support" && op.includeThreads) ||
+            (op.op === "artifact.download" && op.artifactId.startsWith("local-support-"))) &&
+          !(context.local && context.canSubmitSecret?.() && context.authorize("operate"))
+        ) {
+          context.fail("forbidden", "Conversation export requires local access", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
+      }
       if (
         message.type === "files.abort" ||
         message.type === "files.pull" ||
         message.type === "files.chunk" ||
-        (message.type === "files.request" && message.threadId)
+        (message.type === "files.request" && (message.threadId || message.scope === "support"))
       ) {
         const scoped = getChunks();
         if (scoped) scoped.accept(message);

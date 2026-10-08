@@ -174,8 +174,8 @@ const entries = [
   {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "ace diagnostics",
-    keywords: ["memory", "debug", "health"],
+    title: "App diagnostics",
+    keywords: ["memory", "debug", "health", "doctor", "checks", "support", "export"],
   },
   {
     id: "advanced.reset",

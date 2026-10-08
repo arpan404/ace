@@ -155,7 +155,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
   await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
 
   let review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
-  expect(within(review).getByText(/From getsentry\/sentry, pinned/)).toBeTruthy();
+  expect(within(review).getByText(/From getsentry\/sentry\./)).toBeTruthy();
   await waitFor(() =>
     expect(document.activeElement).toBe(within(review).getByRole("button", { name: "Install" })),
   );

@@ -1,4 +1,5 @@
 import { PastSessions } from "@/features/history/index.ts";
+import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { useClient } from "@ace/client-react";
 import { providerNames, readinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
@@ -124,6 +125,7 @@ export function SetupScreen() {
             </>
           )}
           <PastSessions />
+          <ToolchainHints />
           <div className="flex items-center gap-3 border-t pt-5">
             <Button variant="ghost" onClick={() => leave("/")}>
               Skip for now

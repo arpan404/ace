@@ -223,6 +223,62 @@ export class FakeServicesWire {
             emit(this.workspace.read(message));
             return;
           }
+          if (message.type === "diagnostics.request") {
+            emit({
+              type: "diagnostics.result",
+              requestId: message.requestId,
+              ...(message.operation === "doctor"
+                ? {
+                    report: {
+                      at: this.host.now(),
+                      checks: [
+                        { id: "node", status: "ok", message: "Node v24.0.0", fix: "Update ace." },
+                        {
+                          id: "git",
+                          status: "ok",
+                          message: "git version 2.50.0",
+                          fix: "Install Git.",
+                        },
+                        {
+                          id: "provider.claude",
+                          status: "warn",
+                          message: "Sign-in needed",
+                          fix: "Sign in.",
+                        },
+                        {
+                          id: "sqlite",
+                          status: "ok",
+                          message: "SQLite integrity: ok",
+                          fix: "Restore a backup.",
+                        },
+                      ],
+                    },
+                  }
+                : {
+                    toolchains: [
+                      {
+                        id: "git",
+                        available: true,
+                        detail: "git version 2.50.0",
+                        hint: "Install Git.",
+                      },
+                      {
+                        id: "xcode",
+                        available: false,
+                        detail: "Simulator tools not found",
+                        hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
+                      },
+                      {
+                        id: "android",
+                        available: false,
+                        detail: "Android SDK not found",
+                        hint: "Install Android Studio, then set ANDROID_HOME to its SDK directory.",
+                      },
+                    ],
+                  }),
+            });
+            return;
+          }
           if (message.type === "diagnostics.health") {
             emit({
               type: "diagnostics.health.result",

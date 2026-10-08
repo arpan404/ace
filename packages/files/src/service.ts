@@ -153,7 +153,9 @@ export class FilesService {
     if (operation.op === "artifact.support") {
       if (!this.options.exportSupport)
         throw new FileError("UNSUPPORTED", "Support producer unavailable");
-      return { artifactId: await this.options.exportSupport(device, guard) };
+      return {
+        artifactId: await this.options.exportSupport(device, guard, operation.includeThreads),
+      };
     }
     if (operation.op === "artifact.raw") {
       if (!this.options.exportRaw)

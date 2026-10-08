@@ -1,3 +1,5 @@
+import { RunChecks } from "@/features/diagnostics/index.ts";
+import { SupportExport } from "@/features/diagnostics/index.ts";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -21,13 +23,15 @@ import { settingRow } from "./settings-index.ts";
 export function AdvancedSettings() {
   return (
     <>
-      <SettingSection label="Health" card>
+      <SettingSection label="Health">
+        <RunChecks />
+        <SupportExport />
         <DaemonDiagnostics />
       </SettingSection>
-      <SettingSection label="Reset" card scope="daemon">
+      <SettingSection label="Reset" scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}
-          description="Shared settings go back to their defaults on every device. Appearance, themes and this computer's notifications stay."
+          description="Settings go back to their defaults on every device. Appearance, themes and this computer's notifications stay."
           inline
         >
           <ResetAll />
@@ -58,7 +62,7 @@ function ResetAll() {
       setOpen(false);
       toast.add({ title: "Settings reset" });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "ace didn't answer.");
+      setError(reason instanceof Error ? reason.message : "This computer didn't answer.");
     } finally {
       setRunning(false);
     }
@@ -76,7 +80,7 @@ function ResetAll() {
           <DialogTitle>Reset all settings?</DialogTitle>
           <DialogDescription>
             Defaults for new threads, shortcuts and thresholds are restored for every device using
-            ace on this machine. Appearance, themes and this computer's notifications stay.
+            this computer. Appearance, themes and this computer's notifications stay.
           </DialogDescription>
         </DialogHeader>
         {error && (

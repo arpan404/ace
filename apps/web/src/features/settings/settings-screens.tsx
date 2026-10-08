@@ -1,7 +1,9 @@
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
-import { AdvancedSettings } from "./advanced-page.tsx";
+const AdvancedSettings = lazy(() =>
+  import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
+);
 import { AppearanceSettings } from "./appearance-page.tsx";
 import { GeneralSettings } from "./general-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
@@ -109,7 +111,9 @@ export function KeyboardSettingsScreen() {
 export function AdvancedSettingsScreen() {
   return (
     <SettingsBody page="Advanced">
-      <AdvancedSettings />
+      <Suspense fallback={<ListSkeleton label="diagnostics" shape="row" rows={3} />}>
+        <AdvancedSettings />
+      </Suspense>
     </SettingsBody>
   );
 }

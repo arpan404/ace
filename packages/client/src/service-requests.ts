@@ -27,33 +27,35 @@ export type ServiceResponse<Q extends ServiceRequest> =
             ? Replies<"worktree.creation.result">
             : LegacyServiceResponse<Q>;
 
-type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "notification.config"
-  ? Replies<"notification.config.result">
-  : Q["type"] extends "notification.register"
-    ? Replies<"notification.register.result">
-    : Q["type"] extends "host.identity"
-      ? Replies<"host.identity.result">
-      : Q["type"] extends "activity.reads" | "activity.markRead"
-        ? Replies<"activity.reads.result">
-        : Q["type"] extends "entities.page"
-          ? Replies<"entities.page">
-          : Q["type"] extends "queue.get"
-            ? Extract<Reply, { type: "queue.result" }>
-            : Q["type"] extends "permissions.capabilities"
-              ? Replies<"permissions.capabilities.result">
-              : Q["type"] extends "providers.request"
-                ? Replies<"providers.result">
-                : Q["type"] extends "projects.request"
-                  ? Replies<"projects.result">
-                  : Q["type"] extends "accounts.login" | "accounts.logout"
-                    ? Replies<"accounts.auth">
-                    : Q["type"] extends
-                          | "accounts.add"
-                          | "accounts.rename"
-                          | "accounts.remove"
-                          | "accounts.setDefault"
-                      ? Replies<"accounts.changed">
-                      : ExistingServiceResponse<Q>;
+type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "diagnostics.request"
+  ? Replies<"diagnostics.result">
+  : Q["type"] extends "notification.config"
+    ? Replies<"notification.config.result">
+    : Q["type"] extends "notification.register"
+      ? Replies<"notification.register.result">
+      : Q["type"] extends "host.identity"
+        ? Replies<"host.identity.result">
+        : Q["type"] extends "activity.reads" | "activity.markRead"
+          ? Replies<"activity.reads.result">
+          : Q["type"] extends "entities.page"
+            ? Replies<"entities.page">
+            : Q["type"] extends "queue.get"
+              ? Extract<Reply, { type: "queue.result" }>
+              : Q["type"] extends "permissions.capabilities"
+                ? Replies<"permissions.capabilities.result">
+                : Q["type"] extends "providers.request"
+                  ? Replies<"providers.result">
+                  : Q["type"] extends "projects.request"
+                    ? Replies<"projects.result">
+                    : Q["type"] extends "accounts.login" | "accounts.logout"
+                      ? Replies<"accounts.auth">
+                      : Q["type"] extends
+                            | "accounts.add"
+                            | "accounts.rename"
+                            | "accounts.remove"
+                            | "accounts.setDefault"
+                        ? Replies<"accounts.changed">
+                        : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -204,6 +206,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "commands.resolve": ["commands.resolve.result"],
   pluginRequest: ["pluginResult"],
   "diagnostics.health": ["diagnostics.health.result"],
+  "diagnostics.request": ["diagnostics.result"],
   "screen.request": ["screen.result"],
   "items.page": ["items.page"],
   "entities.page": ["entities.page"],

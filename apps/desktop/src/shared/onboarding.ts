@@ -1,15 +1,12 @@
 import { z } from "zod";
 
 /** `ace doctor --json` (packages/diagnostics); parsed again here because it crosses processes. */
-export const DoctorCheck = z.object({
-  id: z.string().max(128),
-  status: z.enum(["ok", "warn", "fail"]),
-  message: z.string().max(2048),
-  fix: z.string().max(2048),
-});
-export const DoctorReport = z.object({ at: z.number(), checks: z.array(DoctorCheck).max(64) });
-export type DoctorReport = z.infer<typeof DoctorReport>;
-
+export {
+  DiagnosticCheck as DoctorCheck,
+  DiagnosticReport as DoctorReport,
+  Toolchain,
+} from "@ace/protocol";
+import type { DiagnosticReport as DoctorReport } from "@ace/protocol";
 export const ProviderSummary = z.object({
   id: z.string(),
   installed: z.boolean(),
@@ -38,11 +35,3 @@ export function providerSummaries(report: DoctorReport): ProviderSummary[] {
       return { id, installed, auth, detail: check.message, hint: check.fix };
     });
 }
-
-export const Toolchain = z.object({
-  id: z.enum(["xcode", "android", "git"]),
-  available: z.boolean(),
-  detail: z.string(),
-  hint: z.string(),
-});
-export type Toolchain = z.infer<typeof Toolchain>;

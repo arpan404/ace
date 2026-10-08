@@ -37,3 +37,34 @@ export const DiagnosticsHealthResult = z.object({
   health: DiagnosticsHealth.optional(),
   error: z.string().max(256).optional(),
 });
+
+export const DiagnosticCheck = z.object({
+  id: z.string().max(128),
+  status: z.enum(["ok", "warn", "fail"]),
+  message: z.string().max(2048),
+  fix: z.string().max(2048),
+});
+export const DiagnosticReport = z.object({
+  at: z.number(),
+  checks: z.array(DiagnosticCheck).max(64),
+});
+export type DiagnosticReport = z.infer<typeof DiagnosticReport>;
+export const Toolchain = z.object({
+  id: z.enum(["git", "xcode", "android"]),
+  available: z.boolean(),
+  detail: z.string().max(2048),
+  hint: z.string().max(2048),
+});
+export type Toolchain = z.infer<typeof Toolchain>;
+export const DiagnosticsRequest = z.object({
+  type: z.literal("diagnostics.request"),
+  requestId: z.string().min(1).max(128),
+  operation: z.enum(["doctor", "toolchains"]),
+});
+export const DiagnosticsResult = z.object({
+  type: z.literal("diagnostics.result"),
+  requestId: z.string().min(1).max(128),
+  report: DiagnosticReport.optional(),
+  toolchains: z.array(Toolchain).max(3).optional(),
+  error: z.string().max(256).optional(),
+});

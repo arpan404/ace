@@ -11,8 +11,11 @@ async function* downloadChunks(
   input: FileDownloadInput,
   options: RequestOptions,
 ): AsyncGenerator<Uint8Array> {
-  const { threadId, ...operation } = input;
-  const ready = await client.request({ type: "files.request", threadId, operation }, options);
+  const { threadId, scope, ...operation } = input;
+  const ready = await client.request(
+    { type: "files.request", threadId, scope, operation },
+    options,
+  );
   if (ready.type !== "files.ready")
     throw new ClientError(
       "daemon",
