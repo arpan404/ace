@@ -16,8 +16,14 @@ import {
   type QuotaReader,
 } from "@ace/usage";
 import type { Store } from "./store.ts";
+import { includeUsageAccounts } from "./usage-accounts.ts";
 
 export interface UsageCommands {
+  subscribeLimits?(
+    listener: (
+      account: import("zod").infer<typeof import("@ace/protocol/accounts").AccountSummary>,
+    ) => void,
+  ): () => void;
   summary(query: UsageQuery): Promise<UsageResult>;
   series(query: UsageQuery): Promise<UsageResult>;
   sessionTotals?(
@@ -63,6 +69,7 @@ export function createDaemonUsage(
   onError: (error: unknown) => void,
   accounts?: QuotaReader,
   now: () => number = Date.now,
+  providerAccounts?: Pick<import("@ace/accounts").AccountService, "handle" | "subscribeQuota">,
 ) {
   const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings);
   let stopped = false;
@@ -104,7 +111,12 @@ export function createDaemonUsage(
   const query = async (kind: "summary" | "series", input: UsageQuery) => {
     if (stopped) throw new Error("Usage service closed");
     const parsed = UsageQuery.parse(input);
-    const result = await worker[kind](parsed);
+    let result = await worker[kind](parsed);
+    if (providerAccounts && (parsed.filters.provider || parsed.filters.account)) {
+      const response = await providerAccounts.handle({ type: "accounts.list", requestId: "usage" });
+      if (response.type === "accounts.list")
+        result = includeUsageAccounts(result, parsed, response.accounts);
+    }
     if (parsed.quotaAccount && accounts) {
       const windows = await accounts.windows(parsed.quotaAccount);
       if (windows.length > 20) throw new Error("Too many quota windows");
@@ -116,6 +128,12 @@ export function createDaemonUsage(
     return UsageResult.parse(result);
   };
   return {
+    ...(providerAccounts
+      ? {
+          subscribeLimits: (listener: Parameters<typeof providerAccounts.subscribeQuota>[0]) =>
+            providerAccounts.subscribeQuota(listener),
+        }
+      : {}),
     summary: (input: UsageQuery) => query("summary", input),
     series: (input: UsageQuery) => query("series", input),
     async sessionTotals(input: UsageSessionTotalsQuery) {

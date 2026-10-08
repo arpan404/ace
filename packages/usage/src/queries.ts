@@ -31,6 +31,13 @@ export function queryRows(
   kind: "summary" | "series",
 ): Pick<UsageResult, "rows" | "truncated"> {
   const q = UsageQuery.parse(input);
+  const dayColumn =
+    q.bucket === "month"
+      ? "substr(d.day,1,7)||'-01'"
+      : q.bucket === "week"
+        ? "date(d.day,'-'||((CAST(strftime('%w',d.day) AS INTEGER)+6)%7)||' days')"
+        : columns.day;
+  const queryColumns = { ...columns, day: dayColumn };
   const groups =
     kind === "series" ? [...new Set<UsageDimension>(["day", ...q.groupBy])] : q.groupBy;
   const clauses = ["d.day BETWEEN ? AND ?"];
@@ -52,8 +59,8 @@ export function queryRows(
     clauses.push("d.agent IN (SELECT agent FROM subtree)");
     params.unshift(q.agentTree);
   }
-  const selectGroups = groups.map((g) => `${columns[g]} AS "${g}"`).join(", ");
-  const groupSql = groups.length ? `GROUP BY ${groups.map((g) => columns[g]).join(", ")}` : "";
+  const selectGroups = groups.map((g) => `${queryColumns[g]} AS "${g}"`).join(", ");
+  const groupSql = groups.length ? `GROUP BY ${groups.map((g) => queryColumns[g]).join(", ")}` : "";
   const order =
     kind === "series"
       ? '"day" ASC'
@@ -68,7 +75,7 @@ export function queryRows(
     SUM(CAST(d.input AS REAL)) AS input, SUM(CAST(d.output AS REAL)) AS output, SUM(CAST(d.cached AS REAL)) AS cached,
     SUM(CAST(d.reasoning AS REAL)) AS reasoning, SUM(CAST(d.write AS REAL)) AS write, SUM(CAST(d.write1h AS REAL)) AS write1h, SUM(d.cost) AS cost
     FROM usage_daily d WHERE ${clauses.join(" AND ")}
-    GROUP BY ${[...groups.map((g) => columns[g]), "d.model", "d.billing"].join(", ")}`;
+    GROUP BY ${[...groups.map((g) => queryColumns[g]), "d.model", "d.billing"].join(", ")}`;
   const sql =
     groups.length === 1 && groups[0] === "day"
       ? `${cte} SELECT ${selectGroups}, ${totalsSql}
@@ -76,7 +83,7 @@ export function queryRows(
         WHERE ${clauses.join(" AND ")} ${groupSql} ORDER BY ${order}${tie} LIMIT ?`
       : `${cte} SELECT ${selectGroups ? `${selectGroups}, ` : ""}${totalsSql}
         FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model
-        ${groupSql} ORDER BY ${order}${tie} LIMIT ?`;
+        ${groups.length ? `GROUP BY ${groups.map((g) => columns[g]).join(", ")}` : ""} ORDER BY ${order}${tie} LIMIT ?`;
   const result: UsageRow[] = [];
   let bytes = 2;
   let truncated = false;

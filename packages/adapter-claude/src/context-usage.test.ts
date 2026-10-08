@@ -38,3 +38,24 @@ test("Claude unknown usage fields remain unknown occupancy", () => {
   });
   expect(h.events.some((event) => event.type === "context.sampled")).toBe(false);
 });
+
+test("Claude result reasoning remains a subset of output and repeated results are counted once", () => {
+  const h = harness();
+  h.init();
+  const usage = {
+    uuid: "result-1",
+    usage: {
+      input_tokens: 10,
+      output_tokens: 30,
+      output_tokens_details: { thinking_tokens: 20 },
+      cache_read_input_tokens: 100,
+    },
+  };
+  h.result(usage);
+  h.result(usage);
+  expect(
+    h.events.filter((event) => event.type === "usage.updated" && event.usageScope === "agent"),
+  ).toMatchObject([
+    { inputTokens: 110, outputTokens: 30, reasoningTokens: 20, counterMode: "incremental" },
+  ]);
+});

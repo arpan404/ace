@@ -129,6 +129,9 @@
       "$ref": "https://ace.local/protocol/v1/UsageMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/UsageLimitsChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageSessionTotalsMessage.json"
     },
     {

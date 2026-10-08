@@ -25,6 +25,9 @@ export type AccountAdapterFactory = Pick<
   ): Pick<ProviderAdapter, "openSession"> | Promise<Pick<ProviderAdapter, "openSession">>;
 };
 const quotaKeys = [
+  "authMode",
+  "authDetail",
+  "billingMode",
   "rateLimits",
   "rateLimitsByLimitId",
   "rate_limit_info",
@@ -39,6 +42,16 @@ const quotaKeys = [
 ];
 /** The default never infers offline safety from absence of locks or ace processes. */
 export class AccountService {
+  subscribeQuota(
+    listener: (
+      account: import("zod").infer<typeof import("@ace/protocol/accounts").AccountSummary>,
+    ) => void,
+  ): () => void {
+    return this.registry.subscribeQuota((id) => {
+      const account = this.registry.summary(id, this.now());
+      if (account) listener(account);
+    });
+  }
   private registry: AccountRegistry;
   private now: () => number;
   private timeZone: string;
@@ -302,7 +315,13 @@ export class AccountService {
               observedAt: this.now(),
               timeZone: this.timeZone,
             });
-          return context.onFrame(frame);
+          return context.onFrame({
+            ...frame,
+            usageAccount: {
+              id: chosen.id,
+              billingMode: this.registry.get(chosen.id)?.quota.billingMode ?? "unknown",
+            },
+          });
         },
         onExit: (exit) => {
           if (frameFailed || released) return;

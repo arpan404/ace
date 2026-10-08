@@ -10,6 +10,14 @@
       ],
       "type": "string"
     },
+    "billingMode": {
+      "enum": [
+        "api",
+        "subscription",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "blockers": {
       "default": {},
       "properties": {
@@ -29,6 +37,11 @@
     "observedAt": {
       "minimum": 0,
       "type": "number"
+    },
+    "plan": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
     },
     "usage": {
       "properties": {

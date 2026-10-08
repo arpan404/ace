@@ -5,6 +5,7 @@ const nativeCounts = z
   .object({
     input_tokens: count.optional(),
     output_tokens: count.optional(),
+    output_tokens_details: z.object({ thinking_tokens: count.optional() }).passthrough().optional(),
     cache_read_input_tokens: count.nullish(),
     cache_creation_input_tokens: count.nullish(),
     cache_creation: z
@@ -23,6 +24,7 @@ export interface TokenCounts {
   cachedInputTokens: number;
   cacheWriteTokens: number;
   cacheWrite1hTokens: number;
+  reasoningTokens?: number;
 }
 export const zeroCounts = (): TokenCounts => ({
   inputTokens: 0,
@@ -43,6 +45,14 @@ export function tokenCounts(data: unknown): TokenCounts | undefined {
       (usage.input_tokens ?? 0) + cachedInputTokens + cacheWriteTokens,
     ),
     outputTokens: usage.output_tokens ?? 0,
+    ...(usage.output_tokens_details?.thinking_tokens === undefined
+      ? {}
+      : {
+          reasoningTokens: Math.min(
+            usage.output_tokens ?? 0,
+            usage.output_tokens_details.thinking_tokens,
+          ),
+        }),
     cachedInputTokens,
     cacheWriteTokens,
     cacheWrite1hTokens: Math.min(

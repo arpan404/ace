@@ -7,6 +7,7 @@ import type {
   UsageSessionTotalsQuery,
   UsageTotals,
 } from "@ace/protocol";
+import { defaultPrices, estimateTokens } from "@ace/usage/pricing";
 
 /** One inclusive snapshot as `usage.session_totals` answers it. */
 export type UsageSessionTotal = Extract<
@@ -68,12 +69,30 @@ const sources: readonly UsageSource[] = [
   {
     provider: "opencode",
     account: "opencode-api",
-    model: "opencode/kimi-k2",
+    model: "openrouter/anthropic/claude-sonnet-4.6",
     daily: 700_000,
-    apiUsdPerMillion: null,
+    apiUsdPerMillion: 3,
     reportedUsdPerMillion: 0.6,
     billing: "api",
     threads: ["thread-router", "thread-install-page", "thread-fan-out"],
+  },
+  {
+    provider: "pi",
+    account: "pi-api",
+    model: "anthropic/claude-sonnet-4-6",
+    daily: 250_000,
+    apiUsdPerMillion: 3,
+    billing: "api",
+    threads: ["thread-router"],
+  },
+  {
+    provider: "opencode",
+    account: "opencode-api",
+    model: "openrouter/unlisted",
+    daily: 90_000,
+    apiUsdPerMillion: null,
+    billing: "api",
+    threads: ["thread-fan-out"],
   },
 ];
 
@@ -136,7 +155,19 @@ function factor(dayIndex: number, sourceIndex: number): number {
 function totals(input: number, source: UsageSource): UsageTotals {
   const output = Math.round(input * 0.25);
   const usd = (perMillion: number) => ((input + output) / 1_000_000) * perMillion;
-  const api = source.apiUsdPerMillion === null ? null : usd(source.apiUsdPerMillion);
+  const api =
+    estimateTokens(
+      {
+        input,
+        output,
+        cached: Math.round(input * 0.55),
+        reasoning: 0,
+        write: 0,
+        write1h: 0,
+        cost: 0,
+      },
+      source.model,
+    ) ?? (source.apiUsdPerMillion === null ? null : usd(source.apiUsdPerMillion));
   return {
     inputTokens: input,
     outputTokens: output,
@@ -144,7 +175,10 @@ function totals(input: number, source: UsageSource): UsageTotals {
     reasoningTokens: Math.round(output * 0.4),
     cacheWriteTokens: 0,
     cacheWrite1hTokens: 0,
-    providerReportedUsd: source.reportedUsdPerMillion ? usd(source.reportedUsdPerMillion) : 0,
+    providerReportedUsd:
+      source.billing === "api" && source.reportedUsdPerMillion
+        ? usd(source.reportedUsdPerMillion)
+        : 0,
     estimatedUsd: source.billing === "api" ? (api ?? 0) : 0,
     equivalentApiUsd: api,
     overflow: false,
@@ -203,7 +237,10 @@ export class FakeUsage {
     const to = Math.floor(Date.parse(query.to) / dayMs);
     const groups = new Map<string, UsageRow>();
     for (let dayIndex = from; dayIndex <= to; dayIndex++) {
-      const date = new Date(dayIndex * dayMs).toISOString().slice(0, 10);
+      const day = new Date(dayIndex * dayMs);
+      if (query.bucket === "month") day.setUTCDate(1);
+      if (query.bucket === "week") day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
+      const date = day.toISOString().slice(0, 10);
       this.sources.forEach((source, index) => {
         const values: Partial<Record<UsageDimension, string | null>> = {
           day: date,
@@ -226,6 +263,7 @@ export class FakeUsage {
         const key = JSON.stringify(dimensions);
         const row = groups.get(key);
         const next = totals(input, source);
+        if (!query.equivalentApiCost) next.equivalentApiUsd = null;
         groups.set(
           key,
           row ? { dimensions, totals: add(row.totals, next) } : { dimensions, totals: next },
@@ -242,7 +280,11 @@ export class FakeUsage {
       cursor: 0,
       omittedEvents: 0,
       timezone: this.timezone,
-      priceVersion: "fake-2026-10",
+      priceVersion: defaultPrices.version,
+      priceAsOf: defaultPrices.asOf,
+      priceSources: defaultPrices.sources,
+      costLabel: "estimate",
+      tokenSource: "cli",
       rows: rows.slice(0, query.limit),
       truncated: rows.length > query.limit,
     };

@@ -5,6 +5,7 @@ import { UsageBatch, type UsageEvent } from "./events.ts";
 import { Counts, type Counts as CountValues } from "./counters.ts";
 import { accountSample, counterPolicy } from "./accounting.ts";
 import { upsertDaily } from "./database.ts";
+import { retainedDay } from "./retention.ts";
 const Agent = z.object({
   thread: z.string(),
   parent: z.string().nullable(),
@@ -27,11 +28,20 @@ export class Ingestion {
   private readonly sessionTotals: SessionTotals;
   private readonly db: DatabaseSync;
   private readonly day: (at: number) => string;
+  private readonly retentionDays: number;
+  private readonly incrementRetentionDays: number;
   private readonly statements = new Map<string, StatementSync>();
-  constructor(db: DatabaseSync, day: (at: number) => string) {
+  constructor(
+    db: DatabaseSync,
+    day: (at: number) => string,
+    retentionDays: number,
+    incrementRetentionDays: number,
+  ) {
     this.db = db;
     this.sessionTotals = new SessionTotals(db);
     this.day = day;
+    this.retentionDays = retentionDays;
+    this.incrementRetentionDays = incrementRetentionDays;
   }
   private sql(query: string): StatementSync {
     let s = this.statements.get(query);
@@ -60,6 +70,15 @@ export class Ingestion {
           if (delta) deltas.push(delta);
         }
       if (deltas.length) this.sql(upsertDaily).run(JSON.stringify(deltas));
+      const latest = Number(
+        this.sql("SELECT latest_at FROM usage_meta WHERE id=1").get()?.latest_at,
+      );
+      this.sql("DELETE FROM usage_daily WHERE day<?").run(
+        retainedDay(this.day(latest), this.retentionDays),
+      );
+      this.sql("DELETE FROM usage_increments WHERE at<?").run(
+        Math.max(0, latest - this.incrementRetentionDays * 86_400_000),
+      );
       const next = Math.max(cursor, batch.throughSeq);
       this.sql("UPDATE usage_meta SET cursor=? WHERE id=1").run(next);
       this.db.exec("COMMIT");
@@ -197,6 +216,7 @@ export class Ingestion {
       );
     const delta = result.delta;
     if (Object.values(delta).every((v) => v === 0)) return;
+    this.sql("UPDATE usage_meta SET latest_at=MAX(latest_at,?) WHERE id=1").run(event.at);
     const billing = p.billingMode ?? "unknown";
     const account = p.accountId ?? "";
     this.sql("INSERT INTO usage_increments VALUES (?, ?, ?, ?, ?, ?, ?)").run(

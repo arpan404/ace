@@ -105,6 +105,9 @@ export type ProviderInstance = z.infer<typeof ProviderInstance>;
 export const QuotaWindow = z.object({
   usedPercent: z.number().min(0).max(100),
   resetsAt: z.number().finite().nonnegative().nullable(),
+  remainingPercent: z.number().min(0).max(100).optional(),
+  windowDurationMins: z.number().finite().positive().optional(),
+  source: z.enum(["cli", "status_estimate", "limit_error"]).optional(),
 });
 export const CursorSdkAuth = z.strictObject({
   status: z.enum(["logged-in", "logged-out"]),
@@ -114,6 +117,8 @@ export const AccountQuota = z.object({
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   cursorSdkAuth: CursorSdkAuth.optional(),
   observedAt: z.number().finite().nonnegative(),
+  billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
+  plan: z.string().min(1).max(128).optional(),
   windows: z
     .record(z.string().max(128), QuotaWindow)
     .refine((w) => Object.keys(w).length <= 32)
@@ -154,6 +159,7 @@ export const AccountSummary = z.object({
   label: z.string().max(128),
   quota: AccountQuota,
   availability: AccountAvailability,
+  blockedUntil: z.number().finite().nonnegative().nullable().optional(),
 });
 export type AccountSummary = z.infer<typeof AccountSummary>;
 const cleanupWarnings = z

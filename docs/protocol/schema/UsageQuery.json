@@ -13,6 +13,14 @@
       "minLength": 1,
       "type": "string"
     },
+    "bucket": {
+      "enum": [
+        "day",
+        "week",
+        "month"
+      ],
+      "type": "string"
+    },
     "equivalentApiCost": {
       "default": false,
       "type": "boolean"

@@ -13,6 +13,7 @@ import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from 
 import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
+import { availability, blockedUntil } from "@ace/accounts/availability";
 import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
@@ -48,6 +49,16 @@ const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string
  */
 export class FakeServices {
   readonly providerInstalls: FakeProviderInstalls;
+  updateQuota(id: string, quota: AccountSummary["quota"]): void {
+    const account = this.accounts.find((candidate) => candidate.id === id);
+    if (!account) throw new Error("Unknown fake account");
+    Object.assign(account, {
+      quota,
+      availability: availability(quota, this.host.clock()),
+      blockedUntil: blockedUntil(quota, this.host.clock()),
+    });
+    this.host.broadcast?.({ type: "usage.limits_changed", account });
+  }
   readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];
   readonly authTerminals = new Map<
@@ -528,10 +539,23 @@ export class FakeServices {
           type: "usage.result",
           requestId: message.requestId,
           kind: message.type === "usage.summary" ? "summary" : "series",
-          result: this.usage.report(
-            message.query,
-            message.type === "usage.summary" ? "summary" : "series",
-          ),
+          result: {
+            ...this.usage.report(
+              message.query,
+              message.type === "usage.summary" ? "summary" : "series",
+            ),
+            ...(message.query.filters.provider || message.query.filters.account
+              ? {
+                  accounts: this.accounts.filter(
+                    (account) =>
+                      (!message.query.filters.provider ||
+                        message.query.filters.provider.includes(account.provider)) &&
+                      (!message.query.filters.account ||
+                        message.query.filters.account.includes(account.id)),
+                  ),
+                }
+              : {}),
+          },
         };
       case "accounts.migrate":
         return {

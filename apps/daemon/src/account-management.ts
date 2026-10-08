@@ -387,7 +387,12 @@ export class AccountManagement {
         });
     registry.ingest(instance.id, {
       provider: instance.provider,
-      payload: new ProviderPayload(JSON.stringify({ auth: status.auth })),
+      payload: new ProviderPayload(
+        JSON.stringify({
+          auth: status.auth,
+          ...("authDetail" in status ? { authDetail: status.authDetail } : {}),
+        }),
+      ),
       observedAt: now(),
       timeZone: "UTC",
     });
