@@ -1,5 +1,5 @@
 import {
-  accountTag,
+  accountDisplayName,
   modelControlName,
   pickerModel,
   pickerProviders,
@@ -47,10 +47,10 @@ export function ModelPicker(props: {
       : none
         ? { label: "No models available", aria: "no models available" }
         : {
-            label: `No models on ${account ? accountTag(account.label) : "this account"}`,
+            label: `No models on ${account ? accountDisplayName(account.label) : "this account"}`,
             aria: "no models on this account",
           };
-  const tag = account ? accountTag(account.label) : undefined;
+  const tag = account ? accountDisplayName(account.label) : undefined;
   const efforts = model?.efforts ?? [];
   const speed = speedControl({
     model: model && {
@@ -75,6 +75,11 @@ export function ModelPicker(props: {
   );
   const view: ModelControlView = {
     provider,
+    side: "bottom",
+    accountLabel:
+      (props.options?.accounts.filter((option) => option.provider === provider).length ?? 0) > 1
+        ? tag
+        : undefined,
     label: model?.label,
     placeholder: empty.label,
     ariaLabel: `Model: ${name ?? empty.aria}`,
@@ -93,7 +98,12 @@ export function ModelPicker(props: {
     canReset: effort !== model?.defaultEffort || speed.on !== !!model?.fastDefault,
     accounts: (props.options?.accounts ?? [])
       .filter((option) => option.provider === provider)
-      .map((option) => ({ id: option.id, label: accountTag(option.label), detail: option.usage })),
+      .map((option) => ({
+        id: option.id,
+        authMethod: option.authMethod,
+        label: accountDisplayName(option.label),
+        detail: option.usage,
+      })),
     account: account?.id,
     models,
     providers: pickerProviders(models, statuses.data ?? []),

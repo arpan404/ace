@@ -1,3 +1,10 @@
+import {
+  AddAccountButton,
+  canAddAccounts,
+  useAddAccount,
+  AccountKeyMark,
+} from "@/features/account-management/index.ts";
+import { Select } from "@/components/ui/select.tsx";
 import { effortLabel } from "@ace/ui-core";
 import { ArrowCounterClockwiseIcon, CaretRightIcon, LightningIcon } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -54,7 +61,12 @@ export function ModelPopover(props: {
           }}
         />
       ) : (
-        <EffortPanel view={view} actions={actions} onModels={() => setPane("picker")} />
+        <EffortPanel
+          view={view}
+          actions={actions}
+          onModels={() => setPane("picker")}
+          onClose={props.onClose}
+        />
       )}
     </div>
   );
@@ -64,6 +76,7 @@ function EffortPanel(props: {
   view: ModelControlView;
   actions: ModelControlActions;
   onModels(): void;
+  onClose(): void;
 }) {
   const { view, actions } = props;
   const efforts = view.efforts;
@@ -129,8 +142,14 @@ function EffortPanel(props: {
           </button>
         </Tip>
       </div>
-      {view.accounts.length > 1 && (
-        <Accounts accounts={view.accounts} value={view.account} onChange={actions.onAccount} />
+      {view.provider && (
+        <Accounts
+          provider={view.provider}
+          accounts={view.accounts}
+          value={view.account}
+          onChange={actions.onAccount}
+          onClose={props.onClose}
+        />
       )}
       {steps.length > 1 && (
         <DisabledReason reason={view.effortReason}>
@@ -157,32 +176,61 @@ function EffortPanel(props: {
   );
 }
 
-/** Which account runs the model: a row of quiet chips, each with its usage on hover. */
+/** One compact account selector, including the shared add flow. The current account stays selected at a limit. */
 function Accounts(props: {
+  provider: NonNullable<ModelControlView["provider"]>;
   accounts: readonly AccountRow[];
   value: string | undefined;
   onChange(id: string): void;
+  onClose(): void;
 }) {
+  const add = useAddAccount();
+  const current = props.accounts.find((account) => account.id === props.value);
+  if (!current)
+    return (
+      <AddAccountButton provider={props.provider} label="Add account…" onOpen={props.onClose} />
+    );
   return (
-    <div role="group" aria-label="Account" className="flex flex-wrap items-center gap-1">
-      <span className="mr-1 text-xs text-muted-foreground">Account</span>
-      {props.accounts.map((account) => (
-        <Tip key={account.id} label={account.disabled ?? account.detail} side="bottom">
-          <button
-            type="button"
-            aria-pressed={account.id === props.value}
-            aria-label={`Account ${account.label}`}
-            aria-disabled={account.disabled ? true : undefined}
-            data-disabled={account.disabled ? "" : undefined}
-            onClick={() => {
-              if (!account.disabled && account.id !== props.value) props.onChange(account.id);
+    <div
+      className="flex items-center gap-2"
+      onKeyDownCapture={(event) => {
+        if (
+          event.key === "Escape" &&
+          event.target instanceof HTMLElement &&
+          event.target.closest('[role="combobox"]')?.getAttribute("aria-expanded") === "false"
+        ) {
+          event.stopPropagation();
+          props.onClose();
+        }
+      }}
+    >
+      <span className="text-xs text-muted-foreground">Account</span>
+      <Tip label={current.disabled ?? current.detail}>
+        <span className="min-w-0 flex-1">
+          <Select
+            label="Account"
+            value={current.id}
+            className="w-full bg-transparent"
+            options={[
+              ...props.accounts.map((account) => ({
+                value: account.id,
+                label: `${account.label}${account.disabled ? " · Limit reached" : ""}`,
+                disabled: !!account.disabled && account.id !== current.id,
+              })),
+              ...(add && canAddAccounts(props.provider)
+                ? [{ value: "add-account", label: "Add account…" }]
+                : []),
+            ]}
+            onValueChange={(id) => {
+              if (id === "add-account") {
+                props.onClose();
+                add?.(props.provider);
+              } else if (id !== current.id) props.onChange(id);
             }}
-            className="h-6 max-w-32 truncate rounded-sm px-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] hover:bg-accent aria-pressed:font-semibold aria-pressed:text-foreground data-disabled:opacity-40"
-          >
-            {account.label}
-          </button>
-        </Tip>
-      ))}
+          />
+        </span>
+      </Tip>
+      <AccountKeyMark method={current.authMethod} />
     </div>
   );
 }

@@ -25,6 +25,8 @@ export interface AccountView {
   /** CLI version discovery reported, if any. */
   version: string | undefined;
   label: string;
+  authMethod?: Summary["authMethod"] | undefined;
+  signedInAs?: string | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
   implicit?: boolean | undefined;
   /** New threads on this provider start on it. */
@@ -61,6 +63,16 @@ export function quotaWindowLabel(name: string): string {
   return classify(name).label;
 }
 
+/** Account names stay exactly as entered. Normal-profile logins use only reported identity. */
+export function accountDisplayName(
+  account:
+    | string
+    | { label: string; implicit?: boolean | undefined; signedInAs?: string | undefined },
+): string {
+  if (typeof account === "string") return account;
+  return account.implicit ? (account.signedInAs ?? "Your CLI login") : account.label;
+}
+
 /** What the accounts screen and pickers show for one `accounts.list` entry. */
 export function accountView(summary: Summary): AccountView {
   const ranked: (QuotaWindowView & { rank: number })[] = [];
@@ -78,7 +90,9 @@ export function accountView(summary: Summary): AccountView {
     acpAgentId: summary.acpAgentId,
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
-    label: summary.label,
+    label: accountDisplayName(summary),
+    authMethod: summary.authMethod,
+    signedInAs: summary.signedInAs,
     ...(summary.implicit ? { implicit: true } : {}),
     ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,

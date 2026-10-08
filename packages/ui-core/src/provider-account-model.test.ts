@@ -132,7 +132,7 @@ test("OpenCode can offer credential-free models while its normal profile is sign
     row: { ...row, provider: "opencode", modelsAvailable: true },
   });
   expect(model.view?.ready).toBe(true);
-  expect(model.view?.summary).toBe("Ready");
+  expect(model.view?.summary).toBe("Ready · Your CLI login");
   expect(model.view?.primary).toBeUndefined();
   expect(accountStatus(model.accounts[0] ?? normal, 10).canRun).toBe(true);
 });

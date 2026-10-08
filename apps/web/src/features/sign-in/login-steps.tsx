@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { BrowserStep, ChallengeFooter, CodeStep } from "./login-challenge.tsx";
 import type { LoginController, LoginView } from "./login-controller.ts";
-import { Done, Problem } from "./login-outcome.tsx";
+import { Problem } from "./login-outcome.tsx";
 import { Actions, refusals, Step, StepTitle, useFocusOnShow, Waiting } from "./login-parts.tsx";
 import { ApiKeyStep } from "./api-key-step.tsx";
 import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
@@ -22,17 +22,6 @@ interface Context {
   /** Connecting or disconnecting one service of OpenCode or Pi ("OpenAI"). */
   service: string | undefined;
   row: ProviderReadiness | undefined;
-}
-
-/** How a finished sign-in reads: the title and the line under the check. */
-function finished(context: Context): [string, string] {
-  if (context.service)
-    return context.logout
-      ? [`${context.service} is disconnected`, `${context.name} no longer uses it.`]
-      : [`${context.service} is connected`, `${context.name} can use its models now.`];
-  if (context.logout) return [`Signed out of ${context.name}`, "Sign in again any time."];
-  const label = context.row?.readiness === "signed_in" ? context.row.accountLabel : undefined;
-  return ["You're signed in", label ? `Signed in as ${label}` : `Signed in to ${context.name}`];
 }
 
 /** Where the provider has a terminal recipe, what to run instead. */
@@ -168,14 +157,8 @@ export function LoginBody(props: {
           <div className="flex justify-end border-t pt-3">{cancel}</div>
         </Step>
       );
-    case "succeeded": {
-      const [title, line] = finished(context);
-      return (
-        <Step key={key}>
-          <Done title={title} line={line} onClose={props.onClose} />
-        </Step>
-      );
-    }
+    case "succeeded":
+      return null;
     case "cancelled":
       return (
         <Step key={key}>

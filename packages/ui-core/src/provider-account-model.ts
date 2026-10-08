@@ -1,6 +1,6 @@
 import { availability } from "@ace/accounts/availability";
 import type { ProviderKind, ProviderStatus } from "@ace/protocol";
-import type { AccountView } from "./accounts.ts";
+import { accountDisplayName, type AccountView } from "./accounts.ts";
 import {
   readinessView,
   type CatalogSignal,
@@ -28,7 +28,7 @@ export function accountStatus(account: AccountView, now: number): AccountStatusV
       return { tone: "action", text: "Signed out", canRun: false };
     case "unknown":
       if (account.runtimeStatus) return account.runtimeStatus;
-      return { tone: "idle", text: "Sign-in not reported", canRun: false };
+      return { tone: "idle", text: "Not signed in yet", canRun: false };
     case "exhausted":
       return { tone: "problem", text: "Limit reached", canRun: false };
     case "near_limit":
@@ -83,7 +83,12 @@ export function providerAccountModel(input: {
     const quota = auth === "unknown" ? account.quota : { ...account.quota, auth };
     accounts.push({
       ...account,
-      label: input.row.accountLabel ?? account.label,
+      authMethod: input.row.authMethod ?? account.authMethod,
+      signedInAs: input.row.accountLabel ?? account.signedInAs,
+      label: accountDisplayName({
+        ...account,
+        signedInAs: input.row.accountLabel ?? account.signedInAs,
+      }),
       quota,
       signedIn: quota.auth === "logged_in",
       runtimeStatus:
@@ -104,17 +109,18 @@ export function providerAccountModel(input: {
   if (base?.state === "not_installed" || base?.state === "off")
     return { accounts, loaded, view: base };
   const usable = accounts.filter((account) => accountStatus(account, input.now).canRun);
-  const runnable = usable.find((account) => account.implicit) ?? usable[0];
+  const runnable = usable.find((account) => account.isDefault) ?? usable[0];
   // Model evidence is only a fallback for an unreported normal-profile login, not a quota bypass.
   if (runnable || (base?.ready && !accounts.length)) {
     const label = runnable ? accountStatus(runnable, input.now).text : (base?.label ?? "Ready");
+    const selected = accounts.find((account) => account.isDefault) ?? runnable;
     const summary =
-      runnable?.implicit && runnable.quota.auth === "logged_in" && input.row?.accountLabel
-        ? `Signed in as ${input.row.accountLabel}`
-        : runnable
-          ? runnable.implicit || !accounts.some((account) => account.implicit)
+      selected?.implicit && selected.quota.auth === "logged_in" && input.row?.accountLabel
+        ? `Signed in as ${accountDisplayName(selected)}`
+        : selected
+          ? accounts.length === 1 && selected.implicit && selected.quota.auth === "unknown"
             ? label
-            : `${label} · ${runnable.label}`
+            : `${accountStatus(selected, input.now).text} · ${accountDisplayName(selected)}`
           : (base?.summary ?? "Ready");
     return {
       accounts,
@@ -125,7 +131,7 @@ export function providerAccountModel(input: {
         ready: true,
         label,
         summary,
-        tone: runnable ? accountStatus(runnable, input.now).tone : (base?.tone ?? "ready"),
+        tone: selected ? accountStatus(selected, input.now).tone : (base?.tone ?? "ready"),
         primary: undefined,
         more: base?.more ?? [],
       },

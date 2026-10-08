@@ -63,7 +63,7 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     id,
     provider: id,
     installationVersion: version,
-    label: id === "cursor" ? "Default (your SDK login)" : "Default (your CLI login)",
+    label: "Your CLI login",
     authMethod: "unknown",
     implicit: true,
     isDefault: true,
@@ -102,7 +102,7 @@ export function accountSummaries(now: number): AccountSummary[] {
         provider,
         installationVersion: registered.find((account) => account.provider === provider)
           ?.cliVersion,
-        label: "Default (your CLI login)",
+        label: "Your CLI login",
         implicit: true,
         isDefault: true,
         availability: "unknown" as const,

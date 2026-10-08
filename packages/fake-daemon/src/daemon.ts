@@ -1108,7 +1108,21 @@ export class FakeDaemon implements Host {
     }
     if (isQueueCommand(payload)) {
       const result = this.run(commandId, payload.threadId, (host) =>
-        queueCommand(host, payload, this.options.clock(), commandId),
+        queueCommand(
+          host,
+          payload,
+          this.options.clock(),
+          commandId,
+          payload.type === "thread.limit"
+            ? this.services.accounts.find(
+                (account) =>
+                  account.id ===
+                  (payload.action === "migrate_now"
+                    ? (payload.instanceId ?? this.migrationTarget(host))
+                    : (host.view.thread.live?.account ?? host.view.thread.execution?.instanceId)),
+              )
+            : undefined,
+        ),
       );
       // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
       // does when none is named, the same provider's account with headroom.

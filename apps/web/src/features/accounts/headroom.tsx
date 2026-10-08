@@ -6,10 +6,9 @@ import { formatResetCountdown } from "./format.ts";
 /** "1 of 2 accounts can work · Most room: Personal, 62% of 5-hour left · Team resets 23:52 · in 1h 27m". */
 function headroomLine(row: ProviderHeadroom, now: number): string {
   const parts = [
-    row.available === 0
-      ? `${row.accounts === 1 ? "Its account is" : `All ${row.accounts} accounts are`} at a limit`
-      : `${row.available} of ${row.accounts} ${row.accounts === 1 ? "account" : "accounts"} can work`,
+    `${row.available} of ${row.accounts} ${row.accounts === 1 ? "account" : "accounts"} can work`,
   ];
+  if (row.unreported) parts.push(`${row.unreported} with no limits reported`);
   if (row.best && row.accounts > 1)
     parts.push(
       `Most room: ${row.best.account.label}, ${row.best.left}% of ${row.best.window.label} left`,

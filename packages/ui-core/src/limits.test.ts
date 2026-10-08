@@ -199,19 +199,19 @@ test("headroom names each provider's account with the most room and the next one
       ]),
       // Its full window has already reset: it can work.
       account("codex-spare", [["five_hour", 100, -minute]]),
-      // Unknown: neither counted nor compared.
+      // Unknown: counted in the account total, without claiming usable headroom.
       account("codex-new", [["five_hour", 5, hour]], { auth: "unknown" }),
       // Reports nothing to compare.
       account("opencode-default", []),
     ],
     now,
   );
-  expect(rows.map((row) => row.providerLabel)).toEqual(["Claude Code", "Codex"]);
+  expect(rows.map((row) => row.providerLabel)).toEqual(["Claude Code", "Codex", "OpenCode"]);
   const [claude, codex] = rows;
   // Work's tightest window (Weekly, 57%) still leaves more than Personal's (5-hour, 62%).
   expect(claude).toMatchObject({ accounts: 2, available: 2, best: { left: 43 } });
   expect(claude?.best?.account.id).toBe("claude-work");
-  expect(codex).toMatchObject({ accounts: 3, available: 2, nextReset: { at: now + 2 * day } });
+  expect(codex).toMatchObject({ accounts: 4, available: 2, nextReset: { at: now + 2 * day } });
   expect(codex?.best?.account.id).toBe("codex-personal");
 });
 

@@ -1,3 +1,4 @@
+import { AccountKeyMark } from "@/features/account-management/index.ts";
 import { ArrowRightIcon, PlayIcon } from "@phosphor-icons/react";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { Icon } from "@/components/icon.tsx";
@@ -30,6 +31,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
     <article aria-label={`${account.providerLabel} ${account.label}`} className="border-b py-1">
       <div className="flex min-h-8 items-center gap-2 text-ui">
         <span className="min-w-0 flex-1 truncate font-medium">{account.label}</span>
+        <AccountKeyMark method={account.authMethod} />
         <StatusLine tone={state.tone} text={state.text} />
       </div>
       {account.windows.length > 0 ? (
@@ -40,9 +42,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
         </div>
       ) : (
         account.signedIn && (
-          <p className="mt-2 text-sm text-subtle-foreground">
-            {account.providerLabel} doesn't report usage
-          </p>
+          <p className="mt-2 text-sm text-subtle-foreground">No limits reported yet</p>
         )
       )}
       {waiting > 0 ? (

@@ -27,9 +27,6 @@ const DeferredProviderTail = deferredComponent(() =>
   import("./provider-about.tsx").then((module) => module.ProviderTail),
 );
 
-const DeferredProviderUsage = deferredComponent(() =>
-  import("@/features/accounts/index.ts").then((module) => module.ProviderUsage),
-);
 const DeferredProviderServices = deferredComponent(() =>
   import("./provider-services.tsx").then((module) => module.ProviderServices),
 );
@@ -121,6 +118,24 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             <p className="py-1 text-sm text-muted-foreground">{view.detail}</p>
           )}
         </SettingSection>
+        {!missing && (
+          <>
+            <Suspense fallback={null}>
+              <DeferredProviderAccounts.Component
+                provider={install.kind}
+                acpAgentId={install.acpAgentId}
+                name={install.name}
+              />
+            </Suspense>
+            <Link
+              to="/accounts"
+              className="mt-3 inline-block text-sm text-muted-foreground hover:text-foreground"
+            >
+              View usage ›
+            </Link>
+          </>
+        )}
+
         <ProviderPreferences provider={install.kind} missing={missing} />
         {!missing && (
           <>
@@ -129,21 +144,6 @@ function ProviderPage(props: { entry: ProviderEntry }) {
                 <DeferredProviderServices.Component provider={install.kind} name={install.name} />
               </Suspense>
             )}
-            <Suspense fallback={null}>
-              <DeferredProviderAccounts.Component
-                provider={install.kind}
-                acpAgentId={install.acpAgentId}
-                name={install.name}
-              />
-            </Suspense>
-            <SettingSection label="Usage">
-              <Suspense fallback={null}>
-                <DeferredProviderUsage.Component
-                  provider={install.kind}
-                  acpAgentId={install.acpAgentId}
-                />
-              </Suspense>
-            </SettingSection>
             <SettingSection label="Models">
               <Suspense
                 fallback={

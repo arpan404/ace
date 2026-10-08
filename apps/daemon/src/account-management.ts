@@ -1,4 +1,4 @@
-import { inspectAccountSupport } from "./provider-account-support.ts";
+import { inspectAccountSupport, reportedAuthMethod } from "./provider-account-support.ts";
 import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,7 @@ import type { ModelCatalog } from "@ace/models";
 interface AuthTerminal {
   cancelTimer?: () => void;
   starting?: boolean;
+  exited?: boolean;
   startup?: Promise<void>;
   controller: AbortController;
   sdk?: boolean;
@@ -90,6 +91,8 @@ export class AccountManagement {
   }
   async initialize(): Promise<void> {
     await this.options.registry.ready;
+    for (const { instance } of this.options.registry.pendingInstances())
+      await this.discardPending(instance.id);
     await registerImplicitAccounts(this.options.registry, this.options.env);
     // Restore isolated catalog identities on restart, using only read-only metadata probes.
     for (const { instance } of this.options.registry.list())
@@ -118,6 +121,35 @@ export class AccountManagement {
         this.restorations.add(refresh);
         void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
+  }
+  async addPending(provider: ProviderInstance["provider"], label: string): Promise<string> {
+    const id = `account-${this.options.id()}`;
+    const instance = await createManagedHome(this.options.dataDir, id, provider, label);
+    try {
+      await this.options.registry.registerPending(instance);
+    } catch (error) {
+      await deleteManagedHome(this.options.dataDir, instance);
+      throw error;
+    }
+    return id;
+  }
+  async finishPending(id: string, state: "succeeded" | "failed" | "cancelled"): Promise<void> {
+    if (!this.options.registry.isPending(id)) return;
+    if (state === "succeeded") this.options.registry.publishAccount(id);
+    else {
+      for (const [terminalId, entry] of this.terminals)
+        if (entry.instance?.id === id) {
+          entry.controller.abort(new Error("Sign-in cancelled"));
+          await this.stop(terminalId, entry.owner);
+        }
+      if (this.options.registry.isPending(id)) await this.discardPending(id);
+    }
+  }
+  private async discardPending(id: string): Promise<void> {
+    const instance = this.account(id);
+    await this.options.models()?.removeInstance(id);
+    await deleteManagedHome(this.options.dataDir, instance);
+    this.options.registry.unregister(id);
   }
   summaries(provider: ProviderInstance["provider"]) {
     return this.options.registry
@@ -352,7 +384,10 @@ export class AccountManagement {
         cols: 80,
         rows: 24,
       },
-      emit,
+      (event) => {
+        if (event.type === "exit") entry.exited = true;
+        emit(event);
+      },
     );
     entry.terminal = terminal;
     entry.starting = false;
@@ -364,6 +399,14 @@ export class AccountManagement {
           this.options.registry.loginChanged(instance.id);
           if (sdk) await sdk.rebind(instance.id);
           await this.refresh(instance);
+          if (this.options.registry.isPending(instance.id)) {
+            if (
+              !entry.controller.signal.aborted &&
+              this.options.registry.get(instance.id)?.quota.auth === "logged_in"
+            )
+              this.options.registry.publishAccount(instance.id);
+            else await this.discardPending(instance.id);
+          }
           await this.options.authChanged?.();
         } finally {
           entry.cancelTimer?.();
@@ -390,7 +433,7 @@ export class AccountManagement {
     const entry = this.terminals.get(id);
     if (!entry || entry.owner !== owner) return;
     entry.cancelTimer?.();
-    entry.controller.abort(new Error("Auth terminal cancelled"));
+    if (!entry.exited) entry.controller.abort(new Error("Auth terminal cancelled"));
     // Discovery/fencing owns resources until its promise settles, even on cancellation.
     await entry.startup?.catch(() => {});
     if (entry.terminal) {
@@ -422,6 +465,12 @@ export class AccountManagement {
           env,
           ...(this.options.signal ? { signal: this.options.signal } : {}),
         });
+    if (status.auth === "logged_in" && "authDetail" in status)
+      registry.recordAuth(
+        instance.id,
+        reportedAuthMethod(status.authDetail),
+        "accountLabel" in status ? status.accountLabel : undefined,
+      );
     registry.ingest(instance.id, {
       provider: instance.provider,
       payload: new ProviderPayload(

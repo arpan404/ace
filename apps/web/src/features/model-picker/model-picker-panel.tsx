@@ -1,3 +1,4 @@
+import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderKind } from "@ace/protocol";
 import {
   pickerGroups,
@@ -29,7 +30,7 @@ const numbered = 9;
  * refreshing, another tab, a search or a new star never move the search field or the list.
  * Longer lists scroll; the viewport can still make it shorter.
  */
-const panelHeight = 340;
+const panelHeight = 480;
 
 const tabButton =
   "grid size-8 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground data-disabled:opacity-40";
@@ -63,6 +64,7 @@ export function ModelPickerPanel(props: {
 }) {
   const { favorites, toggle: star } = useFavoriteModels();
   const instances = useModelInstances();
+  const accounts = useAccountViews();
   const refresh = useRefreshModels();
   // A provider whose discovery failed keeps its tab open, to say why it has nothing to pick.
   const troubled = providersWithProblems(instances);
@@ -97,7 +99,7 @@ export function ModelPickerPanel(props: {
   // Legacy models open where the current model is one of them, until the person toggles them.
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
   const expanded = (group: PickerGroup) => toggled.get(group.id) ?? group.legacy.some(isCurrent);
-  const groups = mixed ? [] : pickerGroups(scoped, instances, tab);
+  const groups = mixed ? [] : pickerGroups(scoped, instances, tab, accounts.data ?? []);
   const items: Item[] = mixed
     ? pickerList(scoped, { query, favorites, instance: props.currentInstance }).rows.map(
         (model) => ({ kind: "model", model, group: undefined }),
@@ -126,9 +128,17 @@ export function ModelPickerPanel(props: {
   const active = Math.min(highlight ?? start, Math.max(0, items.length - 1));
   const listId = useId();
   const search = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => search.current?.focus({ preventScroll: true }), []);
   // Keyboard moves keep the highlighted row in view inside the scrolling list.
   useEffect(() => {
-    document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+    const pane = list.current;
+    const row = document.getElementById(`${listId}-${active}`);
+    if (!pane || !row) return;
+    const bounds = pane.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    if (item.top < bounds.top) pane.scrollTop -= bounds.top - item.top;
+    else if (item.bottom > bounds.bottom) pane.scrollTop += item.bottom - bounds.bottom;
   }, [listId, active]);
   const tabs: { id: PickerTab; reason: string | undefined }[] = props.only
     ? []
@@ -327,7 +337,6 @@ export function ModelPickerPanel(props: {
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
-            autoFocus
             role="combobox"
             aria-label="Search models"
             aria-controls={listId}
@@ -357,6 +366,7 @@ export function ModelPickerPanel(props: {
           />
         </div>
         <div
+          ref={list}
           role="listbox"
           id={listId}
           aria-label="Models"

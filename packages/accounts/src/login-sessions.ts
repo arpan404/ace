@@ -37,6 +37,7 @@ export interface LoginSessionsOptions {
 }
 interface Job {
   owner: string;
+  settled?: ((state: "succeeded" | "failed" | "cancelled") => Promise<void>) | undefined;
   upstream?: "openai" | "anthropic" | "openrouter" | "opencode";
   key: string;
   requestId: string;
@@ -70,7 +71,11 @@ export class ProviderLoginSessions {
       ]),
     );
   }
-  async handle(owner: string, input: unknown): Promise<ProviderLoginResult> {
+  async handle(
+    owner: string,
+    input: unknown,
+    settled?: Job["settled"],
+  ): Promise<ProviderLoginResult> {
     let request: ProviderLoginRequest | undefined;
     try {
       try {
@@ -78,7 +83,7 @@ export class ProviderLoginSessions {
       } catch {
         throw new Error("Invalid login request");
       }
-      return await this.dispatch(owner, request);
+      return await this.dispatch(owner, request, settled);
     } finally {
       if (request?.type === "provider.login.apiKey") request.apiKey = "";
       if (typeof input === "object" && input !== null && "apiKey" in input) input.apiKey = "";
@@ -87,6 +92,7 @@ export class ProviderLoginSessions {
   private async dispatch(
     owner: string,
     request: ProviderLoginRequest,
+    settled?: Job["settled"],
   ): Promise<ProviderLoginResult> {
     const failure = (
       error: Extract<ProviderLoginResult["result"], { ok: false }>["error"],
@@ -123,6 +129,7 @@ export class ProviderLoginSessions {
       const session = this.options.id();
       const job: Job = {
         owner,
+        ...(settled ? { settled } : {}),
         ...(request.type === "provider.login.start" && request.upstream
           ? { upstream: request.upstream }
           : {}),
@@ -148,9 +155,18 @@ export class ProviderLoginSessions {
       job.timer = this.options.schedule(() => {
         job.expired = true;
         job.controller.abort();
-        void job.done.then(() => {
-          if (this.active.get(job.key) !== job) {
+        void job.done.then(async () => {
+          if (this.active.get(job.key) === job) return;
+          try {
+            await job.settled?.("failed");
+            job.settled = undefined;
             job.timer = this.options.schedule(() => this.jobs.delete(session), 60_000);
+          } catch {
+            this.active.set(job.key, job);
+            this.emit(job, {
+              state: "verifying",
+              message: "Account cleanup needs attention. Retry cancellation.",
+            });
           }
         });
       }, lifetime);
@@ -172,6 +188,8 @@ export class ProviderLoginSessions {
             return failure("busy");
           }
           job.driver?.release?.();
+          await job.settled?.("cancelled");
+          job.settled = undefined;
           this.active.delete(job.key);
           this.emit(job, { state: "cancelled", message: "Sign-in cancelled." });
           if (job.expired) {
@@ -179,6 +197,10 @@ export class ProviderLoginSessions {
             job.timer = this.options.schedule(() => this.jobs.delete(request.session), 60_000);
           }
         }
+      } else if (job.settled) {
+        await job.settled("cancelled");
+        job.settled = undefined;
+        this.emit(job, { state: "cancelled", message: "Sign-in cancelled." });
       }
     } else if (request.type === "provider.login.apiKey") {
       const key = Buffer.from(request.apiKey, "utf8");
@@ -256,6 +278,26 @@ export class ProviderLoginSessions {
       return;
     }
     job.driver?.release?.();
+    const state = signal.aborted
+      ? job.expired
+        ? "failed"
+        : "cancelled"
+      : success
+        ? "succeeded"
+        : "failed";
+    try {
+      // A manual fallback still owns the staged home until its terminal finishes or is cancelled.
+      if (state !== "failed" || !manual || signal.aborted) {
+        await job.settled?.(state);
+        job.settled = undefined;
+      }
+    } catch {
+      this.emit(job, {
+        state: "verifying",
+        message: "Account cleanup needs attention. Retry cancellation.",
+      });
+      return;
+    }
     this.active.delete(job.key);
     this.emit(
       job,
@@ -293,6 +335,7 @@ export class ProviderLoginSessions {
       await job.driver?.drain?.();
       job.driver?.release?.();
     }
+    for (const job of this.jobs.values()) await job.settled?.("cancelled");
     this.active.clear();
     this.jobs.clear();
     this.listeners.clear();

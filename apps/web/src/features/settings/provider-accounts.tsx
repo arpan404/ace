@@ -18,15 +18,15 @@ import { Input } from "@/components/ui/input.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
-import { useAccountViews, WindowBar } from "@/features/accounts/index.ts";
+import { useAccountViews } from "@/features/accounts/index.ts";
 import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import { AddAccount } from "./add-provider-account.tsx";
+import { AddAccountInline, AccountKeyMark } from "@/features/account-management/index.ts";
 import {
   apiKeyUpstreamLabel,
   canAddAccounts,
   useAccountActions,
   useApiKeySupport,
-} from "./account-actions.ts";
+} from "@/features/account-management/index.ts";
 
 /*
  * Every account of a provider in one list: who it is, how it signs in, which one new threads
@@ -60,7 +60,11 @@ export function ProviderAccounts(props: {
             only={own.length === 1}
           />
         ))}
-        {manageable && <AddAccount provider={props.provider} name={props.name} />}
+        {manageable && (
+          <li>
+            <AddAccountInline provider={props.provider} />
+          </li>
+        )}
       </ul>
     </SettingSection>
   );
@@ -92,7 +96,7 @@ function AccountItem(props: {
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
   return (
-    <li className="py-1">
+    <li className="py-0.5">
       <div className="flex min-h-8 items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {renaming ? (
@@ -108,6 +112,7 @@ function AccountItem(props: {
           ) : (
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate font-medium">{label}</span>
+              <AccountKeyMark method={account.authMethod} />
               {account.isDefault && !props.only && (
                 <span className="shrink-0 text-xs text-muted-foreground">Default</span>
               )}
@@ -195,20 +200,16 @@ function AccountItem(props: {
         )}
       </div>
       {keyLogin.content}
-      {account.windows.length > 0 && (
-        <div className="grid gap-x-6 gap-y-2 py-2 text-sm sm:grid-cols-2">
-          {account.windows.map((window) => (
-            <WindowBar key={window.id} window={window} now={now} />
-          ))}
-        </div>
-      )}
       <RemoveAccount
         open={removing}
         label={account.label}
+        provider={provider}
+        apiKey={account.authMethod === "api_key"}
         onCancel={() => setRemoving(false)}
         onConfirm={() => {
           setRemoving(false);
-          actions.remove(account.id).catch(fail(`Couldn't remove ${account.label}`));
+          if (native)
+            actions.remove(native, account.id).catch(fail(`Couldn't remove ${account.label}`));
         }}
       />
     </li>
@@ -249,6 +250,8 @@ function RenameField(props: { label: string; onSave(label: string): void; onCanc
 function RemoveAccount(props: {
   open: boolean;
   label: string;
+  provider: ProviderKind;
+  apiKey: boolean;
   onCancel(): void;
   onConfirm(): void;
 }) {
@@ -258,8 +261,10 @@ function RemoveAccount(props: {
         <DialogHeader>
           <DialogTitle>Remove {props.label}?</DialogTitle>
           <DialogDescription>
-            ace stops using this account. Its sign-in stays on this computer, so adding it again is
-            quick.
+            {props.apiKey ? "ace never stored your API key. " : ""}
+            {["codex", "claude", "cursor"].includes(props.provider)
+              ? `This removes the account from ace and ${props.apiKey ? "the CLI's stored key" : "its stored sign-in"}. Sign in again to add it back.`
+              : `This removes the account from ace. ${props.apiKey ? "The key stays in the CLI's credential store" : "Its sign-in stays with the CLI"}; remove it through the CLI if needed.`}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

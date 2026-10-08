@@ -47,7 +47,7 @@ export function ModelRow(props: {
 }) {
   const { model } = props;
   const detail = rowDetail(model);
-  const marker = model.isDefault ? (model.userDefault ? "Your default" : "Default") : undefined;
+  const marker = model.isDefault ? (model.userDefault ? "Your choice" : "Recommended") : undefined;
   const subtitle = [
     props.mixed ? origin(model) : undefined,
     props.mixed && model.legacy ? "Legacy" : undefined,

@@ -35,6 +35,8 @@ const marker = path.join(home, 'fixture-signed-in');
 
 if (args[0] === '--version') {
   console.log(provider === 'codex' ? 'codex-cli 0.150.0' : provider === 'agent' ? '2026.09.26-dd393fe' : '2.1.4');
+} else if (args.includes('--help')) {
+  console.log('Usage: codex login --device-auth --with-api-key');
 } else if (args.join(' ') === 'login status' || args.join(' ') === 'auth status' || args[0] === 'status' || args[1] === 'list') {
   if (fs.existsSync(path.join(home, 'fixture-hold-status'))) {
     fs.writeFileSync(path.join(home, 'fixture-status-pid'), String(process.pid));

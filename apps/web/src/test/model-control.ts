@@ -43,3 +43,10 @@ export async function closeModelControl() {
     expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
   );
 }
+
+/** Choose an account through the popover's one-line selector. */
+export async function chooseAccount(popover: HTMLElement, name: string) {
+  await userEvent.click(within(popover).getByRole("combobox", { name: "Account" }));
+  await userEvent.click(await screen.findByRole("option", { name }));
+  await waitFor(() => expect(screen.queryByRole("option", { name })).toBeNull());
+}
