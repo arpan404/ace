@@ -96,7 +96,7 @@ function AccountItem(props: {
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
   return (
-    <li className="py-1">
+    <li className="py-0.5">
       <div className="flex min-h-8 items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {renaming ? (

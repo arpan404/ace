@@ -57,7 +57,9 @@ export function ModelControl(props: {
           )}
           <span className="min-w-0 truncate text-foreground">{view.label ?? view.placeholder}</span>
           {view.accountLabel && (
-            <span className="min-w-0 truncate text-subtle-foreground">· {view.accountLabel}</span>
+            <span className="max-w-24 shrink-0 truncate text-subtle-foreground">
+              · {view.accountLabel}
+            </span>
           )}
           {!props.compact && view.label && view.effort && (
             <span className="shrink-0 font-normal">{effortLabel(view.effort)}</span>
@@ -72,6 +74,11 @@ export function ModelControl(props: {
       <PopoverContent
         side={view.side ?? "top"}
         align="start"
+        collisionAvoidance={
+          view.side === "bottom"
+            ? { side: "none", align: "shift", fallbackAxisSide: "none" }
+            : undefined
+        }
         sideOffset={8}
         anchor={
           view.side === "bottom"

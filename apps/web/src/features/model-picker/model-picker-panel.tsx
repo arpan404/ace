@@ -128,9 +128,17 @@ export function ModelPickerPanel(props: {
   const active = Math.min(highlight ?? start, Math.max(0, items.length - 1));
   const listId = useId();
   const search = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => search.current?.focus({ preventScroll: true }), []);
   // Keyboard moves keep the highlighted row in view inside the scrolling list.
   useEffect(() => {
-    document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+    const pane = list.current;
+    const row = document.getElementById(`${listId}-${active}`);
+    if (!pane || !row) return;
+    const bounds = pane.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    if (item.top < bounds.top) pane.scrollTop -= bounds.top - item.top;
+    else if (item.bottom > bounds.bottom) pane.scrollTop += item.bottom - bounds.bottom;
   }, [listId, active]);
   const tabs: { id: PickerTab; reason: string | undefined }[] = props.only
     ? []
@@ -329,7 +337,6 @@ export function ModelPickerPanel(props: {
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
-            autoFocus
             role="combobox"
             aria-label="Search models"
             aria-controls={listId}
@@ -359,6 +366,7 @@ export function ModelPickerPanel(props: {
           />
         </div>
         <div
+          ref={list}
           role="listbox"
           id={listId}
           aria-label="Models"

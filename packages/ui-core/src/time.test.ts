@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatAge, formatAgo, formatElapsed, formatSpan } from "./time.ts";
+import { formatAge, formatAgo, formatElapsed, formatSpan, formatClock } from "./time.ts";
 
 const s = 1000;
 const m = 60 * s;
@@ -34,4 +34,10 @@ test("a run span rounds to minutes and drops a zero remainder", () => {
   expect(formatSpan(0, 6 * m + 20 * s)).toBe("6m");
   expect(formatSpan(0, h + 12 * m)).toBe("1h 12m");
   expect(formatSpan(0, 2 * h)).toBe("2h");
+});
+
+test("reset clocks follow the locale's 12 or 24 hour setting without padding the hour", () => {
+  const at = new Date(2026, 0, 2, 13, 33).getTime();
+  expect(formatClock(at, "en-US")).toBe("1:33 PM");
+  expect(formatClock(at, "en-GB")).toBe("13:33");
 });

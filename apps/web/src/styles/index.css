@@ -366,6 +366,6 @@
 }
 
 /* Confirmations wait behind open popovers, including translucent surfaces. */
-body:has([data-slot="popover-content"]) [data-slot="toast-viewport"] {
+body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] {
   visibility: hidden;
 }

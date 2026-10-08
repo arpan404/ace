@@ -25,7 +25,9 @@ export function ComposerDock({
       style={composerInset}
       className="relative flex-none pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]"
     >
-      <div className={`relative ${readingColumn}`}>{children}</div>
+      <div data-composer-area className={`relative ${readingColumn}`}>
+        {children}
+      </div>
     </div>
   );
 }

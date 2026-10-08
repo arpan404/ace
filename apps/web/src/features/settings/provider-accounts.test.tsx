@@ -109,3 +109,33 @@ test("cancelling browser sign-in never leaves a named account behind", async () 
     ),
   ).toBe(false);
 }, 30_000);
+
+test.each([
+  ["codex", "Personal", "This removes the account from ace and the CLI's stored key."],
+  ["opencode", "Work", "The key stays in the CLI's credential store"],
+] as const)(
+  "%s explains the API-key sign-in and what removing it does",
+  async (provider, label, copy) => {
+    const app = harness();
+    const target = app.daemon.services.accounts.find(
+      (row) => row.provider === provider && row.label === label,
+    );
+    if (!target) throw new Error("Missing key account");
+    target.authMethod = "api_key";
+    await app.open(`/settings/providers/${provider}`);
+    const manage = await screen.findByRole("button", { name: `Manage ${label}` });
+    const row = manage.closest("li");
+    if (!row) throw new Error("Missing account row");
+    await userEvent.hover(within(row).getByLabelText("Signed in with an API key"));
+    expect(await screen.findByRole("tooltip", { name: "Signed in with an API key" })).toBeTruthy();
+    await userEvent.click(manage);
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    const confirm = await screen.findByRole("dialog", { name: `Remove ${label}?` });
+    expect(confirm.textContent).toContain("ace never stored your API key.");
+    expect(confirm.textContent).toContain(copy);
+    await userEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: `Manage ${label}` })).toBeNull(),
+    );
+  },
+);
