@@ -373,7 +373,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"conductor.request"` |  |
 | requestId | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"},"after":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"limit":{"default":16,"type":"integer","minimum":1,"maximum":32}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"get"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId"]},{"type":"object","properties":{"op":{"type":"string","const":"subscribe"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId","subscriptionId"]},{"type":"object","properties":{"op":{"type":"string","const":"unsubscribe"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","subscriptionId"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"},"after":{"type":"string","maxLength":512,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"},"active":{"type":"boolean"},"limit":{"default":16,"type":"integer","minimum":1,"maximum":32}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"get"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId"]},{"type":"object","properties":{"op":{"type":"string","const":"subscribe"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId","subscriptionId"]},{"type":"object","properties":{"op":{"type":"string","const":"unsubscribe"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","subscriptionId"]}]} |
 
 Example:
 
@@ -400,13 +400,13 @@ Example:
 | error | no | string | {"maxLength":128} |
 | runs | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ConductorSummary.json"}} |
 | run | no | [ConductorRunView.json](schema/ConductorRunView.json) |  |
-| next | no | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| next | no | string | {"maxLength":512,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"} |
 
 Example:
 
 ```json
 {
-  "next": "MYouscgUxDP2Rkl1usGCEw0Fu9ztNz21iDiSir.uTmjvCfRubxo8BQh--gGTBK343i6497Bf37TFn",
+  "next": "MYouscg",
   "ok": false,
   "requestId": "V2ruRRtfQ_CKLO6QHIf8SANJAIZ3SXx-CvuXu3Bf7LYwSbGx.pvJ3OXHSY-8Y.R.tu",
   "run": {
@@ -607,39 +607,20 @@ Example:
 
 ```json
 {
-  "budget": 0,
+  "branch": "example",
+  "budget": 9,
   "dag": [],
-  "deadline": 5,
-  "delegations": [],
   "goal": "example",
-  "id": "DnGO_JLjspXahLzZjlxGRn46p3m-EytK9jwNsZp9RoYU5opxeSxsk49GGzRxpx38ArlBWLNf3WiodD6zfl-4Ox02j5kmFD5SKo6NM0MXgv_bDvJYPQQoSHei7DQNS",
+  "id": "vP2Rkl1usGCEw0Fu9ztNz21iDiSir.uTmjvCfRubxo8BQh--gGTBK343i6",
   "lanes": [],
   "needsUser": [],
   "phase": "done",
-  "plan": {
-    "summary": "Example plan",
-    "workstreams": [
-      {
-        "brief": {
-          "acceptance": [
-            "Example acceptance"
-          ],
-          "files": [],
-          "instructions": "Example instructions",
-          "objective": "Example objective",
-          "packages": [],
-          "risks": []
-        },
-        "dependencies": [],
-        "id": "lane",
-        "priority": 0,
-        "title": "Example workstream"
-      }
-    ]
-  },
-  "planApproved": false,
-  "spent": 4,
+  "plan": null,
+  "planApproval": "required",
+  "planApproved": true,
+  "spent": 9,
   "truncated": false,
+  "updatedAt": 8,
   "workspaceId": "example"
 }
 ```
@@ -740,16 +721,19 @@ Example:
 | phase | yes | ["planning","running","paused","cancelling","cancelled","done"] |  |
 | spent | yes | number | {"minimum":0} |
 | budget | yes | number | {"minimum":0} |
+| startedAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| updatedAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
-  "budget": 2,
+  "budget": 3,
   "goal": "example",
-  "id": "kKRmQklf6nHdhmiVt3_NxwtyozxlczDmPC1rIExEYfTOg",
-  "phase": "done",
-  "spent": 4,
+  "id": "jpXahLzZjlxGRn46p3m-EytK9jwNsZp9RoYU5",
+  "phase": "running",
+  "spent": 2,
+  "startedAt": 6,
   "workspaceId": "example"
 }
 ```
@@ -781,8 +765,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "T-GUwBGe7._U58lkTP",
-  "priority": 2,
+  "id": "r49GGzRxpx38ArlBWLNf",
+  "priority": 8,
   "title": "example"
 }
 ```

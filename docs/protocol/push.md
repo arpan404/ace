@@ -393,7 +393,7 @@ Example:
 | error | no | string | {"maxLength":128} |
 | runs | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ConductorSummary.json"}} |
 | run | no | [ConductorRunView.json](schema/ConductorRunView.json) |  |
-| next | no | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| next | no | string | {"maxLength":512,"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"} |
 
 Example:
 

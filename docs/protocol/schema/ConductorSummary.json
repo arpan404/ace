@@ -29,6 +29,16 @@
       "minimum": 0,
       "type": "number"
     },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "updatedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "workspaceId": {
       "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
     }

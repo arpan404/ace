@@ -6,8 +6,12 @@
       "oneOf": [
         {
           "properties": {
+            "active": {
+              "type": "boolean"
+            },
             "after": {
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "maxLength": 512,
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
               "type": "string"
             },
             "limit": {
