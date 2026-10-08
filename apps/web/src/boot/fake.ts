@@ -82,9 +82,9 @@ export function bootFake(): {
   });
   // This device last read the five-day migration after checkpoint 20, so opening it shows
   // what happened since (the catch-up card).
-  daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
+  if (!empty) daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
   // The hero thread was last read before reconnect-audit's finding arrived ("New activity").
-  if (daemon.itemId("thread-dedupe", "relay"))
+  if (!empty && daemon.itemId("thread-dedupe", "relay"))
     daemon.markReadThrough("thread-dedupe", "relay", "web-fake-device");
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
   // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
