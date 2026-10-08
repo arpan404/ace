@@ -33,6 +33,10 @@ const DeferredProviderServices = deferredComponent(() =>
   import("./provider-services.tsx").then((module) => module.ProviderServices),
 );
 
+const DeferredProviderMcpServers = deferredComponent(() =>
+  import("./provider-mcp-servers.tsx").then((module) => module.ProviderMcpServers),
+);
+
 const DeferredProviderAccounts = deferredComponent(() =>
   import("./provider-accounts.tsx").then((module) => module.ProviderAccounts),
 );
@@ -149,6 +153,11 @@ function ProviderPage(props: { entry: ProviderEntry }) {
                 <DeferredProviderModels.Component provider={install.kind} />
               </Suspense>
             </SettingSection>
+            {row && (
+              <Suspense fallback={null}>
+                <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />
+              </Suspense>
+            )}
           </>
         )}
         <Suspense fallback={null}>

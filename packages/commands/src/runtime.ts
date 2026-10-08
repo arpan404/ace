@@ -91,7 +91,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
   }
   if (init?.success) {
     const servers = z
-      .array(z.object({ name: z.string().min(1).max(128), status: z.string().max(128) }))
+      .array(z.object({ name: z.string().min(1).max(128) }))
       .max(128)
       .safeParse(init.data.mcp_servers);
     if (servers.success)
@@ -106,7 +106,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
           provider: target.provider,
           instance: target.instance,
           session: target.session,
-          description: `MCP server (${server.status})`,
+          description: "MCP server",
           arguments: {},
           scope: "runtime",
           body: "",
@@ -117,7 +117,7 @@ export function parseRuntime(input: unknown, target: Target): ParsedSource {
             id,
             kind: "plugin",
             name: `MCP: ${server.name}`,
-            description: `MCP server (${server.status})`,
+            description: "MCP server",
             source: { provider: target.provider, scope: "global" },
             invocation: {
               type: "unavailable",
