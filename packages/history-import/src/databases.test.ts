@@ -157,7 +157,7 @@ test("unknown database schemas return unsupported without rewriting provider byt
   expect((await service.scan()).unsupported[0]?.reason).toContain("schema");
   expect(await readFile(path)).toEqual(before);
 });
-test("OpenCode v2 history is explicitly unsupported rather than an empty successful import", async () => {
+test("Unknown OpenCode message schemas are refused rather than imported as an empty conversation", async () => {
   const { start, home, db } = await database();
   db.exec(
     "CREATE TABLE session_message(session_id TEXT);INSERT INTO session_message VALUES('session-root')",
@@ -170,7 +170,7 @@ test("OpenCode v2 history is explicitly unsupported rather than an empty success
   );
   expect(s?.support).toMatchObject({
     status: "unsupported",
-    reason: expect.stringContaining("v2"),
+    reason: expect.stringContaining("not recognized"),
   });
 });
 test("fixture-derived OpenCode parts retain observed text and tool results", async () => {
@@ -216,7 +216,10 @@ test("fixture-derived Codex response items retain assistant text", async () => {
   const home = join(env.root, "codex"),
     path = join(home, "sessions/2026/01/01/rollout.jsonl");
   const fixtures = new URL("../../../fixtures", import.meta.url).pathname;
-  const records: unknown[] = [{ type: "session_meta", payload: { id: nativeId, cwd } }];
+  const records: unknown[] = [
+    { type: "session_meta", payload: { id: nativeId, cwd } },
+    ...codexRecords().slice(2, 3),
+  ];
   const expected: string[] = [];
   for await (const record of readJsonLines(
     fixtures,

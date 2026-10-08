@@ -107,11 +107,6 @@
     opacity: 0;
     animation: fx-ring 2.4s var(--ease) infinite;
   }
-  /* A stroke drawing itself once (a success check): give the path pathLength="1". */
-  .fx-draw {
-    stroke-dasharray: 1;
-    animation: fx-draw var(--dur-4) var(--ease) var(--dur-2) both;
-  }
   /* Placeholder blocks while something loads: a slow breath of opacity. */
   .fx-skeleton {
     background: color-mix(in oklab, var(--foreground) 6%, transparent);
@@ -177,11 +172,6 @@
   }
   to {
     transform: scale(1.4);
-  }
-}
-@keyframes fx-draw {
-  from {
-    stroke-dashoffset: 1;
   }
 }
 @keyframes fx-breathe {

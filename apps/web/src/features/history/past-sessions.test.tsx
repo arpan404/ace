@@ -58,9 +58,10 @@ test("New thread lists the selected project's sessions and Import opens their sa
   const made = app();
   await made.open("/new?project=relay");
   const list = await screen.findByRole("list", { name: "Past sessions in relay" });
-  expect(await within(list).findByText("Import only")).toBeTruthy();
+  expect(within(list).queryByText("Unavailable")).toBeNull();
+  expect(within(list).queryByRole("button", { name: "Continue Trace delivery order" })).toBeNull();
   await userEvent.click(
-    within(list).getAllByRole("button", { name: "Import" })[0] ??
+    within(list).getAllByRole("button", { name: /^Import / })[0] ??
       (() => {
         throw new Error("Missing Import");
       })(),
@@ -86,7 +87,7 @@ test("Continue opens a resumed conversation without sending a made-up message", 
   const stop = made.client.onMessage((message) => {
     if (message.type === "history.continue") requests.push(message);
   });
-  await userEvent.click(await within(list).findByRole("button", { name: "Continue" }));
+  await userEvent.click(await within(list).findByRole("button", { name: /^Continue / }));
   await screen.findByRole("heading", { level: 1, name: "Fix the old retry loop" });
   await waitFor(() =>
     expect(requests).toContainEqual(
@@ -112,6 +113,68 @@ test("Setup can be reopened from the palette and filters past sessions by projec
   await screen.findByText("Fix the old retry loop");
   await userEvent.click(selector);
   await userEvent.click(await screen.findByRole("option", { name: "docs-site" }));
-  await screen.findByText("No past sessions for this project.");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
   expect(screen.queryByText("Fix the old retry loop")).toBeNull();
+});
+
+test("Recent sessions stay capped, unavailable and other-project rows stay out, and the dialog searches older sessions by provider", async () => {
+  const made = app();
+  const sessions = Array.from({ length: 110 }, (_, index) =>
+    HistorySession.parse({
+      id: `saved-${index}`,
+      instanceId: "personal",
+      provider: index % 2 ? "codex" : "opencode",
+      nativeId: `native-${index}`,
+      cwd: "/Users/dev/relay",
+      title: index === 109 ? "Find the missing keyboard shortcut" : `Review retry ${index}`,
+      lastActivity: 1000000 - index,
+      messageCount: 2,
+      countAccuracy: "exact",
+      support: { status: "supported" },
+    }),
+  );
+  made.daemon.seedServices({
+    history: [
+      HistorySession.parse({
+        ...sessions[0],
+        id: "unreadable",
+        title: "Unreadable session",
+        lastActivity: 2000000,
+        support: { status: "unsupported", reason: "The history can't be read." },
+      }),
+      HistorySession.parse({
+        ...sessions[0],
+        id: "other-project",
+        title: "Different project",
+        cwd: "/tmp/other-project",
+      }),
+      ...sessions,
+    ],
+  });
+  await made.open("/new?project=relay");
+  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
+  expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+  expect(screen.queryByText("Unavailable")).toBeNull();
+  expect(screen.queryByText("Unreadable session")).toBeNull();
+  expect(screen.queryByText("Different project")).toBeNull();
+  expect(screen.queryByText("Find the missing keyboard shortcut")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
+  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
+  expect(await within(dialog).findByRole("list", { name: "OpenCode sessions" })).toBeTruthy();
+  expect(within(dialog).getByRole("list", { name: "Codex sessions" })).toBeTruthy();
+  await userEvent.type(
+    within(dialog).getByRole("textbox", { name: "Search past sessions" }),
+    "keyboard",
+  );
+  expect(await within(dialog).findByText("Find the missing keyboard shortcut")).toBeTruthy();
+  expect(within(dialog).queryByText("Review retry 0")).toBeNull();
+});
+
+test("A project with no readable sessions has no past sessions section or entry point", async () => {
+  const made = app();
+  made.daemon.seedServices({ history: [] });
+  await made.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
+  expect(screen.queryByRole("button", { name: "Show all past sessions" })).toBeNull();
 });

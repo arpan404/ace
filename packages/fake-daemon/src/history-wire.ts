@@ -28,7 +28,13 @@ export class FakeHistory {
     };
     if (message.type === "history.list") {
       const sessions = this.sessions
-        .filter((session) => session.cwd === message.cwd)
+        .filter(
+          (session) =>
+            session.cwd === message.cwd &&
+            !session.parentNativeId &&
+            (!message.openableOnly || session.support.status === "supported") &&
+            (!message.search || session.title.toLowerCase().includes(message.search.toLowerCase())),
+        )
         .toSorted((a, b) => b.lastActivity - a.lastActivity || b.id.localeCompare(a.id))
         .filter(
           (session) =>
