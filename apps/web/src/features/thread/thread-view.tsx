@@ -1,30 +1,17 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-  type CSSProperties,
-} from "react";
+import { ListBulletsIcon } from "@phosphor-icons/react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
-import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
 import { ThreadStatusDot } from "./header/status-dot.tsx";
-import {
-  PinnedSummary,
-  SummaryToggle,
-  summaryInset,
-  useSummaryPlacement,
-} from "./header/summary.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
 import { useFileDrop } from "./composer/file-drop.tsx";
-import { useScopeWorkspace } from "@/lib/workspace/index.ts";
+import { useHotkey } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
@@ -43,7 +30,6 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
-import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredAgentComposer,
@@ -52,6 +38,7 @@ import {
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
+  DeferredWorkCard,
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
@@ -60,7 +47,7 @@ import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
 import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
-import { LongThreadButtons } from "./long/header-buttons.tsx";
+import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 
 /**
@@ -107,9 +94,10 @@ export interface ThreadTarget {
 }
 
 /**
- * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
- * and its workspace (Changes, Agents, Preview, Devices, … beside it; Terminal and Logs below).
- * A long thread adds its turns, search and a catch-up card for the reader who was away.
+ * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
+ * menu, the work card's button (project, git, actions, editors, sources) and the side panel's
+ * toggle; and its side panel of tabs (Changes, Agents, terminals, Files, Browser, …). A long
+ * thread adds its turns, search and a catch-up card for the reader who was away.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
@@ -128,7 +116,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
-  const projectName = useProjectName();
   // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
   const outer = useThreadParts();
   const forkPoint = useLatestForkPoint(id);
@@ -148,14 +135,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  const column = useRef<HTMLDivElement>(null);
-  const placement = useSummaryPlacement(column);
-  const pinned = useScopeWorkspace(id).summaryPinned;
-  // A pinned card floating beside narrower text keeps the transcript clear of it.
-  const inset: CSSProperties | undefined =
-    pinned && placement === "inset"
-      ? ({ "--summary-inset": `${summaryInset}px` } as CSSProperties)
-      : undefined;
+  const card = useWorkCard(id);
   const thread = useMemo<ThreadRef | undefined>(
     () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
     [id, meta, title],
@@ -165,15 +145,10 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       <Screen
         title={title ?? "Loading thread…"}
         subtitle={
-          meta && (
-            <>
-              {projectName(meta.workspaceId)}
-              {meta.status.state === "limited" && (
-                <Suspense fallback={null}>
-                  <DeferredLimitBadge.Component threadId={id} />
-                </Suspense>
-              )}
-            </>
+          meta?.status.state === "limited" && (
+            <Suspense fallback={null}>
+              <DeferredLimitBadge.Component threadId={id} />
+            </Suspense>
           )
         }
         status={meta && <ThreadStatusDot status={meta.status} />}
@@ -188,21 +163,16 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             </Suspense>
           )
         }
-        actions={
+        tools={
           thread && (
-            <>
-              <RunButton thread={thread} />
-              <OpenButton thread={thread} />
-              <GitButton thread={thread} />
-            </>
-          )
-        }
-        summary={
-          thread && (
-            <>
-              <LongThreadButtons />
-              <SummaryToggle thread={thread} />
-            </>
+            <IconButton
+              icon={ListBulletsIcon}
+              label="Work card"
+              shortcut="workCard"
+              pressed={card.open}
+              data-work-card-toggle
+              onClick={card.toggle}
+            />
           )
         }
         workspace={{ scope: id, definition: threadWorkspace }}
@@ -213,19 +183,16 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           <TranscriptSkeleton />
         ) : (
           <ForkOpener value={setForking}>
-            <div
-              ref={column}
-              style={inset}
-              className="relative flex h-full min-h-0 flex-col"
-              {...drop.handlers}
-            >
+            <div className="relative flex h-full min-h-0 flex-col" {...drop.handlers}>
               {drop.overlay}
-              {thread && !nav.turnsOpen && (
-                <PinnedSummary
-                  thread={thread}
-                  inline={placement === "inline"}
-                  onAddSource={() => composer.current?.openAdd()}
-                />
+              {thread && card.mounted && (
+                <Suspense fallback={null}>
+                  <DeferredWorkCard.Component
+                    thread={thread}
+                    open={card.open}
+                    onClose={card.close}
+                  />
+                </Suspense>
               )}
               {nav.turnsOpen && (
                 <Suspense fallback={null}>
@@ -249,6 +216,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             </div>
           </ForkOpener>
         )}
+        <LongThreadHotkeys />
         {thread && (
           <Suspense fallback={null}>
             <DeferredThreadHotkeys.Component thread={thread} onRename={() => setRenaming(true)} />
@@ -287,4 +255,25 @@ function TargetJump(props: { target: ThreadTarget | undefined }) {
     if (seq !== undefined) void nav.jump.toSeq(seq, query ? { query } : {});
   }, [nav.jump, seq, query]);
   return null;
+}
+
+/**
+ * The work card's state for one thread: closed whenever another thread shows, and mounted from
+ * its first opening (so a commit form it opened outlives it). ⌥⌘O toggles it; closing with
+ * Escape hands focus back to the header's button.
+ */
+function useWorkCard(threadId: string) {
+  const [openFor, setOpenFor] = useState<string>();
+  const [mounted, setMounted] = useState<string>();
+  const open = openFor === threadId;
+  const toggle = () => {
+    setOpenFor(open ? undefined : threadId);
+    setMounted(threadId);
+  };
+  useHotkey(keymap.workCard.keys, toggle, { id: "workCard" });
+  const close = (returnFocus: boolean) => {
+    setOpenFor(undefined);
+    if (returnFocus) document.querySelector<HTMLElement>("header [data-work-card-toggle]")?.focus();
+  };
+  return { open, mounted: mounted === threadId, toggle, close };
 }

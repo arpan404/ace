@@ -12,7 +12,6 @@ export const logsKind = defineTabKind({
   kind: "logs",
   label: "Logs",
   icon: ScrollIcon,
-  docks: ["bottom", "right"],
   launcher: 80,
   title: (tab) => logScopeTitle(tab.id, tab.title),
   Skeleton: OutputSkeleton,

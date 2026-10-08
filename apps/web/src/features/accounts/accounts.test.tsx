@@ -77,9 +77,13 @@ test("the run-out policy is the daemon's setting and is kept when you come back"
   await waitFor(() =>
     expect(app.daemon.services.settings.get("threads.limitPolicy")).toBe("resume_at_reset"),
   );
-  await userEvent.click(screen.getByRole("link", { name: /Files/ }));
+  // Away through the rail's More menu, and back the same way.
+  const views = screen.getByRole("navigation", { name: "Views" });
+  await userEvent.click(within(views).getByRole("button", { name: "More" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
   await screen.findByRole("heading", { level: 1, name: "Files" });
-  await userEvent.click(screen.getByRole("link", { name: /Usage & accounts/ }));
+  await userEvent.click(within(views).getByRole("button", { name: "More" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
 
   const again = await screen.findByRole("radiogroup", { name: "When an account runs out" });
   await waitFor(() =>

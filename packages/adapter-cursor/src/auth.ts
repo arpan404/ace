@@ -30,8 +30,9 @@ const reserve = (kind: "login" | "logout") => {
 
 /** Official SDK auth seam for AccountService. It never handles a key-bearing value. */
 export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
-  const checkAvailability = async () => {
+  const checkAvailability = async (diagnostic?: (metadata: { cliVersion?: string }) => void) => {
     const installed = await discoverCursorSdk(options.discovery);
+    diagnostic?.(installed.version ? { cliVersion: installed.version } : {});
     if (!installed.supported)
       throw Object.assign(new CursorSdkUnavailableError(), {
         code:
@@ -54,9 +55,10 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     method: "status" | "login" | "logout" | "models",
     signal: AbortSignal,
     loginUrl?: (url: string) => void,
+    diagnostic?: (metadata: { cliVersion?: string }) => void,
   ) => {
     signal.throwIfAborted();
-    await checkAvailability();
+    await checkAvailability(diagnostic);
     if (method !== "logout" && method !== "login" && changingAuth.has(instance.id))
       throw new Error("SDK authentication change is fencing this instance");
     if (workers >= 2) throw new Error("SDK account worker capacity reached");
@@ -68,6 +70,8 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
           ...options,
           slots,
           instanceId: instance.id,
+          // Metadata workers own no running tools or transcript writes to drain.
+          ...(method === "models" ? { limits: { ...options.limits, graceMs: 0 } } : {}),
           env: cursorSdkEnvironment(instance, options.environment?.(instance) ?? options.launchEnv),
         },
         () => {
@@ -140,8 +144,12 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
         change.finish();
       }
     },
-    models(instance: CursorInstance, signal: AbortSignal) {
-      return operate(CursorInstance.parse(instance), "models", signal);
+    models(
+      instance: CursorInstance,
+      signal: AbortSignal,
+      diagnostic?: (metadata: { cliVersion?: string }) => void,
+    ) {
+      return operate(CursorInstance.parse(instance), "models", signal, undefined, diagnostic);
     },
   };
 }

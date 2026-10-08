@@ -1,3 +1,4 @@
+import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 import { syntheticInput, admitInput, removeInput } from "./transcript-inputs.ts";
@@ -71,6 +72,7 @@ export class EngineRepository {
     this.commandId = commandId;
     this.ids = ids;
     this.store = store;
+    initializeThreadCleanup(store);
     this.metadata = new SessionMetadata(this);
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
@@ -373,6 +375,9 @@ export class EngineRepository {
   }
   beginSend(intent: IntentHeader, target: number | undefined): void {
     this.pending.beginSend(intent, target);
+  }
+  cleaning(id: ThreadId): boolean {
+    return threadCleaning(this.store, id);
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.pending.mark(intent, status, error);

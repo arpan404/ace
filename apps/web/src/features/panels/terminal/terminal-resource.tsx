@@ -48,7 +48,7 @@ import { useExitCode, useThreadTerminals } from "./use-terminals.ts";
 /*
  * One terminal tab: a PTY of yours in the thread's checkout. A tab without a shell yet starts
  * one when it first shows (picking up a running shell no tab shows, for the plain `terminal`
- * tab). Hiding the dock keeps the shell; closing the tab ends it (thread-kinds' onClose).
+ * tab). Hiding the panel keeps the shell; closing the tab ends it (thread-kinds' onClose).
  */
 
 const failure = (error: unknown) =>
@@ -260,9 +260,9 @@ function LiveTerminal(
   const exitCode = useExitCode(terminals, info.id);
   const exited = exitCode !== null || info.exited;
   const [focusRequested] = useState(() => terminals.takeFocusRequest(info.id));
-  // Startup may finish while this dock is exiting or the person has switched tabs.
-  const dock = useScopeWorkspace(scope)[props.dock];
-  const autoFocus = focusRequested && dock.open && shownTab(dock)?.key === tab.key;
+  // Startup may finish while the panel is hiding or the person has switched tabs.
+  const panel = useScopeWorkspace(scope);
+  const autoFocus = focusRequested && panel.open && shownTab(panel)?.key === tab.key;
   const title = tab.title ?? info.name;
   const openFind = () => setTabUi(terminalUi, tab.key, { find: true });
   const closeFind = () => {

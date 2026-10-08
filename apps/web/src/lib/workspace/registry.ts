@@ -1,12 +1,11 @@
 import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
-import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
+import type { OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 
 /*
- * The tab-kind registry: how a feature plugs a resource into the workspace docks without
- * touching the shell. A kind says what its tabs are called, which icon they wear, which docks
- * they may sit in and how to draw one; the shell owns the strip, order, persistence, motion,
- * keyboard and sizes. See apps/web/README.md, "Workspace tabs".
+ * The tab-kind registry: how a feature plugs a resource into the side panel without touching
+ * the shell. A kind says what its tabs are called, which icon they wear and how to draw one;
+ * the shell owns the strip, order, persistence, motion, keyboard and sizes. See apps/web/README.md, "Workspace tabs".
  *
  * Kinds live in a module the workspace definition (`definition.ts`) loads after first paint, so
  * their icons, badges and loaders stay off the screen's first chunk.
@@ -17,13 +16,12 @@ export interface TabViewProps {
   /** The scope the tab belongs to: the thread id on a thread screen. */
   scope: string;
   tab: WorkspaceTab;
-  dock: Dock;
 }
 
 /** A kind's code, loaded the first time one of its tabs shows (ADR 0056 route budget). */
 export interface TabModule {
   default: ComponentType<TabViewProps>;
-  /** Buttons at the end of the dock's strip while one of these tabs is showing. */
+  /** Buttons at the end of the panel's strip while one of these tabs is showing. */
   Actions?: ComponentType<TabViewProps>;
 }
 
@@ -41,8 +39,6 @@ export interface TabKindOptions {
   TabIcon?: ComponentType<{ scope: string; tab: WorkspaceTab; className?: string }>;
   /** One tab per scope (Changes, Agents). Others open one tab per `id`. */
   singleton?: boolean;
-  /** Docks it may sit in, preferred first. Default: right only. */
-  docks?: readonly Dock[];
   /** Opens as a pinned tool tab: first in the strip, no close button. */
   pinned?: boolean;
   /** Position among the launcher's Tools; leave out to keep the kind off the launcher. */
@@ -79,19 +75,19 @@ export interface TabKindOptions {
    */
   reopenable?(scope: string, tab: WorkspaceTab): boolean;
   /** How the launcher's Suggested opens a file with this kind, when it can. */
-  fromFile?(path: string): Omit<OpenRequest, "dock">;
+  fromFile?(path: string): OpenRequest;
   /**
    * How the launcher's address bar and Suggested open an address with this kind, when it can.
    * `workspace` is the scope's current one, for picking a fresh id.
    */
-  fromUrl?(url: string, workspace: ScopeWorkspace): Omit<OpenRequest, "dock">;
+  fromUrl?(url: string, workspace: ScopeWorkspace): OpenRequest;
   /**
    * What the tool's shortcut does, instead of showing or hiding its tab (Files' ⌘P opens a
    * quick-open palette). Called once the kinds have loaded.
    */
   onShortcut?(scope: string): void;
   /**
-   * Drawn once per screen while it shows, outside any dock (a palette the shortcut opens).
+   * Drawn once per screen while it shows, outside the panel (a palette the shortcut opens).
    * Loaded with the kinds, so keep it small and load its body on demand.
    */
   Overlay?: ComponentType<{ scope: string }>;
@@ -100,7 +96,6 @@ export interface TabKindOptions {
 /** A tab about to close, as `closeWarning` sees it. */
 export interface ClosingTab {
   tab: WorkspaceTab;
-  dock: Dock;
   title: string;
 }
 
@@ -115,7 +110,6 @@ export interface CloseWarning {
 type LazyView = LazyExoticComponent<ComponentType<TabViewProps>>;
 
 export interface TabKind extends TabKindOptions {
-  docks: readonly Dock[];
   /** The tab's view, loaded on first render. After a failed load, a fresh one that retries. */
   view(): LazyView;
   /** Its strip actions, from the same chunk. */
@@ -151,7 +145,6 @@ export function defineTabKind(options: TabKindOptions): TabKind {
   };
   return {
     ...options,
-    docks: options.docks?.length ? options.docks : ["right"],
     load,
     view: () => fresh().View,
     actions: () => fresh().Actions,

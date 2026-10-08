@@ -14,8 +14,8 @@ const failure = (error: unknown) =>
 
 /**
  * Commit, push and open a PR for a thread's checkout, with the commit and PR forms and the toasts
- * that confirm them. The header's git button and the summary's ⋯ menu both drive it, so the two
- * never disagree about what is possible or why not.
+ * that confirm them. The work card's branch row drives it, its next step and its ⋯ menu alike,
+ * so they never disagree about what is possible or why not.
  */
 export function useGitFlow(thread: ThreadRef): {
   checkout: ReturnType<typeof useCheckoutState>["checkout"];

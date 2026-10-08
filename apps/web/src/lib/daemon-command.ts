@@ -7,10 +7,12 @@ import { useToast } from "@/components/ui/toast.tsx";
 /** A command the daemon refused, with its error code and a sentence a person can act on. */
 export class CommandRefused extends Error {
   readonly code: string;
-  constructor(code: string) {
-    super(refusalMessage(code));
+  readonly alive: CommandResult["alive"];
+  constructor(code: string, alive?: CommandResult["alive"]) {
+    super(alive && stillAlive(alive) ? aliveMessage(alive) : refusalMessage(code));
     this.name = "CommandRefused";
     this.code = code;
+    this.alive = alive;
   }
 }
 
@@ -18,6 +20,8 @@ const refusals: Record<string, string> = {
   thread_not_found: "The thread is gone.",
   thread_not_done: "Only a finished thread can settle.",
   thread_busy: "Stop its agents and close its terminals first.",
+  thread_deleting: "It's already being stopped and deleted.",
+  thread_cleanup_pending: "Its agents haven't stopped yet. ace will finish deleting it.",
   snooze_in_past: "That time has already passed.",
   queue_conflict: "Another device changed the queue. Here is the latest.",
   message_already_claimed: "The agent already took that message.",
@@ -47,6 +51,25 @@ const refusals: Record<string, string> = {
   forbidden: "This device isn't allowed to do that.",
 };
 
+/** Whether a refusal found work still running, so Stop and delete has something to stop. */
+export function stillAlive(alive: CommandResult["alive"]): boolean {
+  return alive !== undefined && Object.values(alive).some((count) => count > 0);
+}
+
+function counted(n: number, one: string): string {
+  return n === 1 ? `1 ${one}` : `${n} ${one}s`;
+}
+
+/** "Still running: 1 agent, 2 terminals." */
+function aliveMessage(alive: NonNullable<CommandResult["alive"]>): string {
+  const parts = [
+    alive.agentsRunning ? counted(alive.agentsRunning, "agent") : "",
+    alive.terminalsOpen ? counted(alive.terminalsOpen, "terminal") : "",
+    alive.operationsRunning ? counted(alive.operationsRunning, "operation") : "",
+  ].filter(Boolean);
+  return `Still running: ${parts.join(", ")}.`;
+}
+
 export function refusalMessage(code: string): string {
   return refusals[code] ?? `The daemon refused (${code}).`;
 }
@@ -75,7 +98,7 @@ export async function runCommand(
   id?: string,
 ): Promise<CommandResult> {
   const result = await client.command(payload, {}, id);
-  if (!result.ok) throw new CommandRefused(result.error ?? "command_failed");
+  if (!result.ok) throw new CommandRefused(result.error ?? "command_failed", result.alive);
   return result;
 }
 

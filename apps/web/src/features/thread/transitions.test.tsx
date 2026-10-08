@@ -95,9 +95,7 @@ test("a thread with work running can't be deleted, and says why", async () => {
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   expect(
-    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
-      timeout: 9_000,
-    }),
+    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
   ).toBeTruthy();
   expect(thread(app, "thread-replay-cursor")).toBeDefined();
 }, 15_000);

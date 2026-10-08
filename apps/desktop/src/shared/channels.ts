@@ -12,6 +12,8 @@ import {
   DeepLink,
   DesktopSettings,
   DesktopSettingsPatch,
+  EditorIconImage,
+  EditorIconRequest,
   NativeAppearance,
   NotifyRequest,
   OpenInEditor,
@@ -48,6 +50,8 @@ export const requests = {
   "daemon.pause": { request: z.boolean(), result: DaemonStatus },
   "shell.openInEditor": { request: OpenInEditor, result: z.boolean() },
   "shell.reveal": { request: RevealPath, result: z.boolean() },
+  /** An installed editor's icon from the OS, for "Open in" (never a bundled logo). */
+  "shell.editorIcon": { request: EditorIconRequest, result: EditorIconImage },
   "shell.openExternal": { request: ExternalUrl, result: z.boolean() },
   /**
    * The native folder picker, for Add project: the absolute path chosen, or null when the

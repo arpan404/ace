@@ -121,6 +121,14 @@ export const CommandResult = z.object({
   forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
+  /** Live ownership that prevents a plain delete or move. */
+  alive: z
+    .object({
+      agentsRunning: z.number().int().nonnegative(),
+      terminalsOpen: z.number().int().nonnegative(),
+      operationsRunning: z.number().int().nonnegative(),
+    })
+    .optional(),
   /** Readable execution/admission failure, preserving the legacy error field. */
   code: z.string().optional(),
   title: z.string().optional(),

@@ -37,10 +37,13 @@ export function threadHasPendingWork(
   return store.atomic((db) => {
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='intents'").get())
       return false;
+    const held = db.prepare("SELECT 1 FROM sqlite_master WHERE name='engine_queue'").get()
+      ? " AND NOT EXISTS (SELECT 1 FROM engine_queue q WHERE q.thread_id=intents.thread_id AND (q.paused=1 OR q.limited=1))"
+      : "";
     return Boolean(
       db
         .prepare(
-          "SELECT 1 FROM intents WHERE thread_id=? AND (status IN ('pending','queued','running') OR awaiting=1) LIMIT 1",
+          `SELECT 1 FROM intents WHERE thread_id=? AND (status='running' OR awaiting=1 OR (status IN ('pending','queued')${held})) LIMIT 1`,
         )
         .get(id),
     );

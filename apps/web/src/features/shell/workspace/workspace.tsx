@@ -6,26 +6,26 @@ import { useMediaQuery } from "@/lib/media.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 import {
-  usePreferredSizes,
+  usePreferredSize,
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
 import { HeaderNav } from "../app-header.tsx";
-import { bottomBounds, rightBounds } from "./bounds.ts";
-import { DockControls, loadOpenTabs } from "./dock-controls.tsx";
+import { panelBounds } from "./bounds.ts";
+import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 
-// The docks (strip, tabs, menus, views) load the first time one shows, warmed while idle after
+// The panel (strip, tabs, menus, views) loads the first time it shows, warmed while idle after
 // the screen's first paint: the thread route stays within its budget (ADR 0056).
-const loadDock = () => import("./dock.tsx");
-const WorkspaceDock = lazy(() => loadDock().then((m) => ({ default: m.WorkspaceDock })));
-const CloseConfirm = lazy(() => loadDock().then((m) => ({ default: m.CloseConfirm })));
+const loadPanel = () => import("./panel.tsx");
+const WorkspacePanel = lazy(() => loadPanel().then((m) => ({ default: m.WorkspacePanel })));
+const CloseConfirm = lazy(() => loadPanel().then((m) => ({ default: m.CloseConfirm })));
 
-/** Hold the docks back until the kinds (icons, titles, views) have loaded too. */
-function DockWhenReady(props: { definition: WorkspaceDefinition; children: ReactNode }) {
+/** Hold the panel back until the kinds (icons, titles, views) have loaded too. */
+function WhenKindsReady(props: { definition: WorkspaceDefinition; children: ReactNode }) {
   const [ready, setReady] = useState(props.definition.loaded());
   useEffect(() => {
     if (ready) return;
@@ -44,9 +44,9 @@ function DockWhenReady(props: { definition: WorkspaceDefinition; children: React
 /** Each kind's overlay (a palette its shortcut opens), once the kinds have loaded. */
 function KindOverlays(props: { scope: string; definition: WorkspaceDefinition }) {
   return (
-    <DockWhenReady definition={props.definition}>
+    <WhenKindsReady definition={props.definition}>
       <Overlays {...props} />
-    </DockWhenReady>
+    </WhenKindsReady>
   );
 }
 
@@ -56,21 +56,16 @@ function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
     .map((kind) => (kind.Overlay ? <kind.Overlay key={kind.kind} scope={props.scope} /> : null));
 }
 
-/** The header row's height (`--header-h`), which the bottom dock's limit leaves room for. */
-const headerHeight = 50;
-
 /**
- * A screen with docks:
+ * A screen with a side panel:
  *
  *   ┌ header (main column) ──────────┬ side panel strip ┐
  *   │ main column                    │ side panel       │
- *   ├────────────────────────────────┴──────────────────┤
- *   │ bottom panel (spans both)                         │
- *   └───────────────────────────────────────────────────┘
+ *   └────────────────────────────────┴──────────────────┘
  *
- * In full view the side panel fills the row and the main column steps aside (still mounted,
- * so the transcript keeps its place); the strip then carries the header's navigation and a way
- * back to the conversation.
+ * In full view the panel fills the row and the main column steps aside (still mounted, so the
+ * transcript keeps its place); the strip then carries the header's navigation and a way back to
+ * the conversation.
  */
 export function Workspace(props: {
   scope: string;
@@ -86,17 +81,14 @@ export function Workspace(props: {
   store.define(scope, definition);
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
-  const preferred = usePreferredSizes();
+  const preferred = usePreferredSize();
   const overlay = useMediaQuery(overlayPanelsQuery, false);
   const sheet = usePhone();
   const outer = useRef<HTMLDivElement>(null);
   const size = useElementSize(outer);
-  // Warm the kinds and the docks' code once the screen has painted.
+  // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
-    () =>
-      whenIdle(
-        () => void Promise.all([definition.load(), loadDock(), loadOpenTabs()]).catch(() => {}),
-      ),
+    () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),
     [definition],
   );
   useEffect(() => {
@@ -106,27 +98,15 @@ export function Workspace(props: {
     };
   }, [store, scope]);
 
-  // A dock mounts once it first opens and stays mounted (hidden ones render nothing), so its
+  // The panel mounts once it first opens and stays mounted (hidden it renders nothing), so its
   // exit plays and its tab views keep their state.
-  const [shown, setShown] = useState({ right: false, bottom: false });
-  if ((workspace.right.open && !shown.right) || (workspace.bottom.open && !shown.bottom))
-    setShown({
-      right: shown.right || workspace.right.open,
-      bottom: shown.bottom || workspace.bottom.open,
-    });
-  const expanded = workspace.expanded && workspace.right.open;
-  // While the side panel shows beside the column, its strip holds the dock toggles.
-  const rightInline = workspace.right.open && !overlay && !sheet;
-  const hasBottom = definition.docks.includes("bottom");
+  const [shown, setShown] = useState(false);
+  if (workspace.open && !shown) setShown(true);
+  const expanded = workspace.expanded && workspace.open;
+  // While the panel shows beside the column, its strip holds the panel's controls.
+  const inline = workspace.open && !overlay && !sheet;
   const controls = (placement: "header" | "panel") => (
-    <DockControls
-      scope={scope}
-      workspace={workspace}
-      definition={definition}
-      actions={actions}
-      placement={placement}
-      bottom={hasBottom}
-    />
+    <PanelControls workspace={workspace} actions={actions} placement={placement} />
   );
   const leading = expanded && (
     <>
@@ -148,7 +128,7 @@ export function Workspace(props: {
     <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
       <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
       <KindOverlays scope={scope} definition={definition} />
-      {(shown.right || shown.bottom) && (
+      {shown && (
         <Suspense fallback={null}>
           <CloseConfirm />
         </Suspense>
@@ -156,15 +136,14 @@ export function Workspace(props: {
       <div className="relative flex min-h-0 flex-1">
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
         <div hidden={expanded} className="relative flex min-w-0 flex-1 flex-col">
-          {props.header(rightInline ? undefined : controls("header"))}
+          {props.header(inline ? undefined : controls("header"))}
           {props.notice}
           {props.children}
         </div>
-        {shown.right && (
+        {shown && (
           <Suspense fallback={null}>
-            <DockWhenReady definition={definition}>
-              <WorkspaceDock
-                side="right"
+            <WhenKindsReady definition={definition}>
+              <WorkspacePanel
                 scope={scope}
                 definition={definition}
                 workspace={workspace}
@@ -172,38 +151,18 @@ export function Workspace(props: {
                 layout={{
                   overlay: overlay && !expanded,
                   sheet,
-                  bounds: rightBounds(size.width, overlay),
-                  size: workspace.right.size ?? preferred.right,
+                  bounds: panelBounds(size.width, overlay),
+                  size: workspace.size ?? preferred,
                 }}
                 leading={leading}
                 controls={controls("panel")}
                 notice={expanded ? props.notice : undefined}
                 context={props.title}
               />
-            </DockWhenReady>
+            </WhenKindsReady>
           </Suspense>
         )}
       </div>
-      {hasBottom && shown.bottom && (
-        <Suspense fallback={null}>
-          <DockWhenReady definition={definition}>
-            <WorkspaceDock
-              side="bottom"
-              scope={scope}
-              definition={definition}
-              workspace={workspace}
-              actions={actions}
-              layout={{
-                overlay,
-                sheet,
-                bounds: bottomBounds(size.height - headerHeight),
-                size: workspace.bottom.size ?? preferred.bottom,
-              }}
-              context={props.title}
-            />
-          </DockWhenReady>
-        </Suspense>
-      )}
     </div>
   );
 }

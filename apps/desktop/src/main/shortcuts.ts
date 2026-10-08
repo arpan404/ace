@@ -30,12 +30,11 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "terminal", label: "Terminal", accelerator: "Ctrl+`" },
   { keymapId: "settings", label: "Settings…", accelerator: "CmdOrCtrl+," },
   // Not menu items: the app still answers them while an embedded browser page has focus.
-  { keymapId: "bottomPanel", accelerator: "CmdOrCtrl+J" },
   { keymapId: "newTab", accelerator: "CmdOrCtrl+Alt+T" },
   { keymapId: "closeTab", accelerator: "CmdOrCtrl+Alt+W" },
   { keymapId: "nextTab", accelerator: "CmdOrCtrl+Shift+]" },
   { keymapId: "previousTab", accelerator: "CmdOrCtrl+Shift+[" },
-  { keymapId: "summary", accelerator: "CmdOrCtrl+Alt+O" },
+  { keymapId: "workCard", accelerator: "CmdOrCtrl+Alt+O" },
   { keymapId: "sideChat", accelerator: "CmdOrCtrl+Alt+S" },
   { keymapId: "turns", accelerator: "CmdOrCtrl+Alt+G" },
   { keymapId: "files", accelerator: "CmdOrCtrl+P" },

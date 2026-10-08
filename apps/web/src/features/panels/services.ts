@@ -9,7 +9,7 @@ import type { TerminalSessions } from "./terminal/sessions.ts";
 import type { TabUiState } from "./terminal/tab-ui.ts";
 
 export interface DiffPrefs {
-  /** `auto` is unified in a narrow dock and split where both sides fit. */
+  /** `auto` is unified in a narrow panel and split where both sides fit. */
   mode: "auto" | "unified" | "split";
   wrap: boolean;
   /** The changed-files tree beside the diff. */

@@ -78,7 +78,7 @@ describe("native menu shortcuts", () => {
       }
   });
 
-  it("View › Agents replays the chord that opens Agents, not the bottom panel", () => {
+  it("View › Agents replays the chord that opens Agents, not the terminal", () => {
     for (const platform of platforms) {
       const view = menu(platform);
       const agents = view.top("View").find((entry) => entry.label === "Agents");

@@ -19,11 +19,11 @@ export interface HeaderProps {
   title: ReactNode;
   /** Muted beside the title: the project on a thread, the page in Settings. */
   subtitle?: ReactNode;
-  /** Items for the ⋯ menu beside the title. */
+  /** Items for the header's ⋯ menu, at its right. */
   menu?: ReactNode;
-  /** After the ⋯ menu: a toggle for the screen's summary (a thread's outline). */
-  summary?: ReactNode;
-  /** Right-hand actions (Run, Open, Commit, Mark all read, …). */
+  /** After the ⋯ menu: the screen's own tool buttons (a thread's work card). */
+  tools?: ReactNode;
+  /** Right-hand actions, before the ⋯ menu (Mark all read, …). */
   actions?: ReactNode;
   /** A status mark after the title (a thread's dot), shown on a phone, where no list shows it. */
   status?: ReactNode;
@@ -85,16 +85,16 @@ export function HeaderNav() {
 }
 
 /**
- * The one header every screen uses: sidebar toggle and history, then the title, its project,
- * the ⋯ menu and the summary; actions and the dock toggles on the right. 50px, a drag region in
- * Electron, hairline only once the content scrolls. Every control is a 30px box on one centre
- * line. On a phone it keeps the sidebar toggle, the title (two lines if need be), the status
- * mark and one ⋯; the summary tools, the dock toggles and their count move into that ⋯.
+ * The one header every screen uses: sidebar toggle and history, then the title and its
+ * subtitle; on the right the actions, the ⋯ menu, the screen's tools and the side panel's
+ * toggle. 50px, a drag region in Electron, hairline only once the content scrolls. Every control
+ * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
+ * if need be), the status mark and one ⋯; the tools and the panel's toggle move into that ⋯.
  */
 export function AppHeader(
   props: HeaderProps & {
     scrolled: boolean;
-    /** The far-right cluster: the dock toggles, while the side panel isn't showing beside it. */
+    /** The far-right cluster: the panel's toggle, while the panel isn't showing beside it. */
     trailing?: ReactNode;
   },
 ) {
@@ -109,10 +109,10 @@ export function AppHeader(
   // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
   const folded = !wide && !!props.actions;
   const titleMenu = props.menu && !phone && !folded;
-  // A phone moves the summary tools and the dock toggles into the one ⋯.
-  const tools = phone && (props.summary || props.trailing) && (
+  // A phone moves the tools and the panel's toggle into the one ⋯.
+  const tools = phone && (props.tools || props.trailing) && (
     <>
-      {props.summary}
+      {props.tools}
       {props.trailing}
     </>
   );
@@ -142,19 +142,18 @@ export function AppHeader(
             {props.subtitle}
           </span>
         )}
-        {(titleMenu || (props.summary && !phone)) && (
-          <span className="flex shrink-0 items-center gap-0.5">
-            {titleMenu && (
-              <HeaderMenu trigger={<IconButton icon={DotsThreeIcon} label="More actions" />}>
-                {props.menu}
-              </HeaderMenu>
-            )}
-            {!phone && props.summary}
-          </span>
-        )}
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {props.actions && wide && props.actions}
+        {titleMenu && (
+          <HeaderMenu
+            align="end"
+            trigger={<IconButton icon={DotsThreeIcon} label="More actions" />}
+          >
+            {props.menu}
+          </HeaderMenu>
+        )}
+        {!phone && props.tools}
         {/* Narrower, the actions and the title menu fold into one ⋯. */}
         {(folded || (phone && (props.menu || tools))) && (
           <Overflow
@@ -165,7 +164,9 @@ export function AppHeader(
         )}
         {props.trailing && !phone && (
           <>
-            {props.actions && wide && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
+            {(titleMenu || props.tools || (props.actions && wide)) && (
+              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+            )}
             {props.trailing}
           </>
         )}

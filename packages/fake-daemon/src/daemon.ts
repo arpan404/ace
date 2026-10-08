@@ -1,3 +1,4 @@
+import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
 import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
@@ -368,6 +369,7 @@ export class FakeDaemon implements Host {
    */
   apply(threadId: string, facts: readonly Fact[], agoMs = 0): void {
     const host = this.thread(threadId);
+    if (host.view.thread.deletedAt !== undefined) return;
     const now = this.at(agoMs);
     const fold = (fact: Fact): EventPayload[] => {
       const before: EventPayload[] = [];
@@ -401,7 +403,7 @@ export class FakeDaemon implements Host {
       const emitted = host.fold(fact, now);
       return [...before, ...emitted, ...fakeReviewEvents(host, emitted, now)];
     };
-    const payloads = facts.flatMap(fold);
+    const payloads = withExitFacts(host, facts, now).flatMap(fold);
     // A queued message starts the next turn as soon as the root agent is free.
     const drained = drainQueue(host);
     const selection = host.nextSelection;
@@ -917,9 +919,12 @@ export class FakeDaemon implements Host {
     if (payload.type === "thread.move") {
       const host = this.threads.get(payload.threadId);
       if (!host) return { commandId, ok: false, error: "thread_not_found" };
+      reconcileFakeTerminals(host, this.servicesWire.workspace.terminals);
       const error = threadMoveError(host.view.thread);
       if (error) return { commandId, ok: false, error };
-      if (host.queued.length || this.servicesWire.workspace.terminals.hasOwnedWork(host.id))
+      // Held input on a stopped queue waits for a resume; it does not pin the thread in place.
+      const queued = host.queued.length > 0 && !host.queue.paused;
+      if (queued || this.servicesWire.workspace.terminals.hasOwnedWork(host.id))
         return { commandId, ok: false, error: "thread_busy" };
       const project = this.servicesWire.workspace.projects.get(payload.workspaceId);
       if (!project) return { commandId, ok: false, error: "workspace_not_found" };
@@ -937,11 +942,16 @@ export class FakeDaemon implements Host {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
-      if (
-        payload.type === "thread.delete" &&
-        (host.queued.length || this.servicesWire.workspace.terminals.hasOwnedWork(host.id))
-      )
-        return { commandId, ok: false, error: "thread_busy" };
+      if (payload.type === "thread.delete") {
+        const alive = prepareFakeDelete(
+          host,
+          (id) => this.threads.get(id),
+          this.servicesWire.workspace.terminals,
+          payload.force === true,
+          (id, facts) => this.apply(id, facts),
+        );
+        if (alive) return { commandId, ok: false, error: "thread_busy", alive };
+      }
       const decision = organizationDecision(host.view.thread, command, this.options.clock());
       if (typeof decision === "string") return { commandId, ok: false, error: decision };
       this.append(host, [decision], this.options.clock());

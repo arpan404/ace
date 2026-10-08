@@ -15,6 +15,9 @@ export function startWorkspaceActions({
 }: ServiceContext): void {
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
+    reconcileThread: async (id) => {
+      await services.engine?.reconcileThread(id);
+    },
     changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
       return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);

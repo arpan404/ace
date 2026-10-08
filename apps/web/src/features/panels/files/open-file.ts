@@ -48,7 +48,7 @@ export function openFile(
   };
   const target =
     replaceable(options.from) ??
-    workspace.right.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
+    workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
   if (target) actions.replace(target, { kind: "files", id, data });
   else actions.open({ kind: "files", id, data });
 }
