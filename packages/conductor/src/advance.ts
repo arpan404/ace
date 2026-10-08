@@ -1,6 +1,6 @@
 import { heldWorkstreams, readyWorkstreams, selectAccount } from "./scheduler.ts";
 import type { Context } from "./transition.ts";
-import { assign, canSpend, control, gate, launch } from "./transition.ts";
+import { assign, canSpend, control, gate, launch, retire } from "./transition.ts";
 
 export function advance(ctx: Context): void {
   const s = ctx.state;
@@ -92,6 +92,7 @@ export function advance(ctx: Context): void {
       node.state = "merging";
       s.integration = node.id;
       node.operation = ctx.env.id();
+      node.integrationKey = node.operation;
       ctx.effects.push({
         type: "merge",
         id: node.operation,
@@ -116,8 +117,6 @@ export function cancel(ctx: Context): void {
   if (ctx.state.phase === "cancelling" || ctx.state.phase === "cancelled") return;
   ctx.state.phase = "cancelling";
   for (const lane of Object.values(ctx.state.lanes)) {
-    if (!lane.live) continue;
-    lane.retiring = true;
-    control(ctx, lane, "cancel");
+    retire(ctx, lane);
   }
 }

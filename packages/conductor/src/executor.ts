@@ -8,7 +8,7 @@ import { Effect, Fact } from "./schema.ts";
 import type { Executor, Ports } from "./ports.ts";
 
 export function executor(ports: Ports): Executor {
-  return async (input) => {
+  return async (input, state) => {
     const effect = Effect.parse(input);
     let results: unknown[] = [];
     switch (effect.type) {
@@ -41,6 +41,16 @@ export function executor(ports: Ports): Executor {
           { type: "migrated", laneId: effect.lane.id, generation: effect.lane.generation },
         ];
         break;
+      case "correct_artifact":
+        await ports.engine.correctArtifact(effect.id, effect.lane, effect.error);
+        results = [
+          {
+            type: "artifact_correction_started",
+            laneId: effect.lane.id,
+            generation: effect.lane.generation,
+          },
+        ];
+        break;
       case "control":
         results = await ports.engine.control(effect.id, effect.lane, effect.action);
         break;
@@ -51,6 +61,19 @@ export function executor(ports: Ports): Executor {
         await ports.interactions.close(effect.id, effect.gateId);
         break;
       case "merge": {
+        if (state && ["cancelling", "cancelled"].includes(state.phase)) {
+          results = [
+            {
+              type: "merge_result",
+              operationId: effect.id,
+              workstream: effect.workstream,
+              revision: effect.completion.revision,
+              conflict: "Integration cancelled before merge",
+              trivial: false,
+            },
+          ];
+          break;
+        }
         const merged =
           effect.mode === "pr"
             ? {

@@ -4,11 +4,12 @@ import type { Completion, Effect, Fact, Gate, Lane, State } from "./schema.ts";
  * Adapters validate external responses before returning facts. No credentials cross these ports. */
 export interface EnginePort {
   start(key: string, lane: Lane, cwd: string, prompt: string): Promise<void>;
+  correctArtifact(key: string, lane: Lane, error: string): Promise<void>;
   fork(key: string, lane: Lane, sourceLaneId: string, cwd: string, prompt: string): Promise<void>;
   control(
     key: string,
     lane: Lane,
-    action: "pause" | "resume" | "cancel" | "allow_destructive",
+    action: "pause" | "resume" | "cancel" | "force_cancel" | "allow_destructive",
   ): Promise<Fact[]>;
 }
 export interface OrchestratorPort {
@@ -36,6 +37,7 @@ export interface AccountsPort {
   migrate(key: string, lane: Lane, fromAccount: string): Promise<void>;
 }
 export interface VerificationPort {
+  /** A failed check must restore the prior integration tree before returning, including a published PR. */
   check(key: string, revision: string): Promise<{ passed: boolean; summary: string }>;
 }
 export interface InteractionPort {

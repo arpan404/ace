@@ -22,6 +22,7 @@ export function installPlan(ctx: Context, plan: ConductorPlan): void {
         trivialConflict: false,
         mergeApproved: false,
         operation: null,
+        integrationKey: null,
       } satisfies Node,
     ]),
   );
@@ -54,6 +55,8 @@ export function settle(ctx: Context, lane: Lane): void {
       release(ctx, lane);
       node.completion = lane.artifact.completion;
       node.mergeApproved = false;
+      node.conflict = null;
+      node.trivialConflict = false;
       node.state = "review_pending";
     } else if (lane.role === "reviewer" && lane.artifact.kind === "review") {
       validateReview(ctx.state, lane, lane.artifact);
@@ -92,9 +95,10 @@ export function validateReview(state: State, lane: Lane, artifact: Artifact): vo
   const criteria = state.plan?.workstreams.find((w) => w.id === node.id)?.brief.acceptance ?? [];
   const reviewed = artifact.review.requirements.map((r) => r.criterion);
   if (
-    criteria.length !== reviewed.length ||
-    new Set(reviewed).size !== criteria.length ||
-    !criteria.every((c) => reviewed.includes(c))
+    new Set(reviewed).size !== reviewed.length ||
+    !reviewed.every((criterion) => criteria.includes(criterion)) ||
+    (artifact.review.verdict === "pass" &&
+      !criteria.every((criterion) => reviewed.includes(criterion)))
   )
     throw new Error("review_requirements_mismatch");
 }

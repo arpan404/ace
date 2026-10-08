@@ -3,9 +3,11 @@ import type { State } from "./schema.ts";
 
 /** The daemon keeps one timer and sends a tick at this deadline. No file polling. */
 export function nextDeadline(state: State): number | null {
-  if (["paused", "cancelling", "cancelled", "done"].includes(state.phase)) return null;
+  if (["cancelled", "done"].includes(state.phase)) return null;
   const times: number[] = [];
   if (
+    state.phase !== "cancelling" &&
+    state.phase !== "paused" &&
     state.spec.constraints.deadline !== null &&
     !Object.values(state.gates).some((g) => g.kind === "deadline")
   )

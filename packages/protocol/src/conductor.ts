@@ -101,12 +101,9 @@ export const ConductorReview = z
       .min(1)
       .max(64),
     probes: z.array(Text).min(1).max(64),
-    mutations: z
-      .array(z.object({ change: Text, caught: z.boolean(), evidence: Text }))
-      .min(15)
-      .max(64),
+    mutations: z.array(z.object({ change: Text, caught: z.boolean(), evidence: Text })).max(64),
     flakiness: z.object({
-      runs: z.number().int().min(2).max(1000),
+      runs: z.number().int().min(0).max(1000),
       passed: z.boolean(),
       evidence: Text,
     }),
@@ -121,7 +118,9 @@ export const ConductorReview = z
     if (
       report.verdict === "pass" &&
       (!report.requirements.every((r) => r.passed) ||
+        report.mutations.length < 15 ||
         !report.mutations.every((m) => m.caught) ||
+        report.flakiness.runs < 2 ||
         !report.flakiness.passed ||
         !report.design.passed ||
         !report.performance.passed)
@@ -130,7 +129,7 @@ export const ConductorReview = z
   })
   .meta({
     "x-ace-constraint":
-      "The parsed compact JSON must be at most 65536 UTF-8 bytes. Mutation change strings must be distinct. A pass verdict requires all requirements, mutations, flakiness, design and performance evidence to pass.",
+      "The parsed compact JSON must be at most 65536 UTF-8 bytes. Mutation change strings must be distinct. A pass verdict requires at least 15 distinct caught mutations, at least 2 flakiness runs, and all evidence to pass. changes_required may report incomplete checks with explicit failure evidence.",
     examples: [
       {
         verdict: "changes_required",
@@ -259,6 +258,7 @@ export const ConductorApproval = z.object({
     "x-ace-constraint":
       "Reject answers the gate, never bypasses it. plan: the plan is dropped and the planner drafts another. merge, escalation and destructive gates on a card: that card is declined (its lanes stop, it never merges, its dependants never start) and the rest of the run continues. budget, deadline and any gate not about a card: the run is cancelled. A budget approval needs a larger budget; a deadline approval needs a future deadline.",
   }),
+  feedback: z.string().min(1).max(16_384).optional(),
   plan: ConductorPlan.optional(),
   budget: z.number().finite().nonnegative().optional(),
   deadline: z.number().int().nonnegative().optional(),

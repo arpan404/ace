@@ -64,14 +64,19 @@ export function fakePorts(now: () => number) {
           });
         });
       },
+      async correctArtifact(key, lane, error) {
+        once(key, () =>
+          sessions.get(lane.id)?.history.push(`Artifact validation failed: ${error}`),
+        );
+      },
       async control(key, lane, action) {
         return once(key, () => {
           const session = sessions.get(lane.id);
           if (session) {
             session.paused = action === "pause";
-            if (action === "cancel") session.stopped = true;
+            if (action === "cancel" || action === "force_cancel") session.stopped = true;
           }
-          return action === "cancel"
+          return action === "cancel" || action === "force_cancel"
             ? [
                 {
                   type: "status",

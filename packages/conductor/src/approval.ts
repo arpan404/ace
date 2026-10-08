@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { ConductorApproval } from "@ace/protocol";
 import { cancel } from "./advance.ts";
 import { installPlan } from "./completion.ts";
-import { closeGate, control } from "./transition.ts";
+import { closeGate, control, retire } from "./transition.ts";
 import type { Context } from "./transition.ts";
 import type { Gate } from "./schema.ts";
 
@@ -11,7 +11,7 @@ export function approve(ctx: Context, approval: z.infer<typeof ConductorApproval
   const g = s.gates[approval.gateId];
   if (!Object.hasOwn(s.gates, approval.gateId) || !g) throw new Error("gate_not_pending");
   if (approval.decision === "reject") {
-    reject(ctx, g);
+    reject(ctx, g, approval.feedback);
     return;
   }
   const node = g.workstream ? s.nodes[g.workstream] : null;
@@ -46,16 +46,13 @@ export function approve(ctx: Context, approval: z.infer<typeof ConductorApproval
     case "escalation":
       if (node && (node.reviews.length >= 24 || Object.keys(s.lanes).length >= 8192))
         throw new Error("run_retention_limit");
-      if (lane?.live) {
-        lane.retiring = true;
-        control(ctx, lane, "cancel");
-      }
+      if (lane?.live) retire(ctx, lane);
       if (lane && !lane.live && (lane.role === "planner" || lane.role === "reviewer"))
         delete s.lanes[lane.id];
       if (lane?.role === "planner") s.planner = null;
       else if (node) {
         if (lane?.role === "reviewer") node.state = "review_pending";
-        else node.state = "fix_pending";
+        else node.state = node.conflict ? "conflict_pending" : "fix_pending";
       }
       break;
   }
@@ -70,12 +67,16 @@ export function approve(ctx: Context, approval: z.infer<typeof ConductorApproval
  *   on. The deck finishes once nothing else can move;
  * - budget, deadline, and any gate not about a card: the deck stops, as `conductor.cancel` does.
  */
-function reject(ctx: Context, g: Gate): void {
+function reject(ctx: Context, g: Gate, feedback?: string): void {
   const s = ctx.state;
   const node = g.workstream ? (s.nodes[g.workstream] ?? null) : null;
   if (g.kind === "plan") {
     closeGate(ctx, g.id);
-    s.rejectedPlan = s.plan?.summary ?? null;
+    s.rejectedPlan =
+      [s.plan?.summary, feedback ? `User feedback: ${feedback}` : null]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 16_384) || null;
     s.plan = null;
     s.nodes = {};
     s.planApproved = false;
@@ -90,9 +91,8 @@ function reject(ctx: Context, g: Gate): void {
   for (const other of Object.values(s.gates))
     if (other.id === g.id || other.workstream === node.id) closeGate(ctx, other.id);
   for (const lane of Object.values(s.lanes)) {
-    if (!lane.live || lane.retiring || lane.workstream !== node.id) continue;
-    lane.retiring = true;
-    control(ctx, lane, "cancel");
+    if (lane.retiring || lane.workstream !== node.id) continue;
+    retire(ctx, lane);
   }
   node.state = "declined";
   node.mergeApproved = false;

@@ -42,13 +42,26 @@ export function gate(
   });
 }
 export function closeGate(ctx: Context, id: string): void {
+  const closed = ctx.state.gates[id];
   delete ctx.state.gates[id];
+  // Starts held at a human gate receive their admission window when it opens.
+  if (closed)
+    for (const lane of Object.values(ctx.state.lanes)) {
+      if (
+        lane.live &&
+        lane.status === "starting" &&
+        (["plan", "budget", "deadline"].includes(closed.kind) ||
+          closed.lane === lane.id ||
+          (closed.workstream !== null && closed.workstream === lane.workstream))
+      )
+        lane.lastActivity = ctx.env.now();
+    }
   ctx.effects.push({ type: "gate_closed", id: ctx.env.id(), gateId: id });
 }
 export function control(
   ctx: Context,
   lane: Lane,
-  action: "pause" | "resume" | "cancel" | "allow_destructive",
+  action: "pause" | "resume" | "cancel" | "force_cancel" | "allow_destructive",
 ): void {
   ctx.effects.push({ type: "control", id: ctx.env.id(), lane: { ...lane }, action });
 }
@@ -100,9 +113,13 @@ export function launch(
     migrationObservation: null,
     artifactDeadline: null,
     artifact: null,
+    correctionPending: false,
+    artifactRetries: 0,
+    rejectedArtifact: null,
     source: source?.id ?? null,
     live: true,
     retiring: false,
+    stopRequestedAt: null,
   };
   const brief = ctx.state.plan?.workstreams.find((w) => w.id === node?.id)?.brief;
   let prompt = plannerPrompt(ctx.state.spec, ctx.state.rejectedPlan);
@@ -127,6 +144,7 @@ export function launch(
     rootAgentId: ctx.state.spec.rootAgentId,
     workspaceId: ctx.state.spec.workspaceId,
     completion: node?.completion ?? null,
+    conflict: node?.conflict ?? null,
     dependencies: (
       ctx.state.plan?.workstreams.find((w) => w.id === node?.id)?.dependencies ?? []
     ).map((id) => {
@@ -171,7 +189,23 @@ export function emptyState(
 }
 
 export function release(ctx: Context, lane: Lane): void {
+  if (!lane.live) return;
   lane.live = false;
+  if (lane.retiring && (lane.role === "reviewer" || lane.role === "planner"))
+    delete ctx.state.lanes[lane.id];
   const account = ctx.state.accounts.find((a) => a.id === lane.account);
   if (account) account.quota = Math.max(0, account.quota - lane.model.quota);
+}
+
+/** Terminal observations already prove settlement; no second observer event is required. */
+export function retire(ctx: Context, lane: Lane): void {
+  if (!lane.live) {
+    if (lane.role === "reviewer" || lane.role === "planner") delete ctx.state.lanes[lane.id];
+    return;
+  }
+  if (lane.retiring) return;
+  lane.retiring = true;
+  lane.stopRequestedAt = ctx.env.now();
+  control(ctx, lane, "cancel");
+  if (lane.status === "done" || lane.status === "failed") release(ctx, lane);
 }

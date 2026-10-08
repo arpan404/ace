@@ -73,9 +73,13 @@ export const Lane = z.object({
     .nullable()
     .default(null),
   artifact: Artifact.nullable(),
+  correctionPending: z.boolean().default(false),
+  artifactRetries: z.number().int().min(0).max(2).default(0),
+  rejectedArtifact: z.string().max(256).nullable().default(null),
   source: Key.nullable(),
   live: z.boolean(),
   retiring: z.boolean(),
+  stopRequestedAt: z.number().int().nonnegative().nullable().default(null),
 });
 export type Lane = z.infer<typeof Lane>;
 export const Node = z.object({
@@ -108,6 +112,7 @@ export const Node = z.object({
   trivialConflict: z.boolean(),
   mergeApproved: z.boolean(),
   operation: Key.nullable(),
+  integrationKey: Key.nullable().default(null),
 });
 export type Node = z.infer<typeof Node>;
 export const Gate = z.object({
@@ -167,6 +172,13 @@ export const Fact = z.discriminatedUnion("type", [
     at: z.number().int().nonnegative(),
   }),
   z.object({ type: z.literal("artifact"), ...LaneRef, artifact: Artifact }),
+  z.object({
+    type: z.literal("artifact_invalid"),
+    ...LaneRef,
+    itemId: z.string().min(1).max(256),
+    error: Text,
+  }),
+  z.object({ type: z.literal("artifact_correction_started"), ...LaneRef }),
   z.object({ type: z.literal("usage_limit"), ...LaneRef }),
   z.object({ type: z.literal("migrated"), ...LaneRef }),
   z.object({
@@ -194,6 +206,7 @@ export const Fact = z.discriminatedUnion("type", [
 ]);
 export type Fact = z.infer<typeof Fact>;
 export const Effect = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("correct_artifact"), id: Key, lane: Lane, error: Text }),
   z.object({
     type: z.literal("launch"),
     id: Key,
@@ -202,6 +215,7 @@ export const Effect = z.discriminatedUnion("type", [
     rootAgentId: z.string().uuid(),
     workspaceId: z.string().uuid(),
     completion: Completion.nullable(),
+    conflict: Text.nullable().default(null),
     dependencies: z.array(Completion).max(256),
   }),
   z.object({ type: z.literal("migrate"), id: Key, lane: Lane, fromAccount: Key }),
@@ -209,7 +223,7 @@ export const Effect = z.discriminatedUnion("type", [
     type: z.literal("control"),
     id: Key,
     lane: Lane,
-    action: z.enum(["pause", "resume", "cancel", "allow_destructive"]),
+    action: z.enum(["pause", "resume", "cancel", "force_cancel", "allow_destructive"]),
   }),
   z.object({ type: z.literal("gate"), id: Key, gate: Gate, rootAgentId: z.string().uuid() }),
   z.object({ type: z.literal("gate_closed"), id: Key, gateId: Key }),

@@ -2,7 +2,8 @@ import type { Effect, State } from "./schema.ts";
 
 /** User gates stop new scheduling, while cleanup and already-required checks can drain. */
 export function executable(state: State, effect: Effect): boolean {
-  if (!["launch", "migrate", "merge", "verify"].includes(effect.type)) return true;
+  if (!["launch", "migrate", "merge", "verify", "correct_artifact"].includes(effect.type))
+    return true;
   if (state.phase === "cancelling" || state.phase === "cancelled") return true;
   if (state.phase === "paused") return false;
   if (effect.type === "verify") return true;

@@ -60,14 +60,8 @@ export class ConductorDriver {
         batch.delete(effect.id);
         if (!this.store.hasPending(run, effect.id)) continue;
         if (
-          (state.phase === "cancelling" || state.phase === "cancelled") &&
-          effect.type === "merge"
-        ) {
-          if (state.phase === "cancelling") this.store.abandonIntegration(run, effect.id, this.env);
-          else this.store.complete(run, effect.id, [], this.env);
-        } else if (
           "lane" in effect &&
-          ["launch", "migrate"].includes(effect.type) &&
+          ["launch", "migrate", "correct_artifact"].includes(effect.type) &&
           (!state.lanes[effect.lane.id]?.live ||
             state.lanes[effect.lane.id]?.generation !== effect.lane.generation ||
             state.lanes[effect.lane.id]?.retiring)

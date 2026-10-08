@@ -1,7 +1,7 @@
 import { laneDeadline } from "./liveness.ts";
 import { advance, cancel } from "./advance.ts";
 import { approve } from "./approval.ts";
-import { applyLaneStatus } from "./lane-status.ts";
+import { applyLaneStatus, recoverLane } from "./lane-status.ts";
 import { admitOwnership, settle, validateReview } from "./completion.ts";
 import { StartSpec, Fact, Key, type Environment, type State, type Transition } from "./schema.ts";
 import { control, emptyState, gate } from "./transition.ts";
@@ -69,7 +69,11 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
   // Activity does not change DAG readiness or release a reservation. Keep this
   // path proportional to the bounded lane index, without copying the plan or
   // scanning workstream history. Deadline enforcement is an explicit tick.
-  if (fact.type === "status" && (fact.status === "working" || fact.status === "waiting")) {
+  if (
+    fact.type === "status" &&
+    (fact.status === "working" || fact.status === "waiting") &&
+    !Object.values(state.gates).some((g) => g.kind === "escalation" && g.lane === fact.laneId)
+  ) {
     const lane = state.lanes[fact.laneId];
     if (
       !lane?.live ||
@@ -119,6 +123,7 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
         return { state, effects: [] };
       lane.status = fact.status;
       lane.lastActivity = fact.at;
+      recoverLane(ctx, lane);
       applyLaneStatus(ctx, lane);
     } else if (fact.type === "artifact") {
       if (lane.artifact || lane.retiring || lane.status === "limited")
@@ -131,7 +136,34 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
         fact.artifact.kind === "plan"
           ? { kind: "plan", plan: admitOwnership(s, fact.artifact.plan) }
           : fact.artifact;
+      recoverLane(ctx, lane);
       settle(ctx, lane);
+    } else if (fact.type === "artifact_invalid") {
+      if (
+        lane.artifact ||
+        lane.retiring ||
+        lane.rejectedArtifact === fact.itemId ||
+        lane.status === "migrating"
+      )
+        return { state, effects: [] };
+      lane.rejectedArtifact = fact.itemId;
+      if (lane.artifactRetries < 2) {
+        lane.artifactRetries++;
+        lane.correctionPending = true;
+        lane.status = "starting";
+        lane.artifactDeadline = null;
+        lane.lastActivity = env.now();
+        ctx.effects.push({
+          type: "correct_artifact",
+          id: env.id(),
+          lane: { ...lane },
+          error: fact.error,
+        });
+      }
+    } else if (fact.type === "artifact_correction_started") {
+      if (lane.retiring || !lane.correctionPending) return { state, effects: [] };
+      lane.correctionPending = false;
+      lane.lastActivity = env.now();
     } else if (fact.type === "usage_limit") {
       if (lane.retiring || lane.status === "limited") return { state, effects: [] };
       if (lane.status === "migrating")
@@ -165,8 +197,12 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
         if (s.phase === "paused") {
           s.phase = s.beforePause;
           for (const lane of Object.values(s.lanes))
-            if (lane.live && !lane.retiring && lane.status !== "limited")
+            if (lane.live && !lane.retiring && lane.status !== "limited") {
+              lane.lastActivity = env.now();
+              if (lane.artifactDeadline !== null)
+                lane.artifactDeadline = env.now() + s.spec.constraints.stallAfterMs;
               control(ctx, lane, "resume");
+            }
         }
         break;
       case "cancel":
@@ -220,6 +256,8 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
           node.conflict = null;
         } else {
           node.state = "escalated";
+          node.mergedRevision = null;
+          node.completion = null;
           if (s.phase !== "cancelling") gate(ctx, "escalation", fact.summary, node);
         }
         break;
@@ -228,6 +266,11 @@ function reduceFact(state: State, input: unknown, env: Environment): Transition 
         for (const lane of Object.values(s.lanes)) {
           const deadline = laneDeadline(s, lane);
           if (deadline === null || env.now() < deadline) continue;
+          if (lane.retiring) {
+            lane.stopRequestedAt = env.now();
+            control(ctx, lane, "force_cancel");
+            continue;
+          }
           const missingArtifact =
             !lane.artifact &&
             (lane.status === "done" ||
