@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { collectLicenses } from "./licenses.ts";
 import { bundleDaemon } from "./bundle.ts";
 import { LinuxNativeInput, stageNativeFiles } from "./native-assets.ts";
@@ -48,6 +49,8 @@ async function main() {
   await cp(join(installedPty, "package.json"), join(destination, "package.json"));
   await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
   await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
+  execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
+  await cp(join(repo, "apps/web/dist"), join(root, "web"), { recursive: true });
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));

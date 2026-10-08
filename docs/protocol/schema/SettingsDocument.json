@@ -275,6 +275,15 @@
         "remote.enabled": {
           "type": "boolean"
         },
+        "remote.relayUrl": {
+          "examples": [
+            "",
+            "wss://relay.example.invalid/"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
+        },
         "remote.transport": {
           "enum": [
             "local",

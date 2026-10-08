@@ -1,7 +1,7 @@
-import { Device, PairingRequest, type DeviceScope } from "@ace/protocol";
+import { Device, PairingRedemption, PairingRequest, type DeviceScope } from "@ace/protocol";
 import { settingsFixture } from "./scenarios/settings.ts";
 
-const pairingLifetimeMs = 10 * 60_000;
+const pairingLifetimeMs = 5 * 60_000;
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function reply(status: number, body: unknown): Response {
@@ -20,6 +20,7 @@ export class FakeAccess {
   private devices: Device[];
   private clock: () => number;
   private pairings = 0;
+  private pending: { code: string; expiresAt: number } | undefined;
   /** The scopes of the latest pairing code, which `completePairing` grants. */
   private offered: DeviceScope[] = ["read", "operate"];
   /** The administrator token these routes accept (a daemon token is 64 hex characters). */
@@ -44,6 +45,7 @@ export class FakeAccess {
   private pair(scopes: DeviceScope[]) {
     this.offered = scopes;
     const code = this.code();
+    this.pending = { code, expiresAt: this.clock() + pairingLifetimeMs };
     const fragment = new URLSearchParams({
       fingerprint: "5f1c9a7e",
       code,
@@ -56,6 +58,7 @@ export class FakeAccess {
   }
   /** A device scans the latest code (dev and tests): it appears in `GET /v1/devices`. */
   completePairing(name: string): Device {
+    this.pending = undefined;
     const at = this.clock();
     const device = Device.parse({
       id: `device-${this.pairings}-${this.devices.length + 1}`,
@@ -81,8 +84,31 @@ export class FakeAccess {
     const path = new URL(input).pathname;
     const method = init.method ?? "GET";
     const headers = new Headers(init.headers);
+    if (path === "/v1/pair" && method === "POST") {
+      const parsed = PairingRedemption.safeParse(
+        typeof init.body === "string" ? JSON.parse(init.body) : {},
+      );
+      if (!parsed.success) return reply(400, { error: "Invalid pairing" });
+      if (
+        !this.pending ||
+        parsed.data.code !== this.pending.code ||
+        this.pending.expiresAt <= this.clock()
+      )
+        return reply(401, { error: "Expired pairing" });
+      this.pending = undefined;
+      return reply(200, { device: this.completePairing(parsed.data.name), token: "b".repeat(64) });
+    }
     if (headers.get("authorization") !== `Bearer ${this.token}`)
       return reply(401, { error: "Administrator token required" });
+    if (path === "/v1/status")
+      return reply(200, {
+        remoteAccess: {
+          enabled: true,
+          transport: "tailscale",
+          listenOverride: null,
+          relayOverride: false,
+        },
+      });
     if (path === "/v1/devices" && method === "GET") return reply(200, this.list());
     if (path === "/v1/pairings" && method === "POST") {
       const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : {};

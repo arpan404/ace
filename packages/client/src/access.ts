@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   Device,
+  RemoteAccessStatus,
   DeviceCredential,
   PairingRedemption,
   PairingRequest,
@@ -81,6 +82,11 @@ export class AccessClient {
     } finally {
       reader.releaseLock();
     }
+  }
+  async remoteStatus(signal?: AbortSignal) {
+    return z
+      .object({ remoteAccess: RemoteAccessStatus })
+      .parse(await this.call("/v1/status", "GET", undefined, true, signal)).remoteAccess;
   }
   async devices(signal?: AbortSignal) {
     return z

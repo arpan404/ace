@@ -1,6 +1,6 @@
 # Remote access to your daemon
 
-Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. The daemon has no hosted service or relay.
+Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. ace operates no hosted service. You may use a relay you host yourself.
 
 ## Start and pair
 
@@ -27,7 +27,9 @@ ace doctor
 
 `ace start` stays in the foreground and stops on SIGINT or SIGTERM. `ace status` prints JSON with `running: false` when the daemon is stopped. `ace doctor` uses provider-kit discovery for version and authentication probes. It sends no prompts.
 
-Enable remote access before running `ace pair`. Pairing prints an HTTPS URL and a terminal QR code. A companion client reads the URL's fragment, verifies the daemon's public-key fingerprint during TLS negotiation, then posts the code to the redemption endpoint. The fragment is never part of the HTTP request URL. This backend includes a Node client helper; a browser or mobile pairing UI is a separate client task.
+In Settings > Remote devices, turn on Remote access and choose LAN or Tailscale. This applies immediately, including in the desktop app; no restart is needed. `host.displayName` names this computer in Settings and machine pickers.
+
+Enable remote access before running `ace pair`. Pairing prints an HTTPS URL and a terminal QR code. A companion client reads the URL's fragment, verifies the daemon's public-key fingerprint during TLS negotiation, then posts the code to the redemption endpoint. The fragment is never part of the HTTP request URL. Opening `/pair` loads the shipped web app from the TLS listener. Confirm this device's name to redeem the code, save its device token and connect using a one-use ticket. The connect screen also accepts a pairing link or a code plus computer address. Browsers require trusted HTTPS and cannot perform native public-key pinning; use only a link obtained from your own computer and trust its certificate before pairing. The Node client helper verifies the fragment's public-key fingerprint before sending credentials.
 
 Treat the pairing URL as a credential until redeemed or expired. A code lasts five minutes and can create one device. Restarting the daemon invalidates all pending codes and tickets. Paired devices and the TLS identity persist across restarts.
 
@@ -43,6 +45,10 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 | `ACE_WEB_ORIGINS`    | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
 
 LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
+
+Global `remote.enabled` and `remote.transport` settings control direct access. The legacy `local` transport value selects LAN when enabled. Selecting Relay starts the existing encrypted file, browser, screen and device channels at `remote.relayUrl`, without opening a LAN listener. Pair over LAN or Tailscale before switching to Relay; the main conversation channel and pairing redemption do not travel through the relay yet. The UI states this limitation.
+
+`ACE_LISTEN`, when explicitly supplied, overrides the direct listener preference, including `local`. `ACE_RELAY_URL` independently forces the outbound relay. Settings shows an override notice and disables network controls while either override is present. Unset the launch override to use runtime settings. Changes close direct remote sockets, relay channels, pending codes and tickets; local host sessions and stored devices survive.
 
 The loopback listener remains available in both remote modes. The token file is an implicit admin credential accepted only by this listener. The remote TLS listener rejects that credential even for connections originating on loopback.
 
@@ -61,7 +67,7 @@ OpenSSL creates an RSA-2048 self-signed certificate valid for ten years under `A
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
 
-`GET /v1/devices`, `POST /v1/pairings` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets stay same-origin.
+`GET /v1/status`, `GET /v1/devices`, `POST /v1/pairings`, `POST /v1/pair`, `POST /v1/tickets` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets accept only the same configured origins, so the desktop connect screen and an explicitly allowed web app can pair.
 
 The loopback WebSocket listener shares the HTTP access allowlist: an upgrade carrying any other `Origin` gets 403. The remote listener authenticates paired devices by a single-use ticket, independent of `Origin`. React Native WebSockets may send a URL-derived `Origin` (`https://<lan-ip>:<port>`); those clients need no origin configuration. Remote browser clients likewise require a ticket, rather than an origin allowlist entry. An Origin header is never a substitute for authentication. Sockets that have not authenticated have their own budget (128 on loopback, 64 on the remote listener with at most 16 per address) and are terminated if they send no valid `hello` within 5 seconds.
 
@@ -76,7 +82,7 @@ The device service caps state subscribers at 64 across all clients to bound stat
 | `GET /v1/devices`         | admin               | none                                        | device records, including revoked devices                    |
 | `DELETE /v1/devices/<id>` | admin               | none                                        | `{ revoked: true }`                                          |
 
-Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. `read` permits subscriptions, output reads and item pages, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
+Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. The pairing dialog offers view-only, view-and-act and administrator access. Advanced access grants `projects` and `accounts` independently; admin does not imply these scopes. Every device row lists the actual stored grant. `read` permits subscriptions, output reads and item pages, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
 
 A device record has `id`, `name`, `scopes`, `createdAt`, `lastSeenAt` and nullable `revokedAt`. SQLite stores these in `devices(id, name, token_hash, scopes, created_at, last_seen_at, revoked_at)`. Tokens contain 32 random bytes encoded as 64 hexadecimal characters. Only SHA-256 hashes are stored; tokens and hashes are absent from device listings. Device authentication and ticket use update `lastSeenAt`.
 
@@ -139,4 +145,4 @@ The allocation policy receives time and hashed identities from the I/O layer. Cr
 
 `jsqr` 1.4.0 is accepted under Apache-2.0 as a test-only decoder with no runtime dependencies. Tests rasterize the terminal output and independently scan it, so a decorative or wrong QR payload fails. Zod is the repo's existing schema dependency, now declared directly by the daemon for Tailscale status validation.
 
-Future work includes the mobile/browser transport, explicit TLS-key rotation, and relay design that preserves the user's own daemon and a pinned connection. No relay is implemented here.
+Future work includes the mobile/browser transport, explicit TLS-key rotation, and relay design that preserves the user's own daemon and a pinned connection. See the encrypted relay documentation for the implemented auxiliary-channel relay.

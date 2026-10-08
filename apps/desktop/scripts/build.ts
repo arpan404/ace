@@ -78,6 +78,7 @@ log("daemon bundle");
 const daemon = join(dist, "daemon");
 await mkdir(daemon, { recursive: true });
 await bundleDaemon(repo, daemon, releasePublicKey(process.env));
+await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
 await stageNodePty(daemon);
 await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
 

@@ -24,6 +24,7 @@ const InCard = createContext(false);
  */
 export function SettingRow(props: {
   title: ReactNode;
+  compact?: boolean;
   description?: ReactNode;
   children?: ReactNode;
   /** Associates the title with a control for assistive tech. */
@@ -49,13 +50,16 @@ export function SettingRow(props: {
     >
       <div
         className={cn(
-          "flex gap-4 py-3.5 compact:py-2.5",
+          props.compact ? "flex min-h-8 gap-4" : "flex gap-4",
+          props.compact ? "py-0.5" : "py-3.5 compact:py-2.5",
           props.inline
             ? "items-center"
             : "flex-col items-stretch gap-2.5 @[30rem]:flex-row @[30rem]:items-center @[30rem]:gap-4",
         )}
       >
-        <div className="min-w-0 flex-1">
+        <div
+          className={cn("min-w-0 flex-1", props.compact && "flex flex-wrap items-center gap-x-3")}
+        >
           <Title
             {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
             className="block text-ui font-medium"
@@ -63,7 +67,12 @@ export function SettingRow(props: {
             {props.title}
           </Title>
           {props.description && (
-            <p className="mt-0.5 text-sm leading-[1.4] text-muted-foreground">
+            <p
+              className={cn(
+                "text-sm leading-[1.4] text-muted-foreground",
+                !props.compact && "mt-0.5",
+              )}
+            >
               {props.description}
             </p>
           )}

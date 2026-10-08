@@ -45,6 +45,7 @@
     "logs.retention",
     "remote.enabled",
     "remote.transport",
+    "remote.relayUrl",
     "automations.enabled",
     "automations.timezone",
     "automations.maxConcurrent",

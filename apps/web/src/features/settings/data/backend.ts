@@ -21,6 +21,7 @@ export interface SettingsBackend {
   addAcpAgent(agent: { name: string; command: string }): Promise<void>;
   removeAcpAgent(name: string): Promise<void>;
   machines(): Promise<Machine[]>;
+  remoteStatus(): Promise<import("@ace/protocol").RemoteAccessStatus>;
   devices(): Promise<Device[]>;
   pair(scopes: DeviceScope[]): Promise<Pairing>;
   revoke(deviceId: string): Promise<void>;

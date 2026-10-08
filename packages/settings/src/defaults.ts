@@ -43,6 +43,7 @@ export const defaults: SettingsValues = {
   "logs.retention": "30d",
   "remote.enabled": false,
   "remote.transport": "local",
+  "remote.relayUrl": "",
   "automations.enabled": false,
   "automations.timezone": "UTC",
   "automations.maxConcurrent": 1,

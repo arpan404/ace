@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteAccessStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "listenOverride": {
+      "anyOf": [
+        {
+          "enum": [
+            "local",
+            "lan",
+            "tailscale"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "relayOverride": {
+      "type": "boolean"
+    },
+    "transport": {
+      "enum": [
+        "local",
+        "lan",
+        "tailscale",
+        "relay"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "enabled",
+    "transport",
+    "listenOverride",
+    "relayOverride"
+  ],
+  "type": "object"
+}

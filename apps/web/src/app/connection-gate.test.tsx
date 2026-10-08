@@ -120,14 +120,14 @@ test("Cancel stops trying and gives the fields back, token kept", async () => {
 
 test("a remembered daemon that answers opens straight into the app", async () => {
   boot({ remembered: true });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to your computer" })).toBeNull();
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to your computer" })).toBeNull();
 });
 
 test("a remembered daemon that is down says so instead of a shell stuck reconnecting", async () => {
   const { runOutFirstAttempt } = boot({ remembered: true, createClient: silentClient });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to your computer" })).toBeNull();
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   expect(shell()).toBeNull();
@@ -138,7 +138,7 @@ test("inside the desktop app the form never tells the person to start a daemon b
   daemon.refuseConnections(true);
   await connect();
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/Couldn't reach the daemon/);
+  expect(alert.textContent).toMatch(/Couldn't reach ace/);
   expect(document.body.textContent).not.toMatch(/ace start/);
 });
 

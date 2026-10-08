@@ -1,5 +1,5 @@
 import type { HistoryScanStatus } from "@ace/protocol/history";
-import { startTransports } from "./services/transports.ts";
+import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { previewHttp } from "./preview-http.ts";
@@ -25,24 +25,9 @@ import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
-const bind = (listener: Server, host: string, port: number) =>
-  new Promise<number>((resolve, reject) => {
-    listener.once("error", reject);
-    listener.listen(port, host, () => {
-      listener.removeListener("error", reject);
-      const address = listener.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Missing listener address"));
-        return;
-      }
-      resolve(address.port);
-    });
-  });
-const closeListener = (listener: Server) =>
-  new Promise<void>((resolve) => {
-    listener.close(() => resolve());
-    listener.closeAllConnections();
-  });
+import { bindListener as bind, closeListener } from "./listener.ts";
+import { remoteRuntime } from "./remote-runtime.ts";
+import { webHttp } from "./web-http.ts";
 const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () =>
     socket.destroy(),
@@ -51,7 +36,7 @@ const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 export async function startServer(options: ServerOptions): Promise<{
-  relayHostId?: string;
+  relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
@@ -60,8 +45,8 @@ export async function startServer(options: ServerOptions): Promise<{
   preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
-  remoteUrl?: string;
-  fingerprint?: string;
+  remoteUrl?: string | undefined;
+  fingerprint?: string | undefined;
   close(): Promise<void>;
 }> {
   const runtime = {
@@ -90,7 +75,8 @@ export async function startServer(options: ServerOptions): Promise<{
   const pairing = () =>
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
-      : undefined;
+      : dynamicRemote?.pairing();
+  let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
   const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
   let ready = options.ready === undefined;
@@ -101,6 +87,13 @@ export async function startServer(options: ServerOptions): Promise<{
   const access = {
     auth,
     pairing,
+    remoteStatus: () =>
+      dynamicRemote?.status() ?? {
+        enabled: remoteOrigin !== undefined || options.relay !== undefined,
+        transport: options.relay ? "relay" : remoteOrigin ? "lan" : "local",
+        listenOverride: null,
+        relayOverride: false,
+      },
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
@@ -108,30 +101,36 @@ export async function startServer(options: ServerOptions): Promise<{
     ready: () => ready,
   };
   const local = httpServer(
-    attachmentsHttp(
-      options,
-      auth,
-      false,
-      previewHttp(
-        () => preview,
-        accessHttp({
-          ...access,
-          authenticate: auth.localBearer.bind(auth),
-          maintenance,
-        }),
+    webHttp(
+      options.webRoot,
+      attachmentsHttp(
+        options,
+        auth,
+        false,
+        previewHttp(
+          () => preview,
+          accessHttp({
+            ...access,
+            authenticate: auth.localBearer.bind(auth),
+            maintenance,
+          }),
+        ),
       ),
     ),
   );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        attachmentsHttp(
-          options,
-          auth,
-          true,
-          previewHttp(
-            () => preview,
-            accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+        webHttp(
+          options.webRoot,
+          attachmentsHttp(
+            options,
+            auth,
+            true,
+            previewHttp(
+              () => preview,
+              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+            ),
           ),
         ),
       )
@@ -142,6 +141,7 @@ export async function startServer(options: ServerOptions): Promise<{
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   const attach = (listener: Server, isLocal: boolean) =>
     listener.on("upgrade", (request, socket, head) => {
@@ -163,6 +163,10 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       wss.handleUpgrade(request, socket, head, (websocket) => {
+        if (!isLocal) {
+          remoteSockets.add(websocket);
+          websocket.once("close", () => remoteSockets.delete(websocket));
+        }
         preAuth.track(websocket, kind, address);
         wss.emit("connection", websocket, isLocal);
       });
@@ -615,11 +619,38 @@ export async function startServer(options: ServerOptions): Promise<{
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
-    transports = await startTransports(options, auth);
+    transports = options.remoteConfig
+      ? await startLocalTransports(options)
+      : await startTransports(options, auth);
+    if (options.remoteConfig) {
+      dynamicRemote = remoteRuntime(
+        options,
+        auth,
+        webHttp(
+          options.webRoot,
+          attachmentsHttp(
+            options,
+            auth,
+            true,
+            previewHttp(
+              () => preview,
+              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+            ),
+          ),
+        ),
+        (listener) => attach(listener, false),
+        () => {
+          for (const socket of remoteSockets) socket.terminate();
+        },
+      );
+      options.applyRemoteSetting = dynamicRemote.set;
+      await dynamicRemote.start();
+    }
     if (options.preview)
       preview = await createDaemonPreview(options.store, options.preview, auth.now);
   } catch (error) {
     stopTimer();
+    await dynamicRemote?.close();
     await transports?.close();
     await preview?.close();
     stopRevocation();
@@ -631,7 +662,9 @@ export async function startServer(options: ServerOptions): Promise<{
   let closing: Promise<void> | undefined;
   return {
     ...(preview ? { preview } : {}),
-    ...(transports?.relayHostId ? { relayHostId: transports.relayHostId } : {}),
+    get relayHostId() {
+      return dynamicRemote?.relayHostId ?? transports?.relayHostId;
+    },
     maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
@@ -643,12 +676,12 @@ export async function startServer(options: ServerOptions): Promise<{
         0,
       ),
     }),
-    ...(remoteOrigin && options.remote
-      ? {
-          remoteUrl: remoteOrigin.replace("https:", "wss:"),
-          fingerprint: options.remote.identity.fingerprint,
-        }
-      : {}),
+    get remoteUrl() {
+      return pairing()?.origin.replace("https:", "wss:");
+    },
+    get fingerprint() {
+      return pairing()?.fingerprint;
+    },
     broadcastHistoryScan(scan) {
       for (const [socket, actor] of authenticated) {
         const current = actor.revocable ? options.store.devices.get(actor.id) : actor;
@@ -685,6 +718,7 @@ export async function startServer(options: ServerOptions): Promise<{
           ...(remote ? [closeListener(remote)] : []),
           preview?.close(),
           transports?.close(),
+          dynamicRemote?.close(),
         ]).then(
           () =>
             wss.close((error) => {

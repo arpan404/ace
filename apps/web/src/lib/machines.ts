@@ -3,6 +3,7 @@ import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useDaemonSetting } from "./daemon-setting.ts";
 import { useMachinePool } from "./machine-pool.ts";
 
 /*
@@ -38,26 +39,31 @@ const noIds: readonly string[] = [];
 /** Every machine, this window's daemon first. Without a pool that is the only one. */
 export function useMachines(): readonly Machine[] {
   const own = usePrimaryMachine();
+  const [displayName] = useDaemonSetting("host.displayName");
   const pool = useMachinePool();
   const client = own.client;
   // With a pool, this daemon's identity names it and keeps it from being listed twice.
   const identity = useQuery({
-    queryKey: ["machines", "identity"],
+    queryKey: ["machines", "identity", displayName],
     queryFn: async ({ signal }) => {
       if (!client) throw new Error("offline");
       return (await client.request({ type: "host.identity" }, { signal })).identity;
     },
-    enabled: pool !== undefined && client !== undefined,
+    enabled: client !== undefined,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   }).data;
   const others = usePoolMachines(pool);
   return useMemo(() => {
     const primary: Machine = identity
-      ? { ...own, id: identity.hostId, name: identity.displayName }
+      ? {
+          ...own,
+          id: identity.hostId,
+          name: typeof displayName === "string" && displayName ? displayName : identity.displayName,
+        }
       : own;
     return [primary, ...others.filter((machine) => machine.id !== identity?.hostId)];
-  }, [own, identity, others]);
+  }, [own, identity, others, displayName]);
 }
 
 function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {

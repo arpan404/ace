@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
@@ -61,6 +62,7 @@ export function useSettingsBackend(): SettingsBackend {
  */
 export function useSetting<T>(setting: SettingDef<T>): [T, (value: T) => Promise<void>] {
   const { key, schema, fallback } = setting;
+  const queries = useQueryClient();
   const backend = useSettingsBackend();
   const raw = useSyncExternalStore(
     backend.values.subscribe,
@@ -71,7 +73,14 @@ export function useSetting<T>(setting: SettingDef<T>): [T, (value: T) => Promise
     const parsed = raw === undefined ? undefined : schema.safeParse(raw);
     return parsed?.success ? parsed.data : fallback;
   }, [raw, schema, fallback]);
-  const set = useCallback((next: T) => backend.set(key, next), [backend, key]);
+  const set = useCallback(
+    async (next: T) => {
+      await backend.set(key, next);
+      if (key === "host.displayName")
+        await queries.invalidateQueries({ queryKey: ["machines", "identity"] });
+    },
+    [backend, key, queries],
+  );
   return [value, set];
 }
 

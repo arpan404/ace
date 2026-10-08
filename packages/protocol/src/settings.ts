@@ -60,6 +60,30 @@ export const SettingsValues = z.object({
   "logs.retention": z.enum(["7d", "30d", "forever"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
+  "remote.relayUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      if (!value) return true;
+      try {
+        const url = new URL(value);
+        return (
+          ["wss:", "ws:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          (url.protocol === "wss:" || url.hostname === "127.0.0.1")
+        );
+      } catch {
+        return false;
+      }
+    }, "Use a secure relay address without credentials")
+    .meta({
+      "x-ace-constraint":
+        "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.",
+      examples: ["", "wss://relay.example.invalid/"],
+    }),
   "automations.enabled": z.boolean(),
   "automations.timezone": name,
   "automations.maxConcurrent": z.number().int().min(1).max(32),

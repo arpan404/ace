@@ -8,8 +8,8 @@ import { assertModelTestIsolation } from "./models.ts";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createRedactor } from "@ace/redaction";
 import {
   logError,
@@ -20,7 +20,7 @@ import {
 } from "@ace/diagnostics";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
-import { remoteListener } from "./network.ts";
+
 import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
@@ -176,7 +176,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const handler = services.handler;
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
-    const remote = await remoteListener(config);
+
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
@@ -187,7 +187,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
       handler,
       serviceStatus: startup.status,
       ready: socketReady.promise,
-      ...(remote ? { remote } : {}),
+      remoteConfig: config,
+      webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
+        ? resolve(import.meta.dirname, "web")
+        : resolve(import.meta.dirname, "../../web/dist"),
       maintenance: process.env.ACE_MAINTENANCE === "1",
       version: process.env.ACE_VERSION ?? "development",
       port: config.port,

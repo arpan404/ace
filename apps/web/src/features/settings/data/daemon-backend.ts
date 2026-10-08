@@ -75,6 +75,7 @@ export function daemonSettingsBackend(
     addAcpAgent: (agent) => access.addAcpAgent(agent),
     removeAcpAgent: (name) => access.removeAcpAgent(name),
     machines: () => access.machines(),
+    remoteStatus: () => access.remoteStatus(),
     devices: () => access.devices(),
     pair: (scopes) => access.pair(scopes),
     revoke: (deviceId) => access.revoke(deviceId),

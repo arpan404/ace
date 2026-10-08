@@ -1,3 +1,5 @@
+import { Switch } from "@/components/ui/switch.tsx";
+import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device, DeviceScope } from "@ace/protocol";
 import { CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,15 +22,16 @@ import { useSeconds } from "@/lib/time.ts";
 import type { Pairing } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
-type Access = "operate" | "read";
+type Access = "operate" | "read" | "admin";
 const accessOptions: { value: Access; label: string }[] = [
   { value: "operate", label: "View and act" },
   { value: "read", label: "View only" },
+  { value: "admin", label: "Administrator" },
 ];
-const accessLabels: Record<Access, string> = { operate: "Can view and act", read: "View only" };
 const scopesFor: Record<Access, DeviceScope[]> = {
   operate: ["read", "operate"],
   read: ["read"],
+  admin: ["read", "operate", "admin"],
 };
 
 /** While a code is on screen, the paired list is read this often to catch the new device. */
@@ -36,7 +39,7 @@ const watchMs = 2_000;
 
 /** "m:ss" left on a pairing code. */
 export function countdown(expiresAt: number, now: number): string {
-  // `now` is whole seconds (the shared clock), so round down: a fresh code reads 10:00.
+  // `now` is whole seconds (the shared clock), so round down: a fresh code reads 5:00.
   const seconds = Math.max(0, Math.floor((expiresAt - now) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -50,6 +53,8 @@ export function PairDevice() {
   const queries = useQueryClient();
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<Access>("operate");
+  const [advanced, setAdvanced] = useState<DeviceScope[]>([]);
+  const granted = [...scopesFor[access], ...advanced];
   const [known, setKnown] = useState<ReadonlySet<string>>();
   const pair = useMutation({
     mutationFn: async (scopes: DeviceScope[]) => {
@@ -88,8 +93,8 @@ export function PairDevice() {
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>
           <DialogDescription>
-            The code works once and expires after ten minutes. Pairing needs remote access to be on
-            for this daemon.
+            The link works once and expires after five minutes. Turn on LAN or Tailscale access
+            before pairing.
           </DialogDescription>
         </DialogHeader>
         {paired ? (
@@ -98,8 +103,9 @@ export function PairDevice() {
           <PairingCode
             pairing={pairing}
             access={access}
+            scopes={granted}
             onChange={reset}
-            onRenew={() => pair.mutate(scopesFor[access])}
+            onRenew={() => pair.mutate(granted)}
             onClose={() => setOpen(false)}
           />
         ) : (
@@ -110,6 +116,31 @@ export function PairDevice() {
               options={accessOptions}
               onValueChange={setAccess}
             />
+            <details>
+              <summary className="text-sm text-muted-foreground">Advanced access</summary>
+              <p className="py-2 text-sm text-muted-foreground">
+                Projects allows changing registered folders. Accounts allows managing provider
+                accounts. These are separate from administrator access.
+              </p>
+              {(["projects", "accounts"] as const).map((scope) => (
+                <label key={scope} className="flex items-center justify-between gap-4 py-2 text-sm">
+                  {scope === "projects" ? "Projects" : "Accounts"}
+                  <Switch
+                    checked={advanced.includes(scope)}
+                    onCheckedChange={(on) =>
+                      setAdvanced((before) =>
+                        on ? [...before, scope] : before.filter((item) => item !== scope),
+                      )
+                    }
+                  />
+                </label>
+              ))}
+            </details>
+            {access === "admin" && (
+              <p className="text-sm text-muted-foreground">
+                Can change settings, pair or revoke devices, and use computer controls.
+              </p>
+            )}
             {pair.isError && (
               <p role="alert" className="text-sm text-destructive">
                 {pair.error.message}
@@ -122,7 +153,7 @@ export function PairDevice() {
               <Button
                 variant="primary"
                 disabled={pair.isPending}
-                onClick={() => pair.mutate(scopesFor[access])}
+                onClick={() => pair.mutate(granted)}
               >
                 Show pairing code
               </Button>
@@ -137,13 +168,13 @@ export function PairDevice() {
 function Paired(props: { device: Device; onDone(): void }) {
   const done = useRef<HTMLButtonElement>(null);
   useEffect(() => done.current?.focus(), []);
-  const access: Access = props.device.scopes.includes("operate") ? "operate" : "read";
+
   return (
     <>
       <div role="status" className="flex flex-col items-center gap-2 py-4 text-center">
         <Icon icon={CheckCircleIcon} size={36} className="text-status-done" />
         <p className="text-md font-medium">{props.device.name} paired</p>
-        <p className="text-sm text-muted-foreground">{accessLabels[access]}</p>
+        <p className="text-sm text-muted-foreground">{deviceScopeLabels(props.device.scopes)}</p>
       </div>
       <DialogFooter>
         <Button ref={done} variant="primary" onClick={props.onDone}>
@@ -157,6 +188,7 @@ function Paired(props: { device: Device; onDone(): void }) {
 function PairingCode(props: {
   pairing: Pairing;
   access: Access;
+  scopes: DeviceScope[];
   onChange(): void;
   onRenew(): void;
   onClose(): void;
@@ -177,7 +209,7 @@ function PairingCode(props: {
     <>
       <div className="flex w-full min-w-0 flex-col items-center gap-3 text-center">
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          {accessLabels[props.access]}
+          {deviceScopeLabels(props.scopes)}
           <Button size="sm" variant="ghost" onClick={props.onChange}>
             Change
           </Button>
@@ -187,9 +219,6 @@ function PairingCode(props: {
           label="Pairing QR code"
           {...(expired ? { className: "opacity-20" } : {})}
         />
-        <p className="font-mono text-lg tracking-[0.12em]" aria-label="Pairing code">
-          {pairing.code}
-        </p>
         <p className="text-sm text-muted-foreground">
           {expired ? "This code has expired." : `Expires in ${countdown(pairing.expiresAt, now)}`}
         </p>

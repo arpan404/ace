@@ -29,13 +29,13 @@ test("the daemon's access routes live on the same host and port as its socket", 
 test("pairing while remote access is off says how to turn it on", async () => {
   const access = endpoint(async () => new Response("{}", { status: 409 }));
 
-  await expect(access.pair(["read"])).rejects.toThrow(/ACE_LISTEN=lan or ACE_LISTEN=tailscale/);
+  await expect(access.pair(["read"])).rejects.toThrow(/Turn on remote access above/);
 });
 
 test("a paired device's token can't manage pairing, and the page says why", async () => {
   const access = endpoint(async () => new Response("{}", { status: 403 }));
 
-  await expect(access.devices()).rejects.toThrow("Only the daemon's own token");
+  await expect(access.devices()).rejects.toThrow("administrator access");
 });
 
 test("a pairing carries the one-time code from its link, for typing by hand", async () => {
@@ -46,7 +46,7 @@ test("a pairing carries the one-time code from its link, for typing by hand", as
 
   expect(pairing.url).toContain(`code=${pairing.code}`);
   expect(pairing.code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-  expect(pairing.expiresAt).toBe(5_000 + 10 * 60_000);
+  expect(pairing.expiresAt).toBe(5_000 + 5 * 60_000);
 });
 
 test("the desktop app's own browser credential isn't listed as a paired device", async () => {

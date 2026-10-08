@@ -1700,6 +1700,10 @@
       "bytes": 218,
       "sha256": "bb4933e45be25bf241272918e8e51a40ef0817cb5e8d7adfe19c107670ed1c31"
     },
+    "schema/RemoteAccessStatus.json": {
+      "bytes": 758,
+      "sha256": "883da8d419ade9fbc7639e2417aadc0c4e21e651768c15ed8b842a020d7655dd"
+    },
     "schema/ResolvedMention.json": {
       "bytes": 368,
       "sha256": "2eb9b08605703263641dad6126139ec3cbd980db660dbcfb042dbaeff5f05307"
@@ -2085,8 +2089,8 @@
       "sha256": "c66ed88ac9e63a7c903a75d80aa68f613886c4d3df527899a4a1630dc406ab05"
     },
     "schema/SettingsDocument.json": {
-      "bytes": 8542,
-      "sha256": "8361854c5fb9375f7774dd6329ab370de09f2d13f159f1b2621f58cdefacf387"
+      "bytes": 8869,
+      "sha256": "44945446245fc31773bfc6d0d75d9011bd6f2abc248ab2973dd39049ab27d06b"
     },
     "schema/SettingsEntry.json": {
       "bytes": 515,
@@ -2097,8 +2101,8 @@
       "sha256": "cefc009dcc6bf5d6de5da839f6df69ccb9cc25cf418a256ad8f46d1fb6272648"
     },
     "schema/SettingsKey.json": {
-      "bytes": 1633,
-      "sha256": "225b11c7ad3a5b80148ca4ce54935bc74bd76316934ea6c140bf076a726d8d19"
+      "bytes": 1656,
+      "sha256": "6b87d2059e880728c17d826ba6fdf39a63ab895911f75a9c2139b83ad74fe492"
     },
     "schema/SettingsLayer.json": {
       "bytes": 973,
@@ -2133,8 +2137,8 @@
       "sha256": "cacc7a3a333f74bf6ef496a92e1b38cbffafce36877765a35c9d489981b4174a"
     },
     "schema/SettingsValues.json": {
-      "bytes": 8322,
-      "sha256": "839b853dc82be2491d8a0ae70955665346bcca5a3929e909f6027d15637d39c8"
+      "bytes": 8636,
+      "sha256": "c0ff04f71435bf77be0b5f6c3929ba924c7575d088207c14eedf22f3eb17a271"
     },
     "schema/SharedDefinitions.json": {
       "bytes": 5429,
@@ -2745,10 +2749,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 599722,
-      "sha256": "a14b0d93fa2359499be436eabdd92bfecb18482dd5871755a40e6a46738a001c"
+      "bytes": 601090,
+      "sha256": "881bb5e3c73461b05af9a2d509ed97c9e1df34613802226e5ea669cfb119c71b"
     }
   },
-  "input": "28091c6c06f5cef6647860c448045146bb2bfba7eade30b39b71831f358f8e44",
+  "input": "c9ebf921784cbedaf6396a1b61c34cb8a35a7bdab345f497f7acb018b222bc00",
   "version": 1
 }

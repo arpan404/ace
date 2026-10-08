@@ -46,6 +46,8 @@ export interface Config {
   host: "127.0.0.1";
   port: number;
   listen: "local" | "lan" | "tailscale";
+  /** An explicit ACE_LISTEN wins over saved remote preferences. */
+  listenOverride?: boolean;
   remotePort: number;
   advertiseHost?: string;
   /** Origins of web apps served elsewhere that may manage devices with the token (ACE_WEB_ORIGINS). */
@@ -87,6 +89,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
     host: "127.0.0.1",
     port,
     listen: settings.ACE_LISTEN,
+    listenOverride: env.ACE_LISTEN !== undefined,
     remotePort,
     ...(settings.ACE_ADVERTISE_HOST ? { advertiseHost: settings.ACE_ADVERTISE_HOST } : {}),
     ...(settings.ACE_WEB_ORIGINS ? { webOrigins: settings.ACE_WEB_ORIGINS } : {}),
