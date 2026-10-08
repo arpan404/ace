@@ -112,7 +112,7 @@ export function DaemonForm(props: {
   };
   return (
     <form
-      aria-label="Computer connection"
+      aria-label="ace connection"
       noValidate
       className="flex flex-col gap-4"
       onSubmit={(event) => {
@@ -124,7 +124,7 @@ export function DaemonForm(props: {
         {(field) => {
           const error = firstError(field.state.meta.errors);
           return (
-            <FieldRow id={`${ids}-url`} label="Computer address" error={error}>
+            <FieldRow id={`${ids}-url`} label="ace address" error={error}>
               <Input
                 id={`${ids}-url`}
                 value={field.state.value}
@@ -150,7 +150,7 @@ export function DaemonForm(props: {
               label="Token"
               hint={
                 <>
-                  On your host computer, run <CopyCommand command="ace token" /> and paste the
+                  On the machine running ace, run <CopyCommand command="ace token" /> and paste the
                   result.
                 </>
               }

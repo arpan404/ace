@@ -26,7 +26,7 @@ export function OpenInSection(props: { thread: ThreadRef; onClose(): void }) {
       {!editors ? (
         <RowNote>{error ? "Couldn't list the editors" : "Looking for editors"}</RowNote>
       ) : !ordered.length ? (
-        <RowNote>No editors installed</RowNote>
+        <RowNote>No editors found on this machine</RowNote>
       ) : (
         <ul aria-label="Editors" className="flex flex-col">
           {ordered.map((editor) => (

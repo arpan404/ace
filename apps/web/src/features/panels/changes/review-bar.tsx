@@ -81,7 +81,7 @@ export function ReviewBar(props: {
       {/* Comments from other devices and agents, and what became of the ones sent. */}
       <IconButton
         icon={ArrowClockwiseIcon}
-        label="Check the daemon for comments"
+        label="Check what ace holds for these comments"
         size="sm"
         className="size-7"
         disabled={refreshing}

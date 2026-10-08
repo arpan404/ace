@@ -139,8 +139,7 @@ export function useDaemonSetting<K extends SettingsKey>(
   const set = useCallback(
     async (stored: Value<K>, layer: SettingsLayer = { kind: "global" }) => {
       const reply = await client.request({ type: "settings.set", key, value: stored, layer });
-      if (!reply.ok)
-        throw new Error(reply.diagnostics[0]?.message ?? "The daemon refused that value.");
+      if (!reply.ok) throw new Error("Couldn't save that setting. Check the value and try again.");
     },
     [client, key],
   );

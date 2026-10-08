@@ -79,7 +79,7 @@ export function AutomationEditor(props: {
       });
     } catch (error) {
       committed.current = false;
-      setSaveError(error instanceof Error ? error.message : "The daemon refused that.");
+      setSaveError(error instanceof Error ? error.message : "ace refused that.");
     }
   });
   const changed = useStore(form.store, (state) => !state.isDefaultValue);
@@ -257,7 +257,7 @@ export function AutomationEditor(props: {
                   {(field) => (
                     <InlineRow
                       title="If a run was missed"
-                      description="When this machine was asleep or the daemon was stopped at the time."
+                      description="When this machine was asleep or ace was stopped at the time."
                     >
                       <Select
                         label="If a run was missed"

@@ -386,7 +386,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           : "queue"
         : "send";
   const unscoped =
-    props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
+    props.thread.draft && !props.thread.id ? "Waiting for ace to open a draft" : undefined;
   const placeholder =
     props.unavailable?.short ??
     (answer?.invitesText ? "Type your answer" : undefined) ??

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useThreadMeta } from "@ace/client-react";
 import { isCheckoutPath } from "@ace/ui-core";
 import { ArchiveIcon } from "@phosphor-icons/react";
+import { UnavailableImage } from "./attachment-message.tsx";
 import { projectRelative } from "./attachment-format.ts";
 const ArtifactActions = lazy(() =>
   import("./artifact-actions.tsx").then((module) => ({ default: module.ArtifactActions })),

@@ -264,7 +264,7 @@ function SourceStep(props: {
       if (!found.plugins.length) setError("This repository's marketplace lists no plugins.");
     } catch (reason) {
       // An older daemon can't list a marketplace: the plugin's name can still be typed.
-      setError(failure(reason, "The daemon couldn't read that repository's marketplace."));
+      setError(failure(reason, "ace couldn't read that repository's marketplace."));
       set({ manual: true, name: form.name || suggestedPluginName(form.repository) });
     }
   };
@@ -283,7 +283,7 @@ function SourceStep(props: {
       );
       if (prepared) props.onPrepared(prepared, sourceText(form.repository.trim(), ref));
     } catch (reason) {
-      setError(failure(reason, "The daemon couldn't fetch that plugin."));
+      setError(failure(reason, "ace couldn't fetch that plugin."));
     }
   };
   const stop = () => {
@@ -420,7 +420,7 @@ function UpdateStep(props: {
         onSuccess: (prepared) => controller.signal.aborted || done(prepared),
         onError: (reason) => {
           if (!controller.signal.aborted)
-            setError(failure(reason, "The daemon couldn't fetch the plugin again."));
+            setError(failure(reason, "ace couldn't fetch the plugin again."));
         },
       },
     );

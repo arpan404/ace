@@ -73,7 +73,7 @@ function StartedRow(props: { send: PendingSend }) {
       >
         <span className="min-w-0 flex-1 truncate">
           {titleOf(send)}
-          <span className="sr-only">. {accepted ? "Starting" : "Sending to the daemon"}</span>
+          <span className="sr-only">. {accepted ? "Starting" : "Sending to ace"}</span>
         </span>
         <Spinner />
       </Link>

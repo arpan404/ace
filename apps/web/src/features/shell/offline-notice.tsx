@@ -63,7 +63,7 @@ export function OfflineNotice(props: { words: string }) {
       {open && waiting.length > 0 && (
         <ul
           id={listId}
-          aria-label="Waiting for the daemon"
+          aria-label="Waiting for ace"
           className="mx-auto max-h-40 max-w-[560px] overflow-y-auto px-4 pb-2"
         >
           {waiting.map((item) => (

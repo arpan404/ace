@@ -77,14 +77,11 @@
 }
 
 @utility no-scrollbar {
-  -ms-overflow-style: none;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
     display: none;
   }
 }
-
-/* Unused scroll-fade utilities and their property registrations are omitted to bound shared CSS. */
 
 /* The design's own .shimmer (styles/index.css) is the only shimmer; the vendored utility clashed with it. */

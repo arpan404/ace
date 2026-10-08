@@ -44,17 +44,17 @@ const sentences: Record<string, string> = {
   IO_ERROR: "Couldn't change the file. Check the path and folder permissions, then try again.",
   LIMIT_EXCEEDED: "This folder has too many entries. Choose a smaller folder.",
   QUOTA: "The file transfer or recovery limit was reached. Try again later.",
-  UNSUPPORTED: "This connection can't serve files for the thread.",
-  offline: "Connection lost. Files load again once it reconnects.",
-  timeout: "The connection didn't respond. Try again.",
+  UNSUPPORTED: "ace on this machine can't serve files for the thread.",
+  offline: "ace is offline. Files load again once it reconnects.",
+  timeout: "ace didn't answer in time.",
   forbidden: "This device may not search the thread's checkout.",
   not_found: "The thread's checkout wasn't found.",
-  unsupported: "This connection can't search the thread's checkout.",
+  unsupported: "ace on this machine can't search the thread's checkout.",
 };
 
 /** A daemon error code as a `CheckoutError`. */
 export function fromCode(code: string): CheckoutError {
-  return new CheckoutError(code, sentences[code] ?? "Couldn't access the checkout. Try again.");
+  return new CheckoutError(code, sentences[code] ?? "ace couldn't read the checkout.");
 }
 
 /** Turn whatever a request threw into a `CheckoutError` a view can show. */

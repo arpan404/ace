@@ -12,7 +12,7 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** Rows inside a card: the card draws the hairlines between them. */
+/** Rows inside a grouped section: the group draws the hairlines between them. */
 const InCard = createContext(false);
 
 /**
@@ -44,7 +44,7 @@ export function SettingRow(props: {
       ref={row}
       className={cn(
         "@container transition-colors duration-(--dur-4)",
-        inCard ? "px-4" : "border-t first:border-t-0",
+        !inCard && "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
@@ -92,6 +92,24 @@ export function SettingRow(props: {
   );
 }
 
+/** One-line device or machine row; hover or focus its name to read the details. */
+export function SettingSummaryRow(props: {
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex h-9 items-center gap-3 text-ui">
+      <Tip label={props.description}>
+        <span tabIndex={0} className="min-w-0 flex-1 truncate rounded-xs focus-ring">
+          {props.title}
+        </span>
+      </Tip>
+      {props.children}
+    </div>
+  );
+}
+
 /** Scroll a row into view and flash it once when the location's hash names it. */
 function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>): boolean {
   const hash = useLocation({ select: (location) => location.hash });
@@ -116,7 +134,7 @@ export type SettingScope = "daemon" | "device" | "computer";
 const scopes: Record<SettingScope, { label: string; tip: string }> = {
   daemon: {
     label: "All devices",
-    tip: "Stored on the daemon; every paired device follows it",
+    tip: "Applies to every paired device",
   },
   device: { label: "This device", tip: "Kept in this browser or app only" },
   computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
@@ -156,7 +174,7 @@ export function SettingSection(props: {
       {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
       {props.card ? (
         <InCard value>
-          <div className="divide-y rounded-card border bg-card">{props.children}</div>
+          <div className="divide-y">{props.children}</div>
         </InCard>
       ) : (
         props.children

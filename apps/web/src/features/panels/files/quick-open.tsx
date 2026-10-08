@@ -101,7 +101,7 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   });
 
   let status: ReactNode = null;
-  if (query && !online) status = "The daemon is offline. Search works again once it reconnects.";
+  if (query && !online) status = "ace is offline. Search works again once it reconnects.";
   else if (query && search.error) status = `Couldn't search the checkout. ${search.error.message}`;
   else if (query && search.pending && !rows.length) status = "Searching files…";
   else if (query && !rows.length) status = `No files match “${query}”.`;

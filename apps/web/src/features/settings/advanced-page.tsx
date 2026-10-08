@@ -12,7 +12,6 @@ import {
 import { useToast } from "@/components/ui/toast.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { useSettingsBackend } from "./data/use-settings.ts";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { DaemonHealth } from "./daemon-health.tsx";
 import { DaemonSettings } from "./daemon-settings.tsx";
 import { DisabledReason, offlineReason } from "./setting-control.tsx";
@@ -20,7 +19,6 @@ import { settingRow } from "./settings-index.ts";
 
 /** Daemon diagnostics and a full reset. Thresholds live on General; the theme editor under Appearance. */
 export function AdvancedSettings() {
-  const fake = useDaemonConnection().mode === "fake";
   return (
     <>
       <SettingSection label="Health" card>
@@ -29,14 +27,14 @@ export function AdvancedSettings() {
       <SettingSection label="Reset" card scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}
-          description="Daemon settings go back to their defaults on every device. Appearance, themes and this computer's notifications stay."
+          description="Shared settings go back to their defaults on every device. Appearance, themes and this computer's notifications stay."
           inline
         >
           <ResetAll />
         </SettingRow>
       </SettingSection>
       {/* The in-page development daemon: a developer detail, so not on General. */}
-      {fake && <DaemonSettings />}
+      <DaemonSettings />
     </>
   );
 }
@@ -60,7 +58,7 @@ function ResetAll() {
       setOpen(false);
       toast.add({ title: "Settings reset" });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The daemon didn't answer.");
+      setError(reason instanceof Error ? reason.message : "ace didn't answer.");
     } finally {
       setRunning(false);
     }
@@ -78,7 +76,7 @@ function ResetAll() {
           <DialogTitle>Reset all settings?</DialogTitle>
           <DialogDescription>
             Defaults for new threads, shortcuts and thresholds are restored for every device using
-            this daemon. Appearance, themes and this computer's notifications stay.
+            ace on this machine. Appearance, themes and this computer's notifications stay.
           </DialogDescription>
         </DialogHeader>
         {error && (

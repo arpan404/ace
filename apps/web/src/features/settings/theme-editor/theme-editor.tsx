@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { contrastWarnings, type ContrastWarning } from "@/theme/contrast.ts";
 import { tokenGroups, type TokenName } from "@/theme/tokens.ts";
@@ -49,7 +50,7 @@ export function ThemeEditor() {
   return (
     <>
       <EditorToolbar />
-      <ContrastBanner warnings={warnings} />
+      <ContrastNotice warnings={warnings} />
       {tokenGroups.map((group) => (
         <section key={group.name} aria-label={group.name} className="mt-6">
           <h3 className="mb-1.5 text-sm font-medium text-muted-foreground">{group.name}</h3>
@@ -68,34 +69,25 @@ export function ThemeEditor() {
   );
 }
 
-function ContrastBanner(props: { warnings: ContrastWarning[] }) {
+function ContrastNotice(props: { warnings: ContrastWarning[] }) {
   const count = props.warnings.length;
-  if (count === 0)
-    return (
-      <p
-        role="status"
-        className="mt-3.5 rounded-card bg-status-done/9 px-3 py-2.5 text-sm leading-normal"
-      >
-        <b className="font-medium">Contrast looks good.</b> Text, buttons and status colours all
-        clear WCAG AA against the background.
-      </p>
-    );
   return (
-    <div
-      role="status"
-      className="mt-3.5 rounded-card bg-status-needs-you/9 px-3 py-2.5 text-sm leading-normal"
-    >
-      <b className="font-medium">
-        {count} contrast warning{count === 1 ? "" : "s"}
-      </b>
-      <ul>
-        {props.warnings.map((warning) => (
-          <li key={warning.token}>
-            {warning.label} ({warning.token}) is {warning.ratio.toFixed(2)}:1; needs{" "}
-            {warning.minimum}:1.
-          </li>
-        ))}
-      </ul>
+    <div role="status" className="mt-3.5 text-sm text-muted-foreground">
+      <StatusLabel
+        tone={count ? "needs-you" : "done"}
+        label={
+          count ? `${count} contrast warning${count === 1 ? "" : "s"}` : "Contrast looks good."
+        }
+      />
+      {count > 0 && (
+        <ul className="mt-1">
+          {props.warnings.map((warning) => (
+            <li key={warning.token}>
+              {warning.label}: {warning.ratio.toFixed(2)}:1; needs {warning.minimum}:1.
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

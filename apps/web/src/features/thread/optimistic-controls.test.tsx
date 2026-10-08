@@ -76,7 +76,7 @@ test("offline, the model popover still changes effort and the account, which go 
   const app = await open();
   await offline(app);
   const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
-  expect(within(popover).getByText("Offline: changes apply when the daemon is back")).toBeTruthy();
+  expect(within(popover).getByText("Offline: changes apply when ace is back")).toBeTruthy();
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
   await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));

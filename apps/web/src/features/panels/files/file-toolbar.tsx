@@ -128,7 +128,7 @@ export function FileToolbar(props: {
   const { path, actions } = props;
   const markdown = path !== undefined && isMarkdownPath(path);
   const editor = actions.editor;
-  const offline = props.online ? undefined : "Connection lost";
+  const offline = props.online ? undefined : "ace is offline";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5">
@@ -190,8 +190,7 @@ export function FileToolbar(props: {
             className="ml-1 h-7"
             icon={<EditorIcon id={editor?.id} />}
             actionLabel={
-              offline ??
-              (editor ? `Open in ${editor.name}` : "No editors found on the checkout's computer")
+              offline ?? (editor ? `Open in ${editor.name}` : "No editors found on this machine")
             }
             menuLabel="Open in another editor"
             disabled={!props.online || !actions.editors?.length}

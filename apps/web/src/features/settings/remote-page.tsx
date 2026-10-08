@@ -8,7 +8,7 @@ import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection, SettingSummaryRow } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -140,7 +140,7 @@ function PairedDevices() {
         </p>
       )}
       {devices.data?.map((device) => (
-        <SettingRow
+        <SettingSummaryRow
           key={device.id}
           compact
           inline
@@ -155,7 +155,7 @@ function PairedDevices() {
           >
             Revoke
           </Button>
-        </SettingRow>
+        </SettingSummaryRow>
       ))}
       <SettingRow
         compact

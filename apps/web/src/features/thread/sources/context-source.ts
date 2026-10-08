@@ -53,7 +53,7 @@ const is = <K extends Result["kind"]>(
 
 function expect<K extends Result["kind"]>(result: Result, kind: K): Extract<Result, { kind: K }> {
   if (result.kind === "error") throw new ContextError(messages[result.code] ?? result.message);
-  if (!is(result, kind)) throw new ContextError("Couldn't read the reply. Try again.");
+  if (!is(result, kind)) throw new ContextError("ace answered something unexpected.");
   return result;
 }
 
@@ -114,7 +114,7 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     },
     async upload(thread, file, progress) {
       if (thread.draft && !thread.id)
-        throw new ContextError("The connection isn't ready for files yet. Try again in a moment.");
+        throw new ContextError("ace isn't ready for files yet. Try again in a moment.");
       const target = {
         sha256: await sha256(file),
         bytes: file.size,

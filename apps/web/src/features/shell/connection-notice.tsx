@@ -9,11 +9,11 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 const DeferredOfflineNotice = deferredComponent(() =>
   import("./offline-notice.tsx").then((module) => module.OfflineNotice),
 );
-const offlineWords = "Offline · messages, answers and Stop will send when the daemon is back";
+const offlineWords = "Offline · messages, answers and Stop will send when the connection returns";
 
 const fatalReasons: Partial<Record<ClientError["code"], string>> = {
-  auth: "the daemon didn't accept this token",
-  protocol: "this app and the daemon speak different protocol versions",
+  auth: "ace didn't accept this token",
+  protocol: "this app and ace speak different protocol versions",
   storage: "this browser blocked local storage",
 };
 
@@ -47,13 +47,13 @@ export function ConnectionNotice() {
       {state === "reconnecting" && (
         <>
           <Spinner />
-          Reconnecting to the daemon…
+          Reconnecting to ace…
         </>
       )}
       {state === "fatal" && (
         <>
           Can't connect:{" "}
-          {(client.error && fatalReasons[client.error.code]) ?? "the daemon closed the connection"}.
+          {(client.error && fatalReasons[client.error.code]) ?? "ace closed the connection"}.
           <Link
             to="/settings/general"
             className="font-medium text-foreground underline-offset-4 hover:underline"

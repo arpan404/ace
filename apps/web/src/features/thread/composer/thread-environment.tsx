@@ -1,3 +1,4 @@
+import { useMachineName } from "@/lib/host-name.ts";
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText } from "@ace/ui-core";
 import {
@@ -25,6 +26,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
   const checkout = useCheckout(props.thread);
   const details = useThreadMeta(props.thread.id)?.details;
   const toast = useToast();
+  const host = useMachineName(details?.machine);
   const worktree = checkout?.mode === "worktree";
   const path = details?.worktree;
   const base = details?.base ? baseRecordText(details.base) : undefined;
@@ -107,9 +109,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
               </span>
             </Row>
           )}
-          {details?.machine && (
-            <Row term="Machine">{details.machine.name || details.machine.host}</Row>
-          )}
+          {host && <Row term="Machine">{host}</Row>}
           {checkout?.pr?.url && (
             <Row term="Pull request">
               <a

@@ -172,7 +172,7 @@ export function BrowserActions(props: {
             {props.backend === "embedded"
               ? "Runs in the ace desktop app's browser."
               : props.backend === "headless"
-                ? "Runs in ace's own Chromium on the daemon's machine."
+                ? "Runs in ace's own Chromium on this machine."
                 : "Pages open in ace's own browser, never your personal one."}
           </p>
         </MenuContent>

@@ -15,9 +15,9 @@ import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
-  auth: "This computer didn't accept the access token. Copy it again or create a new pairing link.",
-  protocol: "These devices use different ace versions. Update ace on both and try again.",
-  failed: "This computer closed the connection. Check its address, then try again.",
+  auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
+  protocol: "This app and the connected machine use different versions of ace. Update ace on both.",
+  failed: "ace closed the connection. Check the address, then try again.",
 };
 
 /**
@@ -46,7 +46,7 @@ export function ConnectionScreen() {
   return (
     <ConnectCard labelledBy="connect-title">
       <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
-        {pairing ? "Pair this device" : "Connect to your computer"}
+        {pairing ? "Pair this device" : "Connect to ace"}
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">
         {pairing ? (
@@ -58,7 +58,8 @@ export function ConnectionScreen() {
           </>
         ) : (
           <>
-            ace runs on your machine and drives the coding CLIs you already use. Start it with{" "}
+            ace runs on your machine and connects to the coding agents you already use. Start it
+            with{" "}
             <code className="rounded-xs bg-secondary px-1 font-mono text-sm whitespace-nowrap text-foreground">
               ace start
             </code>
@@ -112,7 +113,7 @@ function alertFor(connection: DaemonConnection): ReactNode {
   if (connection.desktop) return <>Couldn't reach ace at {where}. Is it running?</>;
   return (
     <>
-      Couldn't reach {where}. Is ace running on that computer? Start it there with{" "}
+      Couldn't reach {where}. Is ace running on that machine? Start it there with{" "}
       <CopyCommand command="ace start" />
     </>
   );

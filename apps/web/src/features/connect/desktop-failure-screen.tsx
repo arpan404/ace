@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { DesktopDaemon, DesktopDaemonStatus, DiagnosticCheck } from "@/boot/desktop.ts";
-import { cn } from "@/lib/cn.ts";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { startupCheck, startupFailure } from "./startup-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
 
@@ -40,20 +41,17 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
   return (
     <ConnectCard labelledBy="desktop-failure-title" wide={Array.isArray(checks)}>
       <h1 id="desktop-failure-title" className="mt-4 text-xl font-semibold tracking-title">
-        ace's daemon didn't start
+        ace didn't start
       </h1>
       <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
-        ace runs a background daemon that drives your coding agents. It stopped before this window
-        could reach it.
+        ace stopped before this window could connect.
       </p>
-      <p className="mt-4 rounded-md bg-secondary px-3 py-2.5 font-mono text-sm break-words whitespace-pre-wrap text-foreground">
-        {reason}
-      </p>
+      <p className="mt-4 text-sm text-foreground">{startupFailure(reason)}</p>
       <div role="status" aria-live="polite" className="text-sm">
         {busy && (
           <p className="mt-3 flex items-center gap-2 text-muted-foreground">
             <Spinner />
-            {status.state === "restarting" ? "Restarting the daemon…" : "Starting the daemon…"}
+            {status.state === "restarting" ? "Restarting ace…" : "Starting ace…"}
           </p>
         )}
       </div>
@@ -65,7 +63,7 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
           focusableWhenDisabled
           onClick={() => void restart()}
         >
-          Restart daemon
+          Restart ace
         </Button>
         <Button
           className="h-9 flex-1"
@@ -98,24 +96,25 @@ function Diagnostics(props: { checks: DiagnosticCheck[] | { error: string } }) {
   if (!Array.isArray(props.checks))
     return (
       <p role="alert" className="mt-4 text-sm text-destructive">
-        Diagnostics couldn't run: {props.checks.error}
+        Diagnostics couldn't run. Try again, or open the logs for details.
       </p>
     );
   return (
-    <section aria-label="Diagnostics" className="mt-4 rounded-md bg-secondary px-3 py-2.5">
-      <ul className="flex max-h-64 flex-col gap-1.5 overflow-auto font-mono text-sm">
+    <section aria-label="Diagnostics" className="mt-4">
+      <ul className="flex max-h-64 flex-col divide-y overflow-auto text-sm">
         {props.checks.map((check) => {
           const ok = check.status === "ok" || check.status === "pass";
+          const copy = startupCheck(check);
           return (
-            <li key={check.id} className="flex flex-col">
-              <span className={cn(ok ? "text-muted-foreground" : "text-foreground")}>
-                <span aria-hidden className={ok ? "text-status-done" : "text-status-failed"}>
-                  {ok ? "✓ " : "✕ "}
-                </span>
-                <span className="sr-only">{ok ? "Passed: " : "Problem: "}</span>
-                {check.id}: {check.message}
-              </span>
-              {!ok && check.fix && <span className="pl-4 text-muted-foreground">{check.fix}</span>}
+            <li key={check.id} className="py-2">
+              <div className="flex h-5 items-center justify-between gap-3">
+                <span>{copy.label}</span>
+                <StatusLabel
+                  tone={ok ? "done" : "needs-you"}
+                  label={ok ? "Passed" : "Needs attention"}
+                />
+              </div>
+              {!ok && <p className="text-sm text-muted-foreground">{copy.fix}</p>}
             </li>
           );
         })}

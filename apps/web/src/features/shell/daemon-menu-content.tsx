@@ -1,3 +1,4 @@
+import { useHostName } from "@/lib/host-name.ts";
 import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -15,15 +16,13 @@ export function DaemonMenuContent() {
   const state = useConnectionState();
   const connection = useDaemonConnection();
   const navigate = useNavigate();
+  const host = useHostName() ?? "This machine";
   return (
     <MenuContent side="bottom" align="start" className="max-w-[300px]">
       <MenuGroup>
         <div className="flex items-center gap-2 px-2.5 pt-1.5 text-ui font-medium text-foreground">
           <span aria-hidden className={cn("size-2 shrink-0 rounded-full", connectionDot[state])} />
-          {connection.mode === "fake" ? "Fake daemon (dev)" : "Daemon"} · {connectionLabels[state]}
-        </div>
-        <div className="truncate px-2.5 pt-0.5 pb-1.5 pl-7 font-mono text-xs text-muted-foreground">
-          {connection.url}
+          {host} · {connectionLabels[state]}
         </div>
       </MenuGroup>
       <MenuSeparator />
@@ -35,7 +34,7 @@ export function DaemonMenuContent() {
       </MenuItem>
       <MenuItem
         icon={<PlugsIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/settings/general" })}
+        onClick={() => void navigate({ to: "/settings/advanced" })}
       >
         Connection settings
       </MenuItem>

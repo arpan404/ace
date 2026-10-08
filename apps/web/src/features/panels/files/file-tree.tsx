@@ -177,7 +177,7 @@ export function FileTree(props: {
 
   let status: ReactNode = null;
   if (searching && !online)
-    status = <Note>Connection lost. Search works again once it reconnects.</Note>;
+    status = <Note>ace is offline. Search works again once it reconnects.</Note>;
   else if (searching && search.error)
     status = (
       <Note role="alert">

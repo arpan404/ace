@@ -38,7 +38,7 @@ export function daemonThreadActions(client: ClientApi): ThreadActionsSource {
           ? { selection: { ...fork.selection, options: fork.selection.options ?? {} } }
           : {}),
       });
-      if (!result.forkThreadId) throw new Error("The daemon didn't say which thread it created.");
+      if (!result.forkThreadId) throw new Error("ace didn't say which thread it created.");
       return result.forkThreadId;
     },
     switchTo: (thread, selection) =>

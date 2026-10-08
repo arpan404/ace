@@ -209,7 +209,7 @@ const problems: Record<string, ProjectProblem> = {
   directory_unavailable: { message: "That folder doesn't exist, or ace can't read it." },
   outside_project_roots: {
     message:
-      "That folder is outside the places this daemon may open. It opens folders in your home folder, or in the roots set by projects.roots.",
+      "ace cannot open that folder. Choose a folder in your home folder, or update the allowed project folders on that machine.",
     denied: true,
   },
   system_directory: { message: "ace doesn't open system folders.", denied: true },
@@ -223,7 +223,7 @@ const problems: Record<string, ProjectProblem> = {
   directory_too_large: { message: "This folder has too many entries to list." },
   project_busy: { message: "Another project is being set up in that folder right now." },
   project_path_changed: { message: "The folder changed while ace was adding it. Try again." },
-  projects_closed: { message: "The daemon is shutting down. Try again once it's back." },
+  projects_closed: { message: "ace is closing. Try again once it restarts." },
   workspace_not_found: { message: "That project is gone." },
   workspace_threads_running: { message: "Threads in this project are still running." },
   clone_cancelled: { message: "Clone cancelled." },
@@ -231,29 +231,30 @@ const problems: Record<string, ProjectProblem> = {
   clone_not_running: { message: "That clone has already finished." },
   git_auth_failed: {
     message:
-      "Git couldn't sign in to that repository. ace uses your own Git credentials: check that you can clone it in a terminal on the daemon's machine (an SSH key or a credential helper), then try again.",
+      "Git couldn't sign in to that repository. ace uses your own Git credentials: check that you can clone it in a terminal on the machine running ace (an SSH key or a credential helper), then try again.",
   },
   git_invalid_argument: {
     message: "Use an https://, ssh:// or git@ address, without a user name or password in it.",
   },
   git_invalid_ref: { message: "That isn't a valid branch name." },
   git_timeout: { message: "Git took too long. Check the network and try again." },
-  git_missing: { message: "Git isn't installed on the daemon's machine." },
-  git_too_old: { message: "ace needs Git 2.40 or newer on the daemon's machine." },
+  git_missing: { message: "Git isn't installed on the machine running ace." },
+  git_too_old: { message: "ace needs Git 2.40 or newer on the machine running ace." },
   git_failed: {
-    message: "Git couldn't finish. Check the address and that the daemon's machine can reach it.",
+    message:
+      "Git couldn't finish. Check the address and that the machine running ace can reach it.",
   },
   git_cancelled: { message: "Cancelled." },
   busy: { message: "Too many folder reads at once. Try again in a moment." },
-  unavailable: { message: "This daemon can't manage projects yet. Update ace on that machine." },
+  unavailable: { message: "Update ace on that machine to manage projects." },
   projects_unavailable: {
-    message: "This daemon can't manage projects yet. Update ace on that machine.",
+    message: "Update ace on that machine to manage projects.",
   },
   machine_offline: {
     message: "That machine isn't connected. Pick another, or wait for it to come back.",
   },
   not_implemented: {
-    message: "This daemon can't manage projects yet. Update ace on that machine.",
+    message: "Update ace on that machine to manage projects.",
   },
 };
 

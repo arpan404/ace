@@ -137,7 +137,9 @@ test("a long attachment name can be read in full in its preview", async () => {
   await openComposer();
   const name = "quarterly-infrastructure-cost-review-final-v3.xlsx";
   await user.upload(screen.getByLabelText("Files to attach"), new File(["x"], name));
-  await user.click(await screen.findByRole("button", { name: `Preview ${name}` }));
+  const chip = await screen.findByRole("button", { name: `Preview ${name}` });
+  expect(chip.textContent).toContain(name);
+  await user.click(chip);
   const preview = await screen.findByRole("dialog", { name });
   expect(within(preview).getByRole("heading", { name }).textContent).toBe(name);
 });
@@ -240,7 +242,7 @@ test.each([
   ["notes.pdf", "application/pdf", "%PDF-1.7\nexample"],
   ["code.ts", "text/typescript", "export const value = 42;"],
   ["archive.zip", "application/zip", "PK\u0003\u0004example"],
-])("%s shows a chip and reaches the fake daemon", async (name, mimeType, data) => {
+])("%s shows a chip and reaches the fake ace", async (name, mimeType, data) => {
   const user = userEvent.setup();
   const { app, feed, message } = await openComposer();
   await user.upload(

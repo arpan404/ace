@@ -99,7 +99,7 @@ export function KeyboardSettingsScreen() {
   return (
     <SettingsBody
       page="Keyboard"
-      lede="Click a shortcut and press the new keys. Changes apply at once on every device using this daemon."
+      lede="Click a shortcut and press the new keys. Changes apply at once on every device using ace on this machine."
     >
       <KeyboardShortcuts />
     </SettingsBody>

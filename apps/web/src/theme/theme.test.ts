@@ -143,9 +143,11 @@ test("an imported theme keeps its known tokens, drops unknown ones and fills the
 });
 
 test("files that are not themes are rejected with a readable reason", () => {
-  expect(() => parseThemeFile("not json")).toThrow("That file isn't JSON.");
+  expect(() => parseThemeFile("not json")).toThrow(
+    "That file couldn't be read. Choose an exported ace theme file.",
+  );
   expect(() => parseThemeFile(JSON.stringify({ name: "x", tokens: {} }))).toThrow(
-    /needs a tokens object with --background/,
+    /Choose a file exported from the theme editor/,
   );
 });
 

@@ -78,7 +78,7 @@ export function OpenFolderScreen(props: { folder: string }) {
           className="flex h-full items-center justify-center gap-2 text-ui text-muted-foreground"
         >
           <Spinner />
-          {ready ? `Opening ${displayPath(props.folder, undefined)}…` : "Waiting for the daemon…"}
+          {ready ? `Opening ${displayPath(props.folder, undefined)}…` : "Waiting for ace…"}
         </div>
       )}
     </Screen>

@@ -1,4 +1,4 @@
-import { useMachines } from "@/lib/machines.ts";
+import { useHostName } from "@/lib/host-name.ts";
 import { useConnectionState } from "@ace/client-react";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -18,15 +18,15 @@ const stateLabels = {
 export function DaemonSettings() {
   const connection = useDaemonConnection();
   const state = useConnectionState();
-  const machine = useMachines()[0];
   const [editing, setEditing] = useState(false);
+  const host = useHostName() ?? "This machine";
   const fake = connection.mode === "fake";
   return (
     <SettingSection label="Connection" card scope="device">
       <SettingRow
         id="daemon.connection"
-        title={fake ? "Demo computer" : (machine?.name ?? "This computer")}
-        description={<>{stateLabels[state]}</>}
+        title={host}
+        description={`${stateLabels[state]}${fake ? " · Demo connection" : ""}`}
       >
         {!fake && (
           <>

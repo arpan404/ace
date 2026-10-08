@@ -37,24 +37,30 @@ function desktop() {
 
 test("a desktop daemon that failed says why and offers restart, diagnostics, logs and quit", async () => {
   const user = userEvent.setup();
-  const { daemon, asked } = desktop();
+  const { daemon, asked, emit } = desktop();
   render(
     <AppFrame environment={{}}>
       <DesktopFailureScreen reason="Legacy ace data in ~/.ace" daemon={daemon} />
     </AppFrame>,
   );
-  expect(screen.getByRole("heading", { name: "ace's daemon didn't start" })).toBeTruthy();
-  expect(screen.getByText("Legacy ace data in ~/.ace")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "ace didn't start" })).toBeTruthy();
+  expect(screen.getByText(/ace found data from an older installation/)).toBeTruthy();
+  expect(document.body.textContent).not.toContain("Legacy ace data in ~/.ace");
   // The desktop runs its own daemon: nothing here asks the person to start one by hand.
   expect(document.body.textContent).not.toMatch(/ace start/);
 
   await user.click(screen.getByRole("button", { name: "Run diagnostics" }));
   const report = await screen.findByRole("region", { name: "Diagnostics" });
-  expect(report.textContent).toMatch(/Problem: home: ~\/\.ace-next is not writable/);
-  expect(report.textContent).toMatch(/chmod u\+w/);
+  expect(report.textContent).toContain("Data folder");
+  expect(report.textContent).toContain("Needs attention");
+  expect(report.textContent).toContain("Check that you can read and write the ace data folder.");
+  expect(report.textContent).not.toContain("chmod");
 
-  await user.click(screen.getByRole("button", { name: "Restart daemon" }));
-  expect(await screen.findByText("Restarting the daemon…")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Restart ace" }));
+  expect(await screen.findByText("Restarting ace…")).toBeTruthy();
+  emit({ state: "failed", message: 'daemon_internal_302: {"bad": true}' });
+  expect(screen.getByText(/Restart ace to try again/)).toBeTruthy();
+  expect(document.body.textContent).not.toContain("daemon_internal_302");
   await user.click(screen.getByRole("button", { name: "Show logs" }));
   await user.click(screen.getByRole("button", { name: "Quit ace" }));
   expect(asked).toEqual(["restart", "logs", "quit"]);
@@ -85,10 +91,10 @@ test("a long desktop start explains itself after 10s and offers a way out after 
   elapse(startingNoteMs);
   expect(screen.getByText(/scans your provider history/)).toBeTruthy();
   emit({ state: "unreachable" });
-  expect(screen.getByText("Waiting for the daemon to answer…")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Restart daemon" })).toBeNull();
+  expect(screen.getByText("Waiting for ace to answer…")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Restart ace" })).toBeNull();
 
   elapse(startingHelpMs);
-  for (const name of ["Show logs", "Restart daemon", "Connect manually…", "Quit ace"])
+  for (const name of ["Show logs", "Restart ace", "Connect manually…", "Quit ace"])
     expect(screen.getByRole("button", { name })).toBeTruthy();
 });

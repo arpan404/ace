@@ -73,7 +73,7 @@ test("folded unchanged lines expand, and a file collapses from its header", asyn
 
   // Gaps in a provider patch have no text to show, so they are not buttons.
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
-  expect(within(outbox).getByText("17 unchanged lines").tagName).not.toBe("BUTTON");
+  expect(within(outbox).queryByRole("button", { name: "17 unchanged lines" })).toBeNull();
 
   const header = within(replay).getByRole("button", { name: /replay\.ts/, expanded: true });
   await userEvent.click(header);
@@ -438,7 +438,7 @@ test("checkout scopes the daemon can't diff yet say why instead of opening", asy
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
   const staged = await screen.findByRole("menuitem", { name: /^Staged/ });
   expect(staged.getAttribute("aria-disabled")).toBe("true");
-  expect(staged.textContent).toContain("The daemon doesn't report the git index yet");
+  expect(staged.textContent).toContain("ace doesn't report the git index yet");
 });
 
 test("Changes shows working-tree hunks from shell edits without provider edit items", async () => {

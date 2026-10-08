@@ -32,6 +32,6 @@ export function useFolderActions(path: string | undefined): {
       ? "In the desktop app"
       : path
         ? undefined
-        : "The daemon hasn't said where the checkout is",
+        : "ace hasn't said where the checkout is",
   };
 }

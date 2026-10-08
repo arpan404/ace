@@ -130,7 +130,9 @@ function Unavailable(props: { onRetry?: () => void }) {
       icon={TrayIcon}
       title="Couldn't load this item"
       description={
-        props.onRetry ? "Your computer didn't answer. Try again." : "Reconnect to load this item."
+        props.onRetry
+          ? "ace didn't answer."
+          : "Not connected to ace. It loads once the connection is back."
       }
       action={
         props.onRetry ? (

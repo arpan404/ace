@@ -19,7 +19,7 @@ export function threadLoadFailure(error: unknown): {
   if (missing.has(code))
     return {
       title: "This thread doesn't exist",
-      description: "It may have been deleted or belong to another daemon.",
+      description: "It may have been deleted or belong to another machine.",
       code,
     };
   const reason = describeDaemonError(code);
@@ -49,7 +49,7 @@ export function ThreadLoadError(props: { error: unknown }) {
                 Details
               </summary>
               <p className="mt-1">
-                The daemon said: <code className="font-mono">{failure.code}</code>
+                ace said: <code className="font-mono">{failure.code}</code>
               </p>
             </details>
           </div>

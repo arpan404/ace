@@ -78,8 +78,8 @@ const entries = [
   },
   {
     id: "daemon.connection",
-    page: "/settings/general",
-    title: "Connected daemon",
+    page: "/settings/advanced",
+    title: "Connection",
     keywords: ["server", "url", "disconnect"],
   },
   // Appearance
@@ -174,7 +174,7 @@ const entries = [
   {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "Daemon diagnostics",
+    title: "ace diagnostics",
     keywords: ["memory", "debug", "health"],
   },
   {
