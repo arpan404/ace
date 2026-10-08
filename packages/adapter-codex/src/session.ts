@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { codexCapabilities } from "./capabilities.ts";
+import { createExtensionCatalog } from "./extension-catalog.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
@@ -250,7 +251,16 @@ export async function openCodexSession(
     timers,
     seenQuestions,
   });
+  const catalog = createExtensionCatalog(
+    rpc,
+    ctx.cwd,
+    ctx.signal,
+    () => closed,
+    () => nativeSessionId,
+    (data) => emit("note", data, "catalog.runtime"),
+  );
   rpc.onNotification = ({ method, params }) => {
+    catalog.changed(method);
     if (method === "turn/completed" && obj(params)["threadId"] === nativeSessionId)
       void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`);
     if (method === "thread/queue/changed")
@@ -381,6 +391,7 @@ export async function openCodexSession(
   function assertOpen(): void {
     if (closed) throw new Error("Codex session is closed");
   }
+  catalog.start();
   emit("note", { event: "permission-turn-policy-supported" });
   return {
     nativeSessionId,

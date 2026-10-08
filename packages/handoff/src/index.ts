@@ -25,9 +25,11 @@ function excerpt(item: Item): string {
         const value =
           part.type === "text"
             ? part.text
-            : part.type === "file"
-              ? `[file: ${part.path.slice(0, available)}]`
-              : `[image: ${part.url.slice(0, available)}]`;
+            : part.type === "mention"
+              ? `[${part.kind}: ${part.name}]`
+              : part.type === "file"
+                ? `[file: ${part.path.slice(0, available)}]`
+                : `[image: ${part.url.slice(0, available)}]`;
         text += value.slice(0, available);
       }
       return text;

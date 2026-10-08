@@ -37,6 +37,7 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
 }
 export function content(input: ContentPart[]): SDKUserMessage["message"]["content"] {
   return input.map((part) => {
+    if (part.type === "mention") throw new Error("Unresolved Claude mention");
     if (part.type === "text") return { type: "text" as const, text: part.text };
     if (part.type === "file") {
       if (part.mimeType === "application/pdf" && part.content?.encoding === "base64")

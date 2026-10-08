@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CatalogEntry.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "catalog.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "entries",
+    "stale",
+    "type"
+  ],
+  "type": "object"
+}

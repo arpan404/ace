@@ -99,7 +99,9 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                             | "files.error"
                                             | "files.upload"
                                           >
-                                        : Q["type"] extends "commands.list"
+                                        : Q["type"] extends "catalog.list"
+ ? Replies<"catalog.list.result">
+ : Q["type"] extends "commands.list"
                                           ? Replies<"commands.list.result">
                                           : Q["type"] extends "commands.resolve"
                                             ? Replies<"commands.resolve.result">
@@ -188,6 +190,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "files.pull": ["files.data", "files.error"],
   "files.chunk": ["files.upload", "files.error"],
   "files.request": ["files.result", "files.ready", "files.error", "files.upload"],
+  "catalog.list": ["catalog.list.result"],
   "commands.list": ["commands.list.result"],
   "commands.resolve": ["commands.resolve.result"],
   pluginRequest: ["pluginResult"],

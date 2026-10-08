@@ -1,9 +1,12 @@
+import { z } from "zod";
+import { runtimeExtensions } from "./extension-runtime.ts";
 import { dataWeight } from "./limits.ts";
 import type {
   PaletteCommand,
   CommandResolution,
   CommandDiagnostic,
   ProviderKind,
+  CatalogEntry,
 } from "@ace/protocol";
 import { metadata, type Definition, type ParsedSource, type Target } from "./types.ts";
 import { resolveCommand } from "./plan.ts";
@@ -29,7 +32,11 @@ export class CommandCatalog {
     for (const command of commands) {
       const rawWeight = dataWeight(command.raw);
       if (rawWeight === undefined) return false;
-      weight += Buffer.byteLength(command.body) + rawWeight + 4096;
+      weight +=
+        Buffer.byteLength(command.body) +
+        rawWeight +
+        4096 +
+        (command.extension ? Buffer.byteLength(JSON.stringify(command.extension)) : 0);
     }
     const nextBytes = this.retainedBytes - (this.weights.get(source) ?? 0) + weight;
     if (
@@ -60,13 +67,49 @@ export class CommandCatalog {
     this.weights.delete(source);
   }
   updateRuntime(target: Target, input: unknown): boolean {
+    const extensions = runtimeExtensions(input, target);
+    if (extensions) return this.replaceSource(extensions.source, extensions.parsed);
     const parsed = parseRuntime(input, target);
     // Malformed replacements must not erase a working catalog.
     if (!parsed.commands.length && parsed.diagnostics.length) return false;
-    return this.replaceSource(`runtime:${target.session}`, parsed);
+    const source = `runtime:${target.session}`;
+    const old = this.sources.get(source);
+    const nativeMetadata = z
+      .object({
+        plugins: z.unknown().optional(),
+        tools: z.unknown().optional(),
+        mcp_servers: z.unknown().optional(),
+      })
+      .safeParse(input);
+    if (target.provider === "claude" && old && nativeMetadata.success) {
+      const oldSkills = new Map(
+        old.commands
+          .filter((d) => d.extension?.kind === "skill")
+          .map((d) => [d.nativeName, d.extension]),
+      );
+      for (const command of parsed.commands) {
+        const skill = oldSkills.get(command.nativeName);
+        if (!command.extension && skill)
+          command.extension = { ...skill, description: command.description || skill.description };
+      }
+      for (const command of old.commands) {
+        const kind = command.extension?.kind;
+        if (
+          (kind === "plugin" &&
+            (command.extension?.invocation.type === "unavailable"
+              ? nativeMetadata.data.mcp_servers
+              : nativeMetadata.data.plugins) === undefined) ||
+          (kind === "mcp-tool" && nativeMetadata.data.tools === undefined)
+        )
+          parsed.commands.push(command);
+      }
+    }
+    return this.replaceSource(source, parsed);
   }
   clearRuntime(session: string): void {
-    this.removeSource(`runtime:${session}`);
+    for (const source of this.sources.keys())
+      if (source === `runtime:${session}` || source.startsWith(`runtime:${session}:`))
+        this.removeSource(source);
   }
   private visible(target: Target): Map<string, Definition> {
     const winners = new Map<string, Definition>();
@@ -77,7 +120,7 @@ export class CommandCatalog {
         (d.session !== undefined && d.session !== target.session)
       )
         continue;
-      const key = `${d.namespace}:${d.name}`;
+      const key = `${d.namespace}:${d.extension && !["skill", "command"].includes(d.extension.kind) ? d.extension.kind : "command"}:${d.nativeName}`;
       const old = winners.get(key);
       if (
         !old ||
@@ -93,7 +136,11 @@ export class CommandCatalog {
     query = "",
     limit = 50,
   ): { commands: PaletteCommand[]; diagnostics: CommandDiagnostic[] } {
-    const commands = Array.from(this.visible(target).values()).filter((d) => !d.unavailable);
+    const commands = Array.from(this.visible(target).values()).filter(
+      (d) =>
+        !d.unavailable &&
+        (!d.extension || d.extension.kind === "command" || d.extension.kind === "skill"),
+    );
     const diagnostics: CommandDiagnostic[] = [];
     for (const source of this.sources.values()) {
       diagnostics.push(...source.diagnostics.slice(0, 100 - diagnostics.length));
@@ -106,6 +153,78 @@ export class CommandCatalog {
       diagnostics,
     };
   }
+  extensions(target: Target): import("@ace/protocol").CatalogEntry[] {
+    return this.extensionSnapshot(target).entries;
+  }
+  extensionSnapshot(target: Target): {
+    entries: import("@ace/protocol").CatalogEntry[];
+    native: Set<string>;
+  } {
+    const native = new Set<string>();
+    const files = new Map<string, Definition>();
+    for (const file of this.entries.values())
+      if (file.format !== "runtime" && file.instance === target.instance && file.extension) {
+        const key = `${["skill", "command"].includes(file.extension.kind) ? "command" : file.extension.kind}:${file.nativeName}`;
+        const old = files.get(key);
+        if (!old || file.priority > old.priority) files.set(key, file);
+      }
+    const entries = Array.from(this.visible(target).values())
+      .filter((d) => !d.unavailable)
+      .map((d): CatalogEntry => {
+        const kind = d.extension?.kind ?? "command";
+        const source = `runtime:${target.session}`;
+        const advertised =
+          (((target.provider === "claude" && (kind === "skill" || kind === "command")) ||
+            (kind === "command" &&
+              ["opencode", "pi", "acp", "antigravity"].includes(target.provider))) &&
+            this.sources.has(source)) ||
+          (kind === "skill" &&
+            (this.sources.has(`${source}:skills-list`) ||
+              this.sources.has(`${source}:skill-list`))) ||
+          (kind === "agent" && this.sources.has(`${source}:agent-list`));
+        if (d.format !== "runtime" && d.extension && d.provider !== "any" && advertised)
+          return Object.assign({}, d.extension, {
+            invocation: {
+              type: "unavailable" as const,
+              reason: "Not advertised by the active provider session",
+            },
+          });
+        const fileKey = `${["skill", "command"].includes(kind) ? "command" : kind}:${d.nativeName}`;
+        const inherited = d.format === "runtime" ? files.get(fileKey) : undefined;
+        if (d.format === "runtime")
+          native.add(
+            inherited?.extension && (!d.extension || d.extension.kind === inherited.extension.kind)
+              ? inherited.extension.id
+              : (d.extension?.id ?? d.id),
+          );
+        if (inherited?.extension && (!d.extension || d.extension.kind === inherited.extension.kind))
+          return Object.assign({}, inherited.extension, d.extension, {
+            id: inherited.extension.id,
+            description: d.description || inherited.description,
+            source: inherited.extension.source,
+            invocation: d.extension?.invocation ?? { type: "slash" as const, name: d.nativeName },
+          });
+        return (
+          d.extension ?? {
+            id: d.id,
+            kind: d.format === "ace" ? "builtin" : "command",
+            name: d.name,
+            description: d.description,
+            source: {
+              provider: d.provider === "any" ? "ace" : d.provider,
+              scope: d.format === "ace" ? "ace" : d.scope === "workspace" ? "project" : "global",
+            },
+            invocation:
+              d.format === "ace"
+                ? { type: "action", action: d.name }
+                : d.format === "library" || d.format === "codex"
+                  ? { type: "prompt", commandId: d.id }
+                  : { type: "slash", name: d.nativeName },
+          }
+        );
+      });
+    return { entries, native };
+  }
   resolve(
     target: Target,
     id: string,
@@ -115,6 +234,7 @@ export class CommandCatalog {
     const command = this.entries.get(id);
     if (
       !command ||
+      !Array.from(this.visible(target).values()).some((d) => d.id === id) ||
       (command.instance !== undefined && command.instance !== target.instance) ||
       (command.session !== undefined && command.session !== target.session)
     )
@@ -155,6 +275,23 @@ function builtins(): Definition[] {
   }));
 }
 export interface CommandService {
+  invalidateExtras?(): void;
+  listCatalog?(
+    thread: string,
+    query: string,
+    limit: number,
+  ): Promise<{ entries: import("@ace/protocol").CatalogEntry[]; stale: boolean }>;
+  listCatalogDraft?(
+    draft: string,
+    context: import("./types.ts").LibraryContext,
+    query: string,
+    limit: number,
+  ): Promise<{ entries: import("@ace/protocol").CatalogEntry[]; stale: boolean }>;
+  subscribeCatalog?(listener: () => void): () => void;
+  prepareMentions?(
+    thread: string,
+    input: readonly import("@ace/protocol").ContentPart[],
+  ): Promise<import("@ace/protocol").ContentPart[]>;
   listDraft?(
     draft: string,
     context: import("./types.ts").LibraryContext,
@@ -177,4 +314,5 @@ export interface ProviderInstance {
   id: string;
   provider: ProviderKind;
   home: string;
+  skillsHome?: string | undefined;
 }

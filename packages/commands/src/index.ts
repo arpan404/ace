@@ -1,3 +1,5 @@
+export { harnessCatalog, HarnessCatalog } from "./harness-catalog.ts";
+export { translateMentions } from "./mentions.ts";
 export { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
 export { CommandFiles, type WatchSource, type RecoveryScheduler } from "./files.ts";
 export { SecureCommandIo, type CommandFileIo } from "./secure-io.ts";
@@ -11,3 +13,4 @@ export { fuzzyScore, searchCommands, type Usage } from "./search.ts";
 export type { Definition, ParsedSource, ParseContext, Target } from "./types.ts";
 export { CommandLibrary } from "./library.ts";
 export type { LibraryContext } from "./types.ts";
+export { claudePluginCatalog } from "./claude-plugins.ts";

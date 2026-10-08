@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogMention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "arguments": {
+      "default": "",
+      "maxLength": 16384,
+      "type": "string"
+    },
+    "entryId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "icon": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "invocation": {
+      "$ref": "https://ace.local/protocol/v1/CatalogInvocation.json"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/CatalogKind.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "mention",
+      "type": "string"
+    },
+    "values": {
+      "$ref": "https://ace.local/protocol/v1/PromptArguments.json"
+    }
+  },
+  "required": [
+    "type",
+    "entryId",
+    "name",
+    "kind"
+  ],
+  "type": "object"
+}

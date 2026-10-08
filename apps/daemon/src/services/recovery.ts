@@ -181,7 +181,14 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create")
       throw new Error("Expected a message");
-    if (!p.context) return { input: p.input, release() {} };
+    const input = p.input.some((part) => part.type === "mention")
+      ? await (() => {
+          if (!context.services.commands?.prepareMentions || !("threadId" in p) || !p.threadId)
+            throw new Error("Catalog mention preparation unavailable");
+          return context.services.commands.prepareMentions(p.threadId, p.input);
+        })()
+      : p.input;
+    if (!p.context) return { input, release() {} };
     if (!context.services.context || !("threadId" in p) || !p.threadId)
       throw new Error("Context requires an existing thread");
     const prepared = await context.services.context.compose(
@@ -202,7 +209,7 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     );
     try {
       return {
-        input: [...p.input, ...canonicalContext(prepared.projection)],
+        input: [...input, ...canonicalContext(prepared.projection)],
         attachments: prepared.attachments,
         attachmentPaths: prepared.attachmentPaths,
         diagnostics: prepared.diagnostics,

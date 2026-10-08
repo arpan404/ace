@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { body, outputFile, override, toml } from "./project-shared.ts";
+import { body, outputFile, override, toml, projectionName } from "./project-shared.ts";
 import type { PluginProjection } from "./types.ts";
 
 export function codexCommand(
@@ -48,17 +48,17 @@ export function codexAgent(
   projection.files.push(
     outputFile(
       path,
-      `name=${toml(`ace-${plugin}__${name}`)}\ndescription=${toml(description)}\ndeveloper_instructions=${toml(body(content))}\n`,
+      `name=${toml(projectionName(plugin, name))}\ndescription=${toml(description)}\ndeveloper_instructions=${toml(body(content))}\n`,
     ),
   );
   override(
     projection,
-    `agents.${JSON.stringify(`ace-${plugin}__${name}`)}.config_file`,
+    `agents.${JSON.stringify(projectionName(plugin, name))}.config_file`,
     join(root, path),
   );
   override(
     projection,
-    `agents.${JSON.stringify(`ace-${plugin}__${name}`)}.description`,
+    `agents.${JSON.stringify(projectionName(plugin, name))}.description`,
     description,
   );
 }

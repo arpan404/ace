@@ -1,3 +1,4 @@
+import { harnessCatalog, HarnessCatalog } from "@ace/commands";
 import { z } from "zod";
 import type { ThreadId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
@@ -20,8 +21,24 @@ const piCommands = z.object({
 });
 const piControlCommands = new Set(["ace-context", "ace-rollback", "ace-permissions"]);
 /** Decode only metadata channels; deltas and retained transcript bodies never enter command discovery. */
-export function providerCommandMetadata(frame: Frame): unknown | undefined {
+export function providerCommandMetadata(
+  frame: Frame,
+  provider: import("@ace/protocol").ProviderKind = "acp",
+): unknown | undefined {
   if (frame.dir !== "recv" && frame.dir !== "note") return undefined;
+  if (frame.channel === "catalog.runtime") {
+    const payload = HarnessCatalog.safeParse(frame.data);
+    if (!payload.success) return undefined;
+    const entries = harnessCatalog(
+      provider,
+      payload.data.method,
+      payload.data.result,
+      payload.data.cwd,
+    );
+    return entries
+      ? { group: payload.data.method.replace(/[^\w-]/g, "-"), catalog: entries }
+      : undefined;
+  }
   if (frame.channel === "commands.runtime") return frame.data;
   if (frame.channel !== "sdk" && frame.channel !== "stdio") return undefined;
   const pi = piCommands.safeParse(frame.data);
@@ -36,6 +53,8 @@ export function providerCommandMetadata(frame: Frame): unknown | undefined {
   const parsed = message.safeParse(frame.data);
   if (!parsed.success) return undefined;
   const data = parsed.data;
+  if (data.type === "system" && data.subtype === "commands_changed" && Array.isArray(data.commands))
+    return { type: "system", subtype: "init", slash_commands: data.commands };
   if (data.type === "system" && data.subtype === "init" && Array.isArray(data.slash_commands))
     return data;
   const update = z

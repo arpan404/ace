@@ -38,7 +38,11 @@ export async function executeIntent(
     if (repo.store.getThread(actor.id)?.deletedAt !== undefined) throw new Error("Thread deleted");
     if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     if (p.type === "thread.send") await transitions.selectNext(actor, intent, p.model, p.options);
-    if ("context" in p && p.context && !prepare)
+    if (
+      (("context" in p && p.context) ||
+        (Array.isArray(p.input) && p.input.some((part) => part.type === "mention"))) &&
+      !prepare
+    )
       throw new Error("Context preparation is unavailable");
     try {
       await sessions.open(actor);
@@ -58,7 +62,9 @@ export async function executeIntent(
     const state = repo.requireState(actor.id);
     const generation = actor.generation;
     const prepared =
-      "context" in p && p.context
+      "input" in p &&
+      Array.isArray(p.input) &&
+      (p.input.some((part) => part.type === "mention") || ("context" in p && p.context))
         ? await prepare?.(
             p.type === "thread.create"
               ? Command.parse({

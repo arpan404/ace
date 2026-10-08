@@ -735,6 +735,12 @@
       "$ref": "https://ace.local/protocol/v1/CommandsResolve.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/CatalogList.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CatalogUnsubscribe.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,
