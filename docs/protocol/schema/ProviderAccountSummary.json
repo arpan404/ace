@@ -1,0 +1,123 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderAccountSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "apiKey": {
+      "$ref": "https://ace.local/protocol/v1/ApiKeySupport.json"
+    },
+    "authMethod": {
+      "$ref": "https://ace.local/protocol/v1/AccountAuthMethod.json"
+    },
+    "availability": {
+      "$ref": "https://ace.local/protocol/v1/AccountAvailability.json"
+    },
+    "blockedUntil": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "homeStrategy": {
+      "const": "default_cli",
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "implicit": {
+      "type": "boolean"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installationVersion": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "isDefault": {
+      "type": "boolean"
+    },
+    "isolation": {
+      "const": "unsupported",
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "loginRevision": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "profileRevision": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+    },
+    "quota": {
+      "$ref": "https://ace.local/protocol/v1/AccountQuota.json"
+    },
+    "signedInAs": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "available",
+        "near_limit",
+        "exhausted",
+        "logged_out",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "usageSummary": {
+      "properties": {
+        "costUsd": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "inputTokens": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "outputTokens": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "authMethod",
+    "provider",
+    "label",
+    "quota",
+    "availability",
+    "status",
+    "apiKey",
+    "usageSummary"
+  ],
+  "type": "object"
+}

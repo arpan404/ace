@@ -1,6 +1,7 @@
 import { NativeAccountProvider } from "@ace/protocol/accounts";
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { z } from "zod";
+import { blockedUntil } from "@ace/accounts/availability";
 
 type AccountSummary = z.infer<typeof Summary>;
 import { accountList, type FakeAccount } from "../catalog/accounts.ts";
@@ -22,14 +23,32 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
       : {}),
     installationVersion: account.cliVersion,
     label: account.label,
+    authMethod: "browser",
     availability: account.availability,
     quota: {
       auth: account.availability === "logged_out" ? "logged_out" : "logged_in",
       observedAt: now,
+      billingMode:
+        account.provider === "codex" || account.provider === "claude" ? "subscription" : "unknown",
+      ...(account.provider === "codex"
+        ? { plan: "pro" }
+        : account.provider === "claude"
+          ? { plan: "max" }
+          : {}),
       windows: Object.fromEntries(
         account.windows.map((window) => [
           windowNames[window.id] ?? window.id,
-          { usedPercent: window.usedPercent, resetsAt: window.resetsAt },
+          {
+            usedPercent: window.usedPercent,
+            remainingPercent: 100 - window.usedPercent,
+            resetsAt: window.resetsAt,
+            source: "cli" as const,
+            ...(window.id === "five-hour"
+              ? { windowDurationMins: 300 }
+              : window.id === "weekly"
+                ? { windowDurationMins: 10080 }
+                : {}),
+          },
         ]),
       ),
       blockers: {},
@@ -45,6 +64,7 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     provider: id,
     installationVersion: version,
     label: "Default (your CLI login)",
+    authMethod: "unknown",
     implicit: true,
     isDefault: true,
     availability: "available",
@@ -55,8 +75,20 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
 /** The accounts in the approved design, as the daemon lists them. */
 export function accountSummaries(now: number): AccountSummary[] {
   const registered = accountList(now);
-  return [
+  const accounts: AccountSummary[] = [
     ...registered.map((account) => accountSummary(account, now)),
+    ...(["opencode", "cursor", "pi"] as const).flatMap((provider) =>
+      [1, 2].map((number): AccountSummary => ({
+        id: `${provider}-extra-${number}`,
+        provider,
+        label: number === 1 ? "Work" : "Personal",
+        authMethod: number === 1 ? "api_key" : "browser",
+        implicit: false,
+        isDefault: false,
+        availability: "available",
+        quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
+      })),
+    ),
     ...NativeAccountProvider.options
       .filter((provider) => provider !== "opencode" && provider !== "cursor")
       .map((provider) => ({
@@ -78,5 +110,37 @@ export function accountSummaries(now: number): AccountSummary[] {
       })),
     plain("opencode", "1.4", now),
     plain("cursor", "0.9", now),
+    {
+      ...plain("opencode", "1.4", now),
+      id: "opencode-api",
+      implicit: false,
+      isDefault: false,
+      label: "OpenRouter API",
+      quota: {
+        auth: "logged_in",
+        observedAt: now,
+        billingMode: "api",
+        windows: {},
+        blockers: {},
+        usage: {},
+      },
+    },
+    {
+      id: "pi-api",
+      provider: "pi",
+      label: "API key",
+      availability: "available",
+      quota: {
+        auth: "logged_in",
+        observedAt: now,
+        billingMode: "api",
+        windows: {},
+        blockers: {},
+        usage: {},
+      },
+    },
   ];
+  return accounts.map((account) =>
+    Object.assign(account, { blockedUntil: blockedUntil(account.quota, now) }),
+  );
 }

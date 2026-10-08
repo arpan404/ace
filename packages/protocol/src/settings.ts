@@ -31,6 +31,7 @@ export const SettingsValues = z.object({
   "browser.allowedOrigins": z.array(BrowserOrigin).max(256),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
+  /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
   /** Deprecated global input. Migrates to provider-specific native selections. */
   "permissions.defaultMode": PermissionMode.nullable(),

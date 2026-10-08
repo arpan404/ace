@@ -2,12 +2,23 @@
   "$id": "https://ace.local/protocol/v1/UsageResult.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "accounts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "burn": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/UsageBurn.json"
       },
       "maxItems": 20,
       "type": "array"
+    },
+    "costLabel": {
+      "const": "estimate",
+      "type": "string"
     },
     "cursor": {
       "maximum": 9007199254740991,
@@ -20,9 +31,28 @@
       "minimum": 0,
       "type": "integer"
     },
+    "priceAsOf": {
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+      "type": "string"
+    },
+    "priceSources": {
+      "items": {
+        "format": "ace-whatwg-url",
+        "type": "string",
+        "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "priceVersion": {
       "maxLength": 512,
       "minLength": 1,
+      "type": "string"
+    },
+    "retainedFrom": {
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
       "type": "string"
     },
     "rows": {
@@ -35,6 +65,10 @@
     "timezone": {
       "maxLength": 512,
       "minLength": 1,
+      "type": "string"
+    },
+    "tokenSource": {
+      "const": "cli",
       "type": "string"
     },
     "truncated": {

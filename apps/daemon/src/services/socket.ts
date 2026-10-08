@@ -35,6 +35,8 @@ export interface SocketContext {
   sessionId: string;
   /** True only for the daemon loopback listener, never a client claim. */
   local?: boolean;
+  /** Host token on loopback only. Paired credentials need the encrypted relay. */
+  canSubmitSecret?(): boolean;
   onPresence(): void;
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;

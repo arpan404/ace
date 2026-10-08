@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ThreadId, AgentId } from "@ace/protocol";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "@ace/mcp-server";
 import { createOpenCodeAdapter } from "./index.ts";
-import { setup } from "./testing/v2-session.ts";
+import { setup, Clock } from "./testing/v2-session.ts";
 
 test("OpenCode v2 native processes preserve user MCP servers and isolate thread authority within an account", async () => {
   let id = 0;
@@ -124,5 +124,117 @@ test("OpenCode preserves a user's ace server by rejecting an authority name coll
     ).rejects.toThrow("OpenCode MCP server name collision: ace");
   } finally {
     await adapter.close();
+  }
+});
+
+test("OpenCode waits for ace status to reach its native tool catalog before accepting a session", async () => {
+  const credentials = new CredentialRegistry(() => "b".repeat(64));
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const mcp = await startMcpServer({ registry, credentials });
+  const h = await setup();
+  const requested = Promise.withResolvers<void>();
+  const network = h.options.runtime?.fetch ?? fetch;
+  const adapter = createOpenCodeAdapter({
+    ...h.options,
+    runtime: {
+      ...h.options.runtime,
+      fetch(input, init) {
+        if (String(input).includes("/rpc/ace.mcp.readiness/ready")) requested.resolve();
+        return network(input, init);
+      },
+    },
+  });
+  const controller = new AbortController();
+  const lease = credentials.issue(
+    {
+      sessionId: "status",
+      threadId: ThreadId.parse("status-thread"),
+      agentId: AgentId.parse("status-agent"),
+      capabilities: [],
+    },
+    controller.signal,
+  );
+  try {
+    const opened = adapter.openSession({
+      threadId: ThreadId.parse("status-thread"),
+      cwd: "/sandbox",
+      env: {
+        ACE_TEST_HOLD_MCP_TOOLS: "1",
+        OPENCODE_CONFIG_CONTENT:
+          '{ // preserve comments and user plugins\n"plugins": ["user-plugin"], "custom": {"retained": true}, }',
+      },
+      signal: controller.signal,
+      aceMcp: { url: mcp.url, bearer: lease.bearer, end: lease.end },
+      onFrame() {},
+      onExit() {},
+    });
+    expect(
+      await Promise.race([requested.promise.then(() => "waiting"), opened.then(() => "opened")]),
+    ).toBe("waiting");
+    await h.control("/test/mcp-tools/settle");
+    const session = await opened;
+    expect(await h.control("/test/mcp-tools")).toMatchObject({
+      readinessRequested: true,
+      tools: [{ name: "ace_ace_status", description: expect.stringContaining("ace://status") }],
+      plugins: ["user-plugin", expect.any(String)],
+    });
+    await session.close("shutdown");
+  } finally {
+    controller.abort();
+    await adapter.close();
+    await mcp.close();
+  }
+});
+
+test("a native catalog that never registers ace status is cancelled and loses its authority", async () => {
+  const credentials = new CredentialRegistry(() => "c".repeat(64));
+  const mcp = await startMcpServer({
+    registry: new ToolRegistry({ scheduler: nodeScheduler }),
+    credentials,
+  });
+  const clock = new Clock();
+  const h = await setup({ runtime: { schedule: clock.schedule } });
+  const requested = Promise.withResolvers<void>();
+  const network = h.options.runtime?.fetch ?? fetch;
+  const adapter = createOpenCodeAdapter({
+    ...h.options,
+    runtime: {
+      ...h.options.runtime,
+      fetch(input, init) {
+        if (String(input).includes("/rpc/ace.mcp.readiness/ready")) requested.resolve();
+        return network(input, init);
+      },
+    },
+  });
+  const controller = new AbortController();
+  const lease = credentials.issue(
+    {
+      sessionId: "cancelled",
+      threadId: ThreadId.parse("cancelled-thread"),
+      agentId: AgentId.parse("root"),
+      capabilities: [],
+    },
+    controller.signal,
+  );
+  try {
+    const opened = adapter.openSession({
+      threadId: ThreadId.parse("cancelled-thread"),
+      cwd: "/sandbox",
+      env: { ACE_TEST_HOLD_MCP_TOOLS: "1" },
+      signal: controller.signal,
+      aceMcp: { url: mcp.url, bearer: lease.bearer, end: lease.end },
+      onFrame() {},
+      onExit() {},
+    });
+    const rejected = expect(opened).rejects.toThrow("OpenCode session opening failed");
+    await requested.promise;
+    clock.advance(10_000);
+    await rejected;
+    const response = await fetch(mcp.url, { headers: { Authorization: `Bearer ${lease.bearer}` } });
+    expect(response.status).toBe(401);
+  } finally {
+    controller.abort();
+    await adapter.close();
+    await mcp.close();
   }
 });

@@ -136,16 +136,17 @@ test("an escalated review stops saying 'Sent to you' once the person answers", (
   ).toBe("Approved by you");
 });
 
-test("outside full access, the options the daemon would refuse are not offered", () => {
+test("provider approval options remain available in every native mode", () => {
   const options =
     approval("pending").request.kind === "approval" ? approval("pending").request : undefined;
   const all = options && "options" in options ? options.options : [];
-  expect(offeredOptions(all, "auto-review")).toMatchObject({ hidden: 1 });
-  expect(offeredOptions(all, "auto-review").options.map((option) => option.id)).toEqual([
+  expect(offeredOptions(all, "auto")).toMatchObject({ hidden: 0 });
+  expect(offeredOptions(all, "auto").options.map((option) => option.id)).toEqual([
     "once",
+    "thread",
     "deny",
   ]);
-  expect(offeredOptions(all, "full-access").hidden).toBe(0);
+  expect(offeredOptions(all, "plan").hidden).toBe(0);
 });
 
 test("the policy's terse reason is reworded for the person", () => {

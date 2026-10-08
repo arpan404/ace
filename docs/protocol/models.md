@@ -50,44 +50,43 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | legacy | no | boolean |  |
 | deprecated | yes | boolean |  |
 | isNew | no | boolean |  |
+| free | no | boolean |  |
 | raw | yes | object | {"properties":{"json":{"type":"string","maxLength":2048,"x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."},"truncated":{"type":"boolean"}},"required":["json","truncated"]} |
 
 Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "aliases": [],
   "defaultEffort": "example",
   "defaultSource": "user",
-  "deprecated": true,
-  "detail": "example",
+  "deprecated": false,
   "displayName": "example",
-  "family": "example",
-  "favourite": true,
+  "free": false,
+  "group": "current",
   "hidden": false,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
-  "instanceId": "example",
-  "isDefault": true,
-  "legacy": false,
+  "isDefault": false,
   "nativeModelId": "example",
   "provider": "cursor",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
-  "resolvedModelId": "example",
+  "selectorMethod": "session/set_model",
   "serviceTiers": [],
+  "sortKey": "example",
   "source": {
     "id": "example",
-    "kind": "api_key",
+    "kind": "other",
     "label": "example",
-    "service": "opencode_zen"
+    "requiresAuth": false
   },
-  "tier": "current"
+  "version": "example",
+  "visibilityReason": "group_hidden"
 }
 ```
 
@@ -107,10 +106,10 @@ Example:
 
 ```json
 {
-  "code": "not_configured",
+  "actionId": "provider.sign_in",
+  "code": "parse_failure",
   "hint": "example",
-  "message": "example",
-  "severity": "warning"
+  "message": "example"
 }
 ```
 
@@ -130,7 +129,8 @@ Example:
 
 ```json
 {
-  "instance": "example",
+  "acpAgentId": "example",
+  "installationId": "example",
   "instanceId": "example"
 }
 ```
@@ -161,10 +161,10 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "instance": "example",
-  "permissionModes": [],
-  "provider": "opencode",
+  "provider": "pi",
+  "refreshedAt": 6,
   "refreshing": false,
   "stale": true
 }
@@ -188,9 +188,9 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "installationId": "example",
   "instance": "example",
-  "limit": 10
+  "instanceId": "example"
 }
 ```
 
@@ -209,7 +209,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 4
 }
 ```
 
@@ -232,39 +233,35 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
     "acpAgentId": "example",
-    "aliases": [],
-    "custom": false,
     "defaultSource": "user",
-    "deprecated": false,
+    "defaultTier": "example",
+    "deprecated": true,
     "displayName": "example",
     "hidden": false,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": false,
+    "isNew": false,
+    "legacy": false,
     "modelConfigId": "example",
     "nativeModelId": "example",
-    "provider": "pi",
-    "providerEnabled": false,
+    "provider": "claude",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
     "serviceTiers": [],
-    "visibilityReason": "deprecated"
+    "sortKey": "example",
+    "tier": "legacy",
+    "version": "example"
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
-  "tier": {
-    "id": "example",
-    "name": "example"
-  }
+  "stale": true
 }
 ```
 
@@ -307,8 +304,8 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "instance": "example",
+  "model": "example",
   "preferenceOrder": [],
   "role": "example",
   "selection": "strongest"
@@ -330,7 +327,7 @@ Example:
 {
   "filter": {
     "instance": "example",
-    "instanceId": "example"
+    "provider": "claude"
   },
   "type": "models.changed"
 }
@@ -361,6 +358,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| requiresAuth | no | boolean |  |
 | service | no | ["opencode_go","opencode_zen"] |  |
 | kind | yes | ["local","subscription","api_key","account","other"] |  |
 | id | yes | string | {"minLength":1,"maxLength":256} |
@@ -371,7 +369,7 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "subscription",
+  "kind": "account",
   "label": "example"
 }
 ```
@@ -391,17 +389,11 @@ Example:
 
 ```json
 {
-  "error": {
-    "actionId": "provider.sign_in",
-    "code": "not_configured",
-    "hint": "example",
-    "message": "example",
-    "severity": "warning"
-  },
   "source": {
     "id": "example",
-    "kind": "subscription",
-    "label": "example"
+    "kind": "api_key",
+    "label": "example",
+    "service": "opencode_go"
   },
   "status": "fresh"
 }
@@ -442,11 +434,11 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "imageInput": true,
     "installationId": "example",
-    "preferenceOrder": [],
-    "provider": "acp",
-    "role": "example"
+    "instance": "example",
+    "model": "example",
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -468,8 +460,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": []
   },
   "type": "models.result"
 }

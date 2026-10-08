@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { GitService } from "@ace/git";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -250,6 +251,23 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
   });
   const client = await connect(server.url);
   const original = h.registry.get("codex");
+  const nativeModes = nativePermissionModes("codex");
+  h.registry.register(
+    {
+      ...original.adapter,
+      capabilities: () => ({
+        ...original.capabilities,
+        permissionModes: nativeModes,
+        permissions: {
+          modes: nativeModes.map((entry) => entry.id),
+          permissionModes: nativeModes,
+          nativeAutoReview: false,
+          toolGate: true,
+        },
+      }),
+    },
+    original.discovery,
+  );
   const before = (
     await git("git", ["-C", h.home, "for-each-ref", "refs/heads", "--format=%(refname)"])
   ).stdout;
@@ -260,16 +278,23 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
       workspaceId: h.workspace,
       provider: "codex",
       mode: "worktree",
-      permissionMode: "ask",
+      permissionMode: ":workspace",
       input: [{ type: "text", text: "Keep my draft" }],
     });
     await gitService.entered.promise;
+    const permissionModes = nativeModes.filter((entry) => entry.id === ":read-only");
     h.registry.register(
       {
         ...original.adapter,
         capabilities: () => ({
           ...original.capabilities,
-          permissions: { modes: ["read-only"], nativeAutoReview: false, toolGate: true },
+          permissionModes,
+          permissions: {
+            modes: permissionModes.map((entry) => entry.id),
+            permissionModes,
+            nativeAutoReview: false,
+            toolGate: true,
+          },
         }),
       },
       original.discovery,

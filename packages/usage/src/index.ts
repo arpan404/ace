@@ -7,3 +7,4 @@ export { QuotaWindow, type QuotaReader } from "./quotas.ts";
 
 export { counterPolicy, accountSample, countsTowardTurnUsage } from "./accounting.ts";
 export { Counts, zeroCounts } from "./counters.ts";
+export { estimateTokens } from "./pricing.ts";

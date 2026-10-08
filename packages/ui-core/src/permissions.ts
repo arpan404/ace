@@ -133,6 +133,7 @@ export function threadPermissionSummary(
   };
 }
 
+/** The provider's native option as the composer's generic risk-based control reads it. */
 export type PermissionRisk = "low" | "medium" | "high";
 export interface PermissionOption {
   id: string;
@@ -145,21 +146,22 @@ export function permissionOption(
   mode: PermissionMode | null,
   capabilities?: PermissionCapabilities,
 ): PermissionOption {
-  return (
-    capabilities?.permissionModes?.find((entry) => entry.id === mode) ?? {
-      id: mode ?? "",
-      label: permissionLabel(mode, capabilities),
-      description: permissionCoverage(capabilities, mode),
-      risk: "medium",
-    }
-  );
+  const entry = capabilities?.permissionModes?.find((candidate) => candidate.id === mode);
+  return {
+    id: mode ?? "",
+    label: permissionLabel(mode, capabilities),
+    description: permissionCoverage(capabilities, mode),
+    risk: entry?.risk ?? "medium",
+  };
 }
 export function permissionOptions(
   capabilities: PermissionCapabilities | undefined,
   _provider = "This provider",
 ): PermissionOption[] {
-  return capabilities?.permissionModes ?? [];
-}
-export function permissionModeOf(id: string): PermissionMode | undefined {
-  return id || undefined;
+  return (capabilities?.permissionModes ?? []).map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    description: entry.description,
+    risk: entry.risk,
+  }));
 }

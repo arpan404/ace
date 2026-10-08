@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { z } from "zod";
 import { registerAcePiExtension, type PiExtensionApi } from "@ace/adapter-pi";
 import { join } from "node:path";
+import { availability } from "./provider-mcp-availability.ts";
 import { browserProof } from "./browser-mcp-client.ts";
 import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 
@@ -181,6 +182,17 @@ if (mode === "opencode") {
         if (!ace) throw new Error("Native ace server was not registered");
         mcpProof = await browserProof(ace, "http");
         response.writeHead(204).end();
+      } else if (path === "/api/rpc/ace.mcp.readiness/ready") {
+        if (!ace) throw new Error("Native ace server was not registered");
+        const evidence = await availability(ace.url, ace.headers.Authorization);
+        reply({
+          output: {
+            tools: evidence.tools.map((tool) => ({
+              name: `ace_${tool.name}`,
+              description: tool.description,
+            })),
+          },
+        });
       } else if (path === "/api/session" && request.method === "POST") {
         reply({ data: { id: "native", projectID: "test", location: body.location } });
       } else if (path === "/api/session/native/prompt") {

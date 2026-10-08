@@ -94,7 +94,7 @@ it("agents discover ace through initialize, resources and status even when compu
     expect(disabled).toMatchObject({
       threadId: thread.id,
       agentId: agent.id,
-      permissionMode: "auto-review",
+      permissionMode: "ask",
     });
     expect(disabled.groups).toContainEqual({
       name: "screen",

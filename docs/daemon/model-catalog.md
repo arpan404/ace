@@ -13,6 +13,25 @@ and returns the same shape. Reads and resolutions require read scope.
 }
 ```
 
+OpenCode discovery reads served model metadata even when `auth list` reports no
+connections. Enabled Zen models with zero input, output and cache pricing in every
+reported cost tier remain usable without credentials. Paid and other unconnected
+upstreams remain filtered. No model IDs or free-model count are hard-coded in ace.
+
+`CatalogModel.free?` marks these models for a Free badge. A Zen source discovered
+only through free models has `source.requiresAuth: false`, so Settings offers
+"Sign in for more models" without a Disconnect action. Connected Zen sources can
+contain both free and paid models and retain their normal connection actions.
+These optional fields preserve older catalog readers and persisted rows.
+
+Provider status adds optional `modelsAvailable` for usable OpenCode models that
+do not need authentication. Such an installation retains its observed auth status
+and reports `readiness: "signed_in"`, the existing wire value for readiness, without
+`state: "not_configured"` or a blocking sign-in action. Cached model changes publish
+readiness updates. Connection polling excludes the synthetic free Zen source from
+the auth fingerprint, preserving stale-while-revalidate and unchanged-connection
+behavior.
+
 The existing execution and capability fields remain unchanged. Each discovered
 row adds these fields:
 

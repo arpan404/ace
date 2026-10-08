@@ -1,3 +1,9 @@
+import { ProviderAccountsRequest, ProviderAccountsResult } from "./provider-accounts.ts";
+import {
+  ProviderInstallRequest,
+  ProviderInstallResult,
+  ProviderInstallEvent,
+} from "./provider-install.ts";
 import {
   ProviderLoginRequest,
   ProviderLoginResult,
@@ -97,6 +103,7 @@ import {
   UsageSummary,
   UsageSeries,
   UsageMessage,
+  UsageLimitsChanged,
   UsageSessionTotals,
   UsageSessionTotalsMessage,
 } from "./usage.ts";
@@ -146,6 +153,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   MachinesRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
+  ...ProviderInstallRequest.options,
   ...OnboardingRequest.options,
   PreviewRequest,
   ...AutomationRequest.options,
@@ -178,6 +186,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CommandsList,
   CommandsResolve,
   ...AccountsRequest.options,
+  ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
@@ -206,6 +215,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ProvidersResult,
   ProviderLoginResult,
   ProviderLoginEvent,
+  ProviderInstallResult,
+  ProviderInstallEvent,
   OnboardingResult,
   ProvidersChanged,
   PreviewResult,
@@ -237,11 +248,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,
+  UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,
   ...AccountsResponse.options,
+  ProviderAccountsResult,
   ...CursorAuthEvent.options,
   SearchQueryResponse,
   SearchStatusResponse,

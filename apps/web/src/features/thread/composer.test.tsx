@@ -211,7 +211,7 @@ test("a wide composer spells out the @ and / hints", async () => {
 test("approvals show as an icon alone, the mode kept in its name; a phone drops the model's effort", async () => {
   layoutWidth(358);
   await open("busy");
-  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto-review/ });
+  const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
   expect(approvals.textContent).toBe("");
   // The model chip keeps its name; only its effort goes.
   const model = screen.getByRole("button", { name: /^Model: / });

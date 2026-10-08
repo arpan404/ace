@@ -22,6 +22,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "requiresAuth": {
+      "type": "boolean"
+    },
     "service": {
       "enum": [
         "opencode_go",

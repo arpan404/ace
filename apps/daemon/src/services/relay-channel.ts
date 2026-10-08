@@ -1,3 +1,4 @@
+import { providerAuthRelay } from "./provider-auth-relay.ts";
 import {
   connectDevices,
   sendDeviceFrame,
@@ -18,6 +19,8 @@ import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 import { contextScope } from "./context-scope.ts";
 export interface RelayServices {
+  providerLogin?: import("@ace/accounts").ProviderLoginSessions;
+  accountManagement?: import("../account-management.ts").AccountManagement;
   files?: FilesService;
   context?: import("../server-options.ts").ServerOptions["context"];
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
@@ -31,13 +34,21 @@ export interface RelayServices {
 export function attachRelayService(
   options: RelayServices & {
     channel: HostChannel;
-    kind: "files" | "devices" | "browser" | "screen";
+    kind: "files" | "devices" | "browser" | "screen" | "provider_auth";
     device: DeviceId;
     sessionId: string;
     authorize(scope: "read" | "operate" | "admin"): boolean;
   },
 ) {
   const { channel, device, authorize, sessionId } = options;
+  if (options.kind === "provider_auth")
+    return providerAuthRelay({
+      channel,
+      device,
+      authorize,
+      ...(options.providerLogin ? { login: options.providerLogin } : {}),
+      ...(options.accountManagement ? { accounts: options.accountManagement } : {}),
+    });
   const threadAccess = (threadId: string) => {
     const id = ThreadId.parse(threadId);
     const thread = options.store?.getThread(id);

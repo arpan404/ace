@@ -73,7 +73,8 @@ test("usage by account lists each account's tokens under its name", async () => 
     ["Personal", "Claude Code", "50.8M"],
     ["Personal", "Codex", "37.0M"],
     ["Work", "Claude Code", "31.7M"],
-    ["opencode-api", "OpenCode", "8.3M"],
+    ["OpenRouter API", "OpenCode", "9.4M"],
+    ["API key", "Pi", "3.0M"],
   ]);
 });
 
@@ -116,6 +117,6 @@ test("a grouping cut short says how many it shows", async () => {
 
   await screen.findByRole("table", { name: "Usage by account" });
   expect(
-    await screen.findByText("Shows the 4 busiest accounts; the rest are left out."),
+    await screen.findByText("Shows the 5 busiest accounts; the rest are left out."),
   ).toBeTruthy();
 });

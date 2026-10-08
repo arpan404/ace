@@ -7,7 +7,7 @@ import {
   preloadComposerParts,
   rememberAttachments,
   useDraftScope,
-  usePermissionCapabilities,
+  usePermissionModes,
   type Draft,
 } from "@/features/thread/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -23,7 +23,6 @@ import {
   permissionAdmission,
   permissionCoverage,
   permissionCoverageNote,
-  permissionModeOf,
   permissionOption,
   permissionOptions,
   providerNames,
@@ -89,22 +88,29 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
-  // Approvals start at the daemon's default for the project; a choice here applies to this
-  // thread only and isn't remembered, so full access is never carried into the next thread.
-  // A mode the provider can't run in (Ask on Cursor) is never sent: its fallback is, said so.
-  const [permission, setPermission] = useState<PermissionMode>();
-  const [providerModes] = useDaemonSetting(
+  // A selection belongs to this provider; omission retains its configured native default.
+  const [permissionChoice, setPermissionChoice] = useState<{
+    provider: ProviderKind | undefined;
+    id: PermissionMode | undefined;
+  }>();
+  if (permissionChoice && permissionChoice.provider !== provider) setPermissionChoice(undefined);
+  const permission = permissionChoice?.provider === provider ? permissionChoice?.id : undefined;
+  const setPermission = (id: PermissionMode | undefined) => setPermissionChoice({ provider, id });
+  const [defaultMode] = useDaemonSetting(
     "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
-  const defaultMode = provider ? (providerModes?.[provider] ?? null) : null;
-  const permissions = usePermissionCapabilities(provider);
+  const permissions = usePermissionModes(provider, {
+    instanceId: resolved.account?.id,
+    currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
+    setCurrentId: (id) => setPermission(id ?? undefined),
+  });
   const admitted = permissionAdmission(
     permissions.capabilities,
-    permission ?? defaultMode,
+    permissions.currentId,
     provider ? providerNames[provider] : "This provider",
   );
-  const chosen = admitted.fallback ? admitted.mode : permission;
+  const chosen = permissions.currentId ?? undefined;
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -242,9 +248,9 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 menu={{
                   options: permissionOptions(permissions.capabilities, providerName),
                   value: admitted.mode,
-                  loading: !!provider && (permissions.loading || providerModes === undefined),
+                  loading: !!provider && (permissions.loading || defaultMode === undefined),
                   unavailable: permissions.failed
-                    ? "The daemon couldn't say what this provider can gate"
+                    ? "Couldn't load permission modes. Reconnect and try again."
                     : undefined,
                   coverage: permissionCoverageNote(
                     permissions.capabilities,
@@ -253,7 +259,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   ),
                   fallback: admitted.fallback,
                 }}
-                onChange={(id) => setPermission((id && permissionModeOf(id)) || undefined)}
+                onChange={permissions.setCurrentId}
               />
             }
           />

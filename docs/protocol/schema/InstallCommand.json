@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/InstallCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "args": {
+      "items": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "command": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "display": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "command",
+    "args",
+    "display"
+  ],
+  "type": "object"
+}

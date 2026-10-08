@@ -1,0 +1,196 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderAccountsRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.add",
+          "type": "string"
+        },
+        "upstream": {
+          "$ref": "https://ace.local/protocol/v1/ApiKeyUpstream.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.rename",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId",
+        "label"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.setDefault",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "confirm": {
+          "const": true,
+          "type": "boolean"
+        },
+        "deleteHome": {
+          "default": false,
+          "type": "boolean"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId",
+        "confirm"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json",
+          "default": "login"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.reauth",
+          "type": "string"
+        },
+        "upstream": {
+          "$ref": "https://ace.local/protocol/v1/ApiKeyUpstream.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { ProviderPayloadSchema } from "@ace/provider-kit/payload";
 import { AccountQuota, type QuotaWindow } from "@ace/protocol/accounts";
 import { object, number, decodeWindows } from "./quota-decode.ts";
 import { parseLimitReset } from "./reset-time.ts";
+import { reportedBilling } from "./billing.ts";
 
 export function initialQuota(): AccountQuota {
   return { auth: "unknown", observedAt: 0, windows: {}, blockers: {}, usage: {} };
@@ -33,6 +34,7 @@ export function ingestQuota(
   const frame = object(raw);
   const body = object(frame["params"] ?? frame);
   const decoded = decodeWindows(fact.provider, body);
+  const billing = reportedBilling(body);
   const blockers = { ...state.blockers };
   const errorBody = object(body["error"]);
   const error = z
@@ -50,6 +52,7 @@ export function ingestQuota(
     blockers.limitError = {
       usedPercent: 100,
       resetsAt: parseLimitReset(error, fact.observedAt, fact.timeZone),
+      source: "limit_error",
     };
   const auth = z.enum(["logged_in", "logged_out", "unknown"]).safeParse(body["auth"]).data;
   const usageBody = object(object(body["tokenUsage"])["total"] ?? body["usage"] ?? body["session"]);
@@ -65,7 +68,15 @@ export function ingestQuota(
   if (input !== undefined) usage.inputTokens = input;
   if (output !== undefined) usage.outputTokens = output;
   if (cost !== undefined) usage.costUsd = cost;
-  if (!auth && !decoded.count && !decoded.overflow && !Object.keys(usage).length && !limited)
+  if (
+    !auth &&
+    !billing.billingMode &&
+    !billing.plan &&
+    !decoded.count &&
+    !decoded.overflow &&
+    !Object.keys(usage).length &&
+    !limited
+  )
     return { state, raw };
   const windows: Record<string, QuotaWindow> =
     decoded.authoritative && decoded.complete && decoded.count ? {} : { ...state.windows };
@@ -86,6 +97,13 @@ export function ingestQuota(
   if (decoded.overflow) blockers.overflow = true;
   return {
     state: {
+      ...state,
+      ...(billing.billingMode ? { billingMode: billing.billingMode } : {}),
+      ...(billing.plan
+        ? { plan: billing.plan }
+        : billing.billingMode === "api"
+          ? { plan: undefined }
+          : {}),
       auth: auth ?? state.auth,
       ...(state.cursorSdkAuth ? { cursorSdkAuth: state.cursorSdkAuth } : {}),
       observedAt: fact.observedAt,

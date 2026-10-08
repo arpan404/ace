@@ -31,18 +31,29 @@ export function migrate(db: DatabaseSync, timezone: string): void {
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS usage_daily_thread ON usage_daily(thread, day);
     CREATE INDEX IF NOT EXISTS usage_daily_agent ON usage_daily(agent, day);
+    CREATE INDEX IF NOT EXISTS usage_daily_provider ON usage_daily(provider, account, day);
     CREATE INDEX IF NOT EXISTS usage_daily_account ON usage_daily(account, day);
     CREATE TABLE IF NOT EXISTS usage_increments (
       seq INTEGER PRIMARY KEY, at INTEGER NOT NULL, thread TEXT NOT NULL, account TEXT NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cost REAL NOT NULL
     );
     CREATE INDEX IF NOT EXISTS usage_increment_thread ON usage_increments(thread);
     CREATE INDEX IF NOT EXISTS usage_window ON usage_increments(account, at);
+    CREATE INDEX IF NOT EXISTS usage_increment_at ON usage_increments(at);
     CREATE TEMP TABLE usage_prices (model TEXT PRIMARY KEY, input REAL, cached REAL, write REAL, write1h REAL, output REAL);
   `);
   const existing = db.prepare("SELECT version, timezone FROM usage_meta WHERE id=1").get();
   if (existing && (existing.version !== 2 || existing.timezone !== timezone))
     throw new Error("Usage projection settings changed; rebuild the derived database");
-  db.prepare("INSERT OR IGNORE INTO usage_meta VALUES (1, 2, 0, ?, 0)").run(timezone);
+  db.prepare(
+    "INSERT OR IGNORE INTO usage_meta(id,version,cursor,timezone,omitted) VALUES (1, 2, 0, ?, 0)",
+  ).run(timezone);
+  if (
+    ![...db.prepare("PRAGMA table_info(usage_meta)").iterate()].some(
+      (row) => row.name === "latest_at",
+    )
+  )
+    db.exec(`ALTER TABLE usage_meta ADD COLUMN latest_at INTEGER NOT NULL DEFAULT 0;
+      UPDATE usage_meta SET latest_at=(SELECT COALESCE(MAX(at),0) FROM usage_increments);`);
 }
 export const upsertDaily = `INSERT INTO usage_daily
   SELECT json_extract(value, '$.day'), json_extract(value, '$.thread'), json_extract(value, '$.agent'),

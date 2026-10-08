@@ -33,7 +33,10 @@ Bind an adapter to `{ id, homeDir }`. Hosts receive HOME/USERPROFILE
 `<homeDir>/user/.cursor/sdk/auth.json`. SDK imports and their five-second credential
 cache remain inside the selected instance's host. The launch environment's
 `CURSOR_API_KEY` is inherited only for this backend and never sent through IPC.
-SDK browser sign-in is separate from CLI/editor login; ace has no key-entry UI.
+Accounts signed in through the transient API-key path mask that variable so the SDK
+uses its own isolated credential store. A separate stdin worker passes the key to
+`FileCredentialStore.save`; ace never serializes or saves it. SDK browser sign-in
+is separate from CLI/editor login.
 Login returns only safe status/source. Its ephemeral URL callback belongs to an
 authorized login UI and never to recorder/event storage.
 

@@ -2,6 +2,7 @@
 import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 import { z } from "zod";
+import { availability } from "./provider-mcp-availability.ts";
 import { proof } from "./provider-mcp-proof.ts";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
@@ -126,6 +127,17 @@ if (provider === "opencode") {
       mcpProof = await proof(config.url, config.headers.Authorization);
       res.writeHead(204).end();
       return;
+    } else if (path === "/api/rpc/ace.mcp.readiness/ready") {
+      if (!config) throw new Error("ace server was not registered");
+      const evidence = await availability(config.url, config.headers.Authorization);
+      result = {
+        output: {
+          tools: evidence.tools.map((tool) => ({
+            name: `ace_${tool.name}`,
+            description: tool.description,
+          })),
+        },
+      };
     } else if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
     else if (path === "/openapi.json")
       result = {

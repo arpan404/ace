@@ -8,6 +8,13 @@
         "instance": {
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
+        "method": {
+          "enum": [
+            "login",
+            "api_key"
+          ],
+          "type": "string"
+        },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
@@ -19,12 +26,50 @@
         "type": {
           "const": "provider.login.start",
           "type": "string"
+        },
+        "upstream": {
+          "enum": [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "opencode"
+          ],
+          "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
         "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "$ref": "https://ace.local/protocol/v1/ProviderApiKey.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.apiKey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session",
+        "apiKey"
       ],
       "type": "object"
     },

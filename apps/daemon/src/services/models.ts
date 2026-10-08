@@ -1,3 +1,4 @@
+import { ProviderKind } from "@ace/protocol";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { cursorInstanceHome } from "@ace/adapter-cursor/instance";
 import { daemonCursorInstance } from "./cursor-instance.ts";
@@ -111,6 +112,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
   if (stopConfiguration) resources.own(stopConfiguration);
   resources.own(() => models.close());
   services.models = models;
+  resources.own(models.listen(() => services.providerStatuses?.publish()));
   // These CLIs own connect/disconnect outside ace. Metadata-only reconciliation is bounded.
   const connectionsTimer = setInterval(() => {
     models.revalidate();
@@ -139,6 +141,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
       config.dataDir,
       services.providerConfigurations?.current() ?? [],
     );
+    services.refreshModelInstances = (provider) =>
+      models.hasInstance(`${provider}-cli-default`)
+        ? Promise.resolve()
+        : registerDefaultModelInstances(
+            models,
+            config.dataDir,
+            process.env,
+            context.signal,
+            new Set(ProviderKind.options.filter((kind) => kind !== provider)),
+            services.providerConfigurations?.current() ?? [],
+          );
     const admission = registerDefaultModelInstances(
       models,
       config.dataDir,

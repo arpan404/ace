@@ -9,7 +9,8 @@
             "files",
             "devices",
             "browser",
-            "screen"
+            "screen",
+            "provider_auth"
           ],
           "type": "string"
         },

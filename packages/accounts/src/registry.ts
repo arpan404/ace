@@ -13,7 +13,7 @@ import {
   CursorSdkAuth,
 } from "@ace/protocol/accounts";
 import { object } from "./quota-decode.ts";
-import { availability } from "./availability.ts";
+import { availability, blockedUntil } from "./availability.ts";
 import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
@@ -48,6 +48,8 @@ function summarize(
     implicit: instance.implicit ?? false,
     provider: instance.provider,
     label: instance.label,
+    authMethod: instance.authMethod ?? "unknown",
+    ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
       ? {
           acpAgentId: instance.acpAgentId,
@@ -62,10 +64,16 @@ function summarize(
     loginRevision: instance.loginRevision ?? "0",
     quota,
     availability: availability(quota, now),
+    blockedUntil: blockedUntil(quota, now),
   };
 }
 
 export class AccountRegistry {
+  private readonly quotaListeners = new Set<(id: string) => void>();
+  subscribeQuota(listener: (id: string) => void): () => void {
+    this.quotaListeners.add(listener);
+    return () => this.quotaListeners.delete(listener);
+  }
   private db: DatabaseSync;
   private homeMigration: { notice?: (event: HomeMigrationNotice) => void } | undefined;
   private validating = false;
@@ -295,6 +303,23 @@ export class AccountRegistry {
       JSON.stringify(account.quota),
     );
   }
+  recordAuth(id: string, method: "browser" | "api_key" | "unknown", signedInAs?: string): void {
+    const account = this.get(id);
+    if (!account) throw new Error("Unknown instance");
+    const instance = { ...account.instance };
+    delete instance.signedInAs;
+    this.upsert.run(
+      id,
+      JSON.stringify(
+        ProviderInstance.parse({
+          ...instance,
+          authMethod: method,
+          ...(signedInAs ? { signedInAs } : {}),
+        }),
+      ),
+      JSON.stringify(account.quota),
+    );
+  }
   ingest(id: string, fact: QuotaFact) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -308,6 +333,29 @@ export class AccountRegistry {
       if (result.state !== account.quota)
         this.updateQuota.run(JSON.stringify(AccountQuota.parse(result.state)), id);
       this.db.exec("COMMIT");
+      const before = {
+        windows: account.quota.windows,
+        blockers: account.quota.blockers,
+        auth: account.quota.auth,
+        billingMode: account.quota.billingMode,
+        plan: account.quota.plan,
+      };
+      const after = {
+        windows: result.state.windows,
+        blockers: result.state.blockers,
+        auth: result.state.auth,
+        billingMode: result.state.billingMode,
+        plan: result.state.plan,
+      };
+      if (JSON.stringify(before) !== JSON.stringify(after))
+        for (const listener of this.quotaListeners) {
+          // A disconnected reader must not invalidate a committed quota observation.
+          try {
+            listener(id);
+          } catch {
+            /* Reader owns its delivery failure. */
+          }
+        }
       return result;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -383,6 +431,7 @@ export class AccountRegistry {
     return pickInstance(input, this.list(), now);
   }
   close() {
+    this.quotaListeners.clear();
     this.db.close();
   }
 }

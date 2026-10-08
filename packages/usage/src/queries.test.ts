@@ -125,6 +125,7 @@ describe("usage queries", () => {
     const window = { id: "5h", unit: "tokens", start: at, end: at + 5 * 3_600_000, remaining: 80 };
     expect(h.store.burn("acc", window, at + 2 * 3_600_000)).toEqual({
       windowId: "5h",
+      complete: true,
       unit: "tokens",
       observed: 60,
       overflow: false,

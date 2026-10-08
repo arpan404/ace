@@ -9,6 +9,9 @@ export async function startUsage(context: ServiceContext): Promise<void> {
     store,
     await loadUsageSettings(config.dataDir),
     () => log.log("error", "Usage analytics failure"),
+    undefined,
+    context.now,
+    services.accounts,
   );
   resources.own(() => usage.close());
   services.usage = usage;
@@ -19,8 +22,18 @@ export async function startUsage(context: ServiceContext): Promise<void> {
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createUsageSession(context: SocketContext): SocketService {
   const { options, authorize, connected, send, fail } = context;
+  let stop: (() => void) | undefined;
 
   return {
+    authenticated(channel) {
+      if (channel !== undefined || stop || !authorize("read")) return;
+      stop = options.usage?.subscribeLimits?.((account) => {
+        if (connected() && authorize("read")) send({ type: "usage.limits_changed", account });
+      });
+    },
+    close() {
+      stop?.();
+    },
     async handle(message) {
       const reject = (code: string, detail: string) =>
         fail(

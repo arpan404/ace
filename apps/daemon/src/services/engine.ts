@@ -121,6 +121,31 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   await activateCursorProvider(context, registry);
   if (!engineOptions.registry) {
     let update = Promise.resolve();
+    services.rediscoverProviders = () => {
+      const discovery = update.then(async () => {
+        context.signal.throwIfAborted();
+        await discoverAdapters(
+          configuredDiscovery(context, engineOptions.adapterDiscovery),
+          (cli) => daemonClaudeAdapter(context, cli),
+          async (adapters) => {
+            if (!adapters.has("pi")) await registerPi(context, adapters);
+          },
+          cursorOptions,
+          services.providerConfigurations?.for("cursor").enabled === false
+            ? async () => ({ installed: false, supported: false })
+            : undefined,
+          registry,
+        );
+        await registerCursorSdkHome();
+        registry.bindSessions(bindProvider, { unboundOnly: true });
+        await activateCursorProvider(context, registry);
+      });
+      update = discovery.catch((error: unknown) =>
+        log.log("warn", "Provider discovery failed", logError(error)),
+      );
+      services.providerActivation = update;
+      return discovery;
+    };
     let enabled = new Set(
       (services.providerConfigurations?.current() ?? [])
         .filter((row) => !row.instance && row.enabled === false)
@@ -140,29 +165,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         );
       enabled = disabled;
       if (!needsDiscovery) return;
-      update = update
-        .then(async () => {
-          context.signal.throwIfAborted();
-          await discoverAdapters(
-            configuredDiscovery(context, engineOptions.adapterDiscovery),
-            (cli) => daemonClaudeAdapter(context, cli),
-            async (adapters) => {
-              if (!adapters.has("pi")) await registerPi(context, adapters);
-            },
-            cursorOptions,
-            services.providerConfigurations?.for("cursor").enabled === false
-              ? async () => ({ installed: false, supported: false })
-              : undefined,
-            registry,
-          );
-          await registerCursorSdkHome();
-          registry.bindSessions(bindProvider, { unboundOnly: true });
-          await activateCursorProvider(context, registry);
-        })
-        .catch((error: unknown) =>
-          log.log("warn", "Provider enable discovery failed", logError(error)),
-        );
-      services.providerActivation = update;
+      void services.rediscoverProviders?.().catch(() => {});
     });
     resources.own(() => {
       stop?.();

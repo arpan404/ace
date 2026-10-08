@@ -10,7 +10,7 @@ Status: early development. The local daemon can store events and serve snapshots
 - **Clients** (desktop app, web app, mobile app) are views over the daemon's event log. They can connect locally or from another device.
 - **Protocol**: every provider is translated into one canonical model. Agents form a tree, status is derived from the whole tree, and tool calls, approvals and background tasks are typed. See [docs/adr](docs/adr) and [docs/research/providers](docs/research/providers).
 
-ace never asks for or stores your provider credentials. Each agent CLI uses the login you set up in that CLI.
+Each agent CLI owns its credentials. ace can start its login or hand a pasted API key directly to its supported credential mechanism over stdin; ace never saves the key. See [the authentication policy](docs/adr/0002-local-cli-providers.md).
 
 ## Repository layout
 
@@ -50,7 +50,7 @@ The generated [protocol reference](docs/protocol/README.md) covers WebSocket mes
 - **Optional:** the Android SDK (`ANDROID_HOME`) for emulators; Rust (`cargo`) to build the
   Windows or Linux screen helper.
 - The provider CLIs you want to use, installed and logged in on their own (`claude`, `codex`,
-  `opencode`, `agent`, …). ace never handles their credentials.
+  `opencode`, `agent`, …). the CLI owns credential storage.
 
 ```sh
 bun install

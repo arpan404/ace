@@ -1,0 +1,88 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderInstallProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "$ref": "https://ace.local/protocol/v1/InstallAction.json"
+    },
+    "agent": {
+      "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+    },
+    "exit": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "lines": {
+      "items": {
+        "maxLength": 2048,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "message": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "method": {
+      "$ref": "https://ace.local/protocol/v1/InstallMethod.json"
+    },
+    "plan": {
+      "$ref": "https://ace.local/protocol/v1/ProviderInstallPlan.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "session": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "planning",
+        "running",
+        "verifying",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "needs_admin"
+      ],
+      "type": "string"
+    },
+    "step": {
+      "maximum": 4,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "session",
+    "provider",
+    "action",
+    "method",
+    "state",
+    "sequence",
+    "step",
+    "lines"
+  ],
+  "type": "object"
+}
