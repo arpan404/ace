@@ -1,3 +1,4 @@
+import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 const AdvancedSettings = lazy(() =>

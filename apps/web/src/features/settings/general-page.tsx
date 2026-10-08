@@ -4,7 +4,6 @@ import { useConnectionState } from "@ace/client-react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";

@@ -6,7 +6,6 @@ import {
   EnvelopeSimpleIcon,
   GitMergeIcon,
   LinkIcon,
-  WarningIcon,
   XIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
