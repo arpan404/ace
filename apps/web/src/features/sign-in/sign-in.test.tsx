@@ -60,7 +60,7 @@ test("a device sign-in shows its code to copy and its page, and finishing in the
   expect(await navigator.clipboard.readText()).toBe("ACEF-2048");
 
   app.daemon.services.providerLogin.complete(session(1));
-  expect(await within(dialog).findByText("Signed in as grace@example.com")).toBeTruthy();
+  expect(await screen.findByText("Signed in to Codex")).toBeTruthy();
   // The dialog closes by itself, and Settings caught up without a reload.
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
   expect(within(list).getByText("Signed in as grace@example.com")).toBeTruthy();
@@ -149,8 +149,10 @@ test("a failed sign-in says why, and Try again starts over", async () => {
   await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
   expect(await within(dialog).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
   app.daemon.services.providerLogin.complete(session(2));
-  expect(await within(dialog).findByText("You're signed in")).toBeTruthy();
-  expect(within(dialog).getByText("Signed in as ada@example.com")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
+  );
+  expect(await screen.findByText("Signed in to Claude Code")).toBeTruthy();
 }, 30_000);
 
 test("a sign-in that needs a key typed runs the CLI in an ace terminal, in three plain steps", async () => {
@@ -194,8 +196,7 @@ test("signing out of the default profile keeps a provider usable through its oth
     { timeout: 10_000 },
   );
   await userEvent.click(within(signOut).getByRole("button", { name: "Sign out" }));
-  const dialog = await screen.findByRole("dialog", { name: "Sign out of Codex" });
-  expect(await within(dialog).findByText("Signed out of Codex")).toBeTruthy();
+  expect(await screen.findByText("Signed out of Codex")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
   // The Personal account still works after the default CLI profile signs out.
   expect(screen.queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
@@ -235,11 +236,16 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Cursor" });
   expect(await within(dialog).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
   app.daemon.services.providerLogin.complete(session(1));
-  expect(await within(dialog).findByText("Signed in to Cursor")).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Cursor" })).toBeNull(),
+  );
+  expect(await screen.findByText("Signed in to Cursor")).toBeTruthy();
 
   // The catalog was read again: the picker no longer says the sign-in expired.
-  const again = await openModelPicker(await openModelControl(/^Model: /));
+  const again = await openModelPicker(
+    screen.queryByRole("dialog", { name: "Model and effort" }) ??
+      (await openModelControl(/^Model: /)),
+  );
   await userEvent.click(
     within(screen.getByRole("dialog", { name: "Model and effort" })).getByRole("tab", {
       name: "Cursor",

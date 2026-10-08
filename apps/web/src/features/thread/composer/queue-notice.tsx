@@ -1,3 +1,4 @@
+import { AddAccountButton } from "@/features/account-management/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
@@ -56,6 +57,9 @@ export function QueueNotice(props: {
         <p className="text-sm text-muted-foreground">{notice.detail}</p>
       </div>
       <div className="flex flex-wrap items-center gap-1">
+        {notice.kind === "limited" && account && (
+          <AddAccountButton provider={account.provider} label="Add another account" />
+        )}
         {rest.map((action) => (
           <Button
             key={action.id}

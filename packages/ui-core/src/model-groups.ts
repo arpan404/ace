@@ -1,3 +1,4 @@
+import { accountDisplayName, type AccountView } from "./accounts.ts";
 import type {
   ModelDiscoveryError,
   ModelInstanceStatus,
@@ -86,7 +87,9 @@ export function pickerGroups(
   models: readonly PickerModel[],
   statuses: readonly ModelInstanceStatus[],
   provider: ProviderKind,
+  accounts: readonly AccountView[] = [],
 ): PickerGroup[] {
+  const names = new Map(accounts.map((account) => [account.id, accountDisplayName(account)]));
   const groups = new Map<string, PickerGroup & { rank: number; keys: Set<string> }>();
   const group = (instance: string, source: ModelSource | undefined) => {
     const id = groupKey(instance, source);
@@ -95,7 +98,10 @@ export function pickerGroups(
       found = {
         id,
         provider,
-        label: groupLabel(source),
+        label:
+          !source || source.kind === "account"
+            ? (names.get(instance) ?? groupLabel(source))
+            : groupLabel(source),
         current: [],
         legacy: [],
         refreshing: false,

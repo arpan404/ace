@@ -120,9 +120,15 @@ function ProviderRow(props: { entry: ProviderEntry }) {
         <Link
           to="/settings/providers/$provider"
           params={{ provider: props.entry.id }}
+          aria-label={name}
           className="truncate font-medium text-foreground outline-none after:absolute after:inset-0 focus-visible:after:shadow-[inset_0_0_0_2px_var(--ring)]"
         >
           {name}
+          {props.entry.accountCount !== undefined && (
+            <span className="ml-2 font-normal text-muted-foreground">
+              {props.entry.accountCount} {props.entry.accountCount === 1 ? "account" : "accounts"}
+            </span>
+          )}
         </Link>
       }
       status={status}

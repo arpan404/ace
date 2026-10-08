@@ -1,8 +1,15 @@
 import { availability, blockedUntil, nearLimitPercent } from "@ace/accounts/availability";
 import type { LimitPolicy } from "@ace/protocol";
 import type { z } from "zod";
+import { accountStatus } from "./provider-account-model.ts";
 import { migrationTarget } from "./account-threads.ts";
-import { liveWindows, tightestWindow, type AccountView, type QuotaWindowView } from "./accounts.ts";
+import {
+  accountDisplayName,
+  liveWindows,
+  tightestWindow,
+  type AccountView,
+  type QuotaWindowView,
+} from "./accounts.ts";
 
 /*
  * Usage limits as the composer, the header, Activity, toasts and Usage & accounts word them: how
@@ -14,8 +21,10 @@ import { liveWindows, tightestWindow, type AccountView, type QuotaWindowView } f
 export { nearLimitPercent };
 
 /** "Claude Code · Personal". */
-export function accountName(account: Pick<AccountView, "providerLabel" | "label">): string {
-  return `${account.providerLabel} · ${account.label}`;
+export function accountName(
+  account: Pick<AccountView, "providerLabel" | "label" | "implicit" | "signedInAs">,
+): string {
+  return `${account.providerLabel} · ${accountDisplayName(account)}`;
 }
 
 /** "5h", "Day", "Week", "Month": a window's name where a meter has room for one word. */
@@ -128,6 +137,7 @@ export interface ProviderHeadroom {
   accounts: number;
   /** Those that aren't at a limit. */
   available: number;
+  unreported: number;
   /** The available account with the most room, and the window that decides it. */
   best: { account: AccountView; left: number; window: QuotaWindowView } | undefined;
   /** The account at a limit that frees up first, when one says when. */
@@ -135,9 +145,8 @@ export interface ProviderHeadroom {
 }
 
 /**
- * Headroom per provider at `now`, in the order accounts are listed: only accounts known to be
- * signed in whose provider reports windows count, since one that reports nothing has no headroom
- * to compare.
+ * Headroom per provider at `now`: every listed account counts, even without usage windows.
+ * Usable accounts can work; only reported windows determine which has the most headroom.
  */
 export function providerHeadroom(
   accounts: readonly AccountView[],
@@ -145,9 +154,7 @@ export function providerHeadroom(
 ): ProviderHeadroom[] {
   const groups = new Map<string, { account: AccountView; limit: AccountLimit }[]>();
   for (const account of accounts) {
-    if (!account.windows.length) continue;
     const limit = accountLimit(account, now);
-    if (limit.level === "unknown") continue;
     let group = groups.get(account.providerLabel);
     if (!group) groups.set(account.providerLabel, (group = []));
     group.push({ account, limit });
@@ -156,7 +163,10 @@ export function providerHeadroom(
     let best: ProviderHeadroom["best"];
     let nextReset: ProviderHeadroom["nextReset"];
     let available = 0;
+    let unreported = 0;
     for (const { account, limit } of group) {
+      if (!account.windows.length) unreported++;
+      if (!accountStatus(account, now).canRun && limit.level !== "reached") continue;
       if (limit.level === "reached") {
         if (limit.resetsAt !== undefined && (!nextReset || limit.resetsAt < nextReset.at))
           nextReset = { account, at: limit.resetsAt };
@@ -174,6 +184,7 @@ export function providerHeadroom(
       providerLabel,
       accounts: group.length,
       available,
+      unreported,
       best,
       nextReset,
     };

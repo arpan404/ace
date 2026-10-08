@@ -21,7 +21,7 @@ test("each account shows its quota windows, and one with threads at its limit sa
     within(team).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
   ).toBe("100");
   expect(
-    await within(team).findByText(/3 threads are paused until the window resets at \d\d:\d\d/),
+    await within(team).findByText(/3 threads are paused until the window resets at \d{1,2}:\d\d/),
   ).toBeTruthy();
 });
 
@@ -31,7 +31,7 @@ test("an account whose CLI reports no usage says so instead of showing an empty 
   await app.open("/accounts");
   const opencode = await card("OpenCode Work");
   expect(within(opencode).queryByRole("meter")).toBeNull();
-  expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
+  expect(within(opencode).getByText("No limits reported yet")).toBeTruthy();
 });
 
 test("Move threads moves the limited threads where automatic recovery would: the provider's first available account", async () => {

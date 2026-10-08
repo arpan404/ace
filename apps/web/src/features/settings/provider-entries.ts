@@ -15,6 +15,7 @@ export interface ProviderEntry {
   id: string;
   install: ProviderInstall;
   row: ProviderReadiness | undefined;
+  accountCount?: number | undefined;
   view: ReadinessView | undefined;
 }
 
@@ -39,11 +40,13 @@ export function useProviderEntries() {
       install.kind === "acp"
         ? undefined
         : readiness.data?.find((entry) => entry.provider === install.kind);
+    const accounts = model(install.kind, install.acpAgentId);
     return {
       id: providerPageId(install),
       install,
       row,
-      view: model(install.kind, install.acpAgentId).view,
+      view: accounts.view,
+      accountCount: accounts.loaded ? accounts.accounts.length : undefined,
     };
   });
   return { entries, query: providers };

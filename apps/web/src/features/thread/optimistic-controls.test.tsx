@@ -1,3 +1,4 @@
+import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
@@ -22,7 +23,7 @@ async function open() {
   app.play(replayCursor()).runThrough("finding");
   await app.open(`/t/${threadId}`);
   await screen.findByRole("feed", { name: "Transcript" });
-  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   return app;
 }
 const thread = (app: ReturnType<typeof harness>) => {
@@ -75,17 +76,17 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
 test("offline, the model popover still changes effort and the account, which go once the daemon is back", async () => {
   const app = await open();
   await offline(app);
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   expect(within(popover).getByText("Offline: changes apply when reconnected")).toBeTruthy();
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
-  await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
+  await chooseAccount(popover, "Work");
   await closeModelControl();
 
   // The chip names the new account at once and says the switch is waiting.
-  const chip = await screen.findByRole("button", { name: "Model: Opus 5.5, work, High effort" });
+  const chip = await screen.findByRole("button", { name: "Model: Opus 5.5, Work, High effort" });
   expect(chip.getAttribute("aria-description")).toBe(
-    "Switches from Opus 5.5 on personal · Will apply when reconnected",
+    "Switches from Opus 5.5 on Personal · Will apply when reconnected",
   );
   expect(thread(app)?.switch).toBeUndefined();
 
@@ -100,9 +101,9 @@ test("offline, the model popover still changes effort and the account, which go 
   await waitFor(() =>
     expect(
       screen
-        .getByRole("button", { name: "Model: Opus 5.5, work, High effort" })
+        .getByRole("button", { name: "Model: Opus 5.5, Work, High effort" })
         .getAttribute("aria-description"),
-    ).toBe("Switches from Opus 5.5 on personal · Applies at the agent's next turn"),
+    ).toBe("Switches from Opus 5.5 on Personal · Applies at the agent's next turn"),
   );
 });
 
@@ -113,22 +114,18 @@ test("a model switch shows the model it leaves until the agent's next turn", asy
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
 
   const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
-  expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on personal · /);
+  expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on Personal · /);
 });
 
 test("a model switch the daemon refuses goes back to the model in effect, with a toast", async () => {
   const app = await open();
   app.daemon.refuseCommands("provider_unavailable", "thread.switch");
-  await userEvent.click(
-    within(await openModelControl(/^Model: Opus 5\.5, personal/)).getByRole("button", {
-      name: "Account work",
-    }),
-  );
+  await chooseAccount(await openModelControl(/^Model: Opus 5\.5, Personal/), "Work");
 
   expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
   expect(screen.getByText("That provider isn't installed or signed in.")).toBeTruthy();
   await closeModelControl();
-  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5, personal/ });
+  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   expect(chip.getAttribute("aria-description")).toBeNull();
   expect(thread(app)?.switch).toBeUndefined();
 });

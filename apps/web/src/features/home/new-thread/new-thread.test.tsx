@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import {
   chooseModel,
+  chooseAccount,
   closeModelControl,
   openModelControl,
   openModelPicker,
@@ -44,7 +45,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   await closeModelControl();
   expect(
-    await screen.findByRole("button", { name: "Model: GPT-5 Codex, personal, Medium effort" }),
+    await screen.findByRole("button", { name: "Model: GPT-5 Codex, Personal, Medium effort" }),
   ).toBeTruthy();
 
   const field = await prompt();
@@ -104,7 +105,7 @@ test("a model remembered as a bare id stays picked on the starting provider and 
   await made.open("/new?project=relay");
 
   expect(
-    await screen.findByRole("button", { name: "Model: GPT-6, personal, Medium effort" }),
+    await screen.findByRole("button", { name: "Model: GPT-6, Personal, Medium effort" }),
   ).toBeTruthy();
   await waitFor(() => expect(savedModel(storage)).toBe("codex\u0000gpt-6"));
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
@@ -144,10 +145,10 @@ test("picking the work account launches the work account's own default, not the 
   workDefaultsToSonnet(made);
   await made.open("/new?project=relay");
 
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
-  await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
+  await chooseAccount(popover, "Work");
   await closeModelControl();
-  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, Work/ })).toBeTruthy();
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
@@ -162,7 +163,7 @@ test("a remembered account starts on that account's default without a model bein
   workDefaultsToSonnet(made);
   await made.open("/new?project=relay");
 
-  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, work/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Model: Sonnet 4\.5, Work/ })).toBeTruthy();
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
   const created = await started(made);
@@ -210,7 +211,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=ace");
   await chooseModel("Sonnet 5.5", "Claude Code", /^Model: Opus 5\.5/);
-  await userEvent.click(await screen.findByRole("button", { name: "Account work" }));
+  await chooseAccount(screen.getByRole("dialog", { name: "Model and effort" }), "Work");
   await closeModelControl();
   const worktree = await screen.findByRole("checkbox", { name: "Worktree" });
   expect(worktree.getAttribute("aria-checked")).toBe("true");
@@ -223,7 +224,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const made = app({ storage });
   await made.open("/new");
   expect(
-    await screen.findByRole("button", { name: "Model: Sonnet 5.5, work, provider default effort" }),
+    await screen.findByRole("button", { name: "Model: Sonnet 5.5, Work, provider default effort" }),
   ).toBeTruthy();
   expect(
     (await screen.findByRole("checkbox", { name: "Worktree" })).getAttribute("aria-checked"),
@@ -276,7 +277,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   await userEvent.keyboard("{End}");
   await closeModelControl();
   expect(
-    await screen.findByRole("button", { name: "Model: GPT-5 Codex, personal, High effort" }),
+    await screen.findByRole("button", { name: "Model: GPT-5 Codex, Personal, High effort" }),
   ).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: /^Start from:/ }));
   await userEvent.type(await screen.findByRole("combobox", { name: "Start from branch" }), "dev");

@@ -26,7 +26,7 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
   const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
   expect(meter(gemini, "Daily")).toBe("71");
 
-  for (const [name, account, window, used] of [
+  for (const [name, account] of [
     ["Codex", "Personal", "5-hour", "38"],
     ["Claude Code", "ada@example.com", undefined, undefined],
     ["Gemini CLI", "Google", "Daily", "71"],
@@ -38,7 +38,8 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
       .find((candidate) => within(candidate).queryByText(account ?? ""));
     if (!item) throw new Error(`Missing ${account}`);
     expect(within(item).getByText("Signed in")).toBeTruthy();
-    if (window) expect(meter(item, window)).toBe(used);
+    expect(within(item).queryByRole("meter")).toBeNull();
+    expect(screen.getByRole("link", { name: "View usage ›" })).toBeTruthy();
     expect(screen.queryByText(`Sign in to use ${name}.`)).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
     const section = await screen.findByRole("region", {
@@ -50,8 +51,8 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
         name === "Claude Code"
           ? "Signed in as ada@example.com"
           : name === "Codex"
-            ? "Signed in · Personal"
-            : "Signed in",
+            ? "Signed out · Your CLI login"
+            : "Signed in · Google",
       ),
     ).toBeTruthy();
     await openAccounts();
@@ -63,18 +64,16 @@ test("signing in with an API key clears the field and refreshes the account with
   const app = harness({ storage });
   await app.open("/settings/providers/codex");
   const list = await screen.findByRole("list", { name: "Codex accounts" });
-  await userEvent.click(
-    within(list).getByRole("button", { name: "Manage Default (your CLI login)" }),
-  );
+  await userEvent.click(within(list).getByRole("button", { name: "Manage Your CLI login" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Use API key" }));
   const field = await screen.findByLabelText("OpenAI API key");
   await userEvent.type(field, "fake-key-for-ui-test");
   await userEvent.click(screen.getByRole("button", { name: "Use key" }));
   expect(field instanceof HTMLInputElement && field.value).toBe("");
-  await userEvent.click(await screen.findByRole("button", { name: "Done" }));
+  await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
   const item = within(list)
     .getAllByRole("listitem")
-    .find((candidate) => within(candidate).queryByText("Default (your CLI login)"));
+    .find((candidate) => within(candidate).queryByText("Your CLI login"));
   if (!item) throw new Error("Default account did not refresh");
   expect(await within(item).findByText("Signed in")).toBeTruthy();
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-for-ui-test");
@@ -158,33 +157,13 @@ test("a live limit update changes the provider and account surfaces together", a
   expect(meter(card, "Daily")).toBe("100");
 });
 
-test("Gemini's usage excludes token history belonging to another ACP agent", async () => {
-  const app = harness();
-  app.daemon.services.usage.sources = [
-    {
-      provider: "acp",
-      account: "other-acp-account",
-      model: "other-model",
-      daily: 900_000,
-      apiUsdPerMillion: 3,
-      billing: "api",
-      threads: [],
-    },
-  ];
-  await app.open("/settings/providers/acp:Gemini CLI");
-  const usage = await screen.findByRole("region", { name: "Usage" });
-  expect(await within(usage).findByText(/No token activity recorded/)).toBeTruthy();
-  const list = await screen.findByRole("list", { name: "Gemini CLI accounts" });
-  expect(meter(list, "Daily")).toBe("71");
-});
-
-test("missing model prices never produce a complete API-price estimate", async () => {
-  const app = harness();
-  await app.open("/settings/providers/opencode");
-  const usage = await screen.findByRole("region", { name: "Usage" });
-  expect(
-    await within(usage).findByText("No complete API-price estimate for this usage."),
-  ).toBeTruthy();
+test("provider pages link to the shared usage screen, with separate quota for each ACP agent", async () => {
+  await harness().open("/settings/providers/acp:Gemini CLI");
+  expect(screen.queryByRole("region", { name: "Usage" })).toBeNull();
+  await userEvent.click(await screen.findByRole("link", { name: "View usage ›" }));
+  const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
+  expect(meter(gemini, "Daily")).toBe("71");
+  expect(await screen.findByRole("table", { name: "Usage by model" })).toBeTruthy();
 });
 
 test("Cursor reports its bundled SDK and offers no CLI management", async () => {

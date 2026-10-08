@@ -1,3 +1,4 @@
+import { chooseAccount } from "@/test/model-control.ts";
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -126,24 +127,22 @@ test("attached files upload before sending and can be removed", async () => {
 
 test("the account row moves the thread to another account and blocks one at its limit", async () => {
   await open("busy");
-  const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
-  const accounts = within(popover).getByRole("group", { name: "Account" });
-  expect(within(accounts).getByRole("button", { name: "Account personal" }).ariaPressed).toBe(
-    "true",
-  );
-  await userEvent.click(within(accounts).getByRole("button", { name: "Account work" }));
-  expect(await screen.findByRole("button", { name: /^Model: Opus 5\.5, work/ })).toBeTruthy();
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
+  expect(within(popover).getByRole("combobox", { name: "Account" }).textContent).toBe("Personal");
+  await chooseAccount(popover, "Work");
+  expect(await screen.findByRole("button", { name: /^Model: Opus 5\.5, Work/ })).toBeTruthy();
   await closeModelControl();
 
   // GPT-5 Codex on the team account is at its limit: only personal can take it.
   await chooseModel("GPT-5 Codex", "Codex");
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
-  const codex = await openModelControl(/^Model: GPT-5 Codex, personal/);
-  const team = within(codex).getByRole("button", { name: "Account team" });
+  const codex = await openModelControl(/^Model: GPT-5 Codex, Personal/);
+  await userEvent.click(within(codex).getByRole("combobox", { name: "Account" }));
+  const team = await screen.findByRole("option", { name: "Team · Limit reached" });
   expect(team.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(team);
-  expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, personal/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
 });
 
 test("once the agent is idle, the tab shows where the thread runs and raises its details", async () => {
@@ -223,5 +222,6 @@ test("approvals show as an icon alone, the mode kept in its name; a phone drops 
   // The model chip keeps its name; only its effort goes.
   const model = screen.getByRole("button", { name: /^Model: / });
   expect(model.textContent).toContain("Opus 5.5");
-  expect(model.textContent).not.toContain("·");
+  expect(model.textContent).toContain("· Personal");
+  expect(model.textContent).not.toContain("Medium");
 });

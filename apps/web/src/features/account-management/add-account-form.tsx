@@ -1,28 +1,20 @@
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
-import { PlusIcon } from "@phosphor-icons/react";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import {
-  apiKeyUpstreamLabel,
-  canAddAccounts,
-  useAccountActions,
-  useApiKeySupport,
-} from "./account-actions.ts";
+import { useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
+import { apiKeyUpstreamLabel, canAddAccounts, useApiKeySupport } from "./actions.ts";
 
 /**
  * The last row: Add account. It asks only for a name, adds the account and opens its sign-in
  * at once, so there is no separate page for it.
  */
-export function AddAccount(props: { provider: ProviderKind; name: string }) {
+export function AddAccountForm(props: { provider: ProviderKind; name: string; onClose(): void }) {
+  const nameId = useId();
   const signIn = useSignIn();
-  const keyLogin = useInlineSignIn();
-  const actions = useAccountActions();
-  const [open, setOpen] = useState(false);
+  const keyLogin = useInlineSignIn({ onClose: props.onClose });
   const [label, setLabel] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const provider = props.provider;
   const support = useApiKeySupport(provider);
@@ -31,54 +23,34 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
     "openai",
   );
   if (!signIn || !canAddAccounts(provider)) return null;
-  const submit = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     const name = label.trim();
     if (!name) return setError("Give the account a name, like Work.");
-    setBusy(true);
     setError(undefined);
     try {
-      const instance = await actions.add(provider, name);
-      setOpen(false);
       setLabel("");
       const login = method === "api_key" ? keyLogin.start : signIn;
       login({
         provider,
-        instance,
+        newAccount: name,
         method,
         ...(method === "api_key" && provider === "opencode" ? { upstream } : {}),
       });
+      if (method !== "api_key") props.onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn't add the account.");
-    } finally {
-      setBusy(false);
     }
   };
-  if (keyLogin.active) return <li>{keyLogin.content}</li>;
-  if (!open)
-    return (
-      <li>
-        <button
-          type="button"
-          onPointerEnter={() => void preloadSignIn()}
-          onClick={() => setOpen(true)}
-          className="flex min-h-8 w-full items-center gap-2 py-1 text-left text-muted-foreground transition-colors duration-(--dur-1) focus-ring-inset hover:bg-accent hover:text-foreground"
-        >
-          <span className="grid size-4 place-items-center">
-            <PlusIcon aria-hidden size={14} />
-          </span>
-          <span className="font-medium">Add account</span>
-        </button>
-      </li>
-    );
+  if (keyLogin.active) return <>{keyLogin.content}</>;
   return (
-    <li className="fx-rise-in px-4 py-3">
+    <div>
       <form
         aria-label="Add account"
         onSubmit={(event) => void submit(event)}
         className="flex flex-col gap-2"
       >
-        <label htmlFor="add-account-name" className="font-medium">
+        <label htmlFor={nameId} className="font-medium">
           Add {props.provider === "opencode" ? "an" : "a"} {props.name} account
         </label>
         <p className="text-sm text-muted-foreground">
@@ -117,7 +89,7 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
         )}
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            id="add-account-name"
+            id={nameId}
             autoFocus
             placeholder="Work"
             value={label}
@@ -125,14 +97,14 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
             aria-invalid={error !== undefined}
             onChange={(event) => setLabel(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Escape") setOpen(false);
+              if (event.key === "Escape") props.onClose();
             }}
             className="max-w-64 flex-1"
           />
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Adding…" : "Add and sign in"}
+          <Button type="submit" variant="primary">
+            Add and sign in
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+          <Button type="button" variant="ghost" onClick={() => props.onClose()}>
             Cancel
           </Button>
         </div>
@@ -142,6 +114,6 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
           </p>
         )}
       </form>
-    </li>
+    </div>
   );
 }

@@ -637,110 +637,114 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         </p>
       )}
       <ComposerCompact value={compact}>
-        {props.attached}
-        <div
-          data-slot="composer"
-          onDragOver={(event) => {
-            if (carriesFiles(event.dataTransfer)) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            if (!carriesFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            intake(event.dataTransfer);
-          }}
-          className={cn(
-            "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-            // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
-            // the footer's controls carry their own focus-visible rings.
-            "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
-          )}
-        >
-          <AttachmentChips
-            items={chips}
-            onRemove={attachments.remove}
-            onRetry={attachments.retry}
-            threadId={props.thread.draft ? undefined : props.thread.id}
-          />
-          <MessageInput
-            input={input}
-            text={text}
-            tokens={tokens}
-            disabled={!!off}
-            aria-describedby={props.unavailable?.describedBy}
-            autoFocus={props.autoFocus}
-            aria-label={props.label ?? "Message"}
-            placeholder={placeholder}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={expanded}
-            aria-controls={expanded ? listId : undefined}
-            aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-            onChange={(next, at) => {
-              setTokens(editComposerTokens(text, next, tokens));
-              setText(next);
-              setCaret(at);
-              setDismissed(undefined);
-            }}
-            onCaret={setCaret}
-            onKeyDown={onKeyDown}
-            onPaste={(event) => {
-              if (event.clipboardData.files.length) {
-                event.preventDefault();
-                intake(event.clipboardData);
-                return;
-              }
-              event.preventDefault();
-              const el = input.current;
-              const selection = document.getSelection();
-              if (!el || !selection?.rangeCount) return;
-              const range = selection.getRangeAt(0);
-              range.deleteContents();
-              const node = document.createTextNode(event.clipboardData.getData("text/plain"));
-              range.insertNode(node);
-              range.setStartAfter(node);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-            }}
-            className="message-input block min-h-10 w-full overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
-          />
-          {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
+        <div data-composer-area>
+          {props.attached}
           <div
-            data-slot="composer-footer"
-            onMouseDown={(event) => {
-              if (event.target !== event.currentTarget) return;
-              event.preventDefault();
-              input.current?.focus();
+            data-slot="composer"
+            onDragOver={(event) => {
+              if (carriesFiles(event.dataTransfer)) event.preventDefault();
             }}
-            className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
-          >
-            <AddButton
-              handle={addMenu}
-              onFiles={attach}
-              onOpen={() => {
-                setDismissed(undefined);
-                edit(insertAt(text, caret, "/"));
-              }}
-              unavailable={props.unavailable}
-            />
-            {/* The model shrinks and truncates its label, so nothing on the row ever paints over
-              another. */}
-            <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
-            {props.trailing && (
-              <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>
+            onDrop={(event) => {
+              if (!carriesFiles(event.dataTransfer)) return;
+              event.preventDefault();
+              intake(event.dataTransfer);
+            }}
+            className={cn(
+              "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
+              // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
+              // the footer's controls carry their own focus-visible rings.
+              "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
             )}
-            <PrimaryAction
-              mode={mode}
-              blocked={blocked}
-              off={!!off}
-              canSteer={props.canSteer !== false}
-              stopping={!!props.stopping}
-              answer={answer}
-              describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              onSend={() => (answer ? sendAnswer() : submit(false))}
-              onStop={() => props.onStop?.()}
+          >
+            <AttachmentChips
+              items={chips}
+              onRemove={attachments.remove}
+              onRetry={attachments.retry}
+              threadId={props.thread.draft ? undefined : props.thread.id}
             />
+            <MessageInput
+              input={input}
+              text={text}
+              tokens={tokens}
+              disabled={!!off}
+              aria-describedby={props.unavailable?.describedBy}
+              autoFocus={props.autoFocus}
+              aria-label={props.label ?? "Message"}
+              placeholder={placeholder}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={expanded}
+              aria-controls={expanded ? listId : undefined}
+              aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
+              onChange={(next, at) => {
+                setTokens(editComposerTokens(text, next, tokens));
+                setText(next);
+                setCaret(at);
+                setDismissed(undefined);
+              }}
+              onCaret={setCaret}
+              onKeyDown={onKeyDown}
+              onPaste={(event) => {
+                if (event.clipboardData.files.length) {
+                  event.preventDefault();
+                  intake(event.clipboardData);
+                  return;
+                }
+                event.preventDefault();
+                const el = input.current;
+                const selection = document.getSelection();
+                if (!el || !selection?.rangeCount) return;
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const node = document.createTextNode(event.clipboardData.getData("text/plain"));
+                range.insertNode(node);
+                range.setStartAfter(node);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+              }}
+              className="message-input block min-h-10 w-full overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
+            />
+            {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
+            <div
+              data-slot="composer-footer"
+              onMouseDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                event.preventDefault();
+                input.current?.focus();
+              }}
+              className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
+            >
+              <AddButton
+                handle={addMenu}
+                onFiles={attach}
+                onOpen={() => {
+                  setDismissed(undefined);
+                  edit(insertAt(text, caret, "/"));
+                }}
+                unavailable={props.unavailable}
+              />
+              {/* The model shrinks and truncates its label, so nothing on the row ever paints over
+              another. */}
+              <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
+              {props.trailing && (
+                <div className="flex min-w-0 items-center justify-end gap-0.5">
+                  {props.trailing}
+                </div>
+              )}
+              <PrimaryAction
+                mode={mode}
+                blocked={blocked}
+                off={!!off}
+                canSteer={props.canSteer !== false}
+                stopping={!!props.stopping}
+                answer={answer}
+                describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
+                onSend={() => (answer ? sendAnswer() : submit(false))}
+                onStop={() => props.onStop?.()}
+              />
+            </div>
           </div>
         </div>
       </ComposerCompact>

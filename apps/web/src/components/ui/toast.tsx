@@ -25,6 +25,7 @@ function ToastProvider(props: { children: ReactNode }) {
       {props.children}
       <Toast.Portal>
         <Toast.Viewport
+          data-slot="toast-viewport"
           className={cn(
             layers.toast,
             "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2",

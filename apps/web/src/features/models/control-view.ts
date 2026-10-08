@@ -6,6 +6,7 @@ export interface AccountRow {
   id: string;
   /** The quiet tag, "personal". */
   label: string;
+  authMethod?: string | undefined;
   /** Its usage ("38% of 5-hour used"), or when it resets after hitting its limit. */
   detail: string;
   /** Set when it can't take work now. */
@@ -62,6 +63,8 @@ export interface ModelControlView {
   /** Shown only when more than one can run the model. */
   accounts: readonly AccountRow[];
   account: string | undefined;
+  accountLabel?: string | undefined;
+  side?: "top" | "bottom" | undefined;
   models: readonly PickerModel[];
   providers: readonly PickerProvider[];
   catalog: CatalogState;

@@ -115,7 +115,7 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
 test("the model chip opens effort and speed for the thread's model", async () => {
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
-  const popover = await openModelControl("Model: Opus 5.5, personal, provider default effort");
+  const popover = await openModelControl("Model: Opus 5.5, Personal, provider default effort");
   expect(within(popover).getByRole("heading", { name: "Opus 5.5" })).toBeTruthy();
   expect(within(popover).getByText("Default effort")).toBeTruthy();
   expect(within(popover).getByText("Account")).toBeTruthy();
@@ -153,7 +153,7 @@ test("effort from the slider goes with the next message and applies to its turn"
   await closeModelControl();
   // Nothing changes on the daemon until the message goes.
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 5.5, personal, High effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 5.5, Personal, High effort" }),
   ).toBeTruthy();
   expect(thread(app, "thread-replay-cursor")?.switch).toBeUndefined();
 
@@ -182,7 +182,7 @@ test("reset drops the effort picked for the next message, so it can steer again"
   expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Default");
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 5.5, personal, provider default effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, provider default effort" }),
   ).toBeTruthy();
 
   // A message carrying a new effort always waits for the next turn; without one, ⌘↵ steers.
@@ -212,7 +212,7 @@ test("while the agent works, Stop sits on the composer's tab and a draft offers 
 
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
   const { app } = await open("busy");
-  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   act(() => app.client.networkOnline(false));
   await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
@@ -224,7 +224,7 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   const { app } = await open("busy", ({ daemon }) => {
     daemon.services.models = daemon.services.models.filter((model) => model.provider !== "pi");
   });
-  await screen.findByRole("button", { name: /^Model: Opus 5\.5, personal/ });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   // Another device moves the thread to Pi, which lists no models in the catalog.
   app.daemon.command({
     id: CommandId.parse("switch-to-pi"),

@@ -216,7 +216,7 @@ test("an OpenCode model switches by its qualified catalog id, not its bare nativ
   });
 });
 
-test("a model choice reads as provider, lower-case account tag and model", () => {
+test("a model choice preserves the account name between its provider and model", () => {
   const [choice] = modelChoices(
     [model("claude", "claude-work", "Sonnet 4.5", true)],
     [account("claude-work", "claude", { five_hour: { usedPercent: 10, resetsAt: 5 } })],
@@ -224,7 +224,7 @@ test("a model choice reads as provider, lower-case account tag and model", () =>
   );
   if (!choice) throw new Error("expected a choice");
 
-  expect(choiceLine({ ...choice, account: "Work" })).toBe("Claude Code · work · Sonnet 4.5");
+  expect(choiceLine({ ...choice, account: "Work" })).toBe("Claude Code · Work · Sonnet 4.5");
   expect(choiceLine({ ...choice, account: "" })).toBe("Claude Code · Sonnet 4.5");
 });
 

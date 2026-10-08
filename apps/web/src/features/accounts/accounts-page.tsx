@@ -1,3 +1,4 @@
+import { AddAccountInline } from "@/features/account-management/index.ts";
 import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -107,6 +108,7 @@ export function AccountsPage() {
                         accounts={accounts.data ?? []}
                       />
                     ))}
+                    <AddAccountInline provider={first.provider} />
                   </div>
                 </section>
               );

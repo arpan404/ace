@@ -88,7 +88,7 @@ test("an automation shows its prompt, where it runs and its recent runs with out
   expect(main().getByText(/^Every day at 02:00/)).toBeTruthy();
   expect(screen.getByText(/Audit dependencies in each project for advisories/)).toBeTruthy();
   expect(
-    await screen.findByText("Claude Code · work · Sonnet 4.5, in a fresh worktree"),
+    await screen.findByText("Claude Code · Work · Sonnet 4.5, in a fresh worktree"),
   ).toBeTruthy();
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(runs.getByText("2 advisories · opened a thread in ace")).toBeTruthy();
@@ -283,7 +283,7 @@ test("the model is picked by name from the agent's models, its default chosen an
       .getAllByRole("option")
       .map((option) => option.getAttribute("aria-label")),
   ).toEqual([
-    "Opus 5.5, default, Claude Code",
+    "Opus 5.5, recommended, Claude Code",
     "Sonnet 5.5, Claude Code",
     "Haiku 4.5, 20251001, Claude Code",
     "Legacy models, 6",

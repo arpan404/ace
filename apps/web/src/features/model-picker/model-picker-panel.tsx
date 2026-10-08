@@ -1,3 +1,4 @@
+import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderKind } from "@ace/protocol";
 import {
   pickerGroups,
@@ -29,7 +30,7 @@ const numbered = 9;
  * refreshing, another tab, a search or a new star never move the search field or the list.
  * Longer lists scroll; the viewport can still make it shorter.
  */
-const panelHeight = 340;
+const panelHeight = 480;
 
 const tabButton =
   "grid size-8 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground data-disabled:opacity-40";
@@ -63,6 +64,7 @@ export function ModelPickerPanel(props: {
 }) {
   const { favorites, toggle: star } = useFavoriteModels();
   const instances = useModelInstances();
+  const accounts = useAccountViews();
   const refresh = useRefreshModels();
   // A provider whose discovery failed keeps its tab open, to say why it has nothing to pick.
   const troubled = providersWithProblems(instances);
@@ -97,7 +99,7 @@ export function ModelPickerPanel(props: {
   // Legacy models open where the current model is one of them, until the person toggles them.
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
   const expanded = (group: PickerGroup) => toggled.get(group.id) ?? group.legacy.some(isCurrent);
-  const groups = mixed ? [] : pickerGroups(scoped, instances, tab);
+  const groups = mixed ? [] : pickerGroups(scoped, instances, tab, accounts.data ?? []);
   const items: Item[] = mixed
     ? pickerList(scoped, { query, favorites, instance: props.currentInstance }).rows.map(
         (model) => ({ kind: "model", model, group: undefined }),

@@ -68,7 +68,7 @@ test("picking another provider's model asks first, then switches after the runni
   const dialog = await screen.findByRole("dialog", { name: "Switch to Codex?" });
   expect(within(dialog).getByText(/doesn't carry over/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
-  expect(await screen.findByText(/Switches to GPT-5 Codex after this turn/)).toBeTruthy();
+  expect(await screen.findByText(/Next turn runs on Codex · Personal/)).toBeTruthy();
   expect(thread(app, "thread-replay-cursor")?.switch).toMatchObject({
     state: "queued",
     selection: { provider: "codex" },

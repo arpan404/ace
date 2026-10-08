@@ -1,3 +1,4 @@
+import { NativeAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import type {
@@ -16,6 +17,8 @@ import type {
 
 export interface SignInTarget {
   provider: ProviderKind;
+  /** Create a named account and authenticate it in one daemon-owned operation. */
+  newAccount?: string | undefined;
   /** A managed ace account; omitted for the CLI's normal profile. */
   instance?: string | undefined;
   /** The upstream to pick when the CLI asks (an OpenCode or Pi source such as "opencode-go"). */
@@ -157,15 +160,30 @@ export class LoginController {
   }
 
   private get done(): boolean {
-    return this.current.kind === "progress" && isFinished(this.current.progress);
+    return (
+      this.current.kind === "progress" &&
+      isFinished(this.current.progress) &&
+      !(
+        this.target.newAccount &&
+        this.current.progress.state === "failed" &&
+        this.current.progress.manual
+      )
+    );
   }
 
   private async start(): Promise<void> {
-    const { provider, instance, action, method, upstream } = this.target;
+    const { provider, instance, action, method, upstream, newAccount } = this.target;
     try {
       const target = { provider, ...(instance ? { instance } : {}) };
-      const reply =
-        action === "logout"
+      const reply = newAccount
+        ? await this.client.request({
+            type: "provider.accounts.add",
+            provider: NativeAccountProvider.parse(provider),
+            label: newAccount,
+            method: method ?? "login",
+            ...(upstream ? { upstream } : {}),
+          })
+        : action === "logout"
           ? await this.client.request({ type: "provider.logout", ...target })
           : await this.client.request({
               type: "provider.login.start",
@@ -173,8 +191,16 @@ export class LoginController {
               ...(method ? { method } : {}),
               ...(upstream ? { upstream } : {}),
             });
-      if (!reply.result.ok) return this.set({ kind: "refused", reason: reply.result.error });
+      if (!reply.result.ok)
+        return this.set({
+          kind: "refused",
+          reason:
+            reply.result.error === "unsupported" || reply.result.error === "failed"
+              ? "unavailable"
+              : reply.result.error,
+        });
       const { progress } = reply.result;
+      if (!progress) return this.set({ kind: "refused", reason: "unavailable" });
       this.session = progress.session;
       if (this.disposed) {
         // Closed before the daemon answered: end what it started.

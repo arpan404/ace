@@ -56,6 +56,9 @@ export function ModelControl(props: {
             </span>
           )}
           <span className="min-w-0 truncate text-foreground">{view.label ?? view.placeholder}</span>
+          {view.accountLabel && (
+            <span className="min-w-0 truncate text-subtle-foreground">· {view.accountLabel}</span>
+          )}
           {!props.compact && view.label && view.effort && (
             <span className="shrink-0 font-normal">{effortLabel(view.effort)}</span>
           )}
@@ -67,10 +70,14 @@ export function ModelControl(props: {
         </PopoverTrigger>
       </Tip>
       <PopoverContent
-        side="top"
+        side={view.side ?? "top"}
         align="start"
         sideOffset={8}
-        anchor={() => anchorAbove(trigger.current, "[data-slot=composer]")}
+        anchor={
+          view.side === "bottom"
+            ? undefined
+            : () => anchorAbove(trigger.current, "[data-composer-area]")
+        }
         aria-label="Model and effort"
         className="overflow-hidden p-0 duration-(--dur-1)"
       >
