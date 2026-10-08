@@ -187,3 +187,29 @@ Shutdown has one reserved control RPC slot, preserving FIFO completion of all
 accepted data operations before closing SQLite. Relationship validation remains
 O(ancestor depth) on link changes and has a dedicated benchmark case; individual
 usage facts never walk ancestors.
+
+## Provider/account extension, 2026-10-07
+
+Keep one analytics projection and the accounts registry as the owner of quotas.
+Provider/account-filtered reads combine their historical rows with current account
+summaries. Week/month grouping folds the existing daily rows; no parallel provider
+usage database or UI-specific accounting path is introduced. Main read sockets
+receive committed `usage.limits_changed` observations and refresh on reconnect.
+
+Account and billing attribution is captured when the account shell admits each
+provider frame. Safe CLI auth status establishes API/subscription billing; a
+browser or OAuth connection alone is insufficient for mixed upstreams. Codex
+uses native cumulative totals, while last-sampling-only frames are incremental.
+The price table now carries dated sources per exact model, including supported
+upstream-qualified ids, with no inferred prices for unknown models.
+
+Daily rollups default to a 366-day horizon; exact quota increments to 35 days.
+Event-time watermarks make pruning independent of replay partitioning and host
+clock changes. Incomplete exact windows cannot forecast exhaustion. Durable
+counter baselines and session snapshots remain until canonical thread deletion
+because correctness under resume takes precedence over bounding native-scope
+metadata. History beyond the horizon requires a rebuild from retained events.
+
+No speculative OpenCode Go/Zen quota decoder is added: the current recordings
+and CLI contract expose no numeric quota windows to validate. Unknown billing,
+models, stale windows and missing observation sources remain explicit.

@@ -77,6 +77,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           type: "thread.create",
           workspaceId,
           provider: input.provider,
+          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
           trigger: "schedule",
           origin: { kind: "automation", role: input.automationId },
           ...(input.model ? { model: input.model } : {}),

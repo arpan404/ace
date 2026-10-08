@@ -426,7 +426,12 @@ export class Client implements ClientApi, ConnectionControl {
         (value) => wire.decodeServiceResponse(wire.ServerMessage, input, id, value),
         options,
         () => {
-          sent = this.connection.send(parsed.data);
+          try {
+            sent = this.connection.send(parsed.data);
+          } finally {
+            if (parsed.data.type === "provider.login.apiKey") parsed.data.apiKey = "";
+            if (input.type === "provider.login.apiKey") input.apiKey = "";
+          }
           if (!sent) throw new ClientError("offline");
         },
       )

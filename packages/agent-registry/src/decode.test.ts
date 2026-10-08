@@ -183,3 +183,22 @@ test("grouped selectors reject overflow before offering an incomplete model list
     "budget",
   );
 });
+test("a platform binary ace can't unpack is unavailable unless a package runtime is offered", () => {
+  const bzip = {
+    archive: "https://example.org/agent.tar.bz2",
+    cmd: "./agent",
+    sha256: digest("bzip"),
+  };
+  const [binaryOnly, withNpm] = decode([
+    { ...entry, id: "bzip", distribution: { binary: { "darwin-aarch64": bzip } } },
+    {
+      ...entry,
+      id: "both",
+      distribution: { ...entry.distribution, binary: { "darwin-aarch64": bzip } },
+    },
+  ]).agents;
+  if (!binaryOnly || !withNpm) throw new Error("Missing samples");
+  expect(availability(binaryOnly, "darwin-aarch64")).toBe("unsupported_distribution");
+  expect(availability(binaryOnly, "linux-x86_64")).toBe("unsupported_target");
+  expect(availability(withNpm, "darwin-aarch64")).toBe("available");
+});

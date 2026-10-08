@@ -1,3 +1,4 @@
+import { startProviderInstalls } from "./provider-install.ts";
 import { startProviderLogin } from "./provider-login.ts";
 import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
@@ -123,6 +124,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["accounts"],
     after: ["models", "providerStatuses", "accountManagement", "cursorAuth"],
     start: startProviderLogin,
+  },
+  {
+    name: "providerInstalls",
+    phase: "listener",
+    requires: [],
+    after: ["models", "providerStatuses"],
+    start: startProviderInstalls,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },

@@ -77,10 +77,7 @@ export async function sessionHarness(
         threadId: h.threadId,
         rootKey: "root",
         cwd: process.cwd(),
-        // Infrastructure fixtures explicitly opt into full access unless testing native restrictions.
-        ...((permissionMode ?? (options.permissionMode ? undefined : "full-access"))
-          ? { permissionMode: permissionMode ?? "full-access" }
-          : {}),
+        ...(permissionMode ? { permissionMode } : {}),
         env: { ...env, FAKE_PI_HOME: home },
         signal: controller.signal,
         ...(resume

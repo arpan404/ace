@@ -16,7 +16,6 @@ import {
   privateBrowserGate,
   displayCommand,
   offeredOptions,
-  oneShotNote,
   questionTitle,
   requestIdentity,
   unwrapShellCommand,
@@ -362,9 +361,6 @@ function OpenRequest(props: {
                 <p role="status" className="mt-2 text-xs text-subtle-foreground">
                   This request defaults to no: click {nudged.label} to allow it.
                 </p>
-              )}
-              {!copy?.tool && offered && offered.hidden > 0 && mode && (
-                <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
               )}
             </>
           )}

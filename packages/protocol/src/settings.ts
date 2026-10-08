@@ -33,8 +33,10 @@ export const SettingsValues = z.object({
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
-  "permissions.defaultMode": PermissionMode,
-  /** Deprecated. Explicit values migrate to permissions.defaultMode. */
+  /** Deprecated global input. Migrates to provider-specific native selections. */
+  "permissions.defaultMode": PermissionMode.nullable(),
+  "permissions.providerModes": z.partialRecord(ProviderKind, PermissionMode),
+  /** Deprecated. Explicit values migrate to permissions.providerModes. */
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
   "notifications.enabled": z.boolean(),
   "notifications.sound": z.boolean(),

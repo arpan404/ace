@@ -1,6 +1,9 @@
+import { ProviderAccountsRequest } from "@ace/protocol";
+import { providerAccounts } from "../provider-accounts.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { warmup } from "./warmup.ts";
-import { AccountManagementRequest } from "@ace/protocol/accounts";
+import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
+import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement } from "../account-management.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
@@ -53,6 +56,8 @@ export function startAccountManagement(context: ServiceContext): void {
     env: options.accounts?.env ?? process.env,
     signal: context.signal,
     discovery: options.accounts?.discovery,
+    cursorDiscovery: options.engine?.cursor?.discovery,
+    configuration: (provider) => services.providerConfigurations?.for(provider) ?? { provider },
     terminal: options.accounts?.terminal,
     authChanged: async () => {
       await services.providerStatuses?.refresh();
@@ -100,7 +105,44 @@ export function createAccountsSession(context: SocketContext): SocketService {
         void task.finally(() => context.tasks.delete(task));
       }
     },
-    handle(message) {
+    async handle(message, device) {
+      const request = ProviderAccountsRequest.safeParse(message);
+      if (request.success) {
+        const scope = request.data.type === "provider.accounts.list" ? "read" : "operate";
+        const error = !context.authorize(scope)
+          ? "forbidden"
+          : !context.options.accountManagement || !context.options.providerLogin
+            ? "unavailable"
+            : pending >= 8
+              ? "busy"
+              : undefined;
+        if (error)
+          context.send({
+            type: "provider.accounts.result",
+            requestId: request.data.requestId,
+            result: { ok: false, error },
+          });
+        else {
+          pending++;
+          try {
+            const management = context.options.accountManagement;
+            const login = context.options.providerLogin;
+            if (!management || !login) throw new Error("Unavailable");
+            const result = await providerAccounts(management, login, device, request.data);
+            if (context.connected() && context.authorize(scope)) context.send(result);
+          } catch {
+            if (context.connected() && context.authorize(scope))
+              context.send({
+                type: "provider.accounts.result",
+                requestId: request.data.requestId,
+                result: { ok: false, error: "failed" },
+              });
+          } finally {
+            pending--;
+          }
+        }
+        return true;
+      }
       const management = AccountManagementRequest.safeParse(message);
       if (
         !management.success &&
@@ -133,8 +175,13 @@ export function createAccountsSession(context: SocketContext): SocketService {
         pending++;
         const task = (
           management.success
-            ? (context.options.accountManagement?.handle(context.sessionId, management.data) ??
-              Promise.reject(new Error("Accounts unavailable")))
+            ? handleAccountRequest(
+                context.options.accountManagement,
+                context.options.providerLogin,
+                context.sessionId,
+                device,
+                management.data,
+              )
             : context.options.accounts.handle(message)
         )
           .then((result) => {
@@ -152,4 +199,27 @@ export function createAccountsSession(context: SocketContext): SocketService {
       return true;
     },
   };
+}
+
+async function handleAccountRequest(
+  management: AccountManagement | undefined,
+  login: ProviderLoginSessions | undefined,
+  sessionId: string,
+  device: string,
+  request: AccountManagementRequest,
+): Promise<AccountsResponse> {
+  if (!management) throw new Error("Accounts unavailable");
+  if (request.type !== "accounts.remove" || !login) return management.handle(sessionId, request);
+  const provider = management.providerOf(request.instanceId);
+  if (!provider || provider === "acp") throw new Error("Account unavailable");
+  const result = await providerAccounts(management, login, device, {
+    type: "provider.accounts.remove",
+    requestId: request.requestId,
+    provider,
+    instanceId: request.instanceId,
+    confirm: true,
+    deleteHome: request.deleteHome,
+  });
+  if (!result.result.ok) throw new Error("Account removal failed");
+  return { type: "accounts.changed", requestId: request.requestId, account: null };
 }

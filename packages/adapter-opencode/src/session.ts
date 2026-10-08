@@ -1,3 +1,4 @@
+import { waitForAceTools } from "./mcp-ready.ts";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
@@ -143,13 +144,17 @@ export class OpenCodeSession implements ProviderSession {
               title: "ace",
               location: { directory: ctx.cwd },
               model: selectedModel(ctx.model),
-              permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
+              ...(ctx.permissionMode
+                ? { permissions: opencodePermissionRules(ctx.permissionMode) }
+                : {}),
             }),
       );
       if (ctx.resume) {
         await s.client.session.update({
           sessionID: info.id,
-          permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
+          ...(ctx.permissionMode
+            ? { permissions: opencodePermissionRules(ctx.permissionMode) }
+            : {}),
         });
         const model = selectedModel(ctx.model);
         const previous = z.object({ providerID: z.string(), id: z.string() }).safeParse(info.model);
@@ -395,6 +400,7 @@ export class OpenCodeSession implements ProviderSession {
     if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
     if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
     await registerAceMcp(this.client, directory, this.ctx.aceMcp);
+    await waitForAceTools(this.client, directory, this.server.runtime);
     this.mcpDirectories.add(directory);
   }
   private async readSnapshots(): Promise<void> {
@@ -455,6 +461,7 @@ export class OpenCodeSession implements ProviderSession {
     this.controller.abort();
     this.unsubscribe();
     this.ctx.signal.removeEventListener("abort", this.abortListener);
+    this.ctx.aceMcp?.end?.();
     for (const waiter of this.waiters) waiter.reject(new Error("OpenCode session closed"));
     this.waiters.clear();
     if (reason !== "idle") await cleanupOwned(this.server, this.ownership);

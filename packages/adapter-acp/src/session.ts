@@ -42,12 +42,6 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  if (ctx.permissionMode === "ask") {
-    ctx.mcp?.end();
-    throw new Error(
-      "permission_mode_unsupported: ACP cannot guarantee approval before edits or commands",
-    );
-  }
   if (ctx.signal.aborted) {
     ctx.mcp?.end();
     throw new Error("ACP session lifetime already ended");
@@ -273,10 +267,7 @@ class AcpSession implements ProviderSession {
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
-    if (this.ctx.permissionMode !== "full-access") {
-      const restricted = this.configuration.restrictedMode();
-      if (restricted) await this.setMode(restricted);
-    }
+    if (this.ctx.permissionMode) await this.setMode(this.ctx.permissionMode);
     if (this.ctx.model) await this.setModel(this.ctx.model);
   }
   async select(kind: "model" | "mode", value: string): Promise<void> {

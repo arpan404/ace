@@ -1,7 +1,11 @@
 import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { discoverProvider, discoverPi, type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import {
+  discoverProvider,
+  discoverPiStatus,
+  type DiscoveryOptions,
+} from "@ace/provider-kit/discovery";
 import { ProviderInstance, type NativeAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
@@ -93,7 +97,7 @@ export function instanceEnv(
     });
   }
   for (const key of authOverrides) env[key] = undefined;
-  if (parsed.provider === "cursor" && backend === "cursor-sdk")
+  if (parsed.provider === "cursor" && backend === "cursor-sdk" && parsed.authMethod !== "api_key")
     env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
   const selected = { ...env, ...parsed.env };
   return parsed.provider === "cursor" && backend === "cursor-sdk"
@@ -111,7 +115,7 @@ export async function loginStatus(instance: ProviderInstance, options: Discovery
       error: "ACP login status is unverified",
     };
   const result = await (
-    instance.provider === "pi" ? discoverPi : discoverProvider.bind(null, instance.provider)
+    instance.provider === "pi" ? discoverPiStatus : discoverProvider.bind(null, instance.provider)
   )({
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),
@@ -124,7 +128,7 @@ export function loginArgs(
 ): string[] {
   if (provider === "codex") {
     if (mode === "api")
-      throw new Error("Use codex login --with-api-key directly; ace never accepts keys");
+      throw new Error("Use the provider.login.apiKey stdin hand-off for API-key sign-in");
     return ["login"];
   }
   if (provider === "pi") return [];

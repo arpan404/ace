@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { Capabilities } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 /** Only 0.159.1 and later are verified against this generated experimental protocol. */
@@ -11,33 +12,12 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
   return {
     steer: supported,
+    permissionModes: nativePermissionModes("codex"),
     permissions: {
-      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      modes: nativePermissionModes("codex").map((mode) => mode.id),
+      permissionModes: nativePermissionModes("codex"),
       nativeAutoReview: true,
       toolGate: supported,
-      guarantees: supported
-        ? [
-            {
-              mode: "ask",
-              level: "sandbox",
-              gates: { writes: true, network: true, protectedReads: false, shell: true },
-              limitations: [
-                "Read-only sandbox blocks edits, including shell writes, until a human approves native escalation.",
-                "Sandbox-allowed read commands can run without approval; protected reads are not gated.",
-              ],
-            },
-            {
-              mode: "auto-review",
-              level: "sandbox",
-              gates: { writes: true, network: true, protectedReads: false, shell: true },
-              limitations: [
-                "Workspace writes and sandbox-allowed commands do not request approval.",
-                "Secret-file reads inside the workspace aren't gated.",
-                "Only surfaced approvals receive ace decisions; native auto_review is disabled.",
-              ],
-            },
-          ]
-        : [],
     },
     launchOptions: supported ? ["effort", "serviceTier"] : [],
     interruptCascades: false,

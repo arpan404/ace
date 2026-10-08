@@ -1,39 +1,15 @@
 import type { AgentOptions, LocalAgentStore } from "@cursor/sdk";
 import { cursorSdkInjection } from "@ace/mcp-server";
+import { CursorPermissionOptions } from "@ace/provider-kit/permission-modes";
 import type { OpenOptions } from "./contracts.ts";
-import { localPolicy, cursorRestrictedTools } from "./policy.ts";
-
-function defaults(options: OpenOptions, store: LocalAgentStore) {
-  return { local: { cwd: options.cwd, store }, model: { id: options.model ?? "composer-2.5" } };
-}
-
-/** The admitted options also key SDK prewarming, including scoped MCP definitions. */
-export function sandboxCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
-  const injection = options.mcp && !options.readOnly ? cursorSdkInjection(options.mcp) : undefined;
-  return {
-    ...base,
-    local: { ...base.local, ...localPolicy("restricted", true) },
-    ...(options.readOnly ? cursorRestrictedTools("restricted", false) : {}),
-    ...(injection ? { mcpServers: injection.mcpServers } : {}),
-  };
-}
-
-export function limitedCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
-  return {
-    ...base,
-    local: { ...base.local, ...localPolicy("restricted", false) },
-    ...cursorRestrictedTools("restricted", false),
-  };
-}
-
-export function fullCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
-  const base = defaults(options, store);
+export function nativeCursorOptions(options: OpenOptions, store: LocalAgentStore): AgentOptions {
+  const permissions = options.permissionMode
+    ? CursorPermissionOptions.parse(JSON.parse(options.permissionMode))
+    : {};
   const injection = options.mcp ? cursorSdkInjection(options.mcp) : undefined;
   return {
-    ...base,
-    local: { ...base.local, ...localPolicy("full-access", false) },
+    local: { cwd: options.cwd, store, ...permissions, enableAgentRetries: false },
+    model: { id: options.model ?? "composer-2.5" },
     ...(injection ? { mcpServers: injection.mcpServers } : {}),
   };
 }

@@ -1,9 +1,9 @@
-import { limitPermissionMode } from "@ace/core";
+import { z } from "zod";
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
+import { codexCapabilities } from "./capabilities.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
-import { turnPolicyState } from "./turn-policy-state.ts";
-import { PermissionMode } from "@ace/protocol";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
@@ -19,7 +19,6 @@ import type { InitializeParams } from "./generated/InitializeParams.ts";
 import type { ThreadStartParams } from "./generated/v2/ThreadStartParams.ts";
 import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
-import { codexCapabilities } from "./capabilities.ts";
 import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
 
 export type CodexOptions = {
@@ -31,8 +30,7 @@ export async function openCodexSession(
   ctx: CodexSessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
-  let permissionMode = ctx.permissionMode ?? "auto-review";
-  const policies = turnPolicyState(permissionMode);
+  let permissionMode = ctx.permissionMode ?? null;
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -79,7 +77,7 @@ export async function openCodexSession(
   const active = new Map<string, string>();
   const controlRequests = new Map<
     unknown,
-    { method: string; thread: string; mode: PermissionMode }
+    { method: string; thread: string; mode: string | null }
   >();
   const revisions = new Map<string, number>();
   const readRevisions = new Map<string, number>();
@@ -115,8 +113,7 @@ export async function openCodexSession(
       const p = obj(m["params"]);
       const method = str(m["method"]);
       const thread = str(p["threadId"]);
-      const submittedMode =
-        dir === "send" && method === "turn/start" ? policies.sent(m["id"], thread) : permissionMode;
+      const submittedMode = permissionMode;
       if (
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
@@ -130,14 +127,12 @@ export async function openCodexSession(
         if (control && m["error"] === undefined) {
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
-            policies.reply(m["id"], id);
             if (id) active.set(control.thread, id);
             if (id && control.thread === nativeSessionId)
               emit("note", { event: "permission-mode-applied", mode: control.mode });
           } else {
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
-              policies.root(nativeSessionId);
               known.add(nativeSessionId);
               if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
               rememberHistoricalQuestions(snapshot, seenQuestions);
@@ -145,15 +140,6 @@ export async function openCodexSession(
             }
           }
         }
-        if (control?.method === "turn/start" && m["error"] !== undefined)
-          policies.reply(m["id"], "");
-        policies.observe(method, p);
-        if (isInteractiveRequest(method) && m["id"] !== undefined)
-          emit("note", {
-            event: "permission-review-policy",
-            interaction: interactionKey(m["id"]),
-            mode: policies.policy(thread, str(p["turnId"]), str(p["itemId"])),
-          });
         if (scopedReads.has(m["id"]) && str(snapshot["id"]))
           readRevisions.set(str(snapshot["id"]), revisions.get(str(snapshot["id"])) ?? 0);
         if (
@@ -302,6 +288,51 @@ export async function openCodexSession(
       capabilities: { experimentalApi: true, requestAttestation: false },
     } satisfies InitializeParams);
     rpc.notify("initialized");
+    try {
+      const listing = z
+        .object({
+          data: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(256),
+                description: z.string().max(2048).nullish(),
+                allowed: z.boolean(),
+              }),
+            )
+            .max(256),
+        })
+        .parse(await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }));
+      const builtins = nativePermissionModes("codex");
+      const permissionModes = listing.data
+        .filter((profile) => profile.allowed)
+        .map((profile) => ({
+          id: profile.id,
+          label: builtins.find((mode) => mode.id === profile.id)?.label ?? profile.id,
+          description: profile.description ?? "",
+          risk: builtins.find((mode) => mode.id === profile.id)?.risk ?? ("medium" as const),
+        }));
+      if (permissionModes.some((mode) => mode.id === ":workspace"))
+        permissionModes.push(...builtins.filter((mode) => mode.id.startsWith("{")));
+      const capabilities = codexCapabilities({
+        installed: true,
+        version: "0.159.1",
+        auth: "unknown",
+        loginHint: "",
+      });
+      ctx.onCapabilities?.({
+        ...capabilities,
+        permissionModes,
+        permissions: {
+          modes: permissionModes.map((mode) => mode.id),
+          permissionModes,
+          nativeAutoReview: true,
+          toolGate: true,
+        },
+      });
+    } catch (error) {
+      // Older experimental servers lack the profile catalog; preserve native startup policy.
+      if (ctx.signal.aborted) throw error;
+    }
     const threadPolicy = codexThreadPolicy(permissionMode, ctx.cwd);
     const params = {
       cwd: ctx.cwd,
@@ -370,12 +401,9 @@ export async function openCodexSession(
     close: lifetime.close,
     ...createSessionCommands({
       nativeSessionId,
-      getLaunchOptions: async (threadId) => {
-        permissionMode = (await ctx.getPermissionMode?.()) ?? permissionMode;
-        const mode =
-          threadId === nativeSessionId
-            ? permissionMode
-            : limitPermissionMode(permissionMode, policies.authority(threadId));
+      getLaunchOptions: async (_threadId) => {
+        if (ctx.getPermissionMode) permissionMode = await ctx.getPermissionMode();
+        const mode = permissionMode;
         return {
           mode,
           options: {
@@ -397,11 +425,6 @@ export async function openCodexSession(
       assertOpen,
       request,
       emit: (dir, data, channel) => {
-        const note = obj(data);
-        if (dir === "note" && note["event"] === "permission-turn-submitting") {
-          const mode = PermissionMode.parse(note["mode"]);
-          policies.submit(str(note["threadId"]), mode);
-        }
         emit(dir, data, channel);
       },
       getModel: () => model,

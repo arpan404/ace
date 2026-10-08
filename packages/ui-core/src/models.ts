@@ -1,4 +1,5 @@
 import type { ModelScope } from "@ace/client";
+import { modelRequiresAuth } from "@ace/models/availability";
 import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
 import { tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
@@ -12,6 +13,7 @@ import { modelLabel, providerNames } from "./providers.ts";
  * and whether the person made it the default.
  */
 export interface ModelPlacement {
+  free?: boolean | undefined;
   /** A snapshot or preview suffix ("20251001"): secondary text, never part of the name. */
   detail?: string | undefined;
   /** Opaque ascending order within the provider and account; never parsed. */
@@ -37,6 +39,7 @@ function isPseudoDefault(model: CatalogModel): boolean {
 
 function placement(model: CatalogModel): ModelPlacement {
   return {
+    free: model.free,
     detail: model.detail,
     sortKey: model.sortKey,
     source: model.source,
@@ -197,7 +200,7 @@ export function modelChoices(
       .filter((model) => model.provider === provider && !model.hidden && !isPseudoDefault(model))
       .flatMap((model): ModelChoice[] => {
         const account = byId.get(model.instance);
-        if (account?.quota.auth === "logged_out") return [];
+        if (account?.quota.auth === "logged_out" && modelRequiresAuth(model)) return [];
         const window = account && tightestWindow(account);
         const limit = account && accountLimit(account, now);
         const exhausted = limit?.level === "reached";

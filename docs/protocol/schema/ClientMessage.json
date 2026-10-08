@@ -32,6 +32,13 @@
         "instance": {
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
         },
+        "method": {
+          "enum": [
+            "login",
+            "api_key"
+          ],
+          "type": "string"
+        },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
@@ -43,12 +50,50 @@
         "type": {
           "const": "provider.login.start",
           "type": "string"
+        },
+        "upstream": {
+          "enum": [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "opencode"
+          ],
+          "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
         "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "$ref": "https://ace.local/protocol/v1/ProviderApiKey.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.login.apiKey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session",
+        "apiKey"
       ],
       "type": "object"
     },
@@ -179,6 +224,120 @@
         "requestId",
         "session",
         "input"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/InstallAction.json",
+          "default": "install"
+        },
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.plan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/InstallAction.json"
+        },
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/InstallMethod.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.run",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "action",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
       ],
       "type": "object"
     },
@@ -796,6 +955,196 @@
         "nativeSessionId",
         "from",
         "to"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.add",
+          "type": "string"
+        },
+        "upstream": {
+          "$ref": "https://ace.local/protocol/v1/ApiKeyUpstream.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.rename",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId",
+        "label"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.setDefault",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "confirm": {
+          "const": true,
+          "type": "boolean"
+        },
+        "deleteHome": {
+          "default": false,
+          "type": "boolean"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId",
+        "confirm"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/AccountLoginMethod.json",
+          "default": "login"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.accounts.reauth",
+          "type": "string"
+        },
+        "upstream": {
+          "$ref": "https://ace.local/protocol/v1/ApiKeyUpstream.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "instanceId"
       ],
       "type": "object"
     },
@@ -1576,7 +1925,8 @@
             "files",
             "devices",
             "browser",
-            "screen"
+            "screen",
+            "provider_auth"
           ],
           "type": "string"
         },

@@ -15,6 +15,7 @@ import {
   NativeRef,
   RawPayload,
   RunTrigger,
+  PermissionMode,
   Timestamp,
   ThreadId,
   ThreadStatus,
@@ -46,7 +47,7 @@ const allowed: Record<Fact["type"], string[]> = {
   ],
   "agent.linked": ["agent", "parent", "spawnedBy", "background", "name", "model"],
   "input.admitted": ["agent", "nativeInputId", "commandId"],
-  "turn.started": ["agent", "nativeTurnId", "trigger"],
+  "turn.started": ["agent", "nativeTurnId", "trigger", "permissionMode"],
   "turn.ended": ["agent", "nativeTurnId", "outcome", "trigger", "error"],
   activity: ["agent", "activity", "detail"],
   "item.upsert": ["agent", "item", "draft"],
@@ -247,7 +248,11 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalBoolean(fact.background) && optionalString(fact.name) && optionalString(fact.model)
       );
     case "turn.started":
-      return RunTrigger.safeParse(fact.trigger).success;
+      return (
+        RunTrigger.safeParse(fact.trigger).success &&
+        (fact.permissionMode === undefined ||
+          PermissionMode.nullable().safeParse(fact.permissionMode).success)
+      );
     case "turn.ended":
       return (
         oneOf(fact.outcome, ["completed", "failed", "interrupted"]) &&

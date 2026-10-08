@@ -8,7 +8,7 @@ export type StatusReader = (caller: McpAttribution) => {
 };
 
 export const aceInstructions =
-  "ace is the local coding environment coordinating your thread and agent tree through the person's installed provider CLIs. Its tools are prefixed ace_; screen_ and device_ aliases and delegate_task are also ace tools. Groups include thread and agents, notifications, browser, screen/computer use, devices, projects, automations, files, preview, terminal and forge. Some groups may be disabled by the person or unavailable on this connection. Read ace://status or call ace_status to see current availability and permission mode. A disabled group does not mean ace MCP is absent. Ask the person to enable disabled features; tools cannot grant themselves access.";
+  "ace is the local coding environment coordinating your thread and agent tree through the person's installed provider CLIs. Its tools are prefixed ace_; screen_ and device_ aliases and delegate_task are also ace tools. Groups include thread and agents, notifications, browser, screen/computer use, devices, projects, automations, files, preview, terminal and forge. Some groups may be disabled by the person or unavailable on this connection. To check whether ace is available, read ace://status or call ace_status for current availability and permission mode. OpenCode prefixes MCP tools with the server name, so its direct tool is ace_ace_status; Claude uses mcp__ace__ace_status. Use the exact advertised name. A disabled group does not mean ace MCP is absent. Ask the person to enable disabled features; tools cannot grant themselves access.";
 
 export function createStatusRegistry(
   registry: ToolRegistry,

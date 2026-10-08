@@ -6,10 +6,12 @@ import { Resources } from "./resources.ts";
 const transportFactories = [
   async (options: ServerOptions, auth: RemoteAuth) => {
     if (!options.relay) return undefined;
-    if (!options.files && !options.threadFiles && !options.context)
+    if (!options.files && !options.threadFiles && !options.context && !options.providerLogin)
       throw new Error("Relay file service unavailable");
     const relay = await startFilesRelay({
       ...options.relay,
+      ...(options.providerLogin ? { providerLogin: options.providerLogin } : {}),
+      ...(options.accountManagement ? { accountManagement: options.accountManagement } : {}),
       ...(options.files ? { files: options.files } : {}),
       ...(options.threadFiles ? { threadFiles: options.threadFiles } : {}),
       ...(options.devices ? { appDevices: options.devices } : {}),

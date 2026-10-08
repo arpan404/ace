@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/InstallAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "install",
+    "update",
+    "uninstall"
+  ],
+  "type": "string"
+}

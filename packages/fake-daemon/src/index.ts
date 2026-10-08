@@ -9,7 +9,6 @@ export type { LongThreadSoakOptions } from "./long-thread-soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
-export { permissionAudit } from "./scenarios/permission-audit.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export {

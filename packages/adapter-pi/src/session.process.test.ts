@@ -274,25 +274,6 @@ test("opening failure revokes the injected ace MCP lease", async () => {
   expect(lifetime.signal.aborted).toBe(true);
 });
 
-test("read-only launch withholds write tools and never grants an ace MCP lease", async () => {
-  const h = await sessionHarness({
-    permissionMode: "read_only",
-    openMcp() {
-      throw new Error("read-only must not grant MCP");
-    },
-  });
-  try {
-    await h.session.send(text("write-proof"), "queue");
-    await h.wait(received("message_end"));
-    expect(
-      Object.values(h.h.state.items)
-        .filter((item) => item.type === "message" && item.role === "assistant")
-        .map((item) => (item.type === "message" ? item.parts : [])),
-    ).toEqual([[{ type: "text", text: "write unavailable" }]]);
-  } finally {
-    await h.dispose();
-  }
-});
 test("MCP bearer echoes are redacted before raw frames and lease ends on close", async () => {
   let ended = false;
   const h = await sessionHarness({

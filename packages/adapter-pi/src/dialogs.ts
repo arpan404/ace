@@ -1,19 +1,6 @@
-import { piDialogApproval } from "./tool-approval.ts";
 import type { InteractionRequest, InteractionResolution } from "@ace/protocol";
 import type { Dialog } from "./native.ts";
 export function dialogRequest(dialog: Dialog): InteractionRequest {
-  const target = piDialogApproval(dialog);
-  if (target)
-    return {
-      kind: "approval",
-      target,
-      title: `Pi ${target.tool}`,
-      defaultToNo: true,
-      options: [
-        { id: "allow", label: "Allow once", kind: "allow_once" },
-        { id: "deny", label: "Deny", kind: "deny" },
-      ],
-    };
   if (dialog.method === "confirm")
     return {
       kind: "question",
@@ -48,11 +35,6 @@ export function dialogResponse(
   resolution: InteractionResolution,
 ): Record<string, unknown> {
   const base = { type: "extension_ui_response", id: dialog.id };
-  if (piDialogApproval(dialog)) {
-    if (resolution.kind !== "approval" || !["allow", "deny"].includes(resolution.optionId))
-      throw new Error("Pi requires a one-shot tool approval");
-    return { ...base, confirmed: resolution.optionId === "allow" };
-  }
   if (dialog.method === "confirm") {
     if (resolution.kind !== "question") throw new Error("Expected Pi confirmation answer");
     if (resolution.dismissed) return { ...base, cancelled: true };

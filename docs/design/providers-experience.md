@@ -120,22 +120,22 @@ One list per provider, the CLI's own sign-in first:
   (`provider.login.start { instance }`). No separate page.
 
 Today this uses `accounts.add/rename/setDefault/remove` (scope `accounts`) and
-`provider.login.start { instance }`. **Waiting: `feat/accounts-inline-api-keys`** replaces them
+`provider.login.start { instance }`. **Backend available in `feat/accounts-inline-api-keys`** replaces them
 with `provider.accounts.list/add/rename/setDefault/remove/reauth`. The UI needs per account:
-`id`, `label`, `isDefault`, `implicit`, `status`, and **`authMethod: "browser" | "api_key"`**,
+`id`, `label`, `isDefault`, `implicit`, `status`, and **`authMethod: "browser" | "api_key" | "unknown"`**,
 which the row shows as "Browser sign-in" or "API key" (never any key material). All calls go
 through one hook (`features/settings/account-actions.ts`), so the swap is local.
 
-### API key sign-in (waiting: `feat/accounts-inline-api-keys`)
+### API key sign-in (backend available in `feat/accounts-inline-api-keys`)
 
 Where the provider supports it, the sign-in dialog's first step becomes a choice of two rows,
 in the same list style as the service choices: "Sign in with browser" and "Use an API key".
 The key step is one secure field (`type="password"`, no autocomplete, paste allowed), a primary
 "Connect", and one line: "ace hands the key to {name}'s own login and doesn't keep it." After
 it, the account reads "API key". The UI needs: a readiness or account capability saying API
-keys are supported for this provider (or upstream), and a login input variant that carries the
-key straight to the CLI. Today the daemon has no such input, so API keys go through the
-terminal fallback and the choice isn't shown.
+keys are supported for this provider (or upstream), and the dedicated `provider.login.apiKey`
+message that carries the key straight to the CLI. The daemon supplies `apiKey.supported` and
+`awaiting_api_key`; the screen can expose the reserved choice when that capability is true.
 
 ### Install, update, remove (install command live; one-click waiting: `feat/provider-cli-install`)
 
@@ -157,7 +157,13 @@ terminal fallback and the choice isn't shown.
 - Live: each account's plan windows (from `accounts.list` quota), and the provider's last 14
   days from `usage.series` / `usage.summary` filtered to the provider: tokens per day, the
   total, what it would cost at API prices labelled "Estimate", and each account's share.
-- **Waiting: `feat/provider-usage-costs`**: per-account series, remaining amounts and reset
-  times beyond the windows the CLIs report, and the estimated cost of API-key accounts priced
-  as they are billed. The Usage section keeps its layout; the account shares gain a cost column
-  marked "estimate" for API-key accounts.
+- Backend contract: `usage.series` supports provider/account filters and day/week/month
+  buckets. `usage.summary` grouped by account supplies API `estimatedUsd`; subscription
+  consumption stays in plan windows and tokens. Provider/account-filtered replies include
+  matching current `accounts` records, price version/date/sources, and an explicit estimate
+  label. The account shares gain a cost column for API consumption, with unpriced coverage
+  shown when a model is unknown. `usage.limits_changed` pushes update the matching account;
+  refresh on reconnect. See [usage contract](../../packages/usage/README.md#provider-detail-contract).
+  No per-chat usage meter is added. Go/Zen quotas remain unavailable until a CLI reports them.
+
+The backend contract is now documented in [provider account operations and API keys](../daemon/provider-login.md#provider-account-operations-and-api-keys). The UI integration can switch the account hook locally. Treat `authMethod: unknown` as unreported, show the key option only when `apiKey.supported` is true, and submit only through the dedicated key message after `awaiting_api_key`. Paired clients use the encrypted `provider_auth` channel.

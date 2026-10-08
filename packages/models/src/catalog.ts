@@ -1,3 +1,4 @@
+import { nativePermissionModes, acpPermissionModes } from "@ace/provider-kit/permission-modes";
 import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
@@ -34,6 +35,7 @@ import {
 
 type State = {
   config: ModelInstance;
+  permissionModes?: ModelInstanceStatus["permissionModes"];
   admit?: (() => Promise<void>) | undefined;
   entry?: CacheEntry;
   error?: ModelInstanceStatus["error"];
@@ -497,6 +499,15 @@ export class ModelCatalog implements ModelCatalogApi {
     }
     if (registered) this.#changed(registered);
   }
+  updatePermissionModes(
+    instance: string,
+    modes: readonly import("@ace/protocol").NativePermissionMode[],
+  ): void {
+    const state = this.#states.get(instance);
+    if (!state || this.#closed) return;
+    state.permissionModes = [...modes];
+    this.#changed(state);
+  }
   /** Metadata from an already authorized session. No process, session or inference is started. */
   async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
     if (this.#closed) return Promise.reject(new Error("Catalog closed"));
@@ -507,6 +518,7 @@ export class ModelCatalog implements ModelCatalogApi {
     if (!state || cacheRevision(state.config) !== cacheRevision(instance))
       return Promise.reject(new Error("Session model generation changed"));
     const models = normalizeAcp(metadata, instance);
+    const permissionModes = acpPermissionModes(metadata);
     const entry = CachedEntry.parse({
       provider: instance.provider,
       instance: instance.id,
@@ -514,6 +526,7 @@ export class ModelCatalog implements ModelCatalogApi {
       loginRevision: instance.loginRevision,
       identityRevision: identityRevision(instance),
       refreshedAt: this.#options.now(),
+      permissionModes,
       ...refreshedSources(cleanCatalog(models), undefined, state.entry, this.#options.now()),
     });
     const previous = this.#sessionTails.get(instance.id) ?? Promise.resolve();
@@ -616,6 +629,11 @@ export class ModelCatalog implements ModelCatalogApi {
   #status(state: State): ModelInstanceStatus {
     return {
       provider: state.config.provider,
+      permissionModes:
+        state.permissionModes ??
+        (state.entry?.permissionModes
+          ? [...state.entry.permissionModes]
+          : nativePermissionModes(state.config.provider)),
       instance: state.config.id,
       ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
       ...(state.config.installationId ? { installationId: state.config.installationId } : {}),
@@ -893,6 +911,7 @@ export class ModelCatalog implements ModelCatalogApi {
             ),
             ...combined,
             models: cleanCatalog(combined.models),
+            permissionModes: state.permissionModes ?? state.entry?.permissionModes,
           });
           try {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain

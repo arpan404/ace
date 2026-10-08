@@ -30,6 +30,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;

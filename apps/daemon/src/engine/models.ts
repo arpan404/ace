@@ -28,6 +28,34 @@ export class EngineModels {
     this.now = now;
     this.catalog = catalog;
   }
+  permissionCapabilities(
+    provider: ProviderKind,
+    instance: string | undefined,
+    base: import("@ace/protocol").Capabilities,
+  ): import("@ace/protocol").Capabilities {
+    const target = instance ?? `${provider}-cli-default`;
+    const status = this.catalog
+      ?.list({ provider })
+      .instances.find((row) => row.instance === target || row.instanceId === target);
+    const modes = status?.permissionModes;
+    if (!modes || !base.permissions) return base;
+    return {
+      ...base,
+      permissionModes: modes,
+      permissions: {
+        ...base.permissions,
+        permissionModes: modes,
+        modes: modes.map((mode) => mode.id),
+      },
+    };
+  }
+  permissions(
+    instance: string | undefined,
+    capabilities: import("@ace/protocol").Capabilities,
+  ): void {
+    if (instance && capabilities.permissionModes)
+      this.catalog?.updatePermissionModes?.(instance, capabilities.permissionModes);
+  }
   select(
     provider: ProviderKind,
     model?: string,

@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/QuotaWindow.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "remainingPercent": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
     "resetsAt": {
       "anyOf": [
         {
@@ -13,9 +18,21 @@
         }
       ]
     },
+    "source": {
+      "enum": [
+        "cli",
+        "status_estimate",
+        "limit_error"
+      ],
+      "type": "string"
+    },
     "usedPercent": {
       "maximum": 100,
       "minimum": 0,
+      "type": "number"
+    },
+    "windowDurationMins": {
+      "exclusiveMinimum": 0,
       "type": "number"
     }
   },

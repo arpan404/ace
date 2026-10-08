@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { NativePermissionMode } from "./permissions.ts";
+import { ApiKeySupport, AccountAuthMethod } from "./account-auth.ts";
 import { ProviderKind } from "./provider.ts";
 
 /** Local runtime discovery is independent of ace's account registry and adapter capabilities. */
 export const ProviderStatus = z.object({
   provider: ProviderKind,
+  instanceId: z.string().min(1).max(256).optional(),
+  permissionModes: z.array(NativePermissionMode).max(256).optional(),
   readiness: z
     .enum([
       "not_installed",
@@ -15,6 +19,8 @@ export const ProviderStatus = z.object({
     .optional(),
   installHint: z.string().max(1024).optional(),
   installCommand: z.string().max(256).optional(),
+  latestVersion: z.string().max(256).optional(),
+  versionCheckedAt: z.number().nonnegative().optional(),
   updateAvailable: z.boolean().optional(),
   runtime: z.enum(["cli", "cursor-sdk"]),
   installed: z.boolean().nullable(),
@@ -22,9 +28,13 @@ export const ProviderStatus = z.object({
   path: z.string().min(1).max(4096).optional(),
   version: z.string().min(1).max(256).optional(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
+  authMethod: AccountAuthMethod.optional(),
+  apiKey: ApiKeySupport.optional(),
   accountLabel: z.string().min(1).max(256).optional(),
   authDetail: z.string().max(1024).optional(),
   authEvidence: z.literal("credentials_configured").optional(),
+  /** OpenCode has usable discovered models, including credential-free ones. */
+  modelsAvailable: z.boolean().optional(),
   loginHint: z.string().max(1024),
   actionId: z.literal("provider.sign_in").optional(),
   state: z.literal("not_configured").optional(),

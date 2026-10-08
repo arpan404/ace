@@ -9,6 +9,7 @@
     "./provider-icons": "./src/provider-icons.ts",
     "./step-labels": "./src/tool-labels.ts",
     "./command-rank": "./src/command-rank.ts",
+    "./acp-registry": "./src/acp-registry.ts",
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts"
@@ -19,6 +20,7 @@
   "dependencies": {
     "@ace/accounts": "workspace:*",
     "@ace/client": "workspace:*",
+    "@ace/models": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/screen": "workspace:*",

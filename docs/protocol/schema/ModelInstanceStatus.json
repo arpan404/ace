@@ -40,6 +40,13 @@
       "minimum": 0,
       "type": "number"
     },
+    "permissionModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

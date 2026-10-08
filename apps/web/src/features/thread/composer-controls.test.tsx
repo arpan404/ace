@@ -25,9 +25,6 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
   return view?.kind === "thread" ? view.thread : undefined;
 };
-/** A menu that just closed still animates out; wait before opening the next. */
-const menuClosed = () => waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-
 test("+ offers files, images, a mention and a command instead of a bare file dialog", async () => {
   const { message } = await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
@@ -50,7 +47,7 @@ test("+ rows carry no descriptions; only a row that can't be used says why", asy
     "Images",
     "Mention a file@",
     "Command/",
-    "Plan first",
+    "Plan firstOpenCode has no native plan mode",
     "An open pageOpen a page in the Browser first",
   ]);
   // Nothing is open in the thread's workspace yet: the page row says what it needs.
@@ -58,13 +55,13 @@ test("+ rows carry no descriptions; only a row that can't be used says why", asy
   expect(page.getAttribute("aria-disabled")).toBe("true");
 });
 
-test("Plan first from + switches the thread to read-only approvals", async () => {
+test("Plan first explains when the provider has no native plan selector", async () => {
   const { app } = await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
   const plan = await screen.findByRole("menuitem", { name: /^Plan first/ });
-  await waitFor(() => expect(plan.getAttribute("aria-disabled")).not.toBe("true"));
-  await userEvent.click(plan);
-  await waitFor(() => expect(thread(app, "thread-router")?.permission?.override).toBe("read-only"));
+  expect(plan.getAttribute("aria-disabled")).toBe("true");
+  expect(plan.textContent).toContain("OpenCode has no native plan mode");
+  expect(thread(app, "thread-router")?.permission?.override).toBeNull();
 });
 
 test("a file mentioned once comes first when + › Mention a file opens the list", async () => {
@@ -102,72 +99,22 @@ test("a search that finds nothing says so instead of closing", async () => {
   expect(screen.queryByText("No files match “zzqqxx”")).toBeNull();
 });
 
-test("approvals show the thread's mode and what the provider gates, and change from the footer", async () => {
+test("permission picker offers Claude native modes", async () => {
   const { app } = await open("busy");
-  // The default mode is named, not left to its icon.
-  const chip = await screen.findByRole("button", { name: "Approvals: Auto-review" });
-  await userEvent.click(chip);
-  const auto = await screen.findByRole("menuitemradio", { name: "Auto-review" });
-  expect(auto.getAttribute("aria-checked")).toBe("true");
-  // Each mode in one line; what the provider gates, said once for the mode in effect.
-  expect(auto.textContent).toContain("Approves low-risk actions, asks the rest");
-  expect(
-    screen.getByText("Auto-review: Gates edits, shell commands, network and protected reads"),
-  ).toBeTruthy();
-  const full = screen.getByRole("menuitemradio", { name: "Full access" });
-  expect(full.textContent).toContain("Edits, runs and fetches without asking");
-
-  await userEvent.click(screen.getByRole("menuitemradio", { name: "Read only" }));
-  // The agent is mid-turn: the chip keeps the mode in effect and shows the one waiting.
-  const waiting = await screen.findByRole("button", {
-    name: "Approvals: Auto-review, Read only applies at the agent's next turn",
-  });
-  expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("read-only");
-
-  await menuClosed();
-  await userEvent.click(waiting);
-  // The menu marks the choice, not the mode it replaces.
-  expect(
-    (await screen.findByRole("menuitemradio", { name: "Read only" })).getAttribute("aria-checked"),
-  ).toBe("true");
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Use the default/ }));
-  await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
-  // Back on the default, which is the mode in effect: nothing waits.
-  expect(await screen.findByRole("button", { name: "Approvals: Auto-review" })).toBeTruthy();
-});
-
-test("a Cursor thread offers Ask first disabled, and won't go back to a default of Ask", async () => {
-  const app = harness();
-  app.play(longHistory(2)).runUntilBlocked();
-  app.daemon.services.settings.seed({ "permissions.defaultMode": "ask" });
-  app.daemon.createThread({
-    id: "thread-cursor",
-    workspaceId: thread(app, "thread-router")?.workspaceId ?? "",
-    title: "Cursor pass",
-    provider: "cursor",
-    permissionMode: "full-access",
-  });
-  await app.open("/t/thread-cursor");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Full access" }));
-  const ask = await screen.findByRole("menuitemradio", { name: "Ask first" });
-  expect(ask.getAttribute("aria-disabled")).toBe("true");
-  expect(ask.textContent).toContain("Cursor can't pause for your approval");
-  const back = screen.getByRole("menuitem", { name: /^Use the default · Ask first/ });
-  expect(back.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.click(ask);
-  await userEvent.click(back);
-  // Neither click sent Ask: the thread keeps its own mode.
-  expect(thread(app, "thread-cursor")?.permission?.override).toBe("full-access");
-  expect(screen.getByRole("button", { name: "Approvals: Full access" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
+  await waitFor(() =>
+    expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("acceptEdits"),
+  );
 });
 
 test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   const { app, message } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto-review" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Bypass permissions" }));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Auto-review, Full access applies at the agent's next turn",
+      name: "Approvals: Provider default, Bypass permissions applies at the agent's next turn",
     }),
   ).toBeTruthy();
 
@@ -178,9 +125,9 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   await userEvent.type(message, "Now cap the replay{Enter}");
-  await screen.findByRole("button", { name: "Approvals: Full access" });
+  await screen.findByRole("button", { name: "Approvals: Bypass permissions" });
   expect(thread(app, "thread-replay-cursor")?.permission).toMatchObject({
-    effective: "full-access",
+    effective: "bypassPermissions",
     pending: false,
   });
 });
