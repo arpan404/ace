@@ -108,7 +108,7 @@ function CreationCard(props: {
         )}
         <span className={running ? "shimmer" : undefined}>{worktreeHeadline(progress)}</span>
       </p>
-      <div className="group rounded-card py-1 pr-2 pl-3.5 shadow-[inset_0_0_0_1px_var(--border)]">
+      <div className="group py-1 pr-2 pl-3.5">
         <StepList rows={worktreeStepRows(progress)} times={open} />
         {note && (
           <p role="alert" className="py-1 text-ui text-muted-foreground">
@@ -212,10 +212,7 @@ export function WorktreeReadyLine(props: {
         />
       </button>
       {open && (
-        <div
-          id={panel}
-          className="mt-1 w-full rounded-card py-1 pr-2 pl-3.5 shadow-[inset_0_0_0_1px_var(--border)]"
-        >
+        <div id={panel} className="mt-1 w-full py-1 pr-2 pl-3.5">
           <StepList rows={worktreeStepRows(props.progress)} times />
           <DetailsLog lines={props.progress.details} />
         </div>

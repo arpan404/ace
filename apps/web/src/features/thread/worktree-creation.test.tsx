@@ -81,14 +81,15 @@ test("a worktree's steps advance under the first message, with checkout's percen
     expect(within(done).getByRole("img", { name: "Done" })).toBeTruthy();
   expect(items[0]?.textContent).toMatch(/^Preparing workspace1\.5s$/);
 
-  // The composer's tab says the same, and nothing can be sent until the thread exists.
-  const tab = screen.getByRole("region", { name: "Worktree" });
-  expect(within(tab).getByRole("status").textContent).toBe(
-    "Creating worktree…· Checking out files · 48%",
-  );
-  expect(screen.getByRole("combobox", { name: "Message" }).getAttribute("aria-disabled")).toBe(
-    "true",
-  );
+  // Progress lives once in the transcript. The next message can be drafted, but not sent.
+  expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
+  const input = screen.getByRole("combobox", { name: "Message" });
+  await userEvent.type(input, "Also cover the reconnect case");
+  expect(input.textContent).toBe("Also cover the reconnect case");
+  expect(screen.getByRole("button", { name: /^Send$/ }).getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  expect(await screen.findByRole("listbox", { name: "Add and commands" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   // The bubble leaves its sending state to the card.
   expect(screen.queryByText(/Sending…|Still waiting/)).toBeNull();
 
@@ -103,6 +104,17 @@ test("a worktree's steps advance under the first message, with checkout's percen
 test("once made, the card folds to one line that opens on its steps and log", async () => {
   const made = app();
   await startWorktree(made, "Profile the relay startup");
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "Keep the retries bounded too",
+  );
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["Reconnect reproduction steps"], "reconnect.txt", { type: "text/plain" }),
+  );
+  const attachments = screen.getByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(attachments).queryByRole("progressbar")).toBeNull());
+  expect(within(attachments).getByText("reconnect.txt")).toBeTruthy();
   await made.stepUntil(() => made.threads().some((thread) => isNew(thread.id)));
 
   // The real thread opens; its first message keeps how the worktree was made, folded.
@@ -125,6 +137,12 @@ test("once made, the card folds to one line that opens on its steps and log", as
   expect(screen.getByRole("log", { name: "Worktree details" }).textContent).toContain(
     "Worktree setup",
   );
+  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+    "Keep the retries bounded too",
+  );
+  expect(
+    within(screen.getByRole("list", { name: "Attachments" })).getByText("reconnect.txt"),
+  ).toBeTruthy();
   // The composer is the thread's own again.
   expect(screen.getByRole("combobox", { name: "Message" }).getAttribute("aria-disabled")).not.toBe(
     "true",
@@ -148,9 +166,7 @@ test("Cancel stops the worktree, keeps the message unsent and offers Retry or th
   // The daemon made no thread, and the bubble doesn't add a "Not sent" of its own.
   expect(made.threads().some((thread) => isNew(thread.id))).toBe(false);
   expect(screen.queryByText("Not sent")).toBeNull();
-  expect(
-    within(screen.getByRole("region", { name: "Worktree" })).getByRole("status").textContent,
-  ).toBe("Worktree cancelled");
+  expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
 
   // Retry makes it from the start, under the same message.
   await userEvent.click(within(stopped).getByRole("button", { name: "Retry" }));
@@ -213,9 +229,7 @@ test("a worktree that fails says so, with Retry and Don't use worktree", async (
     "We couldn't create the worktree. Try again or use the local checkout.",
   );
   expect(within(failed).getByRole("button", { name: "Retry" })).toBeTruthy();
-  expect(
-    within(screen.getByRole("region", { name: "Worktree" })).getByRole("status").textContent,
-  ).toBe("Couldn't create the worktree");
+  expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
 
   // Retry runs the steps again.
   await userEvent.click(within(failed).getByRole("button", { name: "Retry" }));
