@@ -175,6 +175,14 @@ try {
   await mkdir(join(home, "sessions/2026/01/01"), { recursive: true });
   const records = [
     { type: "session_meta", payload: { id: "11111111-1111-4111-8111-111111111111", cwd: root } },
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Summarize this synthetic archive" }],
+      },
+    },
     ...Array.from({ length: 512 }, (_, i) => ({
       type: "response_item",
       payload: {
