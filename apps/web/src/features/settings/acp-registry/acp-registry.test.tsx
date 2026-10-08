@@ -106,7 +106,10 @@ test("one click installs a registry agent, then its own sign-in makes it ready i
   const login = await screen.findByRole("dialog", { name: "Sign in to Kimi CLI" });
   await within(login).findByRole("link", { name: "Open sign-in page" });
   app.daemon.services.providerLogin.complete("fake-login-1");
-  await userEvent.click(await within(login).findByRole("button", { name: "Done" }));
+  await screen.findByText("Signed in to Kimi CLI");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Kimi CLI" })).toBeNull(),
+  );
   expect(await within(dialog).findByText("Ready")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Close agent setup" }));
   expect(

@@ -50,8 +50,9 @@ export function SignInDialog(props: {
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
   const finish = useEffectEvent(() => {
     toast.add({
-      title:
-        action === "logout"
+      title: service
+        ? `${service} is ${action === "logout" ? "disconnected" : "connected"}`
+        : action === "logout"
           ? `Signed out of ${name}`
           : `Signed in to ${name}${login.target.newAccount ? ` · ${login.target.newAccount}` : ""}`,
     });

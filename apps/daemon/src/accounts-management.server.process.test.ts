@@ -37,7 +37,7 @@ test("socket account lifecycle isolates login, refreshes models, persists defaul
         expect.objectContaining({
           id: "codex-cli-default",
           implicit: true,
-          label: "Default (your CLI login)",
+          label: "Your CLI login",
         }),
       ]),
     });

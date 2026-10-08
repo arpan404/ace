@@ -108,7 +108,7 @@ test("Connect a service on Pi's page opens the CLI's own choices", async () => {
   expect(await within(dialog).findByRole("button", { name: "GitHub Copilot" })).toBeTruthy();
 }, 30_000);
 
-test("Disconnect on a working service runs the CLI's logout for it", async () => {
+test("disconnecting one service confirms that service without claiming the provider signed out", async () => {
   await harness().open("/settings/providers/opencode");
   const services = await screen.findByRole(
     "list",
@@ -116,8 +116,11 @@ test("Disconnect on a working service runs the CLI's logout for it", async () =>
     { timeout: 10_000 },
   );
   await userEvent.click(within(services).getByRole("button", { name: "Disconnect OpenAI" }));
-  const dialog = await screen.findByRole("dialog", { name: "Disconnect OpenAI" });
-  expect(await within(dialog).findByText("OpenAI is disconnected")).toBeTruthy();
+  expect(await screen.findByText("OpenAI is disconnected")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Disconnect OpenAI" })).toBeNull(),
+  );
+  expect(screen.queryByText("Signed out of OpenCode")).toBeNull();
 }, 30_000);
 
 test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed in", async () => {
@@ -189,12 +192,14 @@ test("a provider's default model can be changed, even to a legacy one, and reads
   ).toBeTruthy();
 }, 30_000);
 
-test("a provider's page shows its recent tokens and what they'd cost at API prices, as an estimate", async () => {
+test("a provider's page opens shared usage with daily tokens and API-price estimates", async () => {
   await harness().open("/settings/providers/claude");
+  await userEvent.click(await screen.findByRole("link", { name: "View usage ›" }));
+  await screen.findByRole("heading", { level: 1, name: "Usage & accounts" });
   const usage = await screen.findByRole("region", { name: "Usage" }, { timeout: 10_000 });
   await within(usage).findByRole("list", { name: "Tokens per day" });
-  expect(within(usage).getByText(/^Estimate\./)).toBeTruthy();
-  expect(within(usage).getByText(/^\$[\d,.]+$/)).toBeTruthy();
+  const table = await within(usage).findByRole("table", { name: "Usage by model" });
+  expect(within(table).getByRole("columnheader", { name: "At API prices" })).toBeTruthy();
 }, 30_000);
 
 test("an ACP agent added by command joins the list, and its page removes it", async () => {
