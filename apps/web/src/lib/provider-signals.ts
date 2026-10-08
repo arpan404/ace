@@ -7,8 +7,12 @@ import { useModelCatalog, useModelInstances } from "@/lib/model-catalog.ts";
  * sign-in), for `readinessView`; undefined for every provider until the catalog has loaded.
  * Kept apart from `provider-readiness.ts` so readiness alone never loads the catalog.
  */
-export function useCatalogSignals(): (provider: ProviderKind) => CatalogSignal | undefined {
+export function useCatalogSignals(): (
+  provider: ProviderKind,
+  instance?: string,
+) => CatalogSignal | undefined {
   const models = useModelCatalog();
   const instances = useModelInstances();
-  return (provider) => (models ? catalogSignal(models, instances, provider) : undefined);
+  return (provider, instance) =>
+    models ? catalogSignal(models, instances, provider, instance) : undefined;
 }

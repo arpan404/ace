@@ -63,12 +63,12 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     id,
     provider: id,
     installationVersion: version,
-    label: "Default (your CLI login)",
+    label: id === "cursor" ? "Default (your SDK login)" : "Default (your CLI login)",
     authMethod: "unknown",
     implicit: true,
     isDefault: true,
-    availability: "available",
-    quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
+    availability: "unknown",
+    quota: { auth: "unknown", observedAt: now, windows: {}, blockers: {}, usage: {} },
   };
 }
 
@@ -85,8 +85,14 @@ export function accountSummaries(now: number): AccountSummary[] {
         authMethod: number === 1 ? "api_key" : "browser",
         implicit: false,
         isDefault: false,
-        availability: "available",
-        quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
+        availability: provider === "cursor" ? "logged_out" : "available",
+        quota: {
+          auth: provider === "cursor" ? "logged_out" : "logged_in",
+          observedAt: now,
+          windows: {},
+          blockers: {},
+          usage: {},
+        },
       })),
     ),
     ...NativeAccountProvider.options
@@ -109,7 +115,7 @@ export function accountSummaries(now: number): AccountSummary[] {
         },
       })),
     plain("opencode", "1.4", now),
-    plain("cursor", "0.9", now),
+    plain("cursor", "1.0.35", now),
     {
       ...plain("opencode", "1.4", now),
       id: "opencode-api",

@@ -3,6 +3,7 @@ import { CommandId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
 import { resetSendStore } from "./composer/send-store.ts";
@@ -180,19 +181,34 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
 });
 
 test("Stop reads Stopping… on the button and the live line until the turn ends", async () => {
-  const { app } = await open("busy");
-  act(() => app.daemon.refuseConnections(true));
-  await waitFor(() => expect(app.client.state).not.toBe("ready"));
-
-  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-  expect(screen.getByRole("button", { name: "Stopping…" })).toBeTruthy();
-  expect(screen.getByRole("status", { name: "Stopping…" })).toBeTruthy();
-
-  act(() => app.daemon.refuseConnections(false));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stopping…" })).toBeNull(), {
-    timeout: 8_000,
+  const storage = memoryStorage();
+  const saved = Promise.withResolvers<void>();
+  let hold = false;
+  await open("busy", {
+    outbox: {
+      load: storage.load,
+      save: async (value) => {
+        if (hold) await saved.promise;
+        await storage.save(value);
+      },
+    },
   });
-  expect(screen.queryByRole("status", { name: "Stopping…" })).toBeNull();
+  // Keep the stop pending at its durable outbox boundary while the connection stays ready.
+  hold = true;
+  try {
+    await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+    expect(screen.getByRole("button", { name: "Stopping…" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Stopping…" })).toBeTruthy();
+
+    hold = false;
+    saved.resolve();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stopping…" })).toBeNull(), {
+      timeout: 8_000,
+    });
+    expect(screen.queryByRole("status", { name: "Stopping…" })).toBeNull();
+  } finally {
+    saved.resolve();
+  }
 });
 
 test("typing on the page writes into the composer", async () => {

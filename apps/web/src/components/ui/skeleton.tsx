@@ -54,10 +54,9 @@ function ListSkeleton(props: {
   label: string;
   /**
    * `card`: an Activity card; `thread`: a Home thread row, its project's tile and title; `row`:
-   * a one-line list or settings row; `tile`: a second-sidebar row (`ViewRowBody`) with its icon
-   * tile, title and description.
+   * a one-line list or settings row.
    */
-  shape: "card" | "thread" | "row" | "tile";
+  shape: "card" | "thread" | "row";
   rows?: number;
   className?: string;
 }) {
@@ -73,19 +72,6 @@ function ListSkeleton(props: {
             <span key={index} className="flex h-8 items-center gap-2 px-2">
               <Skeleton className="h-4 w-5 rounded-xs" style={style} />
               <Skeleton className="h-3" style={{ ...style, width }} />
-            </span>
-          );
-        if (props.shape === "tile")
-          return (
-            <span
-              key={index}
-              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 px-[11px] py-[9px]"
-            >
-              <Skeleton className="mt-px size-6.5 rounded-sm" style={style} />
-              <span className="flex flex-col gap-1.5 pt-0.5">
-                <Skeleton className="h-3" style={{ ...style, width }} />
-                <Skeleton className="h-2.5 w-4/5" style={style} />
-              </span>
             </span>
           );
         return props.shape === "card" ? (

@@ -42,7 +42,7 @@ export function ProjectPicker(props: {
             onValueChange={(next) => props.onProject(String(next))}
           >
             {props.projects.map((id) => (
-              <MenuRadioItem key={id} value={id} aria-label={props.projectName(id)}>
+              <MenuRadioItem closeOnClick key={id} value={id} aria-label={props.projectName(id)}>
                 {props.projectName(id)}
               </MenuRadioItem>
             ))}

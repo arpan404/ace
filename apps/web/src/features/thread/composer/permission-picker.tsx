@@ -73,7 +73,11 @@ export function PermissionPicker(props: {
           )}
         </MenuTrigger>
       </Tip>
-      <MenuContent side="top" align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+      <MenuContent
+        side="top"
+        align="start"
+        className="max-h-[var(--available-height)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
+      >
         <Suspense fallback={<MenuPending />}>
           <DeferredPermissionMenu.Component view={menu} onChange={props.onChange} />
         </Suspense>

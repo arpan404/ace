@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useSettingsBackend } from "./data/use-settings.ts";
+import { useRemoteStatus } from "./data/use-settings.ts";
 import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -11,15 +10,10 @@ import { DaemonSlot } from "./setting-control.tsx";
 
 export function RemoteAccess() {
   const id = useId();
-  const backend = useSettingsBackend();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
-  const status = useQuery({
-    queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
-    queryFn: () => backend.remoteStatus(),
-    retry: false,
-  });
+  const status = useRemoteStatus();
   const overridden =
     (status.data?.listenOverride !== null && status.data?.listenOverride !== undefined) ||
     status.data?.relayOverride === true;

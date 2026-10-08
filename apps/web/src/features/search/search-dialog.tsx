@@ -37,13 +37,6 @@ const filters = [
   { value: "thread", label: "Threads" },
 ] as const satisfies readonly { value: KindFilter; label: string }[];
 
-const kindLabel: Record<SearchKind, string> = {
-  thread: "Thread",
-  message: "Message",
-  tool_call: "Command",
-  artifact: "File",
-};
-
 /** One key per hit: the item (or the thread, for a title) and what kind of hit it is. */
 const hitKey = (hit: SearchHit) => `${hit.itemId ?? hit.threadId}\u0000${hit.kind}`;
 
@@ -64,7 +57,7 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
   if (at < props.snippet.text.length)
     parts.push({ text: props.snippet.text.slice(at), hit: false, at });
   return (
-    <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
+    <p className="min-w-0 flex-1 line-clamp-2 break-words text-ui text-muted-foreground">
       {parts.map((part) =>
         part.hit ? (
           <mark key={part.at} className="rounded-[2px] bg-ring/22 font-medium text-foreground">
@@ -303,20 +296,17 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   onClick={(event) => onHitClick(event, hit)}
                   onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
                   className={cn(
-                    "flex h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 transition-colors duration-(--dur-1)",
+                    "flex min-h-9 cursor-pointer items-start gap-2 py-2 rounded-md px-2.5 transition-colors duration-(--dur-1)",
                     index === active && "bg-accent",
                   )}
                 >
                   <ProviderIconTip provider={hit.provider} />
-                  {hit.kind !== "thread" && (
-                    <span
-                      className="max-w-48 truncate text-ui max-sm:sr-only"
-                      title={`${hit.threadTitle} · ${projectName(hit.workspaceId)} · ${kindLabel[hit.kind]}`}
-                    >
-                      {hit.threadTitle}
-                    </span>
-                  )}
-                  <Snippet snippet={hit.snippet} />
+                  <div className="min-w-0 flex-1">
+                    {hit.kind !== "thread" && (
+                      <p className="line-clamp-2 text-ui">{hit.threadTitle}</p>
+                    )}
+                    <Snippet snippet={hit.snippet} />
+                  </div>
                   <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
                     {formatAge(hit.createdAt, now)}
                   </span>

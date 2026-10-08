@@ -1,7 +1,7 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { ArrowCounterClockwiseIcon, CheckIcon, InfoIcon } from "@phosphor-icons/react";
+import { CheckIcon, InfoIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { MenuGroup, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu.tsx";
+import { MenuGroup, MenuLabel } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -44,11 +44,20 @@ export function PermissionMenu(props: {
         <MenuPrimitive.RadioGroup
           value={view.value ?? ""}
           onValueChange={(value: string) => {
+            if (value === "") return props.onChange(null);
             const option = view.options.find((entry) => entry.id === value);
             if (option && !option.unavailable) props.onChange(option.id);
           }}
         >
-          {view.options.map((option) => {
+          {[
+            {
+              id: "",
+              label: "Provider default",
+              description: "Use the default from Settings or the provider's own configuration.",
+              risk: "medium" as const,
+            },
+            ...view.options,
+          ].map((option) => {
             const attention = option.risk === "high";
             return (
               <MenuPrimitive.RadioItem
@@ -65,7 +74,7 @@ export function PermissionMenu(props: {
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
                   <span className={cn(attention && "text-status-needs-you")}>{option.label}</span>
-                  <span className="truncate text-xs leading-4 text-muted-foreground">
+                  <span className="text-xs leading-4 text-muted-foreground">
                     {option.unavailable ?? option.description}
                   </span>
                 </span>
@@ -84,19 +93,6 @@ export function PermissionMenu(props: {
           <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
           {view.coverage}
         </p>
-      )}
-      {view.reset && (
-        <>
-          <MenuSeparator />
-          <MenuItem
-            icon={<Icon icon={ArrowCounterClockwiseIcon} />}
-            reason={view.reset.unavailable}
-            disabled={!!view.reset.unavailable}
-            onClick={() => props.onChange(null)}
-          >
-            Use the default · {view.reset.label}
-          </MenuItem>
-        </>
       )}
     </>
   );

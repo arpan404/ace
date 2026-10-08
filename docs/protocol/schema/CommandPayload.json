@@ -971,6 +971,22 @@
     },
     {
       "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.unlink",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "body": {
           "maxLength": 65536,
           "type": "string"

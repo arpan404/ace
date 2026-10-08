@@ -51,7 +51,7 @@ export function accountList(now: number): FakeAccount[] {
       id: "codex-personal",
       provider: "codex",
       providerLabel: "Codex",
-      cliVersion: "0.48",
+      cliVersion: "0.159.2",
       label: "Personal",
       availability: "available",
       windows: [
@@ -63,7 +63,7 @@ export function accountList(now: number): FakeAccount[] {
       id: "codex-team",
       provider: "codex",
       providerLabel: "Codex",
-      cliVersion: "0.48",
+      cliVersion: "0.159.2",
       label: "Team",
       availability: "exhausted",
       windows: [

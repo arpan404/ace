@@ -5,7 +5,7 @@ import { ViewFrame } from "@/features/shell/index.ts";
 export const Route = createFileRoute("/activity")({
   component: () => (
     <ActivityProvider>
-      <ViewFrame label="Activity" sidebar={<ActivitySidebar />} place="pane">
+      <ViewFrame label="Activity" sidebar={<ActivitySidebar />} place="sidebar">
         <Outlet />
       </ViewFrame>
     </ActivityProvider>

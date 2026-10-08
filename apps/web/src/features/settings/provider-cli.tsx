@@ -83,7 +83,7 @@ export function ProviderCli(props: { install: ProviderInstall; missing: boolean 
                 void controller.plan("install");
               }}
             >
-              Install CLI
+              {provider === "antigravity" ? "How to install" : "Install CLI"}
             </Button>
           ) : (
             <>
@@ -144,9 +144,14 @@ export function ProviderCli(props: { install: ProviderInstall; missing: boolean 
           >
             Official setup instructions
           </a>
-          {view.plan.commands.map((command) => (
-            <CopyCommand key={command.display} command={command.display} />
-          ))}
+          {view.plan.commands.length > 0 && (
+            <details>
+              <summary className="text-muted-foreground">Details</summary>
+              {view.plan.commands.map((command) => (
+                <CopyCommand key={command.display} command={command.display} />
+              ))}
+            </details>
+          )}
           {view.plan.latestVersion && (
             <p>
               {view.plan.updateAvailable
@@ -175,7 +180,7 @@ export function ProviderCli(props: { install: ProviderInstall; missing: boolean 
               <p>
                 {view.plan.needsAdmin
                   ? "This installer needs administrator approval. Run it in your terminal, then check again."
-                  : "Install this CLI with its own setup, then check again."}
+                  : (view.plan.message ?? "Install this CLI with its own setup, then check again.")}
               </p>
             </>
           )}

@@ -12,7 +12,7 @@ import { isHexColor, longHex, swatchColor } from "./editor-model.ts";
 const settleMs = 150;
 
 const field =
-  "h-7 w-36 shrink-0 rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
+  "h-7 min-w-0 w-full rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
 
 /**
  * One token: name, a swatch that is also the colour picker for hex values, and the value
@@ -47,7 +47,7 @@ export const TokenRow = memo(function TokenRow(props: {
   const errorId = `${inputId}-error`;
   return (
     <div className="border-t py-1">
-      <div className="flex items-center gap-2.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,2fr)]">
         <label htmlFor={inputId} className="min-w-0 flex-1 text-sm leading-4">
           <span className="block truncate">{label}</span>
           <span className="block truncate font-mono text-xs leading-3 text-muted-foreground">
@@ -55,7 +55,7 @@ export const TokenRow = memo(function TokenRow(props: {
           </span>
           {props.warning && (
             <span
-              className="size-1.5 rounded-full bg-status-needs-you"
+              className="size-1.5 rounded-full bg-status-failed"
               aria-label="Low contrast"
               role="img"
             />
@@ -67,12 +67,12 @@ export const TokenRow = memo(function TokenRow(props: {
             aria-label={`Pick ${label}`}
             value={longHex(value)}
             onChange={(event) => onChange(token, event.target.value.toUpperCase())}
-            className="size-5.5 shrink-0 cursor-pointer rounded-sm border-0 bg-transparent p-0 shadow-[inset_0_0_0_1px_var(--border)] focus-ring [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
+            className="size-7 shrink-0 cursor-pointer rounded-sm border border-foreground/30 bg-transparent p-0 focus-ring [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
           />
         ) : (
           <span
             aria-hidden
-            className="size-5.5 shrink-0 rounded-sm shadow-[inset_0_0_0_1px_var(--border)]"
+            className="size-7 shrink-0 rounded-sm border border-foreground/30"
             style={swatch ? { background: swatch } : undefined}
           />
         )}
@@ -96,7 +96,7 @@ export const TokenRow = memo(function TokenRow(props: {
             timer.current = setTimeout(() => commit(next), settleMs);
           }}
           onBlur={() => commit(draft)}
-          className={field}
+          className={`${field} col-span-2 sm:col-span-1`}
         />
       </div>
       {!valid && (

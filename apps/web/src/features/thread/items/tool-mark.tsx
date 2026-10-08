@@ -22,13 +22,19 @@ const glyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon
  * What an ace step acted on, at a step row's glyph size: the app's own icon (from the OS in the
  * desktop app, else its letter), a site's letter, a device, or the tool's glyph.
  */
-export function ToolMarkIcon(props: { mark: ToolMark }) {
+export function ToolMarkIcon(props: { mark: ToolMark; fallback?: "group" | "row" }) {
   const { mark } = props;
   switch (mark.kind) {
     case "app":
-      return <AppIcon bundleId={mark.bundleId} name={mark.name} />;
+      return (
+        <AppIcon bundleId={mark.bundleId} name={mark.name} fallback={props.fallback ?? "group"} />
+      );
     case "site":
-      return <LetterTile text={mark.host} />;
+      return props.fallback === "row" ? (
+        <GlobeIcon aria-hidden size={14} />
+      ) : (
+        <LetterTile text={mark.host} />
+      );
     case "device":
       return <DeviceMobileIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />;
     default: {
@@ -38,9 +44,14 @@ export function ToolMarkIcon(props: { mark: ToolMark }) {
   }
 }
 
-function AppIcon(props: { bundleId: string; name: string }) {
+function AppIcon(props: { bundleId: string; name: string; fallback: "group" | "row" }) {
   const icon = useAppIcon(props.bundleId);
-  if (!icon) return <LetterTile text={props.name} />;
+  if (!icon)
+    return props.fallback === "row" ? (
+      <MonitorIcon aria-hidden size={14} />
+    ) : (
+      <LetterTile text={props.name} />
+    );
   return (
     <img
       src={icon}

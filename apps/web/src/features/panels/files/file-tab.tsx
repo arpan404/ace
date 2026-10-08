@@ -193,7 +193,7 @@ export function FileTab(props: TabViewProps) {
   const width = useElementSize(root).width;
   const treeWidth = prefs.treeWidth;
   const layout = treeLayout(width, treeWidth, { file: !!path, chosen: data.tree });
-  const treeShown = layout !== "hidden";
+  const treeShown = !data.draft && layout !== "hidden";
   const over = layout === "over";
   const viewer = useRef<HTMLDivElement>(null);
   const edges = useScrollEdges(viewer);

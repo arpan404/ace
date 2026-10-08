@@ -39,7 +39,7 @@ export function homeRows(
   if (groups.recent.length && (pinnedGroup || groups.active.length))
     rows.push({ kind: "recent-header" });
   for (const id of groups.recent) rows.push({ kind: "thread", id });
-  rows.push({ kind: "settled-header", count: groups.settled.length });
+  if (groups.settled.length) rows.push({ kind: "settled-header", count: groups.settled.length });
   if (options.settledOpen) for (const id of groups.settled) rows.push({ kind: "settled", id });
   return rows;
 }

@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { preloadSignIn, useSignIn } from "@/features/sign-in/index.ts";
+import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
 import {
   apiKeyUpstreamLabel,
   canAddAccounts,
@@ -18,6 +18,7 @@ import {
  */
 export function AddAccount(props: { provider: ProviderKind; name: string }) {
   const signIn = useSignIn();
+  const keyLogin = useInlineSignIn();
   const actions = useAccountActions();
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
@@ -40,7 +41,8 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
       const instance = await actions.add(provider, name);
       setOpen(false);
       setLabel("");
-      signIn({
+      const login = method === "api_key" ? keyLogin.start : signIn;
+      login({
         provider,
         instance,
         method,
@@ -52,6 +54,7 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
       setBusy(false);
     }
   };
+  if (keyLogin.active) return <li>{keyLogin.content}</li>;
   if (!open)
     return (
       <li>
@@ -76,7 +79,7 @@ export function AddAccount(props: { provider: ProviderKind; name: string }) {
         className="flex flex-col gap-2"
       >
         <label htmlFor="add-account-name" className="font-medium">
-          Add a {props.name} account
+          Add {props.provider === "opencode" ? "an" : "a"} {props.name} account
         </label>
         <p className="text-sm text-muted-foreground">
           Name it, then sign in. ace keeps it separate from your other {props.name} sign-ins.

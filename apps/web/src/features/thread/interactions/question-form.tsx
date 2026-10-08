@@ -2,6 +2,8 @@ import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useId, useState, type KeyboardEvent } from "react";
+import { Checkbox } from "@/components/ui/checkbox.tsx";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useComposerMessage, useOfferAnswer } from "../composer/answer-slot.ts";
 import type { Answer } from "./answer.ts";
@@ -195,13 +197,53 @@ function QuestionField(props: {
 }) {
   const { question } = props;
   const legend = useId();
-  const type = question.multiSelect ? "checkbox" : "radio";
+
   const options = [
     ...questionOptions(question),
     ...(question.allowOther
       ? [{ id: other, label: "Something else", description: undefined, recommended: false }]
       : []),
   ];
+  const rows = options.map((option, index) => {
+    const checked = props.picked.includes(option.id);
+    return (
+      <label
+        key={option.id}
+        className={cn(
+          // The shared control owns focus and selection; the row stays plain.
+          "flex min-h-8 cursor-pointer items-start gap-2.5 px-2 py-1.5 text-ui",
+          checked && "text-foreground",
+        )}
+      >
+        {question.multiSelect ? (
+          <Checkbox
+            checked={checked}
+            disabled={props.disabled}
+            onCheckedChange={() => props.onToggle(option.id)}
+            className="mt-0.5"
+          />
+        ) : (
+          <RadioGroupItem value={option.id} disabled={props.disabled} className="mt-0.5" />
+        )}
+        {/* The option's words, its description under them so a narrow card never wraps
+                them into columns. */}
+        <span className="min-w-0 flex-1">
+          <span className="block">{option.label}</span>
+          {option.description && (
+            <span className="block text-sm text-subtle-foreground">{option.description}</span>
+          )}
+        </span>
+        {option.recommended && (
+          <small className="shrink-0 text-xs text-subtle-foreground">recommended</small>
+        )}
+        {index < 9 && (
+          <kbd aria-hidden className="shrink-0 font-sans text-xs text-subtle-foreground">
+            {index + 1}
+          </kbd>
+        )}
+      </label>
+    );
+  });
   return (
     <fieldset
       aria-labelledby={legend}
@@ -231,44 +273,20 @@ function QuestionField(props: {
         )}
         {question.text}
       </legend>
-      {options.map((option, index) => {
-        const checked = props.picked.includes(option.id);
-        return (
-          <label
-            key={option.id}
-            className={cn(
-              // The pick reads as a filled row; the one focus ring is the radio's own.
-              "flex cursor-pointer items-start gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-(--dur-1) hover:bg-accent",
-              checked && "bg-accent",
-            )}
-          >
-            <input
-              type={type}
-              name={question.id}
-              checked={checked}
-              disabled={props.disabled}
-              onChange={() => props.onToggle(option.id)}
-              className="mt-0.5 rounded-full accent-(--ring) focus-ring"
-            />
-            {/* The option's words, its description under them so a narrow card never wraps
-                them into columns. */}
-            <span className="min-w-0 flex-1">
-              <span className="block">{option.label}</span>
-              {option.description && (
-                <span className="block text-sm text-subtle-foreground">{option.description}</span>
-              )}
-            </span>
-            {option.recommended && (
-              <small className="shrink-0 text-xs text-subtle-foreground">recommended</small>
-            )}
-            {index < 9 && (
-              <kbd aria-hidden className="shrink-0 font-sans text-xs text-subtle-foreground">
-                {index + 1}
-              </kbd>
-            )}
-          </label>
-        );
-      })}
+      {question.multiSelect ? (
+        rows
+      ) : (
+        <RadioGroup
+          aria-labelledby={legend}
+          value={props.picked[0] ?? ""}
+          onValueChange={(value) => {
+            if (typeof value === "string") props.onToggle(value);
+          }}
+          className="gap-1.5"
+        >
+          {rows}
+        </RadioGroup>
+      )}
       {props.inline && props.picked.includes(other) && (
         <input
           aria-label={`Your answer to: ${question.text}`}

@@ -115,7 +115,7 @@ export function NewThreadPage(props: {
     permissions.currentId,
     provider ? providerNames[provider] : "This provider",
   );
-  const chosen = permissions.currentId ?? undefined;
+  const chosen = permission === undefined ? undefined : (permissions.currentId ?? undefined);
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -261,7 +261,7 @@ export function NewThreadPage(props: {
                 inherited={!chosen}
                 menu={{
                   options: permissionOptions(permissions.capabilities, providerName),
-                  value: admitted.mode,
+                  value: permission === undefined ? undefined : admitted.mode,
                   loading: !!provider && (permissions.loading || defaultMode === undefined),
                   unavailable: permissions.failed
                     ? "Couldn't load permission modes. Reconnect and try again."

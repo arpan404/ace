@@ -2,6 +2,9 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
+import { useThreadReset } from "../lib/thread-account.ts";
+import { pauseLabel, providerNames } from "@ace/ui-core";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useStopping } from "../composer/stop-state.ts";
 import { useWatched, type Watched } from "./use-watched.ts";
 
@@ -15,6 +18,7 @@ const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: []
  * `enabled: false` subscribes to nothing.
  */
 export function useTurnActivity(threadId: string, enabled = true): TurnActivity | undefined {
+  const live = useLiveConnection();
   const meta = useThreadMeta(threadId);
   const rootId = meta?.rootAgentId ?? "";
   const status = meta?.status;
@@ -35,5 +39,14 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     },
     [enabled, rootId, status, stopping],
   );
-  return useWatched(threadId, keys, read, sameActivity);
+  const reset = useThreadReset(threadId);
+  const activity = useWatched(threadId, keys, read, sameActivity);
+  return activity && live.staleLabel
+    ? { label: live.staleLabel, tone: "held", elapsedFrom: undefined, current: undefined }
+    : activity?.tone === "paused"
+      ? {
+          ...activity,
+          label: pauseLabel(meta ? providerNames[meta.provider] : undefined, { until: reset }),
+        }
+      : activity;
 }

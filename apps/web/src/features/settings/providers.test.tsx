@@ -31,9 +31,9 @@ test("the list says each provider's state in one line and asks only where someth
   await harness().open("/settings/providers");
   const installed = await section();
   expect(within(await rowOf("Claude Code")).getByText("Signed in as ada@example.com")).toBeTruthy();
-  expect(within(await rowOf("Codex")).getByText("Signed in")).toBeTruthy();
-  expect(await within(await rowOf("OpenCode")).findByText("Signed in")).toBeTruthy();
-  expect(await within(await rowOf("Cursor")).findByText("Signed in")).toBeTruthy();
+  expect(within(await rowOf("Codex")).getByText("Signed in · Personal")).toBeTruthy();
+  expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
+  expect(await within(await rowOf("Cursor")).findByText("Needs attention")).toBeTruthy();
   // The list opens each provider's one place for account and CLI actions.
   expect(
     within(installed)
@@ -127,7 +127,7 @@ test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed 
   const app = harness();
   stage(app, "codex", { auth: "logged_out" });
   await app.open("/settings/providers");
-  expect(within(await rowOf("Codex")).getByText("Signed in")).toBeTruthy();
+  expect(within(await rowOf("Codex")).getByText("Signed in · Personal")).toBeTruthy();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   expect(
@@ -228,4 +228,17 @@ test("an unknown provider shows a not-found page with a working way back", async
   expect(screen.getByText("This provider isn't on this computer.")).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
+});
+
+test("a provider with one available model labels it in the singular", async () => {
+  const app = harness();
+  const model = app.daemon.services.models.find((entry) => entry.provider === "codex");
+  if (!model) throw new Error("Missing Codex fixture model");
+  app.daemon.services.models = app.daemon.services.models
+    .filter((entry) => entry.provider !== "codex")
+    .concat(model);
+  await app.open("/settings/providers/codex");
+  const models = await screen.findByRole("region", { name: "Models" });
+  expect(await within(models).findByText("1 model")).toBeTruthy();
+  expect(within(models).queryByText("1 models")).toBeNull();
 });

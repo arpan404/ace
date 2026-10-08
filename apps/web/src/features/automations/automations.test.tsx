@@ -463,8 +463,9 @@ test("when the daemon can't list automations, the view says so once, in words, w
   expect(aside.queryByText("Automations unavailable")).toBeNull();
   app.daemon.restoreRequests();
   await userEvent.click(main().getByRole("button", { name: "Try again" }));
-  expect(await aside.findByText("No automations yet")).toBeTruthy();
-  // The main pane alone has the illustrated state and the way to make one.
+  expect(await main().findByText("No automations yet")).toBeTruthy();
+  expect(aside.queryByText("No automations yet")).toBeNull();
+  // The main pane alone has the empty state and the way to make one.
   expect(await main().findByRole("link", { name: "New automation" })).toBeTruthy();
   expect(main().getAllByText("No automations yet")).toHaveLength(1);
 });

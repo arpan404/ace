@@ -7,7 +7,7 @@ import {
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
-import { viewRowClass } from "@/components/ui/view-row.tsx";
+import { compactViewRowClass } from "@/components/ui/view-row.tsx";
 import { useArrival } from "@/lib/arrival.tsx";
 
 /** One compact Activity row. Decisions belong to the detail, with context in its tooltip. */
@@ -47,7 +47,7 @@ export function FeedRow(props: {
         props.onPick();
       }}
       className={cn(
-        viewRowClass,
+        compactViewRowClass,
         "h-9 items-center pr-12 py-0 hover:bg-transparent aria-[current=page]:bg-transparent",
       )}
     >

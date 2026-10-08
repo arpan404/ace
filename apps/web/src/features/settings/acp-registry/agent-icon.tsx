@@ -1,32 +1,7 @@
 import type { RegistryAgent } from "@ace/protocol";
-import { monogram } from "@ace/ui-core/acp-registry";
-import { useState } from "react";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 
-/**
- * An entry's registry icon, or its initials when it has none or the icon can't load. Registry
- * icons are one-colour `currentColor` SVGs, which draw black in an <img>; dark schemes flip
- * them, so they read as foreground ink in every theme.
- */
-export function AgentIcon(props: { agent: Pick<RegistryAgent, "icon" | "name"> }) {
-  const [broken, setBroken] = useState(false);
-  if (props.agent.icon && !broken)
-    return (
-      <img
-        src={props.agent.icon}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        onError={() => setBroken(true)}
-        className="size-4 shrink-0 opacity-80 dark:invert"
-      />
-    );
-  return (
-    <span
-      aria-hidden
-      className="grid size-4 shrink-0 place-items-center rounded-xs bg-secondary text-2xs font-semibold text-muted-foreground"
-    >
-      {monogram(props.agent.name).slice(0, 1)}
-    </span>
-  );
+/** ACP agents use the same mark in the registry, Providers and threads. */
+export function AgentIcon(props: { agent: Pick<RegistryAgent, "acpAgentId"> }) {
+  return <ProviderIcon provider="acp" acpAgentId={props.agent.acpAgentId} size={16} decorative />;
 }

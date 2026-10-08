@@ -331,7 +331,7 @@ test("a daemon without plugins offers to install one from the main pane", async 
   await harness().open("/skills");
 
   expect(await screen.findByRole("heading", { name: "No skills yet" })).toBeTruthy();
-  expect(screen.getByText("No plugins installed")).toBeTruthy();
+  expect(screen.queryByText("No plugins installed")).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Install a plugin" }));
   expect(await screen.findByRole("dialog", { name: "Install a plugin" })).toBeTruthy();
 });

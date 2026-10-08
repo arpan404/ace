@@ -22,6 +22,8 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { openExternal } from "@/boot/open-external.ts";
+import { Button } from "@/components/ui/button.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -29,7 +31,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
-import { Fade, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
+import { TruncatedText, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -68,7 +70,7 @@ export function PullRequestsSection(props: { git: GitFlow }) {
     <section aria-labelledby="work-card-prs">
       <SectionHead id="work-card-prs" title="Pull requests" />
       {pr && checkout ? (
-        <PrPopover git={props.git} pr={pr} base={checkout.baseBranch} />
+        <PrPopover key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
       ) : (
         <RowNote>
           <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
@@ -120,10 +122,12 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
         }
       >
         <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
-        <Fade>
-          <span className="text-subtle-foreground">#{pr.number}</span>{" "}
-          {pr.title ?? git.checkout?.branch}
-        </Fade>
+        <Tip label={pr.title ?? git.checkout?.branch}>
+          <TruncatedText>
+            <span className="text-subtle-foreground">#{pr.number}</span>{" "}
+            {pr.title ?? git.checkout?.branch}
+          </TruncatedText>
+        </Tip>
         <span className="shrink-0 text-xs text-subtle-foreground">{prState[pr.state]}</span>
         {ci && ci !== "none" && <ToneIcon tone={ci} />}
       </PopoverTrigger>
@@ -133,9 +137,11 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
         className="max-h-[min(360px,var(--available-height))] w-[340px] overflow-y-auto p-1.5"
       >
         <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
-          <h3 className="min-w-0 flex-1 truncate text-ui">
-            <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
-          </h3>
+          <Tip label={pr.title ?? `Pull request #${pr.number}`}>
+            <h3 className="min-w-0 flex-1 truncate text-ui">
+              <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
+            </h3>
+          </Tip>
           {refreshing ? (
             <Spinner label="Reading the pull request" className="mx-1.5" />
           ) : (
@@ -157,12 +163,34 @@ function PrPopover(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
             />
           )}
         </div>
-        {error !== undefined && (
-          <p role="alert" className="px-2.5 pb-1 text-sm text-status-failed">
-            {failure(error)}
-          </p>
-        )}
-        {git.status ? (
+        {error !== undefined ? (
+          <>
+            <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
+              {failure(error)}
+            </p>
+            <div className="flex h-8 items-center gap-1 px-2.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={git.pending}
+                onClick={() => {
+                  setOpen(false);
+                  git.open("link-pr");
+                }}
+              >
+                Link…
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={git.pending}
+                onClick={() => git.run({ kind: "unlink-pr" })}
+              >
+                Unlink
+              </Button>
+            </div>
+          </>
+        ) : git.status ? (
           <PrDetails
             git={git}
             status={git.status}
@@ -205,7 +233,7 @@ function PrDetails(props: {
           {view.checks.map((check) => (
             <li key={check.id} className="flex h-7 items-center gap-2.5 pr-1 pl-6 text-sm">
               <ToneIcon tone={check.status} />
-              <Fade>{check.name}</Fade>
+              <TruncatedText>{check.name}</TruncatedText>
               {check.url && (
                 <IconButton
                   icon={ArrowSquareOutIcon}

@@ -55,6 +55,7 @@ function model(
   id: string,
   displayName: string,
   extra: {
+    free?: boolean;
     isDefault?: boolean;
     contextWindow?: number;
     efforts?: string[];
@@ -69,6 +70,7 @@ function model(
   return CatalogModel.parse({
     // Catalog ids repeat on every account that serves the model, as the daemon's do.
     id,
+    free: extra.free,
     ...modelDisplayName(id, displayName),
     ...(extra.source
       ? { source: extra.source, nativeProviderId: extra.source.id }
@@ -314,6 +316,12 @@ export function modelCatalog(): CatalogModel[] {
       );
     }
   }
+  rows.push(
+    model("opencode", "opencode", "opencode/big-pickle", "Big Pickle", {
+      free: true,
+      source: { kind: "api_key", id: "opencode", label: "OpenCode Zen", service: "opencode_zen" },
+    }),
+  );
   const sources: NonNullable<CatalogModel["source"]>[] = [
     { kind: "local", id: "ollama", label: "Ollama" },
     { kind: "local", id: "lmstudio", label: "LM Studio" },

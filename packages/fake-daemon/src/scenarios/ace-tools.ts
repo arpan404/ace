@@ -127,6 +127,85 @@ export function aceToolsComputerUse(): Scenario {
     "Target window is outside display bounds",
     "Ask the human to reposition the window.",
   );
+  const facts: Fact[] = [
+    rootAgent("codex"),
+    turn("root"),
+    message("root", "ask", "user", "Open Gmail in Safari and sign me in."),
+    aceCall(
+      "root",
+      "request",
+      "screen_request_app",
+      {
+        bundleId: safari,
+        reason: "Open Gmail for you",
+      },
+      json({ approved: true, bundleId: safari, mode: "background" }),
+    ),
+    aceCall(
+      "root",
+      "open",
+      "screen_open_app",
+      { bundleId: safari },
+      json({
+        sessionId: "screen-safari",
+        target: { kind: "window", bundleId: safari, windowId: 41 },
+        mode: "background",
+      }),
+    ),
+    aceCall(
+      "root",
+      "look",
+      "screen_screenshot",
+      {},
+      shot(safariShot, "Mode: background. Screenshot scale: 2 pixels per target point."),
+    ),
+    aceCall(
+      "root",
+      "address",
+      "screen_key",
+      { key: "l", modifiers: ["command"] },
+      failure(
+        "not_supported",
+        "The installed device or helper does not support this operation",
+        "Use an advertised semantic action or check installed helper tools.",
+      ),
+      true,
+    ),
+    screenAudit("root", "address-audit", "key.press", safari, "background", "not_supported"),
+    aceCall(
+      "root",
+      "type",
+      "screen_type",
+      { text: "gmail.com" },
+      failure(
+        "focus_changed",
+        "Background action changed focus or cursor",
+        "Restoration is attempted when no human input was observed.",
+      ),
+      true,
+    ),
+    screenAudit("root", "type-audit", "text.type", safari, "background", "focus_changed"),
+    aceCall("root", "tree", "screen_ui_tree", {}, json(signInTree)),
+    aceCall(
+      "root",
+      "sign-in",
+      "screen_ui_act",
+      { ref: "b7", action: "press" },
+      json({
+        mode: "background",
+        fallback: false,
+      }),
+    ),
+    screenAudit("root", "sign-in-audit", "press", safari, "background", "completed"),
+    aceCall("root", "click", "screen_click", { x: 640, y: 432 }, offscreen, true),
+    screenAudit("root", "click-audit", "pointer.click", safari, "background", "window_offscreen"),
+    message(
+      "root",
+      "answer",
+      "assistant",
+      "Safari's window is off-screen, so I can't finish signing in. Move it onto a display and I'll continue.",
+    ),
+  ];
   return {
     thread: {
       id: "thread-ace-tools-safari",
@@ -135,97 +214,12 @@ export function aceToolsComputerUse(): Scenario {
       provider: "codex",
     },
     steps: [
-      {
-        kind: "facts",
-        label: "used-safari",
-        facts: [
-          rootAgent("codex"),
-          turn("root"),
-          message("root", "ask", "user", "Open Gmail in Safari and sign me in."),
-          aceCall(
-            "root",
-            "request",
-            "screen_request_app",
-            {
-              bundleId: safari,
-              reason: "Open Gmail for you",
-            },
-            json({ approved: true, bundleId: safari, mode: "background" }),
-          ),
-          aceCall(
-            "root",
-            "open",
-            "screen_open_app",
-            { bundleId: safari },
-            json({
-              sessionId: "screen-safari",
-              target: { kind: "window", bundleId: safari, windowId: 41 },
-              mode: "background",
-            }),
-          ),
-          aceCall(
-            "root",
-            "look",
-            "screen_screenshot",
-            {},
-            shot(safariShot, "Mode: background. Screenshot scale: 2 pixels per target point."),
-          ),
-          aceCall(
-            "root",
-            "address",
-            "screen_key",
-            { key: "l", modifiers: ["command"] },
-            failure(
-              "not_supported",
-              "The installed device or helper does not support this operation",
-              "Use an advertised semantic action or check installed helper tools.",
-            ),
-            true,
-          ),
-          screenAudit("root", "address-audit", "key.press", safari, "background", "not_supported"),
-          aceCall(
-            "root",
-            "type",
-            "screen_type",
-            { text: "gmail.com" },
-            failure(
-              "focus_changed",
-              "Background action changed focus or cursor",
-              "Restoration is attempted when no human input was observed.",
-            ),
-            true,
-          ),
-          screenAudit("root", "type-audit", "text.type", safari, "background", "focus_changed"),
-          aceCall("root", "tree", "screen_ui_tree", {}, json(signInTree)),
-          aceCall(
-            "root",
-            "sign-in",
-            "screen_ui_act",
-            { ref: "b7", action: "press" },
-            json({
-              mode: "background",
-              fallback: false,
-            }),
-          ),
-          screenAudit("root", "sign-in-audit", "press", safari, "background", "completed"),
-          aceCall("root", "click", "screen_click", { x: 640, y: 432 }, offscreen, true),
-          screenAudit(
-            "root",
-            "click-audit",
-            "pointer.click",
-            safari,
-            "background",
-            "window_offscreen",
-          ),
-          message(
-            "root",
-            "answer",
-            "assistant",
-            "Safari's window is off-screen, so I can't finish signing in. Move it onto a display and I'll continue.",
-          ),
-          endTurn("root"),
-        ],
-      },
+      ...facts.map((fact, index) => ({
+        kind: "facts" as const,
+        facts: [fact],
+        agoMs: Math.round((45_000 * (facts.length - index)) / facts.length),
+      })),
+      { kind: "facts", label: "used-safari", facts: [endTurn("root")] },
     ],
   };
 }

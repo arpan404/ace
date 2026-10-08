@@ -71,26 +71,27 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
   expect(card(/^Rewrite the install page for the daemon\..*Pinned/)).toBeTruthy();
 });
 
-test("a row is one line of initials, title and marks; only a working row adds where it works", async () => {
+test("rows expose initials, status, linked PR and branch details", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
   expect(within(refund).getByText("BA")).toBeTruthy();
   expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
     "Waiting for your approval",
   );
-  // Its linked pull request shows by number; its branch and project are left to its name.
+  // Its linked pull request shows by number, and its name exposes the branch and project.
   expect(refund.textContent).toContain("77");
-  expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
+  expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
+  expect(refund.getAttribute("aria-label")).toContain("billing-api");
   expect(within(refund).queryByText("billing-api")).toBeNull();
 
-  // A working thread's second line: its worktree, and its subagents beside the provider…
+  // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(within(dedupe).getByText("2")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
   );
-  // …or its branch and what it has changed so far.
+  // The branch and changes stay available on the row.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(within(install).getByText("DS")).toBeTruthy();
   expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
@@ -103,7 +104,7 @@ async function unsettleBump() {
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
 }
 
 test("finished threads rest under Recent, below the work in hand", async () => {
@@ -253,7 +254,7 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(order()).toContain("Bump Codex app-server to 0.48");
 
   await userEvent.click(
@@ -271,7 +272,7 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   const toast = screen.getByText("Settled · Bump Codex app-server to 0.48").closest("[role]");
   if (!(toast instanceof HTMLElement)) throw new Error("no toast");
   await userEvent.click(within(toast).getByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(settledAt()).toBeUndefined();
 });
 
@@ -292,7 +293,7 @@ test("a settled thread comes back to the list as soon as it moves again", async 
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   await userEvent.click(
     screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
   );
@@ -302,7 +303,7 @@ test("a settled thread comes back to the list as soon as it moves again", async 
   app.daemon.apply("thread-bump-codex", [
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(card(/^Bump Codex app-server to 0\.48\. Working/)).toBeTruthy();
 });
 

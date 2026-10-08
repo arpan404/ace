@@ -104,12 +104,16 @@ export function fitTabs(
     for (const tab of step.tabs) step.to.add(tab.key);
     cap = capFor();
   }
+  if (shown?.tool && room - icons.size * tabSizes.icon < want(shown)) icons.add(shown.key);
   for (const key of icons) dots.delete(key);
   const widths = new Map<string, number>();
   const clipped = new Set<string>();
   for (const tab of tabs) {
-    const width =
-      tab === shown ? want(tab) : icons.has(tab.key) ? tabSizes.icon : Math.min(want(tab), cap);
+    const width = icons.has(tab.key)
+      ? tabSizes.icon
+      : tab === shown
+        ? want(tab)
+        : Math.min(want(tab), cap);
     widths.set(tab.key, width);
     if (!icons.has(tab.key) && width < Math.ceil(natural(tab))) clipped.add(tab.key);
   }

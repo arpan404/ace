@@ -20,7 +20,7 @@ interface Seed {
 }
 
 const seeds: Record<string, Seed> = {
-  "thread-retry-budget": { branch: "fix/restart-retry", pr: 188, diff: [64, 12, 3] },
+  "thread-retry-budget": { branch: "fix/restart-retry", pr: 188, diff: [34, 1, 2] },
   "thread-sheet-rotate": { branch: "fix/sheet-rotate", remote: true },
   "thread-refund-tax": { branch: "fix/refund-tax", pr: 77, diff: [31, 18, 2] },
   "thread-dedupe": { branch: "fix/replay-dedupe", pr: 214, worktree: true, diff: [30, 7, 4] },

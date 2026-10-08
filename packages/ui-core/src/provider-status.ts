@@ -67,7 +67,7 @@ export interface ProviderStatus {
 }
 
 /** Picker state is a projection of the same account truth the detail and account pages show. */
-function pickerState(model: ProviderAccountModel): ProviderState {
+export function providerAccountState(model: ProviderAccountModel): ProviderState {
   const view = model.view;
   if (view?.ready) return "ready";
   if (view?.label === "Limit reached") return "limited";
@@ -114,7 +114,7 @@ export function providerStatuses(
       name: providerNames[kind],
       binary,
       version: row?.version ?? own.find((account) => account.version)?.version,
-      state: row?.installed === false ? "not_installed" : pickerState(model),
+      state: row?.installed === false ? "not_installed" : providerAccountState(model),
       actionId: row?.actionId,
       accounts: model.accounts,
     };
@@ -139,7 +139,7 @@ export function providerStatuses(
       name,
       binary: name,
       version: own.find((account) => account.version)?.version,
-      state: pickerState(model),
+      state: providerAccountState(model),
       accounts: model.accounts,
     };
   });

@@ -11,74 +11,6 @@ import {
 } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 
-/**
- * A second-sidebar row for list-detail views (Skills, More, Automations): a 26px icon
- * tile, a title, a muted description and an optional age. Put `viewRowClass` on the Link or
- * button that wraps `ViewRowBody`; the router's `data-status="active"` marks the selection.
- */
-export const viewRowClass = cn(
-  "group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] text-left transition-colors duration-(--dur-1)",
-  "hover:bg-sidebar-accent focus-ring-inset",
-  "data-[status=active]:bg-foreground/8 aria-[current=page]:bg-foreground/8",
-);
-
-export function ViewRowBody(props: {
-  icon: IconGlyph;
-  title: ReactNode;
-  description?: ReactNode;
-  /** Age or a short state: bottom right, or at the end of the title line with `metaInline`. */
-  meta?: ReactNode;
-  /** Put `meta` on the title line, so the row is one line shorter. */
-  metaInline?: boolean;
-  /** Title in the monospace face (skill and command names). */
-  mono?: boolean;
-  /** Medium-weight title: the row needs the user. */
-  strong?: boolean;
-}) {
-  const title = (
-    <span
-      data-view-row-title=""
-      className={cn(
-        "block truncate text-ui leading-[1.3] text-foreground",
-        props.mono && "font-mono text-sm",
-        props.strong ? "font-medium" : "font-normal",
-        props.metaInline && "min-w-0 flex-1",
-      )}
-    >
-      {props.title}
-    </span>
-  );
-  return (
-    <>
-      <span className="mt-px grid size-6.5 place-items-center rounded-sm bg-secondary text-muted-foreground group-data-[status=active]:text-foreground">
-        <Icon icon={props.icon} size={14} />
-      </span>
-      <span className="min-w-0">
-        {props.metaInline && props.meta ? (
-          <span className="flex items-baseline gap-2">
-            {title}
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {props.meta}
-            </span>
-          </span>
-        ) : (
-          title
-        )}
-        {props.description && (
-          <span className="mt-0.5 line-clamp-2 block text-sm leading-[1.35] text-muted-foreground">
-            {props.description}
-          </span>
-        )}
-        {props.meta && !props.metaInline && (
-          <span className="mt-1 block text-right text-xs text-muted-foreground tabular-nums">
-            {props.meta}
-          </span>
-        )}
-      </span>
-    </>
-  );
-}
-
 /** One-line list entry, with a plain icon and optional status. */
 export const compactViewRowClass = cn(
   "group flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-ui transition-colors duration-(--dur-1)",
@@ -112,7 +44,7 @@ export function ViewRowSection(props: { label: string; children: ReactNode }) {
   );
 }
 
-/** The rows of a view list: links and buttons around a `ViewRowBody`, or marked `data-view-row`. */
+/** The rows of a view list: links and buttons around a `CompactViewRowBody`, or marked `data-view-row`. */
 function rowsOf(list: HTMLElement): HTMLElement[] {
   const rows = new Set<HTMLElement>();
   for (const element of list.querySelectorAll<HTMLElement>(

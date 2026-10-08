@@ -73,7 +73,14 @@ test("the default provider lists the installed CLIs and remembers the choice", a
   await userEvent.click(select);
   const options = (await screen.findAllByRole("option")).map((option) => option.textContent);
   // Pi lists models but reports no sign-in state of its own.
-  expect(options).toEqual(["Claude Code", "Codex", "OpenCode", "Cursor", "Pi", "Gemini CLI"]);
+  expect(options).toEqual([
+    "Claude Code",
+    "Codex",
+    "OpenCode",
+    "Cursor (needs attention)",
+    "Pi",
+    "Gemini CLI",
+  ]);
   await userEvent.click(screen.getByRole("option", { name: "Codex" }));
 
   await goTo("Keyboard");

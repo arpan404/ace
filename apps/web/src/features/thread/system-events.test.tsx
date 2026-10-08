@@ -240,11 +240,15 @@ test("number keys pick an option and Enter answers", async () => {
   const card = await screen.findByRole("article", {
     name: "How should the sheet recover after rotate?",
   });
-  within(card).getAllByRole("radio")[0]?.focus();
+  const first = within(card).getAllByRole("radio")[0]!;
+  await userEvent.click(first);
+  expect(document.activeElement).toBe(first);
   await userEvent.keyboard("3");
-  expect(
-    (within(card).getByRole("radio", { name: /Re-open the sheet/ }) as HTMLInputElement).checked,
-  ).toBe(true);
+  await waitFor(() =>
+    expect(
+      within(card).getByRole("radio", { name: /Re-open the sheet/, checked: true }),
+    ).toBeTruthy(),
+  );
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(app.daemon.resolution("thread-sheet-rotate", "ask-recovery")).toEqual({

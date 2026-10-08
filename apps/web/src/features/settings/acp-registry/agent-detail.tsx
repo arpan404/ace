@@ -125,17 +125,28 @@ export function AgentDetail(props: {
 
 /** The plan as a short list of facts; paths and the command are monospaced and selectable. */
 function Plan(props: { plan: RegistryInstallPlan; name: string }) {
+  const facts = planFacts(props.plan, props.name);
+  const rows = (items: typeof facts) =>
+    items.map((fact) => (
+      <div key={fact.label} className="flex flex-col gap-0.5">
+        <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+        <dd className={fact.code ? "font-mono text-xs break-all select-text" : undefined}>
+          {fact.value}
+        </dd>
+      </div>
+    ));
   return (
-    <dl aria-label="Install plan" className="flex flex-col gap-2">
-      {planFacts(props.plan, props.name).map((fact) => (
-        <div key={fact.label} className="flex flex-col gap-0.5">
-          <dt className="text-xs text-muted-foreground">{fact.label}</dt>
-          <dd className={fact.code ? "font-mono text-xs break-all select-text" : undefined}>
-            {fact.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className="flex flex-col gap-3">
+      <dl aria-label="Install plan" className="flex flex-col gap-2">
+        {rows(facts.filter((fact) => !fact.code))}
+      </dl>
+      <details>
+        <summary className="cursor-pointer text-sm text-muted-foreground focus-ring">
+          Details
+        </summary>
+        <dl className="mt-2 flex flex-col gap-2">{rows(facts.filter((fact) => fact.code))}</dl>
+      </details>
+    </div>
   );
 }
 

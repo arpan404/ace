@@ -7,6 +7,7 @@ import { settingsFixture, FakeServices } from "@ace/fake-daemon";
 import { ClientMessage, ServerMessage, type ModelListResult } from "@ace/protocol";
 
 const names: Record<string, string> = {
+  "big-pickle": "Big Pickle",
   "Composer 2.5": "Composer 2.5",
   "composer-2.5": "Composer 2.5",
   "composer-2.5-fast": "Composer 2.5 Fast",

@@ -6,3 +6,5 @@ export { SignInHost, preloadSignIn, useSignIn, type OpenSignIn } from "./sign-in
 export type { SignInTarget } from "./login-controller.ts";
 export { SignInNotice } from "./sign-in-notice.tsx";
 export { ReadinessAction, SignInButton } from "./sign-in-button.tsx";
+
+export { useInlineSignIn } from "./inline-sign-in.tsx";

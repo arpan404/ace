@@ -516,3 +516,31 @@ test("Enter opens the new thread at once with the message as its first bubble, e
     1,
   );
 });
+
+test("Provider default follows Settings on a new thread and stays inherited after sending", async () => {
+  const made = app();
+  made.daemon.services.settings.seed({ "permissions.providerModes": { claude: "acceptEdits" } });
+  await made.open("/new?project=relay");
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Accept edits" }));
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Plan" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Provider default" }));
+  expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
+  await userEvent.type(await prompt(), "Use my approval default{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Use my approval default" });
+  expect((await started(made))?.permission).toMatchObject({
+    override: null,
+    effective: "acceptEdits",
+  });
+  await userEvent.click(await screen.findByRole("button", { name: /^Approvals: Accept edits/ }));
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
+});

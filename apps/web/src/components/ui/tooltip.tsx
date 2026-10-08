@@ -26,8 +26,9 @@ function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           role="tooltip"
+          style={{ maxWidth: "min(32rem, calc(100vw - 24px))" }}
           className={cn(
-            "flex items-center gap-2 rounded-sm bg-primary px-2 py-[5px] text-sm leading-4 font-medium whitespace-nowrap text-primary-foreground",
+            "flex items-center gap-2 rounded-sm bg-primary px-2 py-[5px] text-sm leading-4 font-medium break-words text-primary-foreground",
             "origin-(--transform-origin) transition-[opacity,transform] duration-(--dur-1) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-0.5 data-[side=top]:data-starting-style:translate-y-0.5",
             className,
           )}

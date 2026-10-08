@@ -102,7 +102,9 @@ test("install shows the plan, asks once more, sends the intent with the plan's d
   expect(plan.textContent).toContain("Download from github.com");
   expect(plan.textContent).toContain("Prebuilt binary for macOS on Apple silicon");
   expect(plan.textContent).toContain("SHA-256 checksum from the registry");
-  expect(plan.textContent).toMatch(/installations\/[a-f0-9]{64}\/kimi acp/);
+  expect(plan.textContent).not.toMatch(/installations\/[a-f0-9]{64}/);
+  await userEvent.click(within(dialog).getByText("Details", { exact: true }));
+  expect(within(dialog).getByText(/installations\/[a-f0-9]{64}\/kimi acp/)).toBeTruthy();
 
   await userEvent.click(within(dialog).getByRole("button", { name: "Install" }));
   // Nothing is sent until the person confirms.
@@ -195,3 +197,12 @@ test("an agent installed a release behind offers Update on its page, which opens
   expect(await within(cli).findByRole("button", { name: "Update CLI" })).toBeTruthy();
   expect(within(cli).getByText(/npm install/).textContent).toContain("@google/gemini-cli");
 }, 30_000);
+
+test("registry identifies agents already available through their native provider", async () => {
+  const { dialog } = await openRegistry();
+  const claude = await within(dialog).findByRole("option", { name: /^Claude/ });
+  await within(claude).findByText("Already added");
+  const opencode = within(dialog).getByRole("option", { name: /^OpenCode/ });
+  expect(within(opencode).getByText("Already added")).toBeTruthy();
+  expect(within(dialog).queryByRole("option", { name: /^Kimi CLI.*Already added/ })).toBeNull();
+});

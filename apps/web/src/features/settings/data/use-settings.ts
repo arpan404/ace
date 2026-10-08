@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
@@ -76,6 +76,8 @@ export function useSetting<T>(setting: SettingDef<T>): [T, (value: T) => Promise
   const set = useCallback(
     async (next: T) => {
       await backend.set(key, next);
+      if (key.startsWith("remote."))
+        await queries.invalidateQueries({ queryKey: ["settings", "remote-status"] });
       if (key === "host.displayName")
         await queries.invalidateQueries({ queryKey: ["machines", "identity"] });
     },
@@ -185,3 +187,18 @@ export const settingsQueries = {
     queryFn: () => backend.devices(),
   }),
 };
+
+/** Actual listeners and launch overrides, shared by remote controls and pairing. */
+export function useRemoteStatus() {
+  const backend = useSettingsBackend();
+  const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
+  const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
+  const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  return useQuery({
+    queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
+    enabled: enabled.loaded && transport.loaded && relay.loaded,
+    staleTime: 0,
+    queryFn: () => backend.remoteStatus(),
+    retry: false,
+  });
+}

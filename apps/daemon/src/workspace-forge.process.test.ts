@@ -123,3 +123,118 @@ test("a thread's details name the forge repository behind its origin remote", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("unlink survives restart and an in-flight forge read cannot restore it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-forge-unlink-"));
+  await execute("git", ["init", "-q", root]);
+  await execute("git", [
+    "-C",
+    root,
+    "remote",
+    "add",
+    "origin",
+    "https://github.com/test/project.git",
+  ]);
+  const database = join(root, "events.sqlite");
+  const store = new Store(database);
+  const workspaceId = store.createWorkspace(root, "Project");
+  const thread = Thread.parse({
+    id: "unlink-thread",
+    workspaceId,
+    provider: "codex",
+    title: "Unlink",
+    status: { state: "new" },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let hold = false;
+  const runtime = new WorkspaceRuntime(store, root, () => 1000, {
+    forgeRunner: () => async (request) => {
+      const path = request.args[1] ?? "";
+      let body: unknown = [];
+      if (path === "repos/test/project/pulls/7") {
+        if (hold) {
+          started.resolve();
+          await release.promise;
+        }
+        body = {
+          number: 7,
+          node_id: "PR_7",
+          title: "Linked PR",
+          html_url: "https://github.com/test/project/pull/7",
+          state: "open",
+          head: { sha: "a".repeat(40), ref: "topic" },
+        };
+      } else if (path.includes("/check-runs?")) body = { check_runs: [] };
+      else if (path === "graphql")
+        body = {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+              },
+            },
+          },
+        };
+      return { code: 0, stdout: `HTTP/1.1 200 OK\n\n${JSON.stringify(body)}`, truncated: false };
+    },
+  });
+  const link = {
+    threadId: thread.id,
+    pr: {
+      repository: { forge: "github", host: "github.com", owner: "test", name: "project" },
+      number: 7,
+    },
+  };
+  try {
+    expect(
+      await runtime.execute(
+        Command.parse({ id: "link", deviceId: "device", payload: { type: "forge.pr.link", link } }),
+      ),
+    ).toMatchObject({ ok: true });
+    hold = true;
+    const reading = runtime.read({
+      type: "workspace.request",
+      requestId: "reading",
+      operation: { op: "pr.status", threadId: thread.id },
+    });
+    await started.promise;
+    expect(
+      await runtime.execute(
+        Command.parse({
+          id: "unlink",
+          deviceId: "device",
+          payload: { type: "forge.pr.unlink", threadId: thread.id },
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    release.resolve();
+    await reading;
+    expect(store.getThread(thread.id)?.details?.linkedPr).toBeNull();
+  } finally {
+    release.resolve();
+    await runtime.close();
+    await store.close();
+  }
+  const reopened = new Store(database);
+  const resumed = new WorkspaceRuntime(reopened, root, () => 2000, {
+    forgeRunner: () => async () => ({ code: 1, stdout: "unavailable", truncated: false }),
+  });
+  try {
+    expect(reopened.getThread(thread.id)?.details?.linkedPr).toBeNull();
+    expect(
+      await resumed.read({
+        type: "workspace.request",
+        requestId: "after-restart",
+        operation: { op: "pr.status", threadId: thread.id },
+      }),
+    ).toMatchObject({ result: { kind: "pr", status: null } });
+  } finally {
+    await resumed.close();
+    await reopened.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

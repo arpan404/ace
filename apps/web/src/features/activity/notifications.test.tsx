@@ -1,5 +1,5 @@
 import { ThreadId } from "@ace/protocol";
-import { facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
+import { devWorld, facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -53,6 +53,7 @@ test("a thread that starts needing you raises a toast naming the request, and Re
   // Just that request, on its own.
   expect(await screen.findByRole("article", { name: request })).toBeTruthy();
   expect(screen.getAllByRole("article")).toHaveLength(1);
+  await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
 });
 
 test("a needs-you toast goes once the request is answered", async () => {
@@ -98,6 +99,19 @@ test("threads already waiting when the app connects don't raise toasts", async (
   await inList("Retry budget for app-server restarts");
   await app.client.request({ type: "notification.config" });
   expect(within(toasts()).queryByText(/needs you/)).toBeNull();
+});
+
+test("reopening the fake world restores the cleanup approval without repeating its toast", async () => {
+  const app = harness();
+  const checkout = devWorld().find((entry) => entry.scenario.thread.id === "thread-checkout");
+  if (!checkout) throw new Error("Missing checkout fixture");
+  const player = app.play(checkout.scenario);
+  if (checkout.through) player.runThrough(checkout.through);
+  else if (!checkout.live) player.runUntilBlocked();
+  await app.open("/t/thread-checkout");
+  expect(await screen.findByRole("article", { name: request })).toBeTruthy();
+  await app.client.request({ type: "notification.config" });
+  expect(within(toasts()).queryByText(request)).toBeNull();
 });
 
 test("a thread that fails raises a toast that opens it", async () => {

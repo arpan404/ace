@@ -87,6 +87,7 @@ test("Setup can be reopened from the palette and filters past sessions by projec
   await userEvent.type(await screen.findByRole("combobox", { name: "Search commands" }), "Setup");
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Set up" });
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const selector = await screen.findByRole("combobox", { name: "Past sessions project" });
   await userEvent.click(selector);
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));

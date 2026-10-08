@@ -52,6 +52,8 @@ export type { Draft } from "./draft.ts";
 
 /** What other parts of the thread screen may ask of its composer. */
 export interface ComposerHandle {
+  /** Keep the current draft for the thread that replaces this provisional view. */
+  preserveDraft(key: string): void;
   /** Open the + menu (files, images, a mention, a page) over the composer. */
   openAdd(): void;
   /** Put the caret in the message. */
@@ -144,6 +146,8 @@ export function Composer({
         short?: string | undefined;
       }
     | undefined;
+  /** Keep drafting and attachment controls available while only sending is blocked. */
+  sendBlocked?: { reason: string; describedBy: string } | undefined;
   onPlan?: (() => void) | undefined;
   ref?: Ref<ComposerHandle> | undefined;
 }) {
@@ -204,11 +208,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   };
   const intake = (data: DataTransfer) =>
     takeTransfer(data, (taken: Intake) => attach(taken.files, taken.note));
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-  }));
   const found = triggerAt(text, caret);
   const trigger: Trigger | undefined = found && found.start !== dismissed ? found : undefined;
   const suggestions = useSuggestions(props.thread, trigger, () =>
@@ -228,6 +227,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
   };
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    preserveDraft: (key) => writeDraft(storage, key, current),
+  }));
   // Another window's version of this draft is taken whole, its files too (SY-12). Files can't
   // be set in place, so a different set remounts the composer on the stored draft: theirs.
   const otherFiles = (next: ComposerDraft) => {
@@ -450,15 +455,16 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
   const chips = attachments.items;
-  const blocked = off
-    ? off
-    : attachments.uploading && !props.sendsWhileUploading
-      ? "Waiting for the files to upload"
-      : failedUpload
-        ? "Remove the file that didn't upload first"
-        : empty
-          ? "Write a message first"
-          : undefined;
+  const blocked =
+    off || props.sendBlocked?.reason
+      ? (off ?? props.sendBlocked?.reason)
+      : attachments.uploading && !props.sendsWhileUploading
+        ? "Waiting for the files to upload"
+        : failedUpload
+          ? "Remove the file that didn't upload first"
+          : empty
+            ? "Write a message first"
+            : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
   // While a question asks, sending answers it; a message it can't take as its answer (a question
@@ -720,7 +726,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             />
             {/* The model shrinks and truncates its label, so nothing on the row ever paints over
               another. */}
-            <div className="flex min-w-0 flex-1 items-center gap-0.5">{props.controls}</div>
+            <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
             {props.trailing && (
               <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>
             )}
@@ -731,7 +737,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               canSteer={props.canSteer !== false}
               stopping={!!props.stopping}
               answer={answer}
-              describedBy={props.unavailable?.describedBy}
+              describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
               onSend={() => (answer ? sendAnswer() : submit(false))}
               onStop={() => props.onStop?.()}
             />

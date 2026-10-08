@@ -64,6 +64,22 @@ function approval(
 
 function retryBudget(): Scenario {
   return {
+    gitStatus: [
+      {
+        path: "src/supervisor/restart-budget.ts",
+        status: "untracked",
+        additions: 24,
+        deletions: 0,
+        binary: false,
+      },
+      {
+        path: "src/supervisor/supervisor.ts",
+        status: "modified",
+        additions: 10,
+        deletions: 1,
+        binary: false,
+      },
+    ],
     thread: {
       id: "thread-retry-budget",
       workspaceId: "relay",

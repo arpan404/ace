@@ -2,7 +2,7 @@ import { FileIcon } from "@phosphor-icons/react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { useViewListKeys, ViewRowBody, viewRowClass } from "./view-row.tsx";
+import { useViewListKeys, CompactViewRowBody, compactViewRowClass } from "./view-row.tsx";
 
 function List(props: { current?: string }) {
   const keys = useViewListKeys<HTMLUListElement>();
@@ -14,10 +14,10 @@ function List(props: { current?: string }) {
           <li key={name}>
             <a
               href={`#${name}`}
-              className={viewRowClass}
+              className={compactViewRowClass}
               {...(props.current === name ? { "aria-current": "page" as const } : {})}
             >
-              <ViewRowBody icon={FileIcon} title={name} />
+              <CompactViewRowBody icon={FileIcon} title={name} />
             </a>
           </li>
         ))}

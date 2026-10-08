@@ -1,28 +1,11 @@
+import { installer } from "@ace/provider-kit/installers";
 import type { ProviderStatus, OnboardingResult } from "@ace/protocol";
 
-const installs = {
-  codex: [
-    "npm install -g @openai/codex",
-    "Install Codex CLI, then sign in with your ChatGPT account.",
-  ],
-  claude: [
-    "npm install -g @anthropic-ai/claude-code",
-    "Install Claude Code, then sign in with your Claude account.",
-  ],
-  opencode: ["npm install -g opencode-ai", "Install OpenCode, then connect an upstream provider."],
-  pi: [
-    "npm install -g @mariozechner/pi-coding-agent",
-    "Install Pi, then run /login to connect a provider.",
-  ],
-  cursor: ["", "Install the supported Cursor SDK runtime, then sign in to Cursor in Settings."],
-  antigravity: ["", "Install Antigravity from its official provider instructions."],
-  acp: ["", "Install and configure an approved ACP agent in Settings."],
-} satisfies Record<ProviderStatus["provider"], readonly string[]>;
 export function providerReadiness(row: ProviderStatus): ProviderStatus {
-  const [installCommand, installHint] =
-    row.runtime === "cursor-sdk"
-      ? ["", "Install the supported Cursor SDK runtime, then sign in to Cursor in Settings."]
-      : installs[row.provider];
+  const spec = installer(row.provider);
+  const installCommand = spec?.package ? `npm install -g ${spec.package}` : undefined;
+  const installHint =
+    spec?.manual ?? "Install the provider with its official setup, then check again.";
   let readiness: NonNullable<ProviderStatus["readiness"]> =
     row.enabled === false
       ? "not_configured"

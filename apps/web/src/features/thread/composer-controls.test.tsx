@@ -77,6 +77,11 @@ test("a file query that matches nothing says so until Escape dismisses it", asyn
 test("permission picker offers Claude native modes", async () => {
   const { app } = await open("busy");
   await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
   await waitFor(() =>
     expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("acceptEdits"),
@@ -240,4 +245,19 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   act(() => app.client.networkOnline(true));
   await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
+});
+
+test("the permission menu checks an explicit mode and returns to Provider default", async () => {
+  const { app } = await open("busy");
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Plan" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: /^Approvals: Provider default, Plan/ }),
+  );
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Plan" })).getAttribute("aria-checked"),
+  ).toBe("true");
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Provider default" }));
+  await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
+  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
 });

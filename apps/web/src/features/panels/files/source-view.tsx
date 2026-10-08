@@ -67,6 +67,8 @@ function Tokens(props: { tokens: readonly CodeToken[] }) {
   ));
 }
 
+export const sourceGutter = (lines: number) => Math.max(48, String(lines).length * 8 + 24);
+
 /**
  * A source file with line numbers: 13px mono on a 22px pitch, numbers right-aligned in their
  * own gutter (left out of a copy), highlighted in the markdown worker and plain until then.
@@ -87,7 +89,7 @@ export function SourceView(props: {
   // A final newline ends the last line; it doesn't start an empty one.
   const count = plain.length > 1 && plain.at(-1) === "" ? plain.length - 1 : plain.length;
   const indexes = useMemo(() => Array.from({ length: count }, (_, index) => index), [count]);
-  const gutter = Math.max(48, String(count).length * 8 + 24);
+  const gutter = sourceGutter(count);
   const handle = useRef<VirtualRowsHandle>(null);
   const box = useRef<HTMLDivElement>(null);
   const hit = props.find?.hit;

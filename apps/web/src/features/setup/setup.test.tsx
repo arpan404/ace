@@ -19,6 +19,10 @@ function firstRun() {
   const app = harness({ onboarding: "pending" });
   for (const provider of ["claude", "codex", "opencode", "cursor", "pi"] as const)
     stage(app, provider, { auth: "logged_out" });
+  for (const account of app.daemon.services.accounts) {
+    account.quota.auth = "logged_out";
+    account.availability = "logged_out";
+  }
   // OpenCode and Pi have no upstream connected yet.
   app.daemon.services.models = app.daemon.services.models.filter(
     (model) => model.provider !== "opencode" && model.provider !== "pi",
@@ -41,6 +45,7 @@ const progress = () => screen.findByRole("progressbar", { name: "Providers ready
 test("a first launch opens setup; signing in updates readiness, and Add a project opens the folder chooser", async () => {
   const app = firstRun();
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -74,6 +79,7 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
 test("Skip for now goes on to adding a project, and Home doesn't send this device back to setup", async () => {
   const app = firstRun();
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   await screen.findByRole("list", { name: "Providers on this computer" }, { timeout: 10_000 });
   await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
   // The first run's next step: a project to work in.
@@ -91,9 +97,10 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
 
 test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; each provider offers only its next action", async () => {
   // The fake's machine: Claude Code signed in, OpenCode and Pi connected through their
-  // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out, Cursor expired.
+  // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out with Personal available, Cursor expired.
   const app = harness({ onboarding: "pending" });
   await app.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -102,18 +109,18 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
     },
   );
   await waitFor(async () =>
-    expect((await progress()).getAttribute("aria-valuetext")).toBe("3 of 5 ready"),
+    expect((await progress()).getAttribute("aria-valuetext")).toBe("4 of 5 ready"),
   );
-  for (const name of ["Claude Code", "OpenCode", "Pi"]) {
+  for (const name of ["Claude Code", "Codex", "OpenCode", "Pi"]) {
     const card = within(cards).getByRole("listitem", { name });
     expect(within(card).queryByRole("button")).toBeNull();
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 services connected"),
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
   ).toBeTruthy();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
-  expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
+  expect(within(codex).getByText("Signed in · Personal")).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
@@ -124,6 +131,7 @@ test("an agent that isn't installed waits apart, its install command a click awa
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
   await app.open("/setup");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const missing = await screen.findByRole("region", { name: "Not installed" }, { timeout: 10_000 });
   const codex = within(missing).getByRole("listitem", { name: "Codex" });
   expect(within(codex).queryByText("npm install -g @openai/codex")).toBeNull();
@@ -132,3 +140,13 @@ test("an agent that isn't installed waits apart, its install command a click awa
   // Installed ones count toward setup; this one doesn't.
   expect((await progress()).getAttribute("aria-valuetext")).toMatch(/ of 4 ready$/);
 }, 30_000);
+
+test("setup welcomes a new user before showing ready providers", async () => {
+  const app = harness({ onboarding: "pending" });
+  await app.open("/");
+  expect(await screen.findByRole("heading", { name: "Welcome to ace" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "You're ready to go" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Get started" }));
+  expect(await screen.findByRole("heading", { name: "You're ready to go" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
+});

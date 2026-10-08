@@ -1,4 +1,4 @@
-import { mergeTurnDigests, turnActivityStatus } from "@ace/projection";
+import { mergeTurnDigests } from "@ace/projection";
 import { threadItemText } from "@ace/search/thread-text";
 import type {
   ClientMessage,
@@ -168,9 +168,6 @@ export class FakeLongThreadWire {
           .toSorted((a, b) => b.seq - a.seq)[0];
         const index = this.index;
         const since = { sinceSeq: message.sinceSeq, sinceTime: message.sinceTime };
-        const statuses = family.map(
-          (source) => index.currentStatus(source.id) ?? source.view.thread.status,
-        );
         function* digests() {
           for (const source of family ?? []) yield index.rangeDigest(source.id, since);
         }
@@ -183,23 +180,7 @@ export class FakeLongThreadWire {
           indexedSeq: seq,
           ready: true,
           turnsCompleted: this.index.completed(message.threadId, message),
-          status: structuredClone(
-            turnActivityStatus(
-              {
-                "live:interactions": digest.approvalsPending,
-                "live:agents": family.filter(
-                  (source) =>
-                    !["done", "new", "failed"].includes(
-                      (index.currentStatus(source.id) ?? source.view.thread.status).state,
-                    ),
-                ).length,
-              },
-              statuses,
-            ) ??
-              (statuses.some((status) => status.state === "failed")
-                ? { state: "failed" }
-                : host.view.thread.status),
-          ),
+          status: structuredClone(host.view.thread.status),
           digest,
           latestAgentMessagePreview: latest?.preview ?? "",
         });

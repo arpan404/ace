@@ -124,3 +124,13 @@ test("widths are whole pixels", () => {
   const fit = fitTabs(tabs(150.4, 160.2, 170.7), "t0", 333);
   for (const width of fit.widths.values()) expect(Number.isInteger(width)).toBe(true);
 });
+
+test("a selected tool tab folds to an icon when its full title cannot fit", () => {
+  const fit = fitTabs(
+    [{ ...changes, least: 150 }, agents, { key: "browser", natural: 180 }],
+    "changes",
+    100,
+  );
+  expect(fit.icons.has("changes")).toBe(true);
+  expect(fit.widths.get("changes")).toBe(36);
+});

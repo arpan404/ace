@@ -58,7 +58,7 @@ test("fake installs, updates and removes through Client.request with progress an
         action: "update",
       }),
     ).toMatchObject({
-      result: { ok: true, plan: { installedVersion: "0.48.0", updateAvailable: true } },
+      result: { ok: true, plan: { installedVersion: "0.159.2", updateAvailable: true } },
     });
     for (const action of ["update", "uninstall", "install"] as const) {
       const result = await f.client.request({
@@ -95,7 +95,7 @@ test("fake installs, updates and removes through Client.request with progress an
         action: "update",
       }),
     ).toMatchObject({
-      result: { ok: true, plan: { installedVersion: "9.0.0", updateAvailable: false } },
+      result: { ok: true, plan: { installedVersion: "0.161.0", updateAvailable: false } },
     });
   } finally {
     await f.client.close();

@@ -12,6 +12,4 @@ export interface PermissionMenuView {
   coverage?: string | undefined;
   /** Why the mode shown isn't the one asked for: "Cursor can't pause for your approval…". */
   fallback?: string | undefined;
-  /** Going back to the default, offered while the thread has a mode of its own. */
-  reset?: { label: string; unavailable?: string | undefined } | undefined;
 }
