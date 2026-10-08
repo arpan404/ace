@@ -146,7 +146,7 @@ export function permissionOption(
   mode: PermissionMode | null,
   capabilities?: PermissionCapabilities,
 ): PermissionOption {
-  const entry = capabilities?.permissionModes?.find((entry) => entry.id === mode);
+  const entry = capabilities?.permissionModes?.find((candidate) => candidate.id === mode);
   return {
     id: mode ?? "",
     label: permissionLabel(mode, capabilities),

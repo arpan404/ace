@@ -16,7 +16,6 @@ import {
 import { InteractionId as importInteractionId } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
 import { BrowserForget } from "../browser-forget.ts";
-import { settingsScope } from "../settings.ts";
 import type { ServiceContext } from "./types.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
