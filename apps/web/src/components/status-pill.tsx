@@ -2,7 +2,7 @@ import { cn } from "@/lib/cn.ts";
 import { type Tone } from "@ace/ui-core";
 
 /**
- * Tinted chip for a status: the thread status chip, the agent tree, Deck and Activity. Its hue is
+ * Tinted chip for a status: the thread status chip, the agent tree and Activity. Its hue is
  * the tone's (`data-tone`, see index.css): a wash behind, the hue mixed toward the text colour so
  * the words read at AA on every theme.
  */

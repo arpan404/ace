@@ -36,8 +36,7 @@ function useProjectRuns(
 
 /**
  * The feed's events and runs for a tab and the project filter, newest first: All shows every
- * event and the last day's runs, Mentions only mentions, Runs every run. Deck decisions are
- * Needs you's, not here.
+ * event and the last day's runs, Mentions only mentions, Runs every run.
  */
 export function useFeedItems(tab?: ActivityTab): {
   items: readonly FeedItem[];
@@ -53,7 +52,6 @@ export function useFeedItems(tab?: ActivityTab): {
   const items = useMemo(() => {
     const events = feed.events.filter(
       (event) =>
-        event.kind !== "escalation" &&
         inProject(project, event.project) &&
         (current === "all" || (current === "mentions" && event.kind === "mention")),
     );

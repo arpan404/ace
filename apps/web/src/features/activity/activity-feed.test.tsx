@@ -1,4 +1,4 @@
-import { deckRuns, workbench, workbenchServices } from "@ace/fake-daemon";
+import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -10,7 +10,7 @@ beforeEach(() => sessionStorage.clear());
 async function openActivity() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  // Decks, automation runs and the pull requests linked to the threads.
+  // Automation runs and the pull requests linked to the threads.
   app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
   const sidebar = await screen.findByRole("complementary", { name: "Activity" });
@@ -29,18 +29,13 @@ test("the feed lists what needs you first, then CI, mentions, pull requests and 
     .map((row) => row.textContent ?? "");
   const index = (text: string) => titles.findIndex((title) => title.includes(text));
   expect(index("Allow a force push")).toBeGreaterThanOrEqual(0);
-  expect(index("Escalated: Defer the first relay sync")).toBeGreaterThan(
-    index("Allow a force push"),
-  );
-  expect(index("Checks failed on #74")).toBeGreaterThan(
-    index("Escalated: Defer the first relay sync"),
-  );
+  expect(index("Checks failed on #74")).toBeGreaterThan(index("Allow a force push"));
   expect(index("PR #212 merged")).toBeGreaterThan(index("Checks failed on #74"));
   expect(index("Review pull requests on open")).toBeGreaterThan(0);
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
-  // Three thread requests, the relay deck's plan, and the mobile deck's escalation and question.
-  expect(screen.getByText("6 need you")).toBeTruthy();
-  expect(within(tab(/Needs you/)).getByText("6")).toBeTruthy();
+  // Three thread requests wait for an answer.
+  expect(screen.getByText("3 need you")).toBeTruthy();
+  expect(within(tab(/Needs you/)).getByText("3")).toBeTruthy();
 });
 
 test("tabs narrow the feed to mentions or to automation results", async () => {
@@ -81,7 +76,7 @@ test("an approval is answerable from its feed row without opening the card", asy
   await waitFor(() =>
     expect(within(feed).queryByText("Install @fontsource/noto-sans-jp?")).toBeNull(),
   );
-  expect(screen.getByText("5 need you")).toBeTruthy();
+  expect(screen.getByText("2 need you")).toBeTruthy();
 });
 
 test("selecting a feed row focuses its card in Needs you", async () => {
@@ -113,99 +108,4 @@ test("Mark all read quiets every feed row and then has nothing left to do", asyn
   );
   // Requests that still need you stay prominent.
   expect(row("Allow a force push to fix/restart-retry?").getByText("Needs you")).toBeTruthy();
-});
-
-test("retrying a deck's escalated card clears it from Needs you", async () => {
-  const { feed } = await openActivity();
-  const name = "Escalated: Defer the first relay sync";
-  const escalation = await screen.findByRole("article", { name });
-  expect(within(escalation).getByText(/leaves the inbox empty/)).toBeTruthy();
-
-  await userEvent.click(within(escalation).getByRole("button", { name: /^Retry card/ }));
-
-  await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
-  expect(
-    await screen.findByText("Retrying Defer the first relay sync: a new round starts"),
-  ).toBeTruthy();
-  expect(screen.getByText("5 need you")).toBeTruthy();
-  // The deck has moved on: nothing about the decision is left to answer.
-  expect(within(feed).queryByText(name)).toBeNull();
-});
-
-test("a deck worker's question is answered from Needs you, under its deck's name", async () => {
-  const { app, feed } = await openActivity();
-  const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
-  const asking = await screen.findByRole("article", { name });
-  expect(within(asking).getByText(/Mobile cold start under 1s/)).toBeTruthy();
-  // Its feed row names the deck's card, and the deck's own threads aren't listed again.
-  expect(within(feed).getByText("Precompile Hermes bytecode needs your answer")).toBeTruthy();
-  expect(within(feed).queryByText("Offshift needs your decision")).toBeNull();
-
-  await userEvent.click(within(asking).getByRole("button", { name: /Ship it in the APK/ }));
-
-  await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
-  expect(
-    app.daemon.resolution("mobile-cold-start.hermes-bytecode.thread", "ask.hermes-bytecode"),
-  ).toEqual({ kind: "question", answers: { choice: ["apk"] } });
-  expect(screen.getByText("5 need you")).toBeTruthy();
-});
-
-test("the project filter narrows both the feed and the cards", async () => {
-  const { feed } = await openActivity();
-  await within(feed).findByText("Checks failed on #74");
-
-  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "billing-api" }));
-
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("article", { name: "Allow a force push to fix/restart-retry?" }),
-    ).toBeNull(),
-  );
-  expect(screen.getByRole("article", { name: "Install @fontsource/noto-sans-jp?" })).toBeTruthy();
-  expect(within(feed).getByText("Checks failed on #74")).toBeTruthy();
-  expect(within(feed).queryByText("PR #212 merged")).toBeNull();
-  expect(screen.getByRole("button", { name: "Filter: billing-api" })).toBeTruthy();
-});
-
-test("declining a deck's card from Activity asks first and says the deck carries on", async () => {
-  await openActivity();
-  const name = "Merge needs your approval: Server-side replay cursor";
-  const merge = (await screen.findAllByRole("article")).find(
-    (entry) => entry.getAttribute("aria-label") === name,
-  );
-  if (!merge) throw new Error("Merge decision missing");
-
-  await userEvent.click(within(merge).getByRole("button", { name: "Decline card…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Decline Server-side replay cursor?" });
-  await userEvent.click(within(confirm).getByRole("button", { name: "Decline card" }));
-
-  expect(
-    await screen.findByText("Declined Server-side replay cursor · the offshift carries on"),
-  ).toBeTruthy();
-  await waitFor(() =>
-    expect(
-      screen.queryAllByRole("article").some((entry) => entry.getAttribute("aria-label") === name),
-    ).toBe(false),
-  );
-});
-
-test("a used-up budget isn't approved blind from Activity: it opens the deck, and stopping asks first", async () => {
-  const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  const now = Date.now();
-  app.daemon.seedServices({ ...workbenchServices(now), decks: deckRuns(now, ["budget"]) });
-  await app.open("/activity");
-  const sidebar = await screen.findByRole("complementary", { name: "Activity" });
-  await userEvent.click(await within(sidebar).findByText("The offshift used its budget"));
-  const budget = await screen.findByRole("article", { name: "The offshift used its budget" });
-
-  expect(within(budget).queryByRole("button", { name: /^Approve/ })).toBeNull();
-  await userEvent.click(within(budget).getByRole("button", { name: "Stop the offshift…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Reject and cancel this offshift?" });
-  await userEvent.click(within(confirm).getByRole("button", { name: "Keep it running" }));
-  expect(screen.getByRole("article", { name: "The offshift used its budget" })).toBeTruthy();
-
-  await userEvent.click(within(budget).getByRole("button", { name: /^Open offshift/ }));
-  expect(await screen.findByRole("region", { name: "The offshift used its budget" })).toBeTruthy();
 });

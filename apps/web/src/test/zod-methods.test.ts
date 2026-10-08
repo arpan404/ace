@@ -34,7 +34,6 @@ export { ShellLayout } from "@/lib/layout.tsx";
 export { Choices } from "@/features/home/new-thread/choices.ts";
 export { AutomationForm } from "@/features/automations/automation-values.ts";
 export { PluginNameInput, PluginRepository } from "@/features/skills/skills-model.ts";
-export { NewDeckInput } from "@/features/deck/deck-spec.ts";
 export { number, object, string, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
 `;
 const entry: Plugin = {
@@ -265,19 +264,6 @@ const browserInputs: Record<string, unknown[]> = {
   ],
   PluginRepository: ["  getsentry/sentry-mcp ", "https://example.com/repo.git", "nope", ""],
   PluginNameInput: [" Sentry-MCP ", "a..b", "-x", "x".repeat(70)],
-  NewDeckInput: [
-    {
-      goal: "  Ship the bundle diet across every route  ",
-      workspaceId: "w",
-      worker: "codex",
-      reviewer: "claude",
-      planApproval: true,
-      merge: "ask",
-      maxParallel: 2,
-      fixRounds: 1,
-    },
-    { goal: "short", maxParallel: 9 },
-  ],
 };
 
 let full: Bundled;

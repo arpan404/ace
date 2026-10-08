@@ -16,7 +16,6 @@ export type KeyScope =
   | "composer"
   | "terminal"
   | "activity"
-  | "deck"
   | "notifications";
 
 export interface KeymapEntry {
@@ -39,8 +38,6 @@ export const keymap = {
   palette: { keys: "mod+k", label: "Command palette" },
   search: { keys: "shift+mod+k", label: "Search all threads" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },
-  // Deck is called Offshift in the UI; the ids keep the code's name until its rename.
-  newDeck: { keys: "shift+mod+n", web: "alt+shift+mod+n", label: "New offshift" },
   addProject: { keys: "shift+mod+o", label: "Add project" },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
@@ -92,7 +89,6 @@ export const keymap = {
   send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
   goHome: { keys: "g h", label: "Go to Home" },
   goActivity: { keys: "g a", label: "Go to Activity" },
-  goDeck: { keys: "g d", label: "Go to Offshifts" },
   goAutomations: { keys: "g u", label: "Go to Automations" },
   goSkills: { keys: "g s", label: "Go to Skills" },
   // Activity triage (features/activity): plain keys, never inside a text field.
@@ -111,12 +107,6 @@ export const keymap = {
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",
     scope: "home",
   },
-  // An offshift (features/deck).
-  deckPlan: { keys: "g p", label: "Go to the plan", scope: "deck" },
-  deckLanes: { keys: "g l", label: "Go to the lanes", scope: "deck" },
-  deckApprove: { keys: "mod+enter", label: "Approve the open decision", scope: "deck" },
-  deckNextCard: { keys: "j", label: "Next card", scope: "deck" },
-  deckPrevCard: { keys: "k", label: "Previous card", scope: "deck" },
   // Base UI's toast viewport binds F6 itself; listed so shortcut help shows it.
   focusToasts: {
     keys: "f6",

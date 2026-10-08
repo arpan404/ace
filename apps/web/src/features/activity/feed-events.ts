@@ -2,36 +2,24 @@ import type { ForgePrStatus, ThreadListEntry } from "@ace/protocol";
 
 /*
  * Feed events from daemon facts: a thread's linked pull request (`details.linkedPr`, its
- * settlement, and the forge's `pr.status`: checks and comments) and a deck's open decisions.
+ * settlement, and the forge's `pr.status`: checks and comments).
  * Pure, so each rule is tested on its own.
  */
 
-export type FeedKind = "escalation" | "mention" | "ci" | "pr";
+export type FeedKind = "mention" | "ci" | "pr";
 
-export interface FeedAction {
-  id: "approve" | "reject";
-  label: string;
-  primary?: boolean;
-}
 export interface FeedEvent {
   /** Stable across reads, so read state sticks: a new push or comment is a new id. */
   id: string;
   kind: FeedKind;
   title: string;
-  /** The project, from the thread or deck. */
+  /** The project, from the thread. */
   project: string;
-  /** The thread or deck title, plus detail ("2 failing"). */
+  /** The thread title, plus detail ("2 failing"). */
   context: string;
   at: number;
   threadId?: string;
   outcome?: "failed" | "done";
-  /** Escalations: the deck's explanation, and the decision it waits on. */
-  body?: string;
-  actions?: readonly FeedAction[];
-  runId?: string;
-  gateId?: string;
-  /** A deck agent's own question or approval: answered in its thread, not by the deck. */
-  interaction?: { threadId: string; interactionId: string };
   /** What the item's own page shows: the whole comment, the failing checks, the PR. */
   detail?: FeedDetail;
 }

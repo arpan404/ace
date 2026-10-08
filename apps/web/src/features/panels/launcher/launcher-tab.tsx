@@ -1,13 +1,10 @@
 import {
   ArrowSquareOutIcon,
-  ArrowUpRightIcon,
   DevicesIcon,
   DotsThreeIcon,
   FileTextIcon,
   GlobeIcon,
-  KanbanIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -86,7 +83,6 @@ export function LauncherTab(props: TabViewProps) {
   const store = useWorkspaceStore();
   const definition = store.definition(props.scope);
   const actions = useWorkspaceActions(props.scope);
-  const navigate = useNavigate();
   const grid = useToolGrid();
   const tools = useMemo(
     () =>
@@ -142,25 +138,6 @@ export function LauncherTab(props: TabViewProps) {
                 </li>
               );
             })}
-            <li className="min-w-0">
-              <button
-                type="button"
-                data-tool
-                tabIndex={grid.active === tools.length ? 0 : -1}
-                onFocus={() => grid.setActive(tools.length)}
-                className={card}
-                onClick={() => void navigate({ to: "/offshifts" })}
-              >
-                <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">Offshifts</span>
-                <ArrowUpRightIcon
-                  role="img"
-                  aria-label="Opens the Offshifts view"
-                  size={14}
-                  className="text-muted-foreground"
-                />
-              </button>
-            </li>
           </ul>
           <WithServices quiet>
             <Suggested

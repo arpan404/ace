@@ -1,6 +1,5 @@
 import {
   BrowserIcon,
-  CardsIcon,
   ChatsCircleIcon,
   CursorClickIcon,
   DeviceMobileIcon,
@@ -178,14 +177,6 @@ export const agentKind = defineTabKind({
   load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
 });
 
-/** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
-export const deckLaneKind = defineTabKind({
-  kind: "deck-lane",
-  label: "Offshift lane",
-  icon: CardsIcon,
-  load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
-});
-
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -208,7 +199,6 @@ export const threadKinds: readonly TabKind[] = [
   agentsKind,
   logsKind,
   agentKind,
-  deckLaneKind,
   shellKind,
   launcherKind,
 ];

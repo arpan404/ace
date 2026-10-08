@@ -44,14 +44,6 @@ export const queueTitle = "Queue on a real daemon";
 export const limitTitle = "Limit on a real daemon";
 /** The preview spec's thread. */
 export const previewTitle = "Preview on a real daemon";
-/** A Deck goal carrying this makes its first card's worker ask the person before it works. */
-export const deckAskMarker = "[ask]";
-export const deckQuestion = "Should the health note live at the project root?";
-/**
- * How long a scripted Deck lane works before it answers, so a journey sees cards working rather
- * than jumping straight to merged. `ACE_E2E_DECK_STEP_MS` overrides it.
- */
-export const deckStepMs = Number(process.env.ACE_E2E_DECK_STEP_MS ?? 700);
 /**
  * The long-thread journey's thread: this many turns, each "Checkpoint N" with a word only that
  * turn has (search finds exactly one), well past the daemon's 200-item snapshot.

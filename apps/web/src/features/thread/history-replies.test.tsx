@@ -14,13 +14,13 @@ test("a new question and provider history replay show the previous answer once t
   for (const frame of frames.initial) app.daemon.apply(id, translator.translate(frame, frame.t));
   await app.open(`/t/${id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Offshift summary");
+  await within(feed).findByText("Delegation summary");
   await act(async () => {
     for (const frame of frames.next) app.daemon.apply(id, translator.translate(frame, frame.t));
   });
   await within(feed).findByText("List downloads");
-  expect(within(feed).getAllByText("Offshift summary")).toHaveLength(1);
+  expect(within(feed).getAllByText("Delegation summary")).toHaveLength(1);
   await act(async () => app.daemon.disconnectAll());
   await within(feed).findByText("List downloads");
-  expect(within(feed).getAllByText("Offshift summary")).toHaveLength(1);
+  expect(within(feed).getAllByText("Delegation summary")).toHaveLength(1);
 });

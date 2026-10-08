@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { coldStartReplay, multiDayDemo, seedPanels, workbenchServices } from "@ace/fake-daemon";
+import { coldStartReplay, multiDayDemo, seedPanels } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 
 // jsdom is a non-Apple browser tab: "mod" is Ctrl and keys render as "Shift+Ctrl+Y".
@@ -17,10 +17,10 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
 
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: "Offshifts",
+      name: "Automations",
     }),
   );
-  await heading("Offshifts");
+  await heading("Automations");
   await userEvent.keyboard("{Control>},{/Control}");
   expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
   await userEvent.keyboard("{Control>}{Shift>}y{/Shift}{/Control}");
@@ -59,9 +59,9 @@ test("Reset brings the default keys back", async () => {
 
 test("in a browser tab New thread is Ctrl+Alt+N, which the browser leaves to the page", async () => {
   const app = harness();
-  app.daemon.seedServices(workbenchServices(Date.now()));
-  await app.open("/");
-  await heading("Home");
+  app.play(coldStartReplay()).runThrough("turn-2");
+  await app.open("/t/thread-cold-start");
+  await heading("Cap cold-start replay at 200 events");
   const link = await screen.findByRole("link", { name: /^New thread/ });
   expect(link.textContent).toMatch(/Alt\+Ctrl\+N$/);
   await userEvent.keyboard("{Control>}{Alt>}n{/Alt}{/Control}");
@@ -135,9 +135,8 @@ test("a row shows its own stored keys, even when they spell another shortcut's d
 
 test("keys another shortcut still answers through its browser alias are refused", async () => {
   await harness().open("/settings/keyboard");
-  const newThread = await recorder("New thread");
-  await userEvent.click(newThread);
-  // In a browser tab New offshift shows Alt+Shift+Ctrl+N but still answers Shift+Ctrl+N.
-  record(newThread, { key: "n", code: "KeyN", ctrlKey: true, shiftKey: true });
-  expect(screen.getByRole("alert").textContent).toBe("Shift+Ctrl+N is already New offshift.");
+  const settings = await recorder("Settings");
+  await userEvent.click(settings);
+  record(settings, { key: "n", code: "KeyN", ctrlKey: true });
+  expect(screen.getByRole("alert").textContent).toBe("Ctrl+N is already New thread.");
 });

@@ -13,8 +13,6 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/", "Home"],
     ["/new", "New thread"],
     ["/activity", "Activity"],
-    ["/offshifts", "Offshifts"],
-    ["/offshifts/new", "New offshift"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
     ["/accounts", "Usage & accounts"],
@@ -47,10 +45,15 @@ test("every view and settings page opens in the shell under its own title", asyn
 
 test("old addresses land where their pages live now", async () => {
   for (const [path, name] of [
-    ["/deck", "Offshifts"],
-    ["/deck/new", "New offshift"],
-    ["/offsets", "Offshifts"],
-    ["/offsets/new", "New offshift"],
+    ["/deck", "Home"],
+    ["/deck/new", "Home"],
+    ["/offsets", "Home"],
+    ["/offsets/new", "Home"],
+    ["/offshifts", "Home"],
+    ["/offshifts/new", "Home"],
+    ["/offshifts/old-run/lane", "Home"],
+    ["/deck/old-run/lane", "Home"],
+    ["/offsets/old-run/lane", "Home"],
     ["/more", "Usage & accounts"],
     ["/more/accounts", "Usage & accounts"],
     ["/more/files", "Home"],
@@ -76,11 +79,11 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(views).getByRole("link", { name: "Offshifts" }));
-  await title("Offshifts");
-  expect(within(views).getByRole("link", { name: "Offshifts" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  await userEvent.click(within(views).getByRole("link", { name: "Automations" }));
+  await title("Automations");
+  expect(
+    within(views).getByRole("link", { name: "Automations" }).getAttribute("aria-current"),
+  ).toBe("page");
   expect(button("Back").disabled).toBe(false);
 
   await userEvent.click(button("Back"));
@@ -89,7 +92,7 @@ test("the sidebar marks the current view and the header's back and forward follo
   expect(button("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
-  await title("Offshifts");
+  await title("Automations");
   expect(button("Forward").disabled).toBe(true);
 });
 

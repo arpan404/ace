@@ -20,7 +20,6 @@ import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
 import { ButtonKey, CardActions } from "./card-frame.tsx";
-import { EscalationCard } from "./escalation-card.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
 import { runAt, useFeed } from "./feed-source.ts";
 import { InteractionCard } from "./interaction-card.tsx";
@@ -104,12 +103,6 @@ function FeedDetailPage(props: { itemKey: string }) {
     if (feed.eventsSettled) return <Gone title="This item is no longer in Activity" />;
     return ready ? <DetailLoading /> : <Unavailable />;
   }
-  if (event.kind === "escalation")
-    return (
-      <Page>
-        <EscalationCard event={event} />
-      </Page>
-    );
   return <EventDetail event={event} />;
 }
 

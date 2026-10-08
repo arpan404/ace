@@ -22,13 +22,13 @@ test("answering an approval in Activity resolves it and takes it off the sidebar
 
   const approval = await card(approvalTitle);
   const views = screen.getByRole("navigation", { name: "App" });
-  // The approval and the three Deck decisions the Activity feed also holds.
-  expect(await within(views).findByLabelText("4 need you")).toBeTruthy();
+  // This fixture has one ordinary thread approval.
+  expect(await within(views).findByLabelText("1 needs you")).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Approve" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
-  expect(within(views).getByLabelText("3 need you")).toBeTruthy();
+  expect(within(views).queryByLabelText(/need.*you/)).toBeNull();
   expect(await screen.findByText("Approved · the agent continues")).toBeTruthy();
 
   // The daemon's interaction.closed event, not the click, is what the store now holds.

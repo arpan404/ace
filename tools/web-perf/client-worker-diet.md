@@ -39,7 +39,6 @@ Specific protocol costs explain the changes:
 | history.ts       | 4,124 eager |  4,153 lazy | Core imported provenance has its own module        |
 | agent-control.ts | 5,962 eager | 1,254 eager | Unused delegation schemas disappear                |
 | orchestration.ts | 4,289 eager | 1,894 eager | Unused schemas disappear                           |
-| conductor.ts     | 5,172 eager | 4,020 eager | Unused review and alternate plan schemas disappear |
 | screen-v2.ts     |  8,507 lazy |  3,151 lazy | Unused service-side schema constructions disappear |
 | Zod mini schemas | 5,591 eager |           0 | Worker envelopes reuse classic constructors        |
 

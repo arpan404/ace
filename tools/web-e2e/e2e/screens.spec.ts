@@ -51,7 +51,7 @@ const terminalTab = shortcutTab("/t/thread-cold-start", "ControlOrMeta+j", "zsh"
 const logsTab = shortcutTab("/t/thread-cold-start", "Control+Shift+l", "Logs");
 /**
  * Home lands on a thread (the last opened, else the top row). The design's hero was the last
- * one opened here; the top rows are a running deck's lanes.
+ * one opened here.
  */
 const home: Setup = async (page) => {
   await page.addInitScript(() => {
@@ -400,71 +400,6 @@ const screens: Record<string, Setup> = {
     await page.getByRole("main").waitFor();
   },
   "automation-new": visit("/automations/new", /New automation/),
-  deck: visit("/offshifts", "Resumable relay streams"),
-  "deck-lanes": async (page) => {
-    await visit("/offshifts", "Resumable relay streams")(page);
-    await page.getByRole("button", { name: "Lanes" }).click();
-  },
-  "deck-new": visit("/offshifts/new", "New offshift"),
-  "deck-escalation": visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s"),
-  "deck-question": async (page) => {
-    await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
-    await page
-      .getByRole("region", { name: "Escalated: Defer the first relay sync" })
-      .getByRole("button", { name: "Retry card" })
-      .click();
-    await page
-      .getByRole("region", { name: "Precompile Hermes bytecode needs your answer" })
-      .getByRole("radio")
-      .first()
-      .waitFor();
-  },
-  "deck-running": async (page) => {
-    await screens["deck-question"]!(page);
-    const asking = page.getByRole("region", {
-      name: "Precompile Hermes bytecode needs your answer",
-    });
-    await asking.getByRole("radio", { name: "Ship it in the APK" }).click();
-    await asking.getByRole("button", { name: "Answer" }).click();
-    await asking.waitFor({ state: "detached" });
-    await page.getByRole("button", { name: /^Lazy-load fonts and icons/ }).click();
-  },
-  "deck-done": visit("/offshifts/codex-app-server-048", "Codex app-server 0.48"),
-  "deck-cancelled": async (page) => {
-    await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
-    await page.getByRole("button", { name: "More actions" }).first().click();
-    await page.getByRole("menuitem", { name: "Cancel offshift…" }).click();
-    await page
-      .getByRole("dialog", { name: "Cancel this offshift?" })
-      .getByRole("button", { name: "Cancel offshift" })
-      .click();
-    await page.getByText("This offshift was cancelled.").waitFor();
-  },
-  "deck-stopped": staged(
-    'daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");',
-    async (page) => {
-      await visit("/offshifts/mobile-cold-start", "Mobile cold start under 1s")(page);
-      await page.getByText("The offshift can't take its next step.").waitFor();
-    },
-  ),
-  // Decks the design's world doesn't hold, staged on the fake conductor.
-  "deck-budget": staged(
-    'daemon.servicesWire.planning.conductor.stage("budget");',
-    visit("/offshifts/settings-sync", "Sync settings across devices"),
-  ),
-  "deck-unresponsive": staged(
-    'daemon.servicesWire.planning.conductor.stage("unresponsive");',
-    visit("/offshifts/export-threads", "Export threads as Markdown"),
-  ),
-  "deck-plan-review": staged(
-    'daemon.servicesWire.planning.conductor.stage("planning");',
-    async (page) => {
-      await visit("/offshifts/search-ranking", "Rank search results by recency")(page);
-      await page.getByRole("button", { name: "Review plan" }).click();
-      await page.getByRole("dialog", { name: "The offshift's plan" }).waitFor();
-    },
-  ),
-  // Skills opens on the first catalog entry.
   skills: async (page) => {
     await page.goto("/skills");
     await page.waitForURL(/\/skills\/.+/);
@@ -558,17 +493,6 @@ const screens: Record<string, Setup> = {
   "state-automations-error": staged('daemon.failRequests("automation.list");', async (page) => {
     await page.goto("/automations");
     await page.getByRole("main").getByText("Automations unavailable").waitFor();
-  }),
-  "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
-    await page.goto("/offshifts");
-    await page
-      .getByRole("status", { name: /^Loading/ })
-      .first()
-      .waitFor();
-  }),
-  "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
-    await page.goto("/offshifts");
-    await page.getByText("Offshifts unavailable").waitFor();
   }),
   "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
     // The thread's first page downloads the browser: the Browser tab shows its progress.

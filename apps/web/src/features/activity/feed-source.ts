@@ -1,7 +1,6 @@
 /*
  * The Activity feed from the daemon: pull-request, CI and mention events from the forge for
- * threads with a linked PR (`workspace.request` `pr.status`), and Deck escalations from the
- * conductor (`@/features/deck`). What has been read is the daemon's Activity read cursor
+ * threads with a linked PR (`workspace.request` `pr.status`). What has been read is the daemon's Activity read cursor
  * (`read-state.ts`).
  */
 import type { SidebarReader } from "@ace/client";
@@ -11,12 +10,10 @@ import { isActivityRead } from "@ace/projection/activity-reads";
 import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { useAutomationRuns } from "@/features/automations/index.ts";
-import { useDeckSender } from "@/features/deck/index.ts";
-import { useEscalations } from "./escalations.ts";
 import { pullRequestEvents, type FeedEvent, type LinkedThread } from "./feed-events.ts";
 import { useReadCursor, useReadState } from "./read-state.ts";
 
-export type { FeedAction, FeedEvent, FeedKind } from "./feed-events.ts";
+export type { FeedEvent, FeedKind } from "./feed-events.ts";
 
 export interface FeedSnapshot {
   events: readonly FeedEvent[];
@@ -40,27 +37,14 @@ export interface FeedSource {
   markUnread(ids: readonly string[]): void;
   /** Everything up to `at` is read. */
   markAllRead(at: number): void;
-  /** Take an escalation's decision; it leaves Needs you once the deck reports the gate closed. */
-  resolve(event: FeedEvent, actionId: string): Promise<void>;
 }
 
 export function useFeedSource(): FeedSource {
   const reads = useReadState();
-  const send = useDeckSender();
   return {
     markRead: (ids) => reads.mark(ids),
     markUnread: (ids) => reads.mark(ids, false),
     markAllRead: (at) => reads.markAllBefore(at),
-    async resolve(event, actionId) {
-      const action = event.actions?.find((candidate) => candidate.id === actionId);
-      if (!event.runId || !event.gateId || !action) throw new Error("not_found");
-      await send({
-        type: "conductor.approve",
-        runId: event.runId,
-        approval: { gateId: event.gateId, decision: action.id },
-      });
-      reads.mark([event.id]);
-    },
   };
 }
 
@@ -155,12 +139,11 @@ export const runAt = (run: AutomationRun) => run.finishedAt ?? run.startedAt;
 export function useFeed(): FeedSnapshot {
   const reads = useReadState();
   const cursor = useReadCursor();
-  const escalations = useEscalations();
   const pulls = usePullRequestEvents();
   const forge = pulls.events;
   const runsQuery = useAutomationRuns();
   const runs = runsQuery.data;
-  const events = useMemo(() => [...escalations, ...forge], [escalations, forge]);
+  const events = forge;
   const refs = useMemo(
     () => [
       ...events.map((event) => ({ id: event.id, at: event.at })),

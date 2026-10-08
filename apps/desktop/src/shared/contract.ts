@@ -105,7 +105,6 @@ export const DeepLink = z.discriminatedUnion("kind", [
     threadId: z.string().min(1),
     itemId: z.string().optional(),
   }),
-  z.object({ kind: z.literal("deck"), runId: z.string().optional() }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
@@ -117,8 +116,6 @@ export function deepLinkRoute(link: DeepLink): string {
   switch (link.kind) {
     case "thread":
       return `/t/${encodeURIComponent(link.threadId)}`;
-    case "deck":
-      return link.runId ? `/offshifts/${encodeURIComponent(link.runId)}` : "/offshifts";
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":
@@ -134,7 +131,6 @@ export const NotificationCategory = z.enum([
   "finished",
   "failed",
   "limited",
-  "deck",
   "automation",
   "ci",
 ]);

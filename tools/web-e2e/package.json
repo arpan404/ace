@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "e2e": "playwright test --project=fake --project=real-daemon --project=real-daemon-deck",
+    "e2e": "playwright test --project=fake --project=real-daemon",
     "screens": "playwright test --project=screens",
     "walkthrough": "playwright test --project=walkthrough",
     "daemon": "node src/real-daemon.ts",

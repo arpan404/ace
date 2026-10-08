@@ -164,7 +164,7 @@ export function conflictFor(
 /*
  * Call sites pass `keymap.x.keys`; this maps a default spelling back to its id so a rebinding
  * reaches them unchanged. Only global, rebindable shortcuts are in it: a key that means
- * something only in one context ("enter" in Activity, "j" on a deck) or that the platform owns
+ * something only in one context ("enter" in Activity) or that the platform owns
  * would otherwise capture every literal hint that happens to spell it. Those call sites, and
  * defaults two ids share ("mod+f"), pass the id instead.
  */

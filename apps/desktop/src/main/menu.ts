@@ -60,7 +60,6 @@ export function applicationMenu(options: {
       label: "File",
       submenu: [
         item("newThread"),
-        item("newDeck"),
         { type: "separator" },
         item("addProject"),
         { type: "separator" },

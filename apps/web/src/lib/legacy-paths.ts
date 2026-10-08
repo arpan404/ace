@@ -1,13 +1,9 @@
 /**
  * Addresses the app no longer serves, mapped to where their content lives now, so bookmarks,
- * notifications and old deep links still land somewhere. Deck is called Offshift in the UI: its
- * routes moved from `/deck…` (and the short-lived `/offsets…`) to `/offshifts…`; More's pages
- * moved to the profile menu (`/accounts`), a thread's Files tab and the search dialog.
+ * notifications and old deep links still land somewhere. More's pages moved to the profile
+ * menu (`/accounts`), a thread's Files tab and the search dialog.
  */
 export function legacyPath(pathname: string): string | undefined {
-  for (const old of ["/deck", "/offsets"])
-    if (pathname === old || pathname.startsWith(`${old}/`))
-      return `/offshifts${pathname.slice(old.length)}`;
   if (pathname === "/more" || pathname === "/more/" || pathname.startsWith("/more/accounts"))
     return "/accounts";
   // Files live in each thread's side panel, search in a dialog over any screen.

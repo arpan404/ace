@@ -14,7 +14,7 @@
 
   /* Layout. */
   --sidebar-w: 280px;
-  /* A view's own list beside its column (Offshifts, Automations, Skills, Activity). */
+  /* A view's own list beside its column (Automations, Skills, Activity). */
   --pane-w: 272px;
   --header-h: 50px;
   --column: 760px;
