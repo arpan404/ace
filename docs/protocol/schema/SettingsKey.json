@@ -24,6 +24,7 @@
     "browser.allowedOrigins",
     "browser.backend",
     "browser.backendLoss",
+    "browser.profile",
     "permissions.defaultMode",
     "approvals.policy",
     "notifications.enabled",

@@ -48,6 +48,13 @@
       ],
       "type": "string"
     },
+    "browser.profile": {
+      "enum": [
+        "persistent",
+        "ephemeral"
+      ],
+      "type": "string"
+    },
     "clients.keybindings": {
       "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
     },
@@ -351,6 +358,7 @@
     "browser.allowedOrigins",
     "browser.backend",
     "browser.backendLoss",
+    "browser.profile",
     "permissions.defaultMode",
     "approvals.policy",
     "notifications.enabled",

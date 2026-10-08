@@ -195,6 +195,7 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
   let hold: string | undefined;
   let redirectUrl: string | undefined;
   let controllerError: string | undefined;
+  let openError: string | undefined;
   const sendEvent = (sessionId: string, method: string, params: unknown) =>
     desktop.send(
       JSON.stringify({
@@ -215,6 +216,20 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     requests.emit(op.kind === "cdp" ? op.method : op.kind, message);
     if (op.kind === "cdp" && hold === op.method) return;
     let result: unknown = {};
+    // A failed open is closed by the daemon; there is no view left to close.
+    const settled = op.kind === "close" && !pages.has(message.sessionId);
+    if (op.kind === "purge" || settled || (op.kind === "open" && openError)) {
+      desktop.send(
+        JSON.stringify({
+          type: "browser.backend.response",
+          backendId: backend.id,
+          sessionId: message.sessionId,
+          id: message.id,
+          ...(op.kind === "open" ? { error: openError } : { result: {} }),
+        }),
+      );
+      return;
+    }
     if (op.kind === "open") {
       pages.set(message.sessionId, new FakePage());
       result = { url: "about:blank" };
@@ -266,6 +281,9 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     sendEvent,
     redirect(url: string) {
       redirectUrl = url;
+    },
+    failOpen(reason: string) {
+      openError = reason;
     },
     failController(reason: string) {
       controllerError = reason;

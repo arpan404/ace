@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BrowserOpen } from "./browser.ts";
+import { ThreadId, WorkspaceId } from "./ids.ts";
 const id = z.string().min(1).max(256);
 export const BrowserBackendKind = z.enum(["embedded", "headless"]);
 export const BrowserBackendPreference = z.enum(["auto", "embedded", "headless"]);
@@ -50,6 +51,11 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("controller"), lease: BrowserControllerLease }),
   z.object({ kind: z.literal("close") }),
+  /**
+   * The thread was deleted: drop its persistent partition, closing its view first. Not tied
+   * to an open session; `sessionId` is a fresh id for this request alone.
+   */
+  z.object({ kind: z.literal("purge"), threadId: ThreadId, workspaceId: WorkspaceId }),
 ]);
 export type BrowserBackendOperation = z.infer<typeof BrowserBackendOperation>;
 const session = z.object({ backendId: id, sessionId: id });

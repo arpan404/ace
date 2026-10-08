@@ -19,8 +19,9 @@ const reasons = {
 /**
  * The browser's address: shows the page at rest, edits in place, suggests addresses this thread
  * runs or visited as you type, and opens what you enter. Never searches the web for text that
- * isn't an address; it says so instead. Escape puts the page's address back. `readOnly` is a
- * preview's: the dev server's address, selectable to copy, in the same capsule.
+ * isn't an address; it says so instead. Escape puts the page's address back. At rest the site
+ * reads first and the rest of the address is muted; focused, the whole address is there to edit.
+ * `readOnly` is a preview's: the dev server's address, selectable to copy, in the same capsule.
  */
 export function AddressBar(props: {
   url: string | undefined;
@@ -40,6 +41,7 @@ export function AddressBar(props: {
   const [draft, setDraft] = useState<string>();
   const [active, setActive] = useState(-1);
   const [error, setError] = useState<string>();
+  const [focused, setFocused] = useState(false);
   const listId = useId();
   const hintId = useId();
   const errorId = useId();
@@ -47,6 +49,10 @@ export function AddressBar(props: {
   const text = draft ?? shown;
   const suggestions = editing ? suggestAddresses(draft, props.known ?? []) : [];
   const open = editing && suggestions.length > 0;
+  // At rest the field's own text is hidden under the same text with the site emphasised (the
+  // overlay centres vertically as the wrapper's only flex item).
+  const resting = !focused && !editing && text !== "";
+  const site = text.includes("://") ? text : text.split(/(?=[/?#])/)[0];
   const field = useRef<HTMLInputElement>(null);
   const go = (url: string) => {
     setDraft(undefined);
@@ -78,57 +84,76 @@ export function AddressBar(props: {
         ) : (
           <Icon icon={GlobeSimpleIcon} size={14} className="text-subtle-foreground" />
         )}
-        <input
-          ref={field}
-          {...(props.readOnly
-            ? {}
-            : {
-                role: "combobox",
-                "aria-expanded": open,
-                "aria-controls": listId,
-                "aria-autocomplete": "list" as const,
-                "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
-              })}
-          aria-label="Address"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : props.hint || props.disabled ? hintId : undefined}
-          // oxlint-disable-next-line jsx-a11y/no-autofocus -- a new browser tab starts at its address.
-          autoFocus={props.autoFocus}
-          readOnly={props.readOnly || props.disabled !== undefined}
-          placeholder="Enter an address"
-          value={text}
-          spellCheck={false}
-          autoComplete="off"
-          autoCapitalize="off"
-          onFocus={(event) => event.currentTarget.select()}
-          onBlur={() => {
-            setDraft(undefined);
-            setActive(-1);
-            setError(undefined);
-          }}
-          onChange={(event) => {
-            if (props.readOnly) return;
-            setDraft(event.target.value);
-            setActive(-1);
-            setError(undefined);
-          }}
-          onKeyDown={(event) => {
-            if (props.readOnly) return;
-            if (event.key === "Enter") submit();
-            else if (event.key === "Escape" && (editing || error)) {
-              setDraft(undefined);
-              setError(undefined);
+        <span className="relative flex h-full min-w-0 flex-1 items-center">
+          <input
+            ref={field}
+            {...(props.readOnly
+              ? {}
+              : {
+                  role: "combobox",
+                  "aria-expanded": open,
+                  "aria-controls": listId,
+                  "aria-autocomplete": "list" as const,
+                  "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+                })}
+            aria-label="Address"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : props.hint || props.disabled ? hintId : undefined}
+            // oxlint-disable-next-line jsx-a11y/no-autofocus -- a new browser tab starts at its address.
+            autoFocus={props.autoFocus}
+            readOnly={props.readOnly || props.disabled !== undefined}
+            placeholder="Enter an address"
+            value={text}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            data-editing={editing || undefined}
+            onFocus={(event) => {
+              setFocused(true);
               event.currentTarget.select();
-            } else if (event.key === "ArrowDown" && open)
-              setActive((active + 1) % suggestions.length);
-            else if (event.key === "ArrowUp" && open)
-              setActive(active <= 0 ? suggestions.length - 1 : active - 1);
-            else return;
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          className="h-full min-w-0 flex-1 bg-transparent text-center text-ui text-foreground outline-none placeholder:text-subtle-foreground focus:text-left read-only:cursor-default"
-        />
+            }}
+            onBlur={() => {
+              setFocused(false);
+              setDraft(undefined);
+              setActive(-1);
+              setError(undefined);
+            }}
+            onChange={(event) => {
+              if (props.readOnly) return;
+              setDraft(event.target.value);
+              setActive(-1);
+              setError(undefined);
+            }}
+            onKeyDown={(event) => {
+              if (props.readOnly) return;
+              if (event.key === "Enter") submit();
+              else if (event.key === "Escape" && (editing || error)) {
+                setDraft(undefined);
+                setError(undefined);
+                event.currentTarget.select();
+              } else if (event.key === "ArrowDown" && open)
+                setActive((active + 1) % suggestions.length);
+              else if (event.key === "ArrowUp" && open)
+                setActive(active <= 0 ? suggestions.length - 1 : active - 1);
+              else return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            className={cn(
+              "h-full w-full bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground focus:opacity-100 read-only:cursor-default",
+              resting && "opacity-0",
+            )}
+          />
+          {resting && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 truncate text-ui text-subtle-foreground"
+            >
+              <span className="text-foreground">{site}</span>
+              {text.slice(site?.length ?? 0)}
+            </span>
+          )}
+        </span>
       </div>
       <span id={hintId} className="sr-only">
         {props.disabled ?? props.hint}
