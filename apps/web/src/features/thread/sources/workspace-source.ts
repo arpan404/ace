@@ -47,7 +47,7 @@ const messages: Record<string, string> = {
   workspace_root_changed: "The thread's worktree moved. Try again.",
   thread_not_found: "The thread is gone.",
   script_not_found: "That script is no longer in the project.",
-  script_shell_unsupported: "Scripts can't run on this daemon's platform yet.",
+  script_shell_unsupported: "Scripts can't run on ace on this machine's platform yet.",
   editor_not_found: "That editor is no longer installed.",
   head_changed: "The branch moved since you looked. Review the changes and try again.",
   repository_mismatch: "The checkout's remote changed. Refresh and try again.",
@@ -56,13 +56,13 @@ const messages: Record<string, string> = {
   terminal_owned: "Close the thread's terminals first: the checkout can't move under them.",
   git_dirty_worktree: "Commit or discard the uncommitted changes first.",
   git_invalid_ref: "That branch doesn't exist in the project.",
-  engine_unavailable: "This daemon can't move a thread's checkout.",
+  engine_unavailable: "ace on this machine can't move a thread's checkout.",
 };
 
 export class WorkspaceError extends Error {
   readonly code: string;
   constructor(code: string) {
-    super(messages[code] ?? "The daemon couldn't do that.");
+    super(messages[code] ?? "ace couldn't do that.");
     this.name = "WorkspaceError";
     this.code = code;
   }

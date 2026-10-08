@@ -22,7 +22,7 @@ export class AutomationError extends Error {
 function automationErrorMessage(code: string | undefined): string {
   switch (code) {
     case "automation_unavailable":
-      return "This daemon's automation service isn't running.";
+      return "ace on this machine's automation service isn't running.";
     case "Automation service is stopped":
       return "Automations are turned off. Turn on Run automations in Settings › General to run one.";
     case "disabled_or_missing":
@@ -30,7 +30,7 @@ function automationErrorMessage(code: string | undefined): string {
     case "forbidden":
       return "This device isn't allowed to change automations.";
     default:
-      return code ? `The daemon refused that (${code}).` : "The daemon refused that.";
+      return code ? `ace refused that (${code}).` : "ace refused that.";
   }
 }
 

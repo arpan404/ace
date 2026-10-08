@@ -79,7 +79,7 @@ function Browser(props: TabViewProps) {
   const viewport = viewportById(page.data.viewport);
   const shownUrl =
     page.state.phase === "idle" ? (page.bound ? page.live?.url : page.data.url) : page.state.url;
-  const offline = page.online ? undefined : "The daemon is offline";
+  const offline = page.online ? undefined : "ace is offline";
   const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
   useHotkey(keymap.takeControl.keys, control.toggle, { enabled: page.bound });
   // In the desktop app the page itself is a native view drawn over this tab's page area.
@@ -240,7 +240,7 @@ function Browser(props: TabViewProps) {
               onClick: page.back,
               keys: "mod+[",
               reason: !page.online
-                ? "the daemon is offline"
+                ? "ace is offline"
                 : page.canBack
                   ? undefined
                   : "no earlier page in this tab",
@@ -249,7 +249,7 @@ function Browser(props: TabViewProps) {
               onClick: page.forward,
               keys: "mod+]",
               reason: !page.online
-                ? "the daemon is offline"
+                ? "ace is offline"
                 : page.canForward
                   ? undefined
                   : "no later page in this tab",
@@ -257,11 +257,7 @@ function Browser(props: TabViewProps) {
             reload={{
               onClick: page.reload,
               keys: "mod+r",
-              reason: !page.online
-                ? "the daemon is offline"
-                : shownUrl
-                  ? undefined
-                  : "open a page first",
+              reason: !page.online ? "ace is offline" : shownUrl ? undefined : "open a page first",
             }}
             loading={loading}
           />

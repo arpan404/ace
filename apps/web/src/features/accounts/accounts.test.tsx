@@ -158,7 +158,7 @@ test("when the daemon can't list accounts, the page says so in words and reads t
 
   expect(
     await screen.findByText(
-      "The daemon didn't answer. This loads again once it does.",
+      "ace didn't answer. This loads again once it does.",
       {},
       { timeout: 4000 },
     ),

@@ -52,7 +52,7 @@ export function AddAcpAgent() {
   });
   if (!backend.canAddAcpAgent)
     return (
-      <DisabledReason reason="Needs a newer daemon">
+      <DisabledReason reason="Needs a newer version of ace">
         <Button size="sm" disabled>
           Add
         </Button>

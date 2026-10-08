@@ -1,3 +1,4 @@
+import { useHostName } from "@/lib/host-name.ts";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { useQuery } from "@tanstack/react-query";
@@ -28,9 +29,15 @@ interface QueueRow {
   depth: number;
 }
 const columns: DataColumns<QueueRow> = [
-  { accessorKey: "name", header: "Queue" },
-  { accessorKey: "depth", header: "Depth" },
+  { accessorKey: "name", header: "Pending work" },
+  { accessorKey: "depth", header: "Waiting" },
 ];
+
+const queueLabels: Record<string, string> = {
+  intents: "Actions",
+  notifications: "Notifications",
+  "output.chunks": "Output updates",
+};
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 const ms = (value: number | null) => (value === null ? "–" : `${value.toFixed(1)} ms`);
@@ -41,6 +48,7 @@ const ms = (value: number | null) => (value === null ? "–" : `${value.toFixed(
  */
 export function DaemonHealth() {
   const client = useClient();
+  const host = useHostName() ?? "This machine";
   const connection = useDaemonConnection();
   const toast = useToast();
   const ready = useConnectionState() === "ready";
@@ -50,15 +58,19 @@ export function DaemonHealth() {
     refetchInterval: 15_000,
   });
   const queues = useMemo(
-    () => Object.entries(health.data?.queues ?? {}).map(([name, depth]) => ({ name, depth })),
+    () =>
+      Object.entries(health.data?.queues ?? {}).map(([name, depth]) => ({
+        name: queueLabels[name] ?? "Other work",
+        depth,
+      })),
     [health.data],
   );
-  if (!ready) return <p className="text-sm text-muted-foreground">Waiting for the daemon…</p>;
-  if (health.isPending) return <ListSkeleton label="daemon health" shape="row" rows={3} />;
+  if (!ready) return <p className="text-sm text-muted-foreground">Waiting for ace…</p>;
+  if (health.isPending) return <ListSkeleton label="ace health" shape="row" rows={3} />;
   if (health.isError)
     return (
       <div role="alert" className="flex items-center gap-3 text-sm text-muted-foreground">
-        Couldn't read daemon health.
+        Couldn't read ace health.
         <Button size="sm" variant="ghost" onClick={() => void health.refetch()}>
           Try again
         </Button>
@@ -74,7 +86,7 @@ export function DaemonHealth() {
     );
   };
   const rows: [string, string][] = [
-    ["Socket", connection.url],
+    ["Machine", host],
     ["Memory", mb(data.memory.rssBytes)],
     ["Heap", `${mb(data.memory.heapUsedBytes)} of ${mb(data.memory.heapTotalBytes)}`],
     ["Sessions", data.activeSessions === null ? "–" : String(data.activeSessions)],
@@ -91,7 +103,7 @@ export function DaemonHealth() {
           </div>
         ))}
       </dl>
-      <DataTable caption="Daemon queues" columns={columns} data={queues} empty="No queues." />
+      <DataTable caption="Pending work" columns={columns} data={queues} empty="No queues." />
       <div>
         <Button size="sm" variant="ghost" onClick={copy}>
           Copy diagnostics

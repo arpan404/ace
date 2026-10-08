@@ -35,10 +35,10 @@ const control = "size-7";
  * a base branch's diff.
  */
 const unavailable = [
-  { label: "Staged", reason: "The daemon doesn't report the git index yet" },
+  { label: "Staged", reason: "ace doesn't report the git index yet" },
   {
     label: "Branch",
-    reason: "Comparing with the base branch needs a branch diff the daemon can't send yet",
+    reason: "Comparing with the base branch needs a branch diff ace can't send yet",
   },
 ] as const;
 

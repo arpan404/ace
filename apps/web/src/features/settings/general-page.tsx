@@ -6,14 +6,12 @@ import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
-import { DaemonSettings } from "./daemon-settings.tsx";
 import { RecoverySettings } from "./recovery-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
@@ -35,7 +33,6 @@ export function GeneralSettings() {
     settingKeys.autoSettle,
     settingRow("threads.autoSettleAfter").title,
   );
-  const fake = useDaemonConnection().mode === "fake";
   const note = useNotConnectedNote();
   return (
     <>
@@ -71,10 +68,9 @@ export function GeneralSettings() {
         <SettingSwitch
           setting={settingKeys.automations}
           entry="automations.enabled"
-          description="Scheduled and repository-event automations run on this daemon. Off, none start, not even by hand."
+          description="Automations run on this machine. Turn this off to stop new runs, including manual runs."
         />
       </SettingSection>
-      {!fake && <DaemonSettings />}
     </>
   );
 }

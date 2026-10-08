@@ -45,7 +45,7 @@ function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?
 
 async function connectWith(value: string, options: { url?: string; flipRemember?: boolean } = {}) {
   if (options.url) {
-    const address = await screen.findByLabelText("Daemon address");
+    const address = await screen.findByLabelText("ace address");
     await userEvent.clear(address);
     await userEvent.type(address, options.url);
   }
@@ -56,13 +56,13 @@ async function connectWith(value: string, options: { url?: string; flipRemember?
 
 test("without a token the app asks for one and says how to get it", async () => {
   boot();
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to ace" });
   expect(screen.getByLabelText("Token").getAttribute("aria-describedby")).toBeTruthy();
   const hint = document.getElementById(
     screen.getByLabelText("Token").getAttribute("aria-describedby") ?? "",
   );
   expect(hint?.textContent).toMatch(/run ace token and paste the result/);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
+  expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe(url);
 
   await connectWith("not-a-token");
   expect((await screen.findByRole("alert")).textContent).toMatch(/64 hexadecimal characters/);
@@ -109,9 +109,7 @@ test("pasting the link `ace start` opens fills in the token and the address", as
   await user.click(field);
   await user.paste(`http://127.0.0.1:4242/#token=${token}&daemon=ws://127.0.0.1:5151/`);
   expect(field.value).toBe(token);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(
-    "ws://127.0.0.1:5151/",
-  );
+  expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe("ws://127.0.0.1:5151/");
 });
 
 test("a token the daemon rejects returns to the form, says why and selects the token", async () => {
@@ -138,7 +136,7 @@ test("a link to a daemon on another machine asks first, and declining keeps the 
     rememberedToken: token,
     fragment: `#token=${attacker}&daemon=wss://evil.example/`,
   });
-  await screen.findByRole("heading", { name: "Connect to this daemon?" });
+  await screen.findByRole("heading", { name: "Connect to ace on this machine?" });
   expect(screen.getByText("wss://evil.example/")).toBeTruthy();
   // The safe answer is the default, and says what it keeps.
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Don't connect" }));
@@ -177,7 +175,7 @@ test("disconnecting forgets the token and returns to the connection screen", asy
   // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
   await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to ace" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
   expect(session.getItem("ace.daemon.token")).toBeNull();
 });
@@ -190,7 +188,7 @@ test("a client that loads on demand connects once it arrives, and disconnecting 
   // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
   await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
-  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  await screen.findByRole("heading", { name: "Connect to ace" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
 });
 
@@ -201,7 +199,7 @@ test("a daemon that later rejects the token sends the window back to the form wi
   daemon.disconnectAll(4001);
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toMatch(/didn't accept this token/);
-  expect(screen.getByLabelText<HTMLInputElement>("Daemon address").value).toBe(url);
+  expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe(url);
   expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
   within(alert).getByText(/copy it again/);
 });

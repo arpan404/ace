@@ -53,7 +53,7 @@ export function RecoverySettings() {
       />
       <SettingRow
         {...unresponsiveRow}
-        description="No provider events for this long marks a thread unresponsive."
+        description="If the agent sends no updates for this long, mark the thread as not responding."
       >
         <DaemonSlot control={unresponsive}>
           <Select

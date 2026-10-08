@@ -23,7 +23,7 @@ export function EnableRow(props: { use: ComputerUse }) {
   const id = useId();
   const { snapshot } = use;
   const description = snapshot.unavailable
-    ? "This daemon has no screen helper, so agents can't use apps here."
+    ? "ace on this machine has no screen helper, so agents can't use apps here."
     : !snapshot.connected
       ? "Connecting to the screen helper…"
       : "Agents can ask to use apps on this Mac, in the background while you keep working. You approve each app.";
@@ -206,7 +206,7 @@ export function Permissions(props: { use: ComputerUse }) {
       <EmptyState
         variant="inline"
         icon={MonitorIcon}
-        title="No screen helper on this daemon."
+        title="No screen helper on ace on this machine."
         description="Computer use runs on a Mac with the ace desktop app installed."
       />
     );

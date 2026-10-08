@@ -18,5 +18,5 @@ export function sendFailure(code: string | undefined, payload?: CommandPayload):
   }
   if (code === "limit") return "This device has too much waiting to send. Try again in a moment.";
   if (code === "storage") return "This browser couldn't save the message.";
-  return code ? refusalMessage(code) : "The daemon didn't take it.";
+  return code ? refusalMessage(code) : "ace didn't take it.";
 }

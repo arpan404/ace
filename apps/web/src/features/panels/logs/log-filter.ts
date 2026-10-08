@@ -19,7 +19,7 @@ export const logSources: readonly LogSource[] = [
 ];
 
 export const sourceLabels: Record<LogSource, string> = {
-  daemon: "Daemon",
+  daemon: "ace",
   session: "Sessions",
   agent: "Subagents",
   turn: "Turns",

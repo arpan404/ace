@@ -9,7 +9,7 @@ import type { Script } from "../sources/workspace-source.ts";
 import { useTaskKeys } from "./use-task-keys.ts";
 
 const failure = (error: unknown) =>
-  error instanceof Error ? error.message : "The daemon couldn't do that.";
+  error instanceof Error ? error.message : "ace couldn't do that.";
 
 interface Shell {
   id: string;

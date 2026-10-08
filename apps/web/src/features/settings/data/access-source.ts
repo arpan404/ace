@@ -43,16 +43,16 @@ function explain(error: unknown, origin: string): Error {
   if (error instanceof ClientError && error.code === "daemon") {
     if (error.message === "HTTP 409")
       return new Error(
-        "Remote access is off. Restart the daemon with ACE_LISTEN=lan or ACE_LISTEN=tailscale.",
+        "Remote access is off. Enable it on the machine running ace, then try pairing again.",
       );
     if (error.message === "HTTP 401" || error.message === "HTTP 403")
-      return new Error("Only the daemon's own token can manage paired devices.");
+      return new Error("Only this machine's access token can manage paired devices.");
     if (error.message === "HTTP 404") return new Error("That device is no longer paired.");
   }
   if (error instanceof ClientError && error.code === "auth")
     return new Error("Paired devices need a wss:// address or one on 127.0.0.1.");
-  if (error instanceof TypeError) return new Error(`Couldn't reach the daemon at ${origin}.`);
-  return error instanceof Error ? error : new Error("The daemon refused that.");
+  if (error instanceof TypeError) return new Error(`Couldn't reach ace at ${origin}.`);
+  return new Error("Couldn't update remote access. Check the connection and try again.");
 }
 
 function options(endpoint: DaemonEndpoint): AccessOptions {
@@ -72,7 +72,7 @@ export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessG
   let client: AccessClient | undefined;
   const run = async <T>(call: (client: AccessClient) => Promise<T>): Promise<T> => {
     try {
-      if (!settings) throw new Error("Connect to a daemon first.");
+      if (!settings) throw new Error("Connect to a machine running ace first.");
       client ??= new AccessClient(settings);
       return await call(client);
     } catch (error) {

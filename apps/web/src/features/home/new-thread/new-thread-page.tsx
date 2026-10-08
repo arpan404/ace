@@ -243,7 +243,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   value: admitted.mode,
                   loading: !!provider && (permissions.loading || defaultMode === undefined),
                   unavailable: permissions.failed
-                    ? "The daemon couldn't say what this provider can gate"
+                    ? "ace couldn't say what this provider can gate"
                     : undefined,
                   coverage: permissionCoverageNote(
                     permissions.capabilities,

@@ -168,9 +168,6 @@ export function LoadFailed(props: {
       <h2 className="text-md font-medium text-foreground">{props.failure.title}</h2>
       <p className="mt-1 text-ui text-muted-foreground">{addressHost(props.url) ?? props.url}</p>
       <p className="mt-3 text-ui leading-normal text-muted-foreground">{props.failure.detail}</p>
-      {props.failure.code && (
-        <p className="mt-3 font-mono text-xs text-subtle-foreground">{props.failure.code}</p>
-      )}
       <div className="mt-6 flex gap-2">
         <Button size="sm" onClick={props.onReload}>
           <ArrowClockwiseIcon aria-hidden size={14} />
@@ -258,8 +255,8 @@ export function Offline() {
   return (
     <EmptyState
       icon={WifiSlashIcon}
-      title="The daemon is offline"
-      description="The page comes back once ace reconnects to the daemon."
+      title="ace is offline"
+      description="The page comes back once ace reconnects to ace."
     />
   );
 }

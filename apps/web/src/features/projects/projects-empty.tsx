@@ -28,7 +28,7 @@ export function ProjectsEmptyState(props: { heading?: boolean; className?: strin
       {...(props.heading ? { heading: true } : {})}
       {...(props.className ? { className: props.className } : {})}
       title="Add your first project"
-      description="A project is a folder on the daemon's machine. Open one you have, start a new one, or clone a repository; agents work there with your own tools."
+      description="A project is a folder on this machine. Open one you have, start a new one, or clone a repository; agents work there with your own tools."
       action={
         <div className="flex flex-wrap justify-center gap-2">
           {actions.map((action) => (

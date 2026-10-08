@@ -66,7 +66,7 @@ function NoPreview(props: { source: PreviewSource; threadId: string; canForward:
       description={
         props.canForward
           ? "When this thread starts a dev server, its page shows here. Preview one that's already running by its port."
-          : "This daemon runs no preview gateway, so dev servers can't be previewed here. Open them in the Browser instead."
+          : "ace on this machine runs no preview gateway, so dev servers can't be previewed here. Open them in the Browser instead."
       }
       action={
         <div className="flex flex-col items-center gap-4">
@@ -100,7 +100,7 @@ function PortForm(props: { source: PreviewSource; threadId: string }) {
           () => setSending(false),
           () => {
             setSending(false);
-            setError(`The daemon couldn't preview port ${parsed}.`);
+            setError(`ace couldn't preview port ${parsed}.`);
           },
         );
       }}

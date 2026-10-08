@@ -109,7 +109,7 @@ test("the next run is the daemon's schedule, or says automations are off on this
   await setAutomations(app, false);
   expect(await screen.findByText(/Automations are off on this machine/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Turn on Run automations" })).toBeTruthy();
-  expect(next()).not.toContain("Calculated by the daemon");
+  expect(next()).not.toContain("Calculated by ace");
 });
 
 test("a run reads when it started, how long it took and what started it", async () => {
@@ -459,7 +459,7 @@ test("when the daemon can't list automations, the view says so once, in words, w
   await app.open("/automations");
   const aside = within(await screen.findByRole("complementary", { name: "Automations" }));
   expect(await main().findByText("Automations unavailable", {}, { timeout: 4000 })).toBeTruthy();
-  expect(main().getByText("The daemon didn't answer. This loads again once it does.")).toBeTruthy();
+  expect(main().getByText("ace didn't answer. This loads again once it does.")).toBeTruthy();
   // The sidebar doesn't tell the same failure again in other words.
   expect(aside.getByText("Couldn't load the list.")).toBeTruthy();
   expect(aside.queryByText("Automations unavailable")).toBeNull();

@@ -126,8 +126,8 @@ function Unavailable(props: { onRetry?: () => void }) {
       title="Couldn't load this item"
       description={
         props.onRetry
-          ? "The daemon didn't answer."
-          : "Not connected to the daemon. It loads once the connection is back."
+          ? "ace didn't answer."
+          : "Not connected to ace. It loads once the connection is back."
       }
       action={
         props.onRetry ? (

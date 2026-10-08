@@ -52,7 +52,7 @@ export function AutomationScreen(props: { id: string }) {
             title={error ? "Couldn't load this automation" : "Automation not found"}
             description={
               error
-                ? "The daemon didn't answer. It will be read again once the connection is back."
+                ? "ace didn't answer. It will be read again once the connection is back."
                 : "It may have been deleted on another device."
             }
             action={
@@ -220,7 +220,7 @@ function useAutomationControls(automation: Automation | undefined) {
   const toast = useToast();
   const navigate = useNavigate();
   const failed = (error: unknown) =>
-    toast.error({ title: error instanceof Error ? error.message : "The daemon didn't answer." });
+    toast.error({ title: error instanceof Error ? error.message : "ace didn't answer." });
   return {
     toggle(enabled: boolean) {
       if (!automation) return;

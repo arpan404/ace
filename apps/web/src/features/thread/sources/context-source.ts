@@ -23,7 +23,7 @@ export interface ContextSource {
 type Result = ContextResult["result"];
 
 const messages: Partial<Record<Extract<Result, { kind: "error" }>["code"], string>> = {
-  busy: "The daemon is busy with other uploads. Try again in a moment.",
+  busy: "ace is busy with other uploads. Try again in a moment.",
   invalid_image: "That image can't be read.",
   forbidden: "This device may not add files to the thread.",
   not_found: "The thread is gone.",
@@ -46,7 +46,7 @@ const is = <K extends Result["kind"]>(
 
 function expect<K extends Result["kind"]>(result: Result, kind: K): Extract<Result, { kind: K }> {
   if (result.kind === "error") throw new ContextError(messages[result.code] ?? result.message);
-  if (!is(result, kind)) throw new ContextError("The daemon answered something unexpected.");
+  if (!is(result, kind)) throw new ContextError("ace answered something unexpected.");
   return result;
 }
 
@@ -82,7 +82,7 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     },
     async upload(thread, file, progress) {
       if (thread.draft && !thread.id)
-        throw new ContextError("The daemon isn't ready for files yet. Try again in a moment.");
+        throw new ContextError("ace isn't ready for files yet. Try again in a moment.");
       const target = {
         sha256: await sha256(file),
         bytes: file.size,

@@ -25,7 +25,7 @@ export function projectFailure(error: unknown): ProjectProblem & { code: string 
     const code = "code" in error ? String(error.code) : "unavailable";
     return code === "daemon"
       ? { code: error.message, ...projectProblem(error.message) }
-      : { code, message: "Couldn't reach the daemon. Check the connection and try again." };
+      : { code, message: "Couldn't reach ace. Check the connection and try again." };
   }
   return { code: "project_failed", ...projectProblem("project_failed") };
 }

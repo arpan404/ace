@@ -106,8 +106,8 @@ export function FileViewer(props: {
       return (
         <EmptyState
           icon={WifiSlashIcon}
-          title="The daemon is offline"
-          description={`${name} loads once ace reconnects to the daemon.`}
+          title="ace is offline"
+          description={`${name} loads once ace reconnects to ace.`}
         />
       );
     if (props.error)

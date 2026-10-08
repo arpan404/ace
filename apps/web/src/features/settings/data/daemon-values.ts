@@ -74,7 +74,8 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
     get: () => values,
     async set(key, value) {
       const parsedKey = SettingsKey.safeParse(key);
-      if (!parsedKey.success) throw new Error(`The daemon has no setting named ${key}.`);
+      if (!parsedKey.success)
+        throw new Error("That setting is unavailable. Update ace and try again.");
       const json = z.json().parse(value);
       // Optimistic: the page shows the new value at once and goes back if the daemon refuses.
       const before = values;
@@ -89,10 +90,9 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
       const reply = await client
         .request({ type: "settings.set", key, value: json, layer: { kind: "global" } })
         .catch(() => {
-          throw refused("Couldn't reach the daemon to save that.");
+          throw refused("Couldn't reach ace to save that.");
         });
-      if (!reply.ok)
-        throw refused(reply.diagnostics[0]?.message ?? "The daemon refused that value.");
+      if (!reply.ok) throw refused("Couldn't save that setting. Check the value and try again.");
       if (reply.entries.length) apply(reply.entries, false);
     },
   };

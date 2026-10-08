@@ -15,10 +15,10 @@ const timers: Schedule = (delayMs, run) => {
 };
 
 const statusWords: Record<string, string> = {
-  starting: "Starting the daemon…",
-  restarting: "Restarting the daemon…",
-  running: "The daemon is up; opening ace…",
-  unreachable: "Waiting for the daemon to answer…",
+  starting: "Starting ace…",
+  restarting: "Restarting ace…",
+  running: "Opening ace…",
+  unreachable: "Waiting for ace to answer…",
 };
 
 /**
@@ -77,7 +77,7 @@ export function StartingScreen(props: {
             )}
             {daemon && (
               <Button size="sm" onClick={() => void daemon.restart()}>
-                Restart daemon
+                Restart ace
               </Button>
             )}
             {props.onConnectManually && (

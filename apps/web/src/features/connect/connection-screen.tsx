@@ -11,9 +11,9 @@ import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
-  auth: "The daemon didn't accept this token. It changes when the daemon's home is reset; copy it again.",
-  protocol: "This app and the daemon are different versions. Update ace on one of them.",
-  failed: "The daemon closed the connection. Check the address, then try again.",
+  auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
+  protocol: "This app and the connected machine use different versions of ace. Update ace on both.",
+  failed: "ace closed the connection. Check the address, then try again.",
 };
 
 /**
@@ -41,17 +41,18 @@ export function ConnectionScreen() {
   return (
     <ConnectCard labelledBy="connect-title">
       <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
-        Connect to your daemon
+        Connect to ace
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">
         {connection.desktop ? (
           <>
-            This computer doesn't run ace's daemon itself. Connect to one on another machine at a
-            secure <code className="font-mono text-sm">wss://</code> address.
+            This computer doesn't run ace itself. Connect to one on another machine at a secure{" "}
+            <code className="font-mono text-sm">wss://</code> address.
           </>
         ) : (
           <>
-            ace runs on your machine and drives the coding CLIs you already use. Start it with{" "}
+            ace runs on your machine and connects to the coding agents you already use. Start it
+            with{" "}
             <code className="rounded-xs bg-secondary px-1 font-mono text-sm whitespace-nowrap text-foreground">
               ace start
             </code>
@@ -81,10 +82,10 @@ function alertFor(connection: DaemonConnection): ReactNode {
   if (status.kind !== "unreachable") return undefined;
   if (status.offline) return "This device is offline. ace connects once the network is back.";
   const where = <code className="font-mono text-sm break-all">{connection.url}</code>;
-  if (connection.desktop) return <>Couldn't reach the daemon at {where}. Is it running?</>;
+  if (connection.desktop) return <>Couldn't reach ace at {where}. Is it running?</>;
   return (
     <>
-      Couldn't reach {where}. Is the daemon running on that machine? Start it there with{" "}
+      Couldn't reach {where}. Is ace running on that machine? Start it there with{" "}
       <CopyCommand command="ace start" />
     </>
   );

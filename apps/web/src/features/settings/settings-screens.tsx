@@ -74,7 +74,7 @@ export function RemoteSettingsScreen() {
   return (
     <SettingsBody
       page="Remote devices"
-      lede="Machines running the ace daemon that this app can see. Threads from every machine merge into one list."
+      lede="Machines running ace that this app can connect to. Threads from every machine merge into one list."
     >
       <RemoteDevices />
     </SettingsBody>
@@ -93,7 +93,7 @@ export function KeyboardSettingsScreen() {
   return (
     <SettingsBody
       page="Keyboard"
-      lede="Click a shortcut and press the new keys. Changes apply at once on every device using this daemon."
+      lede="Click a shortcut and press the new keys. Changes apply at once on every device using ace on this machine."
     >
       <KeyboardShortcuts />
     </SettingsBody>

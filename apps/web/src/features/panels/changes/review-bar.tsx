@@ -67,7 +67,7 @@ export function ReviewBar(props: {
       {anySent && (
         <IconButton
           icon={ArrowClockwiseIcon}
-          label="Check what the daemon holds for these comments"
+          label="Check what ace holds for these comments"
           size="sm"
           className="size-7"
           disabled={refreshing}

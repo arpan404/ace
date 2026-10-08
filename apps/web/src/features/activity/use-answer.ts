@@ -1,3 +1,4 @@
+import { refusalMessage } from "@/lib/daemon-command.ts";
 import type { ClientApi } from "@ace/client";
 import { useClient, useIntentSender } from "@ace/client-react";
 import { InteractionId, type InteractionResolution } from "@ace/protocol";
@@ -36,8 +37,7 @@ export function useAnswer(interactionId: string) {
   };
   const failure =
     state === "failed"
-      ? (failures[intent?.error ?? ""] ??
-        `The daemon rejected the answer (${intent?.error ?? "unknown"}).`)
+      ? (failures[intent?.error ?? ""] ?? refusalMessage(intent?.error ?? "unknown"))
       : error
         ? "Couldn't send the answer."
         : undefined;

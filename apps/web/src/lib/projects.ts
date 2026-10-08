@@ -23,7 +23,7 @@ async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Pro
       { signal },
     );
     const result = reply.result;
-    if (result.kind !== "workspaces") throw new Error("The daemon didn't list its projects.");
+    if (result.kind !== "workspaces") throw new Error("ace didn't list its projects.");
     projects.push(...result.workspaces);
     if (!result.next) break;
     after = result.next;

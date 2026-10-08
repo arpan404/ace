@@ -1,3 +1,4 @@
+import { refusalMessage } from "@/lib/daemon-command.ts";
 import type { ClientApi } from "@ace/client";
 import type {
   CommandPayload,
@@ -75,12 +76,12 @@ async function review(client: ClientApi, payload: CommandPayload): Promise<Revie
 }
 
 const refusals: Record<string, string> = {
-  not_found: "the daemon no longer has this review",
+  not_found: "ace no longer has this review",
   not_actionable: "the comment is resolved or its lines are gone",
-  unsupported_by_fake_daemon: "this daemon can't do that yet",
+  unsupported_by_fake_daemon: "ace on this machine can't do that yet",
 };
 const refusal = (code: string | undefined) =>
-  (code && refusals[code]) ?? code ?? "the daemon refused the review command";
+  (code && refusals[code]) ?? refusalMessage(code ?? "unknown");
 
 function patch(
   store: LocalStore<readonly ReviewDraft[]>,
@@ -116,7 +117,7 @@ export async function sendDrafts(
       },
     });
     const sessionId = opened.session?.id;
-    if (!sessionId) throw new Error("the daemon did not open a review session");
+    if (!sessionId) throw new Error("ace did not open a review session");
     const commentIds: string[] = [];
     for (const draft of drafts) {
       // A comment recorded in another session (an older checkout) is recorded again here.
@@ -130,7 +131,7 @@ export async function sendDrafts(
         position: { file: draft.file, side: draft.side, start: draft.line, end: draft.line },
         text: draft.text,
       });
-      if (!comment) throw new Error("the daemon did not record the comment");
+      if (!comment) throw new Error("ace did not record the comment");
       const commentId = comment.id;
       commentIds.push(commentId);
       patch(store, new Set([draft.key]), (d) => ({ ...d, commentId, sessionId }));

@@ -121,8 +121,8 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
           title={`Nothing is previewed on port ${props.port}`}
           description={
             canForward
-              ? "The dev server stopped, or it was never forwarded for this thread. It shows here again as soon as the daemon sees it."
-              : "This daemon runs no preview gateway, so it can't show ports. Open the address in your own browser instead."
+              ? "The dev server stopped, or it was never forwarded for this thread. It shows here again as soon as ace sees it."
+              : "ace on this machine runs no preview gateway, so it can't show ports. Open the address in your own browser instead."
           }
           action={
             canForward ? (
@@ -134,7 +134,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
                   run(
                     "forward",
                     () => preview.forward(props.threadId, props.port),
-                    `The daemon couldn't preview port ${props.port}.`,
+                    `ace couldn't preview port ${props.port}.`,
                   )
                 }
               >

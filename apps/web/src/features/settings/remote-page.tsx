@@ -1,7 +1,7 @@
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection, SettingSummaryRow } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -19,7 +19,8 @@ import type { Machine } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
 import { settingRow } from "./settings-index.ts";
-import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useHostName } from "@/lib/host-name.ts";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { UnavailableError } from "@/boot/fake-backend.ts";
 
 const platformNames: Record<Machine["platform"], string> = {
@@ -52,45 +53,33 @@ export function RemoteDevices() {
 function Machines() {
   const backend = useSettingsBackend();
   const machines = useQuery(settingsQueries.machines(backend));
-  const connection = useDaemonConnection();
+  const host = useHostName() ?? "This machine";
   const now = useNow();
   const unlisted = machines.error instanceof UnavailableError;
   return (
     <SettingSection label="Machines" card>
       {machines.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
-      {unlisted && (
-        <SettingRow
-          title={hostOf(connection.url)}
-          description="This machine · Other machines appear here once the daemon can list them."
-        />
-      )}
+      {unlisted && <SettingRow title={host} description="Connected to this machine" />}
       {machines.isError && !unlisted && <LoadError error={machines.error} />}
       {machines.data?.map((machine) => (
-        <SettingRow
+        <SettingSummaryRow
           key={machine.id}
-          title={machine.name}
+          title={machine.current ? host : machine.name}
           description={[
             machine.current ? "This machine" : platformNames[machine.platform],
             `${machine.threads} thread${machine.threads === 1 ? "" : "s"}`,
-            `daemon ${machine.daemonVersion}`,
+            `ace ${machine.daemonVersion}`,
             ...(machine.current ? [] : [lastSeen(machine.lastSeenAt, now)]),
           ].join(" · ")}
         >
-          <span className="text-sm text-muted-foreground">
-            {machine.online ? "Online" : "Offline"}
-          </span>
-        </SettingRow>
+          <StatusLabel
+            tone={machine.online ? "done" : "idle"}
+            label={machine.online ? "Online" : "Offline"}
+          />
+        </SettingSummaryRow>
       ))}
     </SettingSection>
   );
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "This machine";
-  }
 }
 
 function LoadError(props: { error: Error }) {
@@ -112,11 +101,11 @@ function PairedDevices() {
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
         <p className="py-3.5 text-sm text-muted-foreground">
-          No phones or browsers are paired with this daemon.
+          No phones or browsers are paired with ace on this machine.
         </p>
       )}
       {devices.data?.map((device) => (
-        <SettingRow
+        <SettingSummaryRow
           key={device.id}
           title={device.name}
           description={[
@@ -133,7 +122,7 @@ function PairedDevices() {
           >
             Revoke
           </Button>
-        </SettingRow>
+        </SettingSummaryRow>
       ))}
       <SettingRow
         {...settingRow("remote.pair")}
@@ -155,7 +144,7 @@ function RevokeDialog(props: { device: Device | undefined; onDone(): void }) {
     mutationFn: (device: Device) => backend.revoke(device.id),
     onSuccess: async (_, device) => {
       await queryClient.invalidateQueries({ queryKey: settingsQueries.devices(backend).queryKey });
-      toast.add({ title: `${device.name} can no longer reach this daemon` });
+      toast.add({ title: `${device.name} can no longer reach ace on this machine` });
       props.onDone();
     },
   });

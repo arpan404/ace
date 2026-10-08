@@ -47,7 +47,7 @@ export function HandoffScreen(props: {
   return (
     <ConnectCard labelledBy="handoff-title">
       <h1 id="handoff-title" className="mt-4 text-xl font-semibold tracking-title">
-        Connect to this daemon?
+        Connect to ace on this machine?
       </h1>
       <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
         A link asked ace to connect to:

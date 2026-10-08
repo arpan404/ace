@@ -38,7 +38,7 @@ async function readReadiness(client: ClientApi, signal?: AbortSignal): Promise<P
 
 async function readOnboarding(client: ClientApi, signal?: AbortSignal): Promise<Onboarding> {
   const reply = await client.request({ type: "onboarding.query" }, signal ? { signal } : {});
-  if (!reply.result.ok) throw new Error("Setup is unavailable on this daemon");
+  if (!reply.result.ok) throw new Error("Setup is unavailable on ace on this machine");
   return reply.result;
 }
 

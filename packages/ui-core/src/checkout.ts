@@ -85,7 +85,7 @@ export function prBlocker(checkout: Checkout): string | undefined {
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
-  if (!checkout.repository) return "The daemon found no GitHub or GitLab remote for this checkout.";
+  if (!checkout.repository) return "ace found no GitHub or GitLab remote for this checkout.";
   return undefined;
 }
 

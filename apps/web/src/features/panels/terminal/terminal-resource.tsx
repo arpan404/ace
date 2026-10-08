@@ -1,3 +1,4 @@
+import { describeDaemonError, daemonErrorCode } from "@/lib/daemon-command.ts";
 import {
   ArrowClockwiseIcon,
   ClipboardTextIcon,
@@ -52,9 +53,9 @@ import { useExitCode, useThreadTerminals } from "./use-terminals.ts";
  */
 
 const failure = (error: unknown) =>
-  error instanceof Error && error.message !== "terminal_failed"
-    ? `The daemon said: ${error.message.replaceAll("_", " ")}.`
-    : "The daemon couldn't start a shell.";
+  error instanceof Error && error.name === "ClientError"
+    ? describeDaemonError(daemonErrorCode(error))
+    : "ace couldn't start a shell. Try opening a new terminal.";
 
 export default function TerminalTabView(props: TabViewProps) {
   return (
@@ -138,7 +139,7 @@ function StartingTerminal(props: TabViewProps) {
         <Spinner />
         {link === "connected"
           ? "Starting a shell in this thread's checkout…"
-          : "Waiting for the daemon to start a shell…"}
+          : "Waiting for ace to start a shell…"}
       </span>
     </div>
   );
@@ -184,7 +185,7 @@ function PtyTerminal(props: TabViewProps) {
       <EmptyState
         icon={WarningCircleIcon}
         title="Couldn't read this thread's terminals"
-        description="The daemon didn't answer. Check that it's running, then try again."
+        description="ace didn't answer. Check that it's running, then try again."
         action={
           <Button
             size="sm"
@@ -205,7 +206,7 @@ function PtyTerminal(props: TabViewProps) {
       <div role="status" className="grid h-full place-items-center">
         <span className="flex items-center gap-2 text-ui text-muted-foreground">
           <Spinner />
-          {link === "connected" ? "Connecting to the terminal…" : "Waiting for the daemon…"}
+          {link === "connected" ? "Connecting to the terminal…" : "Waiting for ace…"}
         </span>
       </div>
     );
@@ -214,7 +215,7 @@ function PtyTerminal(props: TabViewProps) {
       <EmptyState
         icon={TerminalWindowIcon}
         title="This terminal has ended"
-        description="The daemon no longer runs this shell; it may have restarted. Its output is gone."
+        description="ace no longer runs this shell; it may have restarted. Its output is gone."
         action={
           <div className="flex gap-2">
             <Button
@@ -297,7 +298,7 @@ function LiveTerminal(
           role="status"
           className="flex h-8 shrink-0 items-center gap-2 px-3 text-xs text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]"
         >
-          <Spinner /> Reconnecting. Output printed meanwhile replays when the daemon is back.
+          <Spinner /> Reconnecting. Output printed meanwhile replays when ace is back.
         </p>
       )}
       <ContextMenu>

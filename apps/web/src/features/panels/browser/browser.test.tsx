@@ -186,7 +186,8 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
   await goTo(panel, "localhost:4321");
   const failure = await within(panel).findByRole("alert");
   expect(within(failure).getByText("This site can't be reached")).toBeTruthy();
-  expect(within(failure).getByText("ERR_CONNECTION_REFUSED")).toBeTruthy();
+  expect(failure.textContent).not.toContain("ERR_CONNECTION_REFUSED");
+  expect(failure.textContent).toContain("refused to connect. Is its server running?");
   // The failed address stays in the bar, with Reload beside the explanation.
   expect((address(panel) as HTMLInputElement).value).toBe("localhost:4321");
   expect(within(failure).getByRole("button", { name: "Reload" })).toBeTruthy();

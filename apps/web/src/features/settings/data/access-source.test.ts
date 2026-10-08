@@ -29,13 +29,13 @@ test("the daemon's access routes live on the same host and port as its socket", 
 test("pairing while remote access is off says how to turn it on", async () => {
   const access = endpoint(async () => new Response("{}", { status: 409 }));
 
-  await expect(access.pair(["read"])).rejects.toThrow(/ACE_LISTEN=lan or ACE_LISTEN=tailscale/);
+  await expect(access.pair(["read"])).rejects.toThrow(/Enable it on the machine running ace/);
 });
 
 test("a paired device's token can't manage pairing, and the page says why", async () => {
   const access = endpoint(async () => new Response("{}", { status: 403 }));
 
-  await expect(access.devices()).rejects.toThrow("Only the daemon's own token");
+  await expect(access.devices()).rejects.toThrow("Only this machine's access token");
 });
 
 test("a pairing carries the one-time code from its link, for typing by hand", async () => {

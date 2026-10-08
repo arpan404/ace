@@ -53,7 +53,7 @@ export function DownloadsButton(props: { downloads: readonly BrowserDownloadView
       <PopoverContent align="end" className="flex w-80 flex-col gap-1">
         <PopoverTitle className="text-ui font-medium">Downloads</PopoverTitle>
         <p className="text-xs text-subtle-foreground">
-          Kept in this thread on the daemon's machine. Nothing opens on its own.
+          Kept in this thread on this machine. Nothing opens on its own.
         </p>
         <ul aria-label="Downloads" className="mt-1 flex flex-col">
           {downloads.map((download) => (

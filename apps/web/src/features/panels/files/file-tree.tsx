@@ -181,7 +181,7 @@ export function FileTree(props: {
 
   let status: ReactNode = null;
   if (searching && !online)
-    status = <Note>The daemon is offline. Search works again once it reconnects.</Note>;
+    status = <Note>ace is offline. Search works again once it reconnects.</Note>;
   else if (searching && search.error)
     status = (
       <Note role="alert">
@@ -358,8 +358,8 @@ export function FileTree(props: {
         <p className="flex shrink-0 items-start gap-1.5 border-t px-3 py-2 text-xs leading-4 text-subtle-foreground">
           <InfoIcon aria-hidden size={12} className="mt-0.5 shrink-0" />
           <span>
-            Showing files this thread touched. The daemon can't list folders yet; find any other
-            file by name above.
+            Showing files this thread touched. ace can't list folders yet; find any other file by
+            name above.
           </span>
         </p>
       )}

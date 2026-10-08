@@ -40,18 +40,18 @@ const sentences: Record<string, string> = {
   OUTSIDE_WORKSPACE: "That path is outside the thread's checkout.",
   BUSY: "The thread's worktree is busy (being prepared or moved). Try again in a moment.",
   CONFLICT: "The file changed while it was being read. Try again.",
-  QUOTA: "The daemon's file transfer limit was reached. Try again later.",
-  UNSUPPORTED: "This daemon can't serve files for the thread.",
-  offline: "The daemon is offline. Files load again once it reconnects.",
-  timeout: "The daemon didn't answer in time.",
+  QUOTA: "ace's file transfer limit was reached. Try again later.",
+  UNSUPPORTED: "ace on this machine can't serve files for the thread.",
+  offline: "ace is offline. Files load again once it reconnects.",
+  timeout: "ace didn't answer in time.",
   forbidden: "This device may not search the thread's checkout.",
   not_found: "The thread's checkout wasn't found.",
-  unsupported: "This daemon can't search the thread's checkout.",
+  unsupported: "ace on this machine can't search the thread's checkout.",
 };
 
 /** A daemon error code as a `CheckoutError`. */
 export function fromCode(code: string): CheckoutError {
-  return new CheckoutError(code, sentences[code] ?? "The daemon couldn't read the checkout.");
+  return new CheckoutError(code, sentences[code] ?? "ace couldn't read the checkout.");
 }
 
 /** Turn whatever a request threw into a `CheckoutError` a view can show. */

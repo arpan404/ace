@@ -123,7 +123,7 @@ export function AddProjectDialog(props: {
               {removed
                 ? `${machine.name} was removed from your machines. Choose a machine to carry on.`
                 : machine.primary
-                  ? "Reconnecting to the daemon… Folders and actions come back once it answers."
+                  ? "Reconnecting to ace… Folders and actions come back once it answers."
                   : `${machine.name} isn't connected. Folders and actions come back once it is.`}
             </p>
           )}

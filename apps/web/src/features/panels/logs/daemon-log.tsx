@@ -35,7 +35,7 @@ export function DaemonLog(props: TabViewProps) {
     refetchInterval: refreshMs,
     read: async (client) => {
       const reply = await client.request({ type: "diagnostics.health" });
-      if (!reply.ok || !reply.health) throw new Error(reply.error ?? "The daemon didn't answer.");
+      if (!reply.ok || !reply.health) throw new Error(reply.error ?? "ace didn't answer.");
       return reply.health;
     },
   });
@@ -60,7 +60,7 @@ export function DaemonLog(props: TabViewProps) {
         ) : health.isError ? (
           <EmptyState
             icon={WarningCircleIcon}
-            title="Couldn't read the daemon's health"
+            title="Couldn't read ace's health"
             description={health.error.message}
             action={
               <Button size="sm" variant="outline" onClick={() => void health.refetch()}>
@@ -69,12 +69,7 @@ export function DaemonLog(props: TabViewProps) {
             }
           />
         ) : (
-          <ListSkeleton
-            label="the daemon's health"
-            shape="row"
-            rows={5}
-            className="max-w-[640px]"
-          />
+          <ListSkeleton label="ace's health" shape="row" rows={5} className="max-w-[640px]" />
         )}
       </div>
     </div>
@@ -94,7 +89,7 @@ function LogFolder(props: { directory: string | undefined }) {
     );
   return (
     <div className="mt-4 flex max-w-[640px] flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-      <span>The daemon's own log isn't streamed yet.</span>
+      <span>ace's own log isn't streamed yet.</span>
       {props.directory && (
         <Button
           size="sm"

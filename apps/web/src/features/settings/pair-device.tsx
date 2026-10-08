@@ -89,7 +89,7 @@ export function PairDevice() {
           <DialogTitle>Pair a device</DialogTitle>
           <DialogDescription>
             The code works once and expires after ten minutes. Pairing needs remote access to be on
-            for this daemon.
+            for ace on this machine.
           </DialogDescription>
         </DialogHeader>
         {paired ? (

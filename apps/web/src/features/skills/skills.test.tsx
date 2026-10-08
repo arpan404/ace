@@ -361,7 +361,7 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
 
   expect(
     await screen.findByText(
-      "The daemon didn't answer. This loads again once it does.",
+      "ace didn't answer. This loads again once it does.",
       {},
       { timeout: 4000 },
     ),

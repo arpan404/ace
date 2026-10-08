@@ -167,7 +167,7 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
   }),
   ERR_NAME_NOT_RESOLVED: (host) => ({
     title: "This site can't be reached",
-    detail: `The daemon's machine couldn't find ${host}. Check the address.`,
+    detail: `This machine couldn't find ${host}. Check the address.`,
   }),
   ERR_UNSAFE_PORT: (host) => ({
     title: "This port is blocked",
@@ -175,7 +175,7 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
   }),
   ERR_INTERNET_DISCONNECTED: () => ({
     title: "No internet connection",
-    detail: "The daemon's machine is offline.",
+    detail: "This machine is offline.",
   }),
   ERR_CONNECTION_TIMED_OUT: (host) => ({
     title: "This site took too long to respond",
@@ -190,7 +190,7 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
 /**
  * A browser command's failure as a person reads it: Chromium's net errors by name, the browser
  * service's refusals (control held elsewhere, an origin waiting for approval) in plain words, and
- * anything else as the daemon said it.
+ * unknown failures with a recovery step.
  */
 export function describeBrowserFailure(message: string, url: string): BrowserFailure {
   const host = addressHost(url) ?? url;
@@ -219,6 +219,10 @@ export function describeBrowserFailure(message: string, url: string): BrowserFai
     };
   if (/browser closed/i.test(message))
     return { title: "The page was closed", detail: "Open the address again to start a new page." };
-  if (/paused/i.test(message)) return { title: "The browser is paused", detail: message };
-  return { title: "This page couldn't load", detail: message };
+  if (/paused/i.test(message))
+    return { title: "The browser is paused", detail: "Resume the browser, then reload the page." };
+  return {
+    title: "This page couldn't load",
+    detail: "Check the address and connection, then reload the page.",
+  };
 }

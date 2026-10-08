@@ -35,7 +35,7 @@ export function useAccountActions() {
     /** A new account for `provider`, named `label`; its id, to sign it in. */
     add: async (provider: NativeAccountProvider, label: string): Promise<string> => {
       const reply = await settle(client.request({ type: "accounts.add", provider, label }));
-      if (!reply.account) throw new Error("The daemon didn't add the account.");
+      if (!reply.account) throw new Error("ace didn't add the account.");
       return reply.account.id;
     },
     rename: (instanceId: string, label: string) =>

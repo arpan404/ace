@@ -10,7 +10,7 @@ import type { GitDialogKind } from "./git-dialog.tsx";
 const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
 
 const failure = (error: unknown) =>
-  error instanceof Error ? error.message : "The daemon couldn't do that.";
+  error instanceof Error ? error.message : "ace couldn't do that.";
 
 /**
  * Commit, push and open a PR for a thread's checkout, with the commit and PR forms and the toasts

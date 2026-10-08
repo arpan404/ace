@@ -1,4 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
+import { useMachineName } from "@/lib/host-name.ts";
 import { CaretDownIcon, GitBranchIcon, GitForkIcon, LaptopIcon } from "@phosphor-icons/react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -20,12 +21,11 @@ export function EnvironmentStrip(props: {
   controls: string;
 }) {
   const checkout = useCheckout(props.thread);
-  const machine = useThreadMeta(props.thread.id)?.details?.machine;
+  const host = useMachineName(useThreadMeta(props.thread.id)?.details?.machine);
   const compact = useComposerCompact();
   if (!checkout) return null;
   const worktree = checkout.mode === "worktree";
   const branch = checkout.branch ?? "detached HEAD";
-  const host = machine ? machine.name || machine.host : undefined;
   const Place = worktree ? GitForkIcon : GitBranchIcon;
   return (
     <AttachedCard label="Environment" strip cardKey="environment">

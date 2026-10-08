@@ -1,3 +1,4 @@
+import { useMachineName } from "@/lib/host-name.ts";
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText } from "@ace/ui-core";
 import type { ThreadStatus } from "@ace/protocol";
@@ -55,6 +56,7 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
 function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const details = meta?.details;
+  const host = useMachineName(details?.machine);
   const { checkout, state } = useCheckoutState(props.thread);
   const sources = useThreadSources();
   const toast = useToast();
@@ -95,7 +97,7 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
     ],
     ["Commit", checkout?.head?.slice(0, 7)],
     ["Path", path],
-    ["Machine", details?.machine ? details.machine.name || details.machine.host : undefined],
+    ["Machine", host],
   ];
   return (
     <>
@@ -141,7 +143,7 @@ function EnvironmentItems(props: { thread: ThreadRef; onClose(): void }) {
             className="max-h-[min(360px,var(--available-height))] overflow-y-auto"
           >
             {branches.length === 0 ? (
-              <MenuItem disabled reason="They show here once the daemon has read them">
+              <MenuItem disabled reason="They show here once ace has read them">
                 Loading branches
               </MenuItem>
             ) : (
@@ -224,7 +226,7 @@ export function ProjectRow(props: { thread: ThreadRef; onClose(): void }) {
   const details = meta?.details;
   const worktree = (checkout?.mode ?? details?.mode) === "worktree";
   const place = worktree ? "Worktree" : "Local";
-  const machine = details?.machine ? details.machine.name || details.machine.host : undefined;
+  const machine = useMachineName(details?.machine);
   // The composer's environment pill draws the same place with the same glyph.
   const Glyph = worktree ? GitForkIcon : LaptopIcon;
   return (

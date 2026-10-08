@@ -117,7 +117,7 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
   if (quiet.length)
     open.push(`${plural(quiet.length, "agent has", "agents have")} stopped sending anything`);
   if (!open.length)
-    return { title: "Why isn't this done?", body: "The daemon is still settling this thread." };
+    return { title: "Why isn't this done?", body: "ace is still finishing this thread." };
   const body = [sentence(list(open))];
   if (settles.length) body.push(sentence(`The thread settles when ${list(settles)}`));
   return { title: "Why isn't this done?", body: body.join(" ") };

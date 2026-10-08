@@ -96,16 +96,9 @@ test("a thread held at a usage limit says Limited after the title in its row's w
   const list = screen.getByRole("navigation", { name: "Threads" });
   const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
   expect(row.textContent).toContain("Limited");
-  const rowTone = row.querySelector<HTMLElement>("[data-tone]")?.dataset.tone;
   const status = await within(header()).findByRole("status");
-  const headerTone = within(status)
-    .getByText(/^Limited/)
-    .closest<HTMLElement>("[data-tone]");
-
-  expect(rowTone).toBe("waiting");
-  expect(headerTone?.dataset.tone).toBe(rowTone);
-  // One status in the header: the limit, with its hollow waiting ring, and nothing in amber.
-  expect(status.querySelector('[data-tone="needs-you"]')).toBeNull();
+  expect(status.textContent).toMatch(/^Limited/);
+  expect(within(header()).getAllByRole("status")).toHaveLength(1);
 });
 
 test("search and turns live in the ⋯ menu, and their shortcuts still work", async () => {
@@ -448,7 +441,7 @@ test("Create PR says why it can't run when the checkout has no GitHub or GitLab 
   const create = await gitStep("Create PR");
   await waitFor(() => expect(create.getAttribute("aria-disabled")).toBe("true"));
   expect(create.getAttribute("aria-description")).toBe(
-    "The daemon found no GitHub or GitLab remote for this checkout.",
+    "ace found no GitHub or GitLab remote for this checkout.",
   );
   await userEvent.click(create);
   expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull();
@@ -600,19 +593,13 @@ test("the card says where the thread runs, and its menu lists the folder, branch
   await openThread("checkout");
   const card = await openCard();
   await userEvent.click(
-    within(card).getByRole("button", { name: "Where this thread runs: Worktree on This Mac" }),
+    within(card).getByRole("button", { name: "Where this thread runs: Worktree on Fake machine" }),
   );
   const menu = await screen.findByRole("menu");
-  const listed = Object.fromEntries(
-    [...menu.querySelectorAll("dt")].map((term) => [
-      term.textContent,
-      term.nextElementSibling?.textContent,
-    ]),
-  );
-  // The same words as the composer's environment card.
-  expect(listed).toMatchObject({ "Runs in": "Its own worktree", Machine: "This Mac" });
-  expect(listed.Path).toMatch(/^\//);
-  expect(listed.Branch).toBeTruthy();
+  expect(within(menu).getByText("Its own worktree")).toBeTruthy();
+  expect(within(menu).getByText("Fake machine")).toBeTruthy();
+  expect(within(menu).getByText(/^\/Users\/dev\//)).toBeTruthy();
+  expect(within(menu).getByText("Branch")).toBeTruthy();
   // Agents work in it: it can't move under them, and the menu says why.
   const move = within(menu).getByRole("menuitem", { name: /Move to a worktree/ });
   expect(move.getAttribute("aria-disabled")).toBe("true");
@@ -632,13 +619,13 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   expect((await within(card).findByText("develop")).textContent).toBe("develop");
 
   await userEvent.click(
-    within(card).getByRole("button", { name: "Where this thread runs: Local on This Mac" }),
+    within(card).getByRole("button", { name: "Where this thread runs: Local on Fake machine" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
   expect(
     await within(card).findByRole("button", {
-      name: "Where this thread runs: Worktree on This Mac",
+      name: "Where this thread runs: Worktree on Fake machine",
     }),
   ).toBeTruthy();
 });

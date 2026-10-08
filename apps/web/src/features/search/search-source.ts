@@ -37,7 +37,7 @@ export class SearchError extends Error {
 const errors: Record<string, string> = {
   search_invalid_query: "That search can't be run. Try fewer or simpler words.",
   search_cursor_stale: "The index changed while you were reading. Search again.",
-  search_failed: "The daemon couldn't search right now.",
+  search_failed: "ace couldn't search right now.",
 };
 
 /** Results per page; "Show more" reads the next. */

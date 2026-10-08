@@ -7,8 +7,11 @@ test("machines and paired devices are listed; revoking a device removes it after
   const app = harness();
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
-  expect(await within(machines).findByText("studio-mac")).toBeTruthy();
-  expect(within(machines).getByText(/^Linux · 3 threads · daemon 0\.8\.0/)).toBeTruthy();
+  expect(await within(machines).findByText("Fake machine")).toBeTruthy();
+  await userEvent.hover(within(machines).getByText("build-box"));
+  expect((await screen.findByRole("tooltip")).textContent).toMatch(
+    /^Linux · 3 threads · ace 0\.8\.0/,
+  );
 
   const devices = screen.getByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();
@@ -21,7 +24,9 @@ test("machines and paired devices are listed; revoking a device removes it after
   await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
   await waitFor(() => expect(within(devices).queryByText("iPhone 16 Pro")).toBeNull());
   expect(within(devices).getByText("iPad Air")).toBeTruthy();
-  expect(await screen.findByText("iPhone 16 Pro can no longer reach this daemon")).toBeTruthy();
+  expect(
+    await screen.findByText("iPhone 16 Pro can no longer reach ace on this machine"),
+  ).toBeTruthy();
   expect(app.daemon.access.list().map((device) => device.name)).toEqual(["iPad Air"]);
 });
 
