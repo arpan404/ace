@@ -13,6 +13,7 @@
         "connecting",
         "disabled",
         "failed",
+        "needs_auth",
         "unknown"
       ],
       "type": "string"

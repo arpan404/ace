@@ -123,6 +123,7 @@ export async function daemonClaudeAdapter(
         };
         unbind = mcp.providers.bind(
           ctx.threadId,
+          "claude",
           boundControls,
           lease?.principal.signal ?? ctx.signal,
         );

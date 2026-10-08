@@ -276,40 +276,6 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
   launched.mockRestore();
 });
 
-test("Sources shows enabled ace tools and opens their settings", async () => {
-  await openThread();
-  const sources = within(await openCard()).getByRole("region", { name: "Sources" });
-  await within(sources).findByText("Project tools");
-  expect(within(sources).queryByText("Devices")).toBeNull();
-  await userEvent.click(within(sources).getByRole("button", { name: "Notifications" }));
-  expect(await screen.findByRole("heading", { name: "Notifications" })).toBeTruthy();
-});
-
-test("Sources reconnects, disables and enables a provider server", async () => {
-  await openThread();
-  const sources = within(await openCard()).getByRole("region", { name: "Sources" });
-  await userEvent.click(
-    await within(sources).findByRole("button", { name: "Reconnect Documentation" }),
-  );
-  await waitFor(() => expect(within(sources).queryByText("Failed")).toBeNull());
-  await userEvent.click(within(sources).getByRole("button", { name: "Disable Documentation" }));
-  expect(await within(sources).findByText("Disabled")).toBeTruthy();
-  await userEvent.click(within(sources).getByRole("button", { name: "Enable Documentation" }));
-  await waitFor(() => expect(within(sources).queryByText("Disabled")).toBeNull());
-});
-
-test("Add MCP server saves a command and keeps existing servers", async () => {
-  await openThread();
-  const sources = within(await openCard()).getByRole("region", { name: "Sources" });
-  await userEvent.click(await within(sources).findByRole("button", { name: "Add MCP server" }));
-  const dialog = await screen.findByRole("dialog", { name: "Add MCP server" });
-  await userEvent.type(within(dialog).getByLabelText("Name"), "docs");
-  await userEvent.type(within(dialog).getByLabelText("Command"), "docs-mcp");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Add server" }));
-  expect(await within(sources).findByText("docs")).toBeTruthy();
-  expect(within(sources).getByText("Project tools")).toBeTruthy();
-});
-
 test("the branch keeps its complete status and one commit entry point", async () => {
   const branch = "feature/a-very-long-branch-name-that-needs-a-tooltip";
   const app = harness();
@@ -335,11 +301,18 @@ test("the branch keeps its complete status and one commit entry point", async ()
   expect(screen.queryByRole("menuitem", { name: /^Commit/ })).toBeNull();
 });
 
-test("the work card keeps live Sources controls and leaves file tools to the side panel launcher", async () => {
-  await openThread();
+test("a provider MCP server waiting for its own sign-in shows nowhere in the thread", async () => {
+  const app = harness();
+  app.daemon.mcp.servers.set("claude", [{ name: "vercel", status: "needs_auth" }]);
+  app.play(idleThread("thread-mcp", sketch)).runUntilBlocked();
+  await app.open("/t/thread-mcp");
+  await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  expect(within(card).getByRole("region", { name: "Sources" })).toBeTruthy();
-  expect(within(card).queryByRole("button", { name: /^Files:/ })).toBeNull();
+  await within(card).findByText("sketch/parser");
+  expect(within(card).queryByRole("region", { name: "Sources" })).toBeNull();
+  // Nothing in the header, card, transcript, composer or sidebar names the server or its state.
+  expect(screen.queryAllByText(/vercel|not signed in|MCP|connector/i)).toHaveLength(0);
+  expect(screen.queryAllByRole("alert")).toHaveLength(0);
 });
 
 test("another thread opens with the card closed", async () => {

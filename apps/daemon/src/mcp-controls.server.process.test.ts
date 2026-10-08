@@ -10,6 +10,7 @@ test("native MCP controls require thread authority and stop working after the pr
   let projectStatus = "failed";
   providers.bind(
     f.thread.id,
+    f.thread.provider,
     {
       async status() {
         return [
@@ -18,7 +19,7 @@ test("native MCP controls require thread authority and stop working after the pr
         ];
       },
       async replace(servers) {
-        if ("broken" in servers) throw new Error("Native connection refused");
+        if ("broken" in servers) throw new Error("synthetic native stderr sentinel");
         dynamic = servers;
         return { added: Object.keys(servers), removed: [], errors: {} };
       },
@@ -50,6 +51,28 @@ test("native MCP controls require thread authority and stop working after the pr
     servers: { rejected: {} },
   });
   expect(await reader.next()).toMatchObject({ type: "error", code: "forbidden" });
+  reader.send({
+    type: "mcp.provider.sources",
+    provider: f.thread.provider,
+    requestId: "provider-read",
+  });
+  expect(await reader.next()).toMatchObject({
+    type: "mcp.result",
+    provider: f.thread.provider,
+    requestId: "provider-read",
+    result: { live: true },
+  });
+  reader.send({
+    type: "mcp.provider.disable",
+    provider: f.thread.provider,
+    name: "project",
+    requestId: "provider-denied",
+  });
+  expect(await reader.next()).toMatchObject({
+    type: "error",
+    code: "forbidden",
+    requestId: "provider-denied",
+  });
   const host = await f.connect();
   await host.next();
   host.send({
@@ -92,7 +115,7 @@ test("native MCP controls require thread authority and stop working after the pr
     type: "error",
     code: "mcp_failed",
     requestId: "broken",
-    message: "Native connection refused",
+    message: "Provider MCP control failed",
   });
   lifetime.abort();
   host.send({ type: "mcp.status", threadId: f.thread.id, requestId: "expired" });
@@ -101,4 +124,62 @@ test("native MCP controls require thread authority and stop working after the pr
     code: "mcp_failed",
     requestId: "expired",
   });
+});
+
+test("Settings reaches the provider's live MCP servers without a thread, and a server waiting for sign-in says so", async () => {
+  const providers = new McpProviderSessions();
+  const f = await setup({ mcp: { providers } });
+  const provider = f.thread.provider;
+  const other = provider === "codex" ? "claude" : "codex";
+  const lifetime = new AbortController();
+  let vercel = "needs-auth";
+  providers.bind(
+    f.thread.id,
+    provider,
+    {
+      async status() {
+        return [
+          { name: "vercel", status: vercel },
+          { name: "ace", status: "connected" },
+        ];
+      },
+      async replace() {
+        return {};
+      },
+      async reconnect(name) {
+        if (name === "vercel") vercel = "connected";
+      },
+      async enable() {},
+      async disable() {},
+    },
+    lifetime.signal,
+  );
+  const host = await f.connect();
+  await host.next();
+  const sources = async (scope: typeof provider, requestId: string) => {
+    host.send({ type: "mcp.provider.sources", provider: scope, requestId });
+    return host.next();
+  };
+  expect(await sources(provider, "before")).toEqual({
+    type: "mcp.result",
+    provider,
+    requestId: "before",
+    result: {
+      groups: [],
+      servers: [{ name: "vercel", status: "needs_auth" }],
+      live: true,
+      canAdd: false,
+      appliesNextTurn: false,
+    },
+  });
+  host.send({ type: "mcp.provider.reconnect", provider, name: "vercel", requestId: "reconnect" });
+  expect(await host.next()).toMatchObject({ type: "mcp.result", requestId: "reconnect" });
+  expect(await sources(provider, "after")).toMatchObject({
+    result: { servers: [{ name: "vercel", status: "connected" }] },
+  });
+  expect(await sources(other, "other")).toMatchObject({ result: { live: false, servers: [] } });
+  host.send({ type: "mcp.provider.reconnect", provider: other, name: "vercel", requestId: "idle" });
+  expect(await host.next()).toMatchObject({ type: "error", code: "mcp_failed", requestId: "idle" });
+  lifetime.abort();
+  expect(await sources(provider, "ended")).toMatchObject({ result: { live: false, servers: [] } });
 });

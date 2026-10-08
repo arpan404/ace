@@ -43,8 +43,7 @@ export interface ServerOptions {
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
-  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers"> &
-    Partial<Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "groups">>;
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   devices?: DevicesService;

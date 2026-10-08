@@ -86,10 +86,12 @@ export const McpServerInput = z.discriminatedUnion("transport", [
 export type McpServerInput = z.infer<typeof McpServerInput>;
 export const McpSourceServer = z.object({
   name: z.string().min(1).max(256),
-  status: z.enum(["connected", "connecting", "disabled", "failed", "unknown"]),
+  /** `needs_auth`: the server waits for its own sign-in. It never says anything about the provider. */
+  status: z.enum(["connected", "connecting", "disabled", "failed", "needs_auth", "unknown"]),
 });
 export const McpSources = z.object({
-  groups: z.array(z.string().max(64)).max(16),
+  /** No longer filled (ace's own tools live in the side panel); kept so older clients still parse. */
+  groups: z.array(z.string().max(64)).max(16).default([]),
   servers: z.array(McpSourceServer).max(512),
   live: z.boolean(),
   canAdd: z.boolean(),
@@ -98,17 +100,20 @@ export const McpSources = z.object({
 export type McpSources = z.infer<typeof McpSources>;
 
 const providerRequest = z.object({ requestId: z.string().min(1).max(512), threadId: ThreadId });
+/** Provider-wide scope for Settings: the provider's most recent live session the caller may read. */
+const providerScope = z.object({ requestId: z.string().min(1).max(512), provider: ProviderKind });
 const serverName = z.string().min(1).max(256);
+const addedName = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/)
+  .refine((name) => name !== "ace")
+  .meta({ "x-ace-constraint": "The service-owned name ace is reserved." });
 export const McpProviderRequest = z.discriminatedUnion("type", [
   providerRequest.extend({ type: z.literal("mcp.status") }),
   providerRequest.extend({ type: z.literal("mcp.sources") }),
   providerRequest.extend({
     type: z.literal("mcp.add"),
-    name: z
-      .string()
-      .regex(/^[A-Za-z0-9_-]{1,64}$/)
-      .refine((name) => name !== "ace")
-      .meta({ "x-ace-constraint": "The service-owned name ace is reserved." }),
+    name: addedName,
     server: McpServerInput,
   }),
   providerRequest.extend({
@@ -121,9 +126,23 @@ export const McpProviderRequest = z.discriminatedUnion("type", [
   providerRequest.extend({ type: z.literal("mcp.reconnect"), name: serverName }),
   providerRequest.extend({ type: z.literal("mcp.enable"), name: serverName }),
   providerRequest.extend({ type: z.literal("mcp.disable"), name: serverName }),
+  providerScope.extend({ type: z.literal("mcp.provider.sources") }),
+  providerScope.extend({
+    type: z.literal("mcp.provider.add"),
+    name: addedName,
+    server: McpServerInput,
+  }),
+  providerScope.extend({ type: z.literal("mcp.provider.reconnect"), name: serverName }),
+  providerScope.extend({ type: z.literal("mcp.provider.enable"), name: serverName }),
+  providerScope.extend({ type: z.literal("mcp.provider.disable"), name: serverName }),
 ]);
-export const McpProviderResult = providerRequest.extend({
+export type McpProviderRequest = z.infer<typeof McpProviderRequest>;
+/** Answers a thread-scoped request with its `threadId`, a provider-scoped one with its `provider`. */
+export const McpProviderResult = z.object({
   type: z.literal("mcp.result"),
+  requestId: z.string().min(1).max(512),
+  threadId: ThreadId.optional(),
+  provider: ProviderKind.optional(),
   result: z.unknown(),
 });
 
