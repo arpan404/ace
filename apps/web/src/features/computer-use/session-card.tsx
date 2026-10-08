@@ -23,6 +23,7 @@ export function SessionCard(props: {
   threadId?: string | undefined;
   /** Draw the live picture (off in compact lists such as the rail's popover). */
   live?: boolean;
+  fallback?: "group" | "row";
 }) {
   const { state, use } = props;
   const holderName = useAgentLabel(state.holder?.threadId, state.holder?.agentId);
@@ -42,7 +43,7 @@ export function SessionCard(props: {
       )}
       <div className="flex min-w-0 flex-col gap-2 p-3">
         <div className="flex min-w-0 items-center gap-2">
-          <AppMark name={view.app} />
+          <AppMark name={view.app} bundleId={view.bundleId} fallback={props.fallback} />
           <h3 className="min-w-0 flex-1 truncate text-ui font-medium">{view.app}</h3>
           {view.capturing && (
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">

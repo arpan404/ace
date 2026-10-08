@@ -15,7 +15,13 @@ import { formatAgo } from "./time.ts";
 export function registryPublisher(authors: readonly string[]): string {
   return authors
     .map((author) => author.replace(/<[^>]*>/g, "").trim())
-    .filter(Boolean)
+    .filter(
+      (name) =>
+        name &&
+        !name.includes("@") &&
+        !/[\d_]/.test(name) &&
+        (/\s/.test(name) || /[A-Z]/.test(name)),
+    )
     .join(", ");
 }
 

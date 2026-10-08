@@ -1,6 +1,6 @@
 import type { ScreenState } from "@ace/protocol";
 import { addressHost } from "@ace/ui-core";
-import { indicatorSessions, screenSession } from "@ace/ui-core/computer-use";
+import { indicatorSessions, screenSession, targetBundle } from "@ace/ui-core/computer-use";
 import { CursorClickIcon, GlobeSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useAgentLabel } from "@/components/agent-picker.tsx";
@@ -55,8 +55,17 @@ export default function ComputerUseIndicator() {
       <PopoverContent side="top" align="start" className="flex w-96 flex-col gap-2">
         <PopoverTitle className="text-ui font-medium">{label}</PopoverTitle>
         <ul className="flex flex-col">
-          {sessions.map((state) => (
-            <SessionRow key={state.sessionId} state={state} use={use} />
+          {sessions.map((state, index) => (
+            <SessionRow
+              key={state.sessionId}
+              state={state}
+              use={use}
+              fallback={
+                sessions.findIndex((other) => targetBundle(other) === targetBundle(state)) === index
+                  ? "group"
+                  : "row"
+              }
+            />
           ))}
           {browsers.map((control) => (
             <BrowserRow key={control.threadId} control={control} />
@@ -76,13 +85,13 @@ export default function ComputerUseIndicator() {
   );
 }
 
-function SessionRow(props: { state: ScreenState; use: ComputerUse }) {
+function SessionRow(props: { state: ScreenState; use: ComputerUse; fallback: "group" | "row" }) {
   const { state, use } = props;
   const name = useAgentLabel(state.holder?.threadId, state.holder?.agentId);
   const view = screenSession(state, () => name);
   return (
     <li className="flex items-center gap-2 border-b py-2 last:border-b-0">
-      <AppMark name={view.app} />
+      <AppMark name={view.app} bundleId={view.bundleId} fallback={props.fallback} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-ui">{view.app}</p>
         <p className="truncate text-xs text-subtle-foreground">
