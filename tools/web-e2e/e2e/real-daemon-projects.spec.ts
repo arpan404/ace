@@ -29,7 +29,7 @@ async function connect(page: Page, path = "/new") {
 const root = () => realpathSync(projectsRoot);
 const dialog = (page: Page) => page.getByRole("dialog", { name: "Add project" });
 const workingIn = (page: Page, name: string) =>
-  expect(page.getByRole("heading", { name: `What should we work on in ${name}?` })).toBeVisible({
+  expect(page.getByRole("button", { name: `Project: ${name}` })).toBeVisible({
     timeout: 30_000,
   });
 

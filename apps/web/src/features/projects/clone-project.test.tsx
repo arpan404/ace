@@ -68,7 +68,7 @@ test("a clone names its folder after the repository, shows Git's progress and op
   expect(screen.getByText("The clone carries on while this is hidden.")).toBeTruthy();
   for (let stage = 0; stage < 4; stage++) await step();
 
-  await screen.findByRole("heading", { name: "What should we work on in weather-app?" });
+  await screen.findByRole("button", { name: "Project: weather-app" });
   expect(registered(made)).toEqual([`${home}/weather-app`]);
 });
 
@@ -111,7 +111,7 @@ test("GitHub's owner/repo is read by the daemon into an address and a folder", a
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await screen.findByRole("progressbar", { name: "Clone progress" });
   for (let stage = 0; stage < 5; stage++) await step();
-  await screen.findByRole("heading", { name: "What should we work on in weather-app?" });
+  await screen.findByRole("button", { name: "Project: weather-app" });
   expect(registered(made)).toEqual([`${home}/weather-app`]);
 });
 
@@ -128,7 +128,7 @@ test("a clone Git refuses says why and Retry runs it again", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("progressbar", { name: "Clone progress" });
   for (let stage = 0; stage < 5; stage++) await step();
-  await screen.findByRole("heading", { name: "What should we work on in private?" });
+  await screen.findByRole("button", { name: "Project: private" });
   expect(registered(made)).toEqual([`${home}/private`]);
 });
 
@@ -144,5 +144,5 @@ test("a clone that finishes after its dialog closed says so and opens on request
 
   expect(await screen.findByText("Cloned docs")).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: "Open" }));
-  await screen.findByRole("heading", { name: "What should we work on in docs?" });
+  await screen.findByRole("button", { name: "Project: docs" });
 });

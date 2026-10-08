@@ -190,8 +190,12 @@ test("a question is answered on the deck; the transcript keeps one line with the
   expect(document.activeElement).toBe(
     within(card).getByRole("radio", { name: /Persist the draft/ }),
   );
+  // No Stop while the agent asks, and nothing to submit until an option is picked.
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
   await userEvent.click(within(card).getByRole("radio", { name: /Persist the draft/ }));
-  await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
+  // The pick turns the composer's send button into Submit.
+  await userEvent.click(await screen.findByRole("button", { name: "Submit" }));
   await waitFor(() =>
     expect(app.daemon.isPending("thread-sheet-rotate", "ask-recovery")).toBe(false),
   );
@@ -213,4 +217,106 @@ test("a question is answered on the deck; the transcript keeps one line with the
     within(answered).getByRole("button", { name: "Show the question and answer" }),
   );
   expect(within(answered).getByText(/^Answered/)).toBeTruthy();
+});
+
+/** A Claude thread whose agent asks two questions at once, and waits for both. */
+function twoQuestions(): Scenario {
+  return {
+    thread: { id: "thread-two", workspaceId: "relay", title: "Pick a store", provider: "claude" },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          {
+            type: "agent.seen",
+            agent: "root",
+            origin: "root",
+            fidelity: "full",
+            native: { provider: "claude", nativeId: "root" },
+            cwd: "/Users/dev/relay",
+          },
+          { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+          {
+            type: "interaction.opened",
+            agent: "root",
+            interaction: "store",
+            blocking: true,
+            request: {
+              kind: "question",
+              questions: [
+                {
+                  id: "engine",
+                  text: "Which store backs the cache?",
+                  multiSelect: false,
+                  allowOther: false,
+                  options: [
+                    { id: "sqlite", label: "SQLite" },
+                    { id: "memory", label: "In memory" },
+                  ],
+                },
+                {
+                  id: "ttl",
+                  text: "How long do entries live?",
+                  multiSelect: false,
+                  allowOther: false,
+                  options: [
+                    { id: "hour", label: "An hour" },
+                    { id: "day", label: "A day" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { kind: "await", interaction: "store" },
+    ],
+  };
+}
+
+test("several questions are answered one at a time: Next through them, then Submit sends all", async () => {
+  const app = harness();
+  app.play(twoQuestions()).runUntilBlocked();
+  await app.open("/t/thread-two");
+  const region = await stack();
+  expect(await within(region).findByText("1 of 2")).toBeTruthy();
+  expect(within(region).queryByRole("radio", { name: "An hour" })).toBeNull();
+
+  await userEvent.click(within(region).getByRole("radio", { name: "SQLite" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+  expect(await within(region).findByText("2 of 2")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^(Next|Submit)$/ })).toBeNull();
+
+  // Back keeps what was picked.
+  await userEvent.click(within(region).getByRole("button", { name: "Back" }));
+  expect((within(region).getByRole("radio", { name: "SQLite" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+  await userEvent.click(within(region).getByRole("radio", { name: "A day" }));
+  // Enter in the empty message sends the answer, as the button would.
+  await userEvent.click(screen.getByRole("combobox", { name: "Message" }));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(app.daemon.resolution("thread-two", "store")).toEqual({
+      kind: "question",
+      answers: { engine: ["sqlite"], ttl: ["day"] },
+    }),
+  );
+});
+
+test("Skip on the question card declines it, without a message", async () => {
+  const app = harness();
+  app.play(twoQuestions()).runUntilBlocked();
+  await app.open("/t/thread-two");
+  const region = await stack();
+  await userEvent.click(await within(region).findByRole("button", { name: "Skip" }));
+  await waitFor(() =>
+    expect(app.daemon.resolution("thread-two", "store")).toEqual({
+      kind: "question",
+      answers: {},
+      dismissed: true,
+    }),
+  );
 });

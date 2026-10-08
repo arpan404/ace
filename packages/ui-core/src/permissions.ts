@@ -26,29 +26,6 @@ export function permissionLabel(mode: PermissionMode): string {
   return names[mode].label;
 }
 
-const shortNames: Record<PermissionMode, string> = {
-  "auto-review": "Auto-review",
-  "read-only": "Read-only",
-  ask: "Ask",
-  "full-access": "Full access",
-};
-
-/**
- * What the composer's approvals chip says beside its icon: a word or two for every mode, the
- * default (Auto-review) included, so the chip always says which mode the thread is in.
- */
-export function permissionShortLabel(mode: PermissionMode): string {
-  return shortNames[mode];
-}
-
-/**
- * The chip's words: the mode in effect, and while a change waits for the agent's next turn both,
- * "Auto-review → Full access".
- */
-export function permissionChipText(mode: PermissionMode, next: PermissionMode | undefined): string {
-  return next ? `${shortNames[mode]} → ${shortNames[next]}` : shortNames[mode];
-}
-
 /**
  * Why a chosen mode isn't in effect yet. The daemon may one day say the agent is mid-command
  * (`busy`), where the change waits for that command rather than for the next turn.
@@ -249,4 +226,54 @@ export function threadPermissionSummary(
     next: waiting && target !== undefined && target !== mode ? target : undefined,
     inherited: override === null,
   };
+}
+
+/**
+ * How much a mode lets the agent do without asking: `high` (nothing gated) draws the composer's
+ * approvals icon in the attention colour.
+ */
+export type PermissionRisk = "low" | "medium" | "high";
+
+/**
+ * One approval mode as the composer lists it, whoever defines it: ace's own modes today, each
+ * provider's native ones later. The composer's icon and menu read only this.
+ */
+export interface PermissionOption {
+  id: string;
+  label: string;
+  description: string;
+  risk: PermissionRisk;
+  /** Why it can't be chosen for this provider; the menu shows it disabled with this line. */
+  unavailable?: string | undefined;
+}
+
+const risks: Record<PermissionMode, PermissionRisk> = {
+  "read-only": "low",
+  ask: "low",
+  "auto-review": "medium",
+  "full-access": "high",
+};
+
+/** One of ace's modes as a composer option. */
+export function permissionOption(mode: PermissionMode): PermissionOption {
+  return { id: mode, ...names[mode], risk: risks[mode] };
+}
+
+/**
+ * The adapter from ace's modes to the composer's generic list: the modes `provider` supports,
+ * strictest first, Ask disabled with why where it can't be honoured. Replaced by the provider's
+ * native list when the daemon advertises one.
+ */
+export function permissionOptions(
+  capabilities: PermissionCapabilities | undefined,
+  provider = "This provider",
+): PermissionOption[] {
+  return permissionChoices(capabilities, provider).map((choice) =>
+    Object.assign(permissionOption(choice.mode), { unavailable: choice.unavailable }),
+  );
+}
+
+/** The ace mode an option id names, or undefined for an id that isn't one. */
+export function permissionModeOf(id: string): PermissionMode | undefined {
+  return permissionModeOrder.find((mode) => mode === id);
 }

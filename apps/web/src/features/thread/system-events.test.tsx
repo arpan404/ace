@@ -218,7 +218,7 @@ test("an answered question stays where it was asked, with the answer it got", as
   const feed = await open(sheetRotate());
   const card = await onDeck("How should the sheet recover after rotate?");
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
-  await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Submit" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
   const answered = await openedLine(feed, "How should the sheet recover after rotate?");
   expect(
@@ -331,7 +331,7 @@ async function answerThenReplay(scenario: Scenario) {
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const card = await onDeck("How should the sheet recover after rotate?");
   await userEvent.click(within(card).getByRole("radio", { name: /Block rotation/ }));
-  await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Submit" }));
   await waitFor(() => expect(app.daemon.isPending(scenario.thread.id, "ask-1")).toBe(false));
   player.runUntilBlocked();
   expect(app.daemon.isPending(scenario.thread.id, "ask-2")).toBe(true);
