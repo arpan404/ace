@@ -1,6 +1,6 @@
 import { fakeProviderAccounts } from "./provider-accounts.ts";
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
-import { FakeProviderInstalls } from "../provider-install.ts";
+import { FakeProviderInstalls, fakeLatestVersions } from "../provider-install.ts";
 import { onboardingChecklist } from "@ace/core";
 import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
@@ -35,9 +35,9 @@ export interface ServiceHost {
 /** Where discovery found each CLI on the fake machine, and its version. */
 const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string }>> = {
   claude: { version: "2.1.4", path: "/opt/homebrew/bin/claude" },
-  codex: { version: "0.48.0", path: "/opt/homebrew/bin/codex" },
+  codex: { version: "0.159.2", path: "/opt/homebrew/bin/codex" },
   opencode: { version: "1.4.2", path: "/Users/ada/.opencode/bin/opencode" },
-  cursor: { version: "0.9.1" },
+  cursor: { version: "1.0.35" },
   pi: { version: "0.31.0", path: "/Users/ada/.local/bin/pi" },
 };
 
@@ -110,7 +110,7 @@ export class FakeServices {
       accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
       loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
       updateAvailable: provider === "codex",
-      latestVersion: provider === "codex" ? "9.0.0" : undefined,
+      latestVersion: provider === "codex" ? fakeLatestVersions.codex : undefined,
       checkedAt: now,
       stale: false,
       refreshing: false,
@@ -141,9 +141,9 @@ export class FakeServices {
               updateAvailable: false,
               ...(installed
                 ? {
-                    version: "9.0.0",
+                    version: progress.plan?.latestVersion ?? row.version,
                     path: `/fake/bin/${progress.provider}`,
-                    latestVersion: "9.0.0",
+                    latestVersion: progress.plan?.latestVersion ?? row.latestVersion,
                   }
                 : {}),
             };

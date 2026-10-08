@@ -66,7 +66,8 @@ export function providerAccountModel(input: {
       (input.provider !== "acp" || account.acpAgentId === input.acpAgentId),
   );
   const accounts: AccountView[] = [];
-  for (const account of own) {
+  for (const stored of own) {
+    const account = { ...stored, version: input.row?.version ?? stored.version };
     if (base?.state === "not_installed" || base?.state === "off") {
       accounts.push({
         ...account,
@@ -111,7 +112,9 @@ export function providerAccountModel(input: {
       runnable?.implicit && runnable.quota.auth === "logged_in" && input.row?.accountLabel
         ? `Signed in as ${input.row.accountLabel}`
         : runnable
-          ? label
+          ? runnable.implicit || !accounts.some((account) => account.implicit)
+            ? label
+            : `${label} · ${runnable.label}`
           : (base?.summary ?? "Ready");
     return {
       accounts,

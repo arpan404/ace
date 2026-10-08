@@ -47,7 +47,11 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
     const providerRow = await within(section).findByRole("group", { name });
     expect(
       await within(providerRow).findByText(
-        name === "Claude Code" ? "Signed in as ada@example.com" : "Signed in",
+        name === "Claude Code"
+          ? "Signed in as ada@example.com"
+          : name === "Codex"
+            ? "Signed in · Personal"
+            : "Signed in",
       ),
     ).toBeTruthy();
     await openAccounts();
@@ -63,7 +67,7 @@ test("signing in with an API key clears the field and refreshes the account with
     within(list).getByRole("button", { name: "Manage Default (your CLI login)" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Use API key" }));
-  const field = await screen.findByLabelText("Codex API key");
+  const field = await screen.findByLabelText("OpenAI API key");
   await userEvent.type(field, "fake-key-for-ui-test");
   await userEvent.click(screen.getByRole("button", { name: "Use key" }));
   expect(field instanceof HTMLInputElement && field.value).toBe("");
@@ -181,4 +185,77 @@ test("missing model prices never produce a complete API-price estimate", async (
   expect(
     await within(usage).findByText("No complete API-price estimate for this usage."),
   ).toBeTruthy();
+});
+
+test("Cursor reports its bundled SDK and offers no CLI management", async () => {
+  await harness().open("/settings/providers/cursor");
+  const about = await screen.findByRole("region", { name: "About" });
+  expect(within(about).getByText("SDK version")).toBeTruthy();
+  expect(within(about).getByText("1.0.35")).toBeTruthy();
+  expect(screen.queryByLabelText("CLI path")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Remove CLI" })).toBeNull();
+  expect(
+    await within(await screen.findByRole("alert")).findByText("Cursor sign-in has expired."),
+  ).toBeTruthy();
+});
+
+test("accounts are grouped once per provider even when only the default account reports a version", async () => {
+  await harness().open("/accounts");
+  await screen.findByRole("article", { name: "OpenCode OpenRouter API" });
+  expect(screen.getAllByRole("region", { name: "OpenCode" })).toHaveLength(1);
+  expect(screen.getAllByRole("region", { name: "Cursor" })).toHaveLength(1);
+  const table = await screen.findByRole("table", { name: "Usage by model" });
+  expect(await within(table).findByText("Opus 4.6")).toBeTruthy();
+  expect(within(table).getByText("GPT-5.3 Codex")).toBeTruthy();
+  expect(within(table).queryByText("claude-opus-4-6")).toBeNull();
+});
+
+test("OpenCode lists Free models and distinguishes identically named models by their upstream", async () => {
+  await harness().open("/settings/providers/opencode");
+  await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
+  const models = await screen.findByRole("list", { name: "Models" });
+  const zen = within(models).getByRole("list", { name: "OpenCode Zen" });
+  expect(within(zen).getByText("Big Pickle")).toBeTruthy();
+  expect(within(zen).getByText("Free")).toBeTruthy();
+  for (const source of ["Anthropic", "OpenRouter"])
+    expect(
+      within(within(models).getByRole("list", { name: source })).getByText("Opus 5.5"),
+    ).toBeTruthy();
+});
+
+test("OpenAI key entry stays inline in an OpenCode account and cancels without storing input", async () => {
+  const storage = memoryKeyValue();
+  const app = harness({ storage });
+  await app.open("/settings/providers/opencode");
+  const list = await screen.findByRole("list", { name: "OpenCode accounts" });
+  await userEvent.click(within(list).getByRole("button", { name: "Add account" }));
+  const form = await screen.findByRole("form", { name: "Add account" });
+  expect(within(form).getByText("Add an OpenCode account")).toBeTruthy();
+  await userEvent.click(within(form).getByRole("combobox", { name: "Sign-in method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "API key" }));
+  await userEvent.type(within(form).getByRole("textbox"), "Research");
+  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  const field = await within(list).findByLabelText("OpenAI API key");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await userEvent.type(field, "fake-key-that-must-be-cleared");
+  await userEvent.click(within(list).getByRole("button", { name: "Cancel" }));
+  expect(field instanceof HTMLInputElement && field.value).toBe("");
+  expect(await within(list).findByText("Sign-in cancelled")).toBeTruthy();
+  await userEvent.click(within(list).getByRole("button", { name: "Close" }));
+  expect(within(list).queryByLabelText("OpenAI API key")).toBeNull();
+  expect([...storage.data.values()].join(" ")).not.toContain("fake-key-that-must-be-cleared");
+});
+
+test("a missing Antigravity provider links to its ACP download and cannot be enabled", async () => {
+  await harness().open("/settings/providers/antigravity");
+  const enabled = await screen.findByRole<HTMLInputElement>("switch", { name: "Enable provider" });
+  expect(enabled.getAttribute("aria-disabled") === "true" || enabled.disabled).toBe(true);
+  expect(enabled.getAttribute("aria-checked")).toBe("false");
+  await userEvent.click(await screen.findByRole("button", { name: "How to install" }));
+  const link = await screen.findByRole("link", { name: "Official setup instructions" });
+  expect(link.getAttribute("href")).toBe(
+    "https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json",
+  );
+  expect(screen.getByText(/Extract the archive with its companion files/)).toBeTruthy();
 });

@@ -1,4 +1,5 @@
 import { providerNames, type ReadinessView } from "@ace/ui-core";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { StatusLine } from "@/components/provider-tile.tsx";
@@ -50,7 +51,16 @@ export function MissingRow(props: { row: ProviderReadiness; view: ReadinessView 
               Run <CopyCommand command={row.installCommand} /> in a terminal, then check again.
             </p>
           ) : (
-            <p>{view.detail ?? `Install ${name} with its own installer, then check again.`}</p>
+            <p>
+              {view.detail ?? `Install ${name} with its own installer, then check again.`}{" "}
+              <Link
+                to="/settings/providers/$provider"
+                params={{ provider: row.provider }}
+                className="underline"
+              >
+                Installation instructions
+              </Link>
+            </p>
           )}
         </div>
       )}

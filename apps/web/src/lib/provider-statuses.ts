@@ -3,6 +3,7 @@ import { ProviderKind } from "@ace/protocol";
 import {
   accountView,
   providerStatuses,
+  providerAccountState,
   readJson,
   startingProvider,
   writeJson,
@@ -11,7 +12,9 @@ import {
 } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useExplicitDaemonSetting } from "@/lib/daemon-setting.ts";
+import { useModelCatalogState } from "@/lib/model-catalog.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useProviderAccountModels } from "./account-views.ts";
 import { useProvidersWatch } from "@/lib/provider-readiness.ts";
 
 /** Read runtime discovery rather than inferring authentication from installed adapters. */
@@ -41,7 +44,25 @@ export const providerStatusesKey = ["providers", "statuses"] as const;
  */
 export function useProviderStatuses() {
   useProvidersWatch();
-  return useDaemonQuery({ queryKey: providerStatusesKey, read: readProviderStatuses });
+  const query = useDaemonQuery({ queryKey: providerStatusesKey, read: readProviderStatuses });
+  const { model } = useProviderAccountModels();
+  const catalogState = useModelCatalogState();
+  const reconciled = query.data?.map((status) => ({
+    status,
+    model: model(status.provider, status.acpAgentId),
+  }));
+  const loaded = catalogState !== "loading" && reconciled?.every((entry) => entry.model.loaded);
+  return {
+    ...query,
+    data: loaded
+      ? reconciled?.map((entry) =>
+          Object.assign({}, entry.status, {
+            state: providerAccountState(entry.model),
+            accounts: entry.model.accounts,
+          }),
+        )
+      : undefined,
+  };
 }
 
 const none: readonly ProviderStatus[] = [];

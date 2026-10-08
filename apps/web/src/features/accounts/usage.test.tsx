@@ -116,21 +116,9 @@ test("what OpenCode and Claude reported shows apart from the API-price estimate"
     "Leaves out 700K tokens without a price",
   ]);
   await waitFor(() =>
-    expect(modelRow("opencode/kimi-k2")).toEqual([
-      "opencode/kimi-k2",
-      "OpenCode",
-      "700K",
-      "$0.0017",
-      "Unavailable",
-    ]),
+    expect(modelRow("Kimi K2")).toEqual(["Kimi K2", "OpenCode", "700K", "$0.0017", "Unavailable"]),
   );
-  expect(modelRow("claude-opus-4-6")).toEqual([
-    "claude-opus-4-6",
-    "Claude Code",
-    "700K",
-    "Per session",
-    "$4.91",
-  ]);
+  expect(modelRow("Opus 4.6")).toEqual(["Opus 4.6", "Claude Code", "700K", "Per session", "$4.91"]);
 });
 
 test("a Claude session's total counts once, beside its per-model totals and in a fork that shares it", async () => {
@@ -159,7 +147,7 @@ test("usage without API prices reads unavailable instead of costing $0.00", asyn
 
   const api = await stat("At API prices");
   await waitFor(() => expect(api()).toEqual(["Unavailable", "No API prices for these models"]));
-  expect(modelRow("opencode/kimi-k2")[4]).toBe("Unavailable");
+  expect(modelRow("Kimi K2")[4]).toBe("Unavailable");
   expect(screen.queryByText("$0.00")).toBeNull();
 });
 

@@ -196,7 +196,18 @@ export class FakeDaemon implements Host {
         return output ? new TextDecoder().decode(output.bytes) : "";
       },
     });
-    this.access = new FakeAccess(options.clock);
+    this.access = new FakeAccess(options.clock, () => {
+      const enabled = this.services.settings.get("remote.enabled") === true;
+      const transport = SettingsValues.shape["remote.transport"].parse(
+        this.services.settings.get("remote.transport"),
+      );
+      return {
+        enabled,
+        transport: enabled ? transport : "local",
+        listenOverride: null,
+        relayOverride: false,
+      };
+    });
     this.appDevices = new FakeAppDevices(options.clock);
     let screenSequence = 0;
     this.screen = new FakeScreen({
@@ -284,6 +295,7 @@ export class FakeDaemon implements Host {
         onResolved: (listener) => this.onResolved(listener),
       },
       this.services.settings,
+      () => this.services.providerStatuses,
     );
     this.review = new FakeReviewDesk(
       options.clock,

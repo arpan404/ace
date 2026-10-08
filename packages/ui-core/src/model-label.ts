@@ -1,4 +1,6 @@
-import type { ProviderKind } from "@ace/protocol";
+import { modelDisplayName } from "@ace/models/display-name";
+import { modelAliases } from "./catalog-ids.ts";
+import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 
 /*
@@ -42,4 +44,16 @@ export function modelLine(
   return [providerNames[provider], account, isDefault(provider, name) ? "Default" : name.trim()]
     .filter(Boolean)
     .join(separator);
+}
+
+/** Catalog names by every native alias, with the same formatter for historical models. */
+export function catalogModelNames(models: readonly CatalogModel[]) {
+  const labels = new Map<string, string>();
+  for (const model of models)
+    for (const id of [model.id, ...modelAliases(model)])
+      labels.set(`${model.provider}\u0000${id}`, modelName(model.provider, model.displayName));
+  return (provider: string, id: string | null | undefined): string =>
+    id
+      ? (labels.get(`${provider}\u0000${id}`) ?? modelDisplayName(id).displayName)
+      : "Not reported";
 }

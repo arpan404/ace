@@ -8,7 +8,6 @@ import {
   nextOptions,
   optionEffort,
   permissionCoverageNote,
-  permissionLabel,
   permissionOption,
   permissionOptions,
   permissionPendingNote,
@@ -80,7 +79,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
       inherited={summary?.inherited}
       menu={{
         options: permissionOptions(capabilities),
-        value: wanted ?? undefined,
+        value: summary?.next ?? (summary?.inherited ? undefined : (wanted ?? undefined)),
         loading: loading || (!meta?.permission && !failed),
         unavailable:
           failed && !meta?.permission
@@ -92,10 +91,6 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
           wanted,
         ),
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
-        reset:
-          summary && !summary.inherited
-            ? { label: permissionLabel(defaultMode, capabilities) }
-            : undefined,
       }}
       onChange={setCurrentId}
     />

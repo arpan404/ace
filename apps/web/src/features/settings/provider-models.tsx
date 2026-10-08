@@ -1,6 +1,7 @@
 import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
 import {
   modelKey,
+  modelName,
   newThreadOptions,
   pickerModel,
   pickerGroups,
@@ -34,7 +35,13 @@ export function ProviderModels(props: { provider: ProviderKind }) {
   const models = newThreadOptions(rows, [], []).models.map((option) =>
     pickerModel(option, option.label, option.account),
   );
-  const groups = pickerGroups(models, instances, props.provider);
+  const listed = newThreadOptions(
+    unique.map((model) => ({ ...model, hidden: false })),
+    [],
+    [],
+  ).models.map((option) => pickerModel(option, option.label, option.account));
+  const groups = pickerGroups(listed, instances, props.provider);
+  const byKey = new Map(unique.map((model) => [modelKey(model.provider, model.id), model]));
   return (
     <>
       {groups.flatMap((group) =>
@@ -70,7 +77,9 @@ export function ProviderModels(props: { provider: ProviderKind }) {
       </SettingRow>
       <div className="flex min-h-9 items-center gap-2 text-ui">
         <span className="min-w-0 flex-1 text-muted-foreground">
-          {catalog === undefined ? "Loading models…" : `${unique.length} models`}
+          {catalog === undefined
+            ? "Loading models…"
+            : `${unique.length} model${unique.length === 1 ? "" : "s"}`}
         </span>
         <Button
           size="sm"
@@ -86,13 +95,25 @@ export function ProviderModels(props: { provider: ProviderKind }) {
       </div>
       {open && (
         <ul aria-label="Models">
-          {unique.map((model) => (
-            <ModelRow
-              key={model.id}
-              model={model}
-              starred={stars.favorites.includes(modelKey(model.provider, model.id))}
-              toggleStar={() => stars.toggle(modelKey(model.provider, model.id))}
-            />
+          {groups.map((group) => (
+            <li key={group.id}>
+              {group.label && <p className="py-1 text-xs text-muted-foreground">{group.label}</p>}
+              <ul aria-label={group.label ?? "Provider models"}>
+                {[...group.current, ...group.legacy].map((entry) => {
+                  const model = byKey.get(entry.key);
+                  return (
+                    model && (
+                      <ModelRow
+                        key={entry.key}
+                        model={model}
+                        starred={stars.favorites.includes(entry.key)}
+                        toggleStar={() => stars.toggle(entry.key)}
+                      />
+                    )
+                  );
+                })}
+              </ul>
+            </li>
           ))}
         </ul>
       )}
@@ -110,7 +131,13 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
     model.visibilityReason === "provider_hidden";
   return (
     <li className="flex min-h-9 items-center gap-2 text-ui">
-      <span className="min-w-0 flex-1 truncate">{model.displayName}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {modelName(model.provider, model.displayName)}
+      </span>
+      {model.source?.label && (
+        <span className="text-xs text-muted-foreground">{model.source.label}</span>
+      )}
+      {model.free && <span className="text-xs text-muted-foreground">Free</span>}
       {model.deprecated && <span className="text-xs text-muted-foreground">Deprecated</span>}
       {model.custom && <span className="text-xs text-muted-foreground">Custom</span>}
       <IconButton

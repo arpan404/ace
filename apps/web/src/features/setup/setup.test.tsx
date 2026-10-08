@@ -19,6 +19,10 @@ function firstRun() {
   const app = harness({ onboarding: "pending" });
   for (const provider of ["claude", "codex", "opencode", "cursor", "pi"] as const)
     stage(app, provider, { auth: "logged_out" });
+  for (const account of app.daemon.services.accounts) {
+    account.quota.auth = "logged_out";
+    account.availability = "logged_out";
+  }
   // OpenCode and Pi have no upstream connected yet.
   app.daemon.services.models = app.daemon.services.models.filter(
     (model) => model.provider !== "opencode" && model.provider !== "pi",
@@ -91,7 +95,7 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
 
 test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; each provider offers only its next action", async () => {
   // The fake's machine: Claude Code signed in, OpenCode and Pi connected through their
-  // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out, Cursor expired.
+  // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out with Personal available, Cursor expired.
   const app = harness({ onboarding: "pending" });
   await app.open("/");
   const cards = await screen.findByRole(
@@ -102,18 +106,18 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
     },
   );
   await waitFor(async () =>
-    expect((await progress()).getAttribute("aria-valuetext")).toBe("3 of 5 ready"),
+    expect((await progress()).getAttribute("aria-valuetext")).toBe("4 of 5 ready"),
   );
-  for (const name of ["Claude Code", "OpenCode", "Pi"]) {
+  for (const name of ["Claude Code", "Codex", "OpenCode", "Pi"]) {
     const card = within(cards).getByRole("listitem", { name });
     expect(within(card).queryByRole("button")).toBeNull();
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("2 services connected"),
+    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
   ).toBeTruthy();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
-  expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
+  expect(within(codex).getByText("Signed in · Personal")).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();

@@ -56,9 +56,10 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
   },
   antigravity: {
     binary: "agy-acp",
-    sourceUrl: "https://antigravity.google/docs/ide/extensions/zed",
+    sourceUrl:
+      "https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json",
     manual:
-      "ace uses the separately distributed Antigravity ACP server. Google's agy CLI installer does not install this runtime. Follow the official ACP download instructions.",
+      "Download the Antigravity ACP server for your computer from the official registry. Extract the archive with its companion files, then set CLI path to the server executable and check again.",
   },
 };
 export const acpInstallers: Readonly<Record<InstallAgent, Installer>> = {

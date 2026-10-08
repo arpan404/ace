@@ -111,7 +111,11 @@ export class InstallVersions {
     const raw =
       npm &&
       spec.package &&
-      (await this.planner.probe(npm, ["view", spec.package, "version"], signal));
+      (await this.planner.probe(
+        npm,
+        ["view", spec.package, "version", "--registry=https://registry.npmjs.org"],
+        signal,
+      ));
     const parsed = Version.safeParse(raw);
     return parsed.success ? parsed.data : undefined;
   }

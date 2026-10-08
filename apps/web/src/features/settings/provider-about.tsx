@@ -52,9 +52,9 @@ export function ProviderAbout(props: {
     <SettingSection label="About">
       <dl className="divide-y">
         {version && (
-          <Fact term="Version">
+          <Fact term={install.kind === "cursor" ? "SDK version" : "Version"}>
             <span className={mono}>{version}</span>
-            {row?.updateAvailable && (
+            {install.kind !== "cursor" && row?.updateAvailable && (
               <span className="ml-2 text-sm text-status-needs-you">Update available</span>
             )}
           </Fact>
@@ -73,13 +73,13 @@ export function ProviderAbout(props: {
           </Fact>
         )}
         <Fact term="Runs">
-          {row?.runtime === "cursor-sdk" ? (
+          {install.kind === "cursor" ? (
             "Cursor SDK, inside ace"
           ) : (
             <span className={mono}>{install.binary}</span>
           )}
         </Fact>
-        {row?.path && (
+        {install.kind !== "cursor" && row?.path && (
           <Fact term="Location">
             <span className={`${mono} select-text`}>{row.path}</span>
           </Fact>
