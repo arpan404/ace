@@ -1,4 +1,4 @@
-import { facts, type Scenario } from "@ace/fake-daemon";
+import { facts, workbench, type Scenario } from "@ace/fake-daemon";
 import { ForgePrStatus, ThreadId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -274,4 +274,70 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   expect(within(environment).getByText("Local checkout")).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
+});
+
+test("a missing PR shows one explanation and can be unlinked without GitHub", async () => {
+  const app = await withPr(undefined, { linkedPr: { number: 214, state: "open" } });
+  const popover = await openPr(214);
+  expect((await within(popover).findByRole("alert")).textContent).toContain(
+    "GitHub couldn't find the pull request",
+  );
+  expect(within(popover).queryByText("No status from GitHub yet")).toBeNull();
+  expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();
+  expect(within(popover).getByRole("button", { name: "Link…" })).toBeTruthy();
+  await userEvent.click(within(popover).getByRole("button", { name: "Unlink" }));
+  expect(await screen.findByText("Pull request unlinked")).toBeTruthy();
+  await waitFor(() => expect(linked(app)).toBeNull());
+  expect(await screen.findByText("None for this branch yet")).toBeTruthy();
+});
+
+test("a failed refresh replaces stale checks and a successful retry restores them", async () => {
+  const app = await withPr(pr());
+  app.daemon.refuseCommands("forge_not_found", "forge.pr.status");
+  const popover = await openPr();
+  await within(popover).findByRole("alert");
+  expect(within(popover).queryByText("2 checks passed")).toBeNull();
+  app.daemon.restoreRequests();
+  await userEvent.click(within(popover).getByRole("button", { name: "Refresh" }));
+  expect(await within(popover).findByText("2 checks passed")).toBeTruthy();
+  expect(within(popover).queryByRole("alert")).toBeNull();
+});
+
+test("Link from a missing PR replaces the broken association", async () => {
+  const app = await withPr(undefined, { linkedPr: { number: 214, state: "open" } });
+  const popover = await openPr(214);
+  await within(popover).findByRole("alert");
+  await userEvent.click(within(popover).getByRole("button", { name: "Link…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Link an existing pull request" });
+  await userEvent.type(within(dialog).getByLabelText("Pull request"), "77");
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Link$/ }));
+  await waitFor(() => expect(linked(app)?.number).toBe(77));
+});
+
+test("a truncated PR title can be read in its tooltip", async () => {
+  const title = "Keep replay cursors stable across disconnects and background shell completions";
+  await withPr(pr({ title }));
+  const card = await openCard();
+  await userEvent.hover(await within(card).findByText(title));
+  expect((await screen.findByRole("tooltip")).textContent).toBe(title);
+});
+
+test("the commit dialog lists the supervisor checkout files and commits the selected changes", async () => {
+  const app = harness();
+  const scenario = workbench().find((entry) => entry.thread.id === "thread-retry-budget");
+  if (!scenario) throw new Error("Missing retry budget scenario");
+  app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-retry-budget");
+  await screen.findByRole("feed", { name: "Transcript" });
+  const card = await openCard();
+  await userEvent.click(await within(card).findByRole("button", { name: "Commit & push" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const files = await within(dialog).findByRole("list", { name: "Files to commit" });
+  expect(files.textContent).toContain("src/supervisor/restart-budget.ts");
+  expect(files.textContent).toContain("src/supervisor/supervisor.ts");
+  expect(files.textContent).not.toMatch(/src\/config|src\/lib\/retry/);
+  await userEvent.click(within(files).getByRole("checkbox", { name: /restart-budget/ }));
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Commit & push/ }));
+  expect(await screen.findByText("Committed and pushed")).toBeTruthy();
+  expect(app.daemon.workspace.gitStatus("thread-retry-budget")).toEqual([]);
 });

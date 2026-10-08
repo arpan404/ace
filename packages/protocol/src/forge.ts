@@ -114,6 +114,7 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     input: ForgeCreatePrInput,
   }),
   z.object({ type: z.literal("forge.pr.link"), link: ForgeThreadLink }),
+  z.object({ type: z.literal("forge.pr.unlink"), threadId: z.string() }),
   z.object({
     type: z.literal("forge.comment.reply"),
     link: ForgeThreadLink,

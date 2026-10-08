@@ -56,7 +56,8 @@ export class WorkspaceForge {
     }
     return backend;
   }
-  private publish(id: ThreadId, status: ForgePrStatus): void {
+  private publish(id: ThreadId, status: ForgePrStatus, generation: number | undefined): void {
+    if (generation === undefined || this.links.getLinkState(id)?.generation !== generation) return;
     const thread = this.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined || status.state === "unknown") return;
     const linkedPr = {
@@ -72,13 +73,14 @@ export class WorkspaceForge {
     );
   }
   async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
-    const link = this.links.getLink(id);
-    if (!link) return null;
+    const state = this.links.getLinkState(id);
+    if (!state) return null;
+    const { link, generation } = state;
     const backend = await this.backend(cwd);
     if (JSON.stringify(link.pr.repository) !== JSON.stringify(backend.repository))
       throw new Error("repository_mismatch");
     const status = await backend.status(link.pr.number, this.lifetime.signal);
-    this.publish(ThreadId.parse(id), status);
+    this.publish(ThreadId.parse(id), status, generation);
     return status;
   }
   /** Host-owned unique branches make remote lookup a durable create receipt. */
@@ -101,8 +103,9 @@ export class WorkspaceForge {
     const pr = found ?? (await backend.createPr(id, value, this.lifetime.signal));
     if (!allowed()) throw new Error("forbidden");
     this.links.link({ threadId: id, pr });
+    const generation = this.links.getLinkState(id)?.generation;
     const status = await backend.status(pr.number, this.lifetime.signal);
-    this.publish(id, status);
+    this.publish(id, status, generation);
     return status;
   }
   async execute(
@@ -112,6 +115,27 @@ export class WorkspaceForge {
   ): Promise<Omit<CommandResult, "commandId">> {
     const p = ForgeCommand.parse(input);
     const id = "threadId" in p ? p.threadId : p.link.threadId;
+    if (p.type === "forge.pr.unlink") {
+      if (!allowed()) return { ok: false, error: "forbidden" };
+      const thread = this.store.getThread(ThreadId.parse(id));
+      if (!thread || thread.deletedAt !== undefined)
+        return { ok: false, error: "thread_not_found" };
+      this.store.atomic(() => {
+        this.links.unlink(id);
+        this.store.appendEvents(
+          ThreadId.parse(id),
+          [
+            {
+              type: "thread.client.updated",
+              changes: { details: { ...thread.details, linkedPr: null } },
+            },
+          ],
+          this.now(),
+        );
+      });
+      return { ok: true };
+    }
+    let generation = this.links.getLinkState(id)?.generation;
     const backend = await this.backend(cwd);
     const repository = "repository" in p ? p.repository : p.link.pr.repository;
     if (JSON.stringify(repository) !== JSON.stringify(backend.repository))
@@ -125,12 +149,13 @@ export class WorkspaceForge {
       const status = await backend.status(p.link.pr.number, this.lifetime.signal);
       if (!allowed()) return { ok: false, error: "forbidden" };
       this.links.link(p.link);
-      this.publish(ThreadId.parse(id), status);
+      generation = this.links.getLinkState(id)?.generation;
+      this.publish(ThreadId.parse(id), status, generation);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
     if (p.type === "forge.pr.status") {
       const status = await backend.status(p.link.pr.number, this.lifetime.signal);
-      this.publish(ThreadId.parse(id), status);
+      this.publish(ThreadId.parse(id), status, generation);
       return { ok: true, prStatus: status };
     }
     if (p.type === "forge.comment.reply")
@@ -142,7 +167,7 @@ export class WorkspaceForge {
     if (p.type === "forge.pr.auto-merge")
       await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
     const status = await backend.status(p.link.pr.number, this.lifetime.signal);
-    this.publish(ThreadId.parse(id), status);
+    this.publish(ThreadId.parse(id), status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
   }
   close(): void {

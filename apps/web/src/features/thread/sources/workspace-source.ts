@@ -87,6 +87,8 @@ export interface WorkspaceSource {
   createPr(thread: ThreadRef, input: PrInput): Promise<ForgePrStatus>;
   /** Links an existing pull request to the thread. */
   linkPr(thread: ThreadRef, pr: ForgePrRef): Promise<ForgePrStatus>;
+  /** Removes the local PR link without contacting the forge. */
+  unlinkPr(thread: ThreadRef): Promise<void>;
   /** Reads the linked PR from the forge now (checks, mergeability, review threads). */
   refreshPr(thread: ThreadRef, pr: ForgePrRef): Promise<ForgePrStatus>;
   /**
@@ -218,6 +220,9 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     },
     linkPr: async (thread, pr) =>
       status(await run({ type: "forge.pr.link", link: { threadId: thread.id, pr } })),
+    unlinkPr: async (thread) => {
+      await run({ type: "forge.pr.unlink", threadId: thread.id });
+    },
     refreshPr: async (thread, pr) =>
       status(await run({ type: "forge.pr.status", link: { threadId: thread.id, pr } })),
     mergePr: async (thread, pr, change) =>
