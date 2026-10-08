@@ -64,7 +64,7 @@ test("the first run offers one Add project entry in each area, and a searched fo
   expect(within(sidebar).getAllByRole("button", { name: /^Add project/ })).toHaveLength(1);
   const main = screen.getByRole("main");
   expect(within(main).getAllByRole("button", { name: "Add a project" })).toHaveLength(1);
-  expect(within(main).getByText(/folder on one of your machines/)).toBeTruthy();
+  expect(within(main).getByText(/folder on this machine/)).toBeTruthy();
   await userEvent.click(within(main).getByRole("button", { name: "Add a project" }));
 
   const search = await box();
@@ -90,7 +90,7 @@ test("search ranks an exact name, then a prefix, then a name containing it, then
   await userEvent.type(await openFolder(made), "web");
   const list = await folders();
   await waitFor(() =>
-    expect(names(within(list).getByRole("group", { name: "Folders on This machine" }))).toEqual([
+    expect(names(within(list).getByRole("group", { name: "Folders on Fake machine" }))).toEqual([
       "web",
       "webapp",
       "my-web",
@@ -322,9 +322,7 @@ test("while the daemon is away the dialog says so and adds nothing", async () =>
   await option("code");
   made.daemon.refuseConnections(true);
   made.daemon.disconnectAll();
-  expect(
-    await screen.findByText(/Reconnecting to this computer… Folders and actions/),
-  ).toBeTruthy();
+  expect(await screen.findByText(/Reconnecting… Folders and actions/)).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
       true,

@@ -135,7 +135,7 @@ test("a recent run without a thread opens what started it and what it found", as
   await heading("Flaky test triage");
   const flaky = within(await screen.findByRole("list", { name: "Recent runs" }));
   await userEvent.click(
-    flaky.getByRole("link", { name: "Open the run Nothing flaky across 3 runs" }),
+    flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
   );
   const details = await screen.findByRole("region", { name: "Run details for Flaky test triage" });
   expect(within(details).getByText(/^Scheduled · .* · 4 min$/)).toBeTruthy();
@@ -574,7 +574,7 @@ test("a failed run opens its error and offers a way to retry the automation", as
   const detail = await screen.findByRole("region", {
     name: "Run details for Nightly dependency audit",
   });
-  expect(within(detail).getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
+  expect(within(detail).getByText("npm registry timeout, retried once")).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Run now" })).toBeTruthy();
 });
 

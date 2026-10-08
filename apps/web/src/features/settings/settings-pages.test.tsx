@@ -212,12 +212,13 @@ test("⌘K finds a single setting and opens its page at that row", async () => {
   expect(document.getElementById("appearance.accent")).toBeTruthy();
 });
 
-test("web hides system notifications in settings and search and redirects old links", async () => {
+test("web offers in-app notifications in settings and search while hiding desktop-only controls", async () => {
   await harness().open("/settings/notifications");
-  expect(await screen.findByRole("heading", { level: 2, name: "General" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeTruthy();
   const nav = within(screen.getByRole("navigation", { name: "Settings pages" }));
-  expect(nav.queryByRole("link", { name: "Notifications" })).toBeNull();
+  expect(nav.getByRole("link", { name: "Notifications" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Notifications on this computer" })).toBeNull();
   await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "notifications");
-  expect(await nav.findByText("No matching settings")).toBeTruthy();
+  expect(await nav.findByRole("link", { name: "Notifications" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Notifications on this computer" })).toBeNull();
 });

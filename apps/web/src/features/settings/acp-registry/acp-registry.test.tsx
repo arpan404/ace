@@ -187,17 +187,11 @@ test("an agent installed a release behind offers Update on its page, which opens
   );
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(within(about).getByText("ACP registry")).toBeTruthy();
-  await userEvent.click(within(about).getByRole("button", { name: "Update to 0.63.0" }));
-  const dialog = await screen.findByRole(
-    "dialog",
-    { name: "Add an ACP agent" },
-    { timeout: 10_000 },
-  );
-  expect(await within(dialog).findByRole("heading", { name: "Gemini CLI" })).toBeTruthy();
+  const cli = await screen.findByRole("region", { name: "CLI" });
+  await userEvent.click(within(cli).getByRole("button", { name: "Check for updates" }));
   expect(
-    await within(dialog).findByRole("button", { name: "Update to 0.63.0" }, { timeout: 10_000 }),
+    await within(cli).findByRole("link", { name: "Official setup instructions" }),
   ).toBeTruthy();
-  expect(within(dialog).getByLabelText("Install plan").textContent).toContain(
-    "npm package @google/gemini-cli@0.63.0",
-  );
+  expect(await within(cli).findByRole("button", { name: "Update CLI" })).toBeTruthy();
+  expect(within(cli).getByText(/npm install/).textContent).toContain("@google/gemini-cli");
 }, 30_000);

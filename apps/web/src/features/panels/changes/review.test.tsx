@@ -129,7 +129,7 @@ test("a comment from another device shows with its replies, and a reply here rea
   // The review bar's refresh reads what the daemon holds now.
   const review = within(panel).getByRole("region", { name: "Review" });
   await userEvent.click(
-    within(review).getByRole("button", { name: "Check the daemon for comments" }),
+    within(review).getByRole("button", { name: "Check what ace holds for these comments" }),
   );
   const card = await within(panel).findByRole("article", { name: `Comment on line ${line}` });
   const replies = await within(card).findByRole("list", { name: "Replies" });

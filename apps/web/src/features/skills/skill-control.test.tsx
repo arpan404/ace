@@ -106,7 +106,7 @@ test("the preview renders headings, lists and links while keeping package metada
     "---\nname: code-review\ndescription: Hidden package metadata\n---\n# Review instructions\n\n- Check the behavior\n- Read [the reference](https://example.com/reference)\n";
   app.daemon.seedServices(services);
   await app.open("/skills/engineering~skill~code-review");
-  const preview = within(await screen.findByRole("region", { name: "Preview" }));
+  const preview = within(await screen.findByRole("region", { name: "Source" }));
   expect(await preview.findByRole("heading", { name: "Review instructions" })).toBeTruthy();
   expect(preview.getAllByRole("listitem")[0]?.textContent).toContain("Check the behavior");
   expect(preview.getByRole("link", { name: "the reference" }).getAttribute("href")).toBe(

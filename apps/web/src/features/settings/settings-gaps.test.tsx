@@ -38,12 +38,14 @@ test("a global native permission default starts new threads in that mode", async
     }),
   );
   await screen.findByRole("heading", { level: 1, name: "Check settings" });
-  const snapshot = app.daemon.snapshot({ kind: "threads" });
-  const started =
-    snapshot?.kind === "threads"
-      ? Object.values(snapshot.threads).find((thread) => thread.title === "Check settings")
-      : undefined;
-  expect(started?.permission?.effective).toBe("acceptEdits");
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({ kind: "threads" });
+    const started =
+      snapshot?.kind === "threads"
+        ? Object.values(snapshot.threads).find((thread) => thread.title === "Check settings")
+        : undefined;
+    expect(started?.permission?.effective).toBe("acceptEdits");
+  });
 });
 
 test("project permission overrides take precedence and reset to a changed global default", async () => {
@@ -54,7 +56,9 @@ test("project permission overrides take precedence and reset to a changed global
   const project = app.daemon.projects.list().workspaces[0];
   if (!project) throw new Error("Project missing");
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "settings-project" }));
+  await userEvent.hover(
+    await screen.findByRole("menuitem", { name: "Actions for settings-project" }),
+  );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Project permissions…" }));
   await screen.findByRole("dialog", { name: "Permissions for settings-project" });
   await choose("Claude Code permissions", "Accept edits");
@@ -66,7 +70,9 @@ test("project permission overrides take precedence and reset to a changed global
   await app.open("/new");
   expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "settings-project" }));
+  await userEvent.hover(
+    await screen.findByRole("menuitem", { name: "Actions for settings-project" }),
+  );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Project permissions…" }));
   await choose("Claude Code permissions", "Use global default");
   await userEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -229,6 +235,7 @@ test("a refused folder can be reviewed and allowed without opening Settings", as
   await screen.findByRole("heading", { name: "Couldn't open settings-project" });
   await userEvent.click(await screen.findByRole("button", { name: "Choose another folder…" }));
   await userEvent.click(await screen.findByRole("button", { name: "Allow this folder…" }));
+
   const review = await screen.findByRole("dialog", { name: "Allow this folder?" });
   expect(within(review).getByText("/external")).toBeTruthy();
   expect(app.daemon.services.settings.get("projects.roots")).toEqual(["/fake"]);

@@ -191,7 +191,7 @@ it("prints actionable Tailscale setup guidance without silently exposing the LAN
   );
   await expect(
     cli(directory, ["start"], { ...envFor(directory), ACE_LISTEN: "tailscale", PATH: directory }),
-  ).rejects.toThrow("tailscale serve");
+  ).rejects.toThrow("Start Tailscale");
   // A failed network setup releases the startup lock.
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),

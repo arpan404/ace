@@ -65,7 +65,9 @@ test("without a token the app asks for one and says how to get it", async () => 
   expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe(url);
 
   await connectWith("not-a-token");
-  expect((await screen.findByRole("alert")).textContent).toMatch(/64 hexadecimal characters/);
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /Paste the access token copied from ace/,
+  );
   expect(screen.getByLabelText("Token").getAttribute("aria-invalid")).toBe("true");
 });
 
@@ -201,5 +203,5 @@ test("a daemon that later rejects the token sends the window back to the form wi
   expect(alert.textContent).toMatch(/didn't accept the access token/);
   expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe(url);
   expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
-  within(alert).getByText(/copy it again/i);
+  within(alert).getByText(/Copy a fresh token from ace/);
 });

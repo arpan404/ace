@@ -8,7 +8,11 @@ test("machines and paired devices are listed; revoking a device removes it after
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("studio-mac")).toBeTruthy();
-  expect(within(machines).getByText(/^Linux · 3 threads · ace 0\.8\.0/)).toBeTruthy();
+  await userEvent.hover(within(machines).getByText("build-box"));
+  expect((await screen.findByRole("tooltip")).textContent).toMatch(
+    /^Linux · 3 threads · ace 0\.8\.0/,
+  );
+  await userEvent.unhover(within(machines).getByText("build-box"));
 
   const devices = screen.getByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();

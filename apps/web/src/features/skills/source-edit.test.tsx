@@ -97,8 +97,8 @@ test("a changed source cannot overwrite the accepted file and the draft stays av
     },
   });
   // Changing availability refreshes the source while the existing draft stays open.
-  await userEvent.click(screen.getByRole("switch", { name: "Turn engineering on or off" }));
-  await screen.findByRole("switch", { name: "Turn engineering on or off", checked: false });
+  await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
+  await screen.findByRole("switch", { name: "Enabled", checked: false });
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",

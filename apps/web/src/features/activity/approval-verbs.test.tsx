@@ -64,7 +64,7 @@ const verbs = (card: HTMLElement) =>
     .filter((label) => /^(Allow once|Always allow|Deny)/.test(label))
     .map((label) => label.replace(/[A-Z]$/, ""));
 
-test("an approval answers in the same verbs in the thread, on Activity's card and in its list", async () => {
+test("an approval answers in the same verbs in the thread and on Activity's card, reached from its list", async () => {
   const app = harness();
   app.play(push).runUntilBlocked();
   await app.open("/t/thread-push");
@@ -86,12 +86,12 @@ test("an approval answers in the same verbs in the thread, on Activity's card an
   const list = await screen.findByRole("list", { name: "Activity" });
   const row = within(list).getByText(title).closest("li");
   if (!row) throw new Error("No row for the approval");
+  expect(within(row).queryByRole("button", { name: "Allow once" })).toBeNull();
+  expect(within(row).queryByRole("button", { name: "Deny" })).toBeNull();
+  await userEvent.click(within(row).getByText(title));
   expect(
-    within(row)
-      .getAllByRole("button")
-      .map((button) => button.textContent)
-      .filter((label) => label === "Allow once" || label === "Deny"),
-  ).toEqual(["Allow once", "Deny"]);
+    verbs(await within(screen.getByRole("main")).findByRole("article", { name: title })),
+  ).toEqual(["Allow once", "Always allow", "Deny"]);
 
   // The provider's other option keeps its words, behind Details.
   await userEvent.click(within(inActivity).getByRole("button", { name: "Details" }));

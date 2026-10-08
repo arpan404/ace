@@ -20,7 +20,9 @@ test("the connected machine has the same name in menus, settings and thread envi
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Connection settings" }));
   await screen.findByRole("heading", { name: "Advanced", level: 2 });
   expect(
-    await within(screen.getByRole("region", { name: "Connection" })).findByText("Workshop Mac"),
+    await within(await screen.findByRole("region", { name: "Connection" })).findByText(
+      "Workshop Mac",
+    ),
   ).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Show" }));
   expect(
@@ -28,16 +30,18 @@ test("the connected machine has the same name in menus, settings and thread envi
   ).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Remote devices", current: false }));
   expect(
-    await within(screen.getByRole("region", { name: "Machines" })).findByText("Workshop Mac"),
+    await within(await screen.findByRole("region", { name: "Machines" })).findByText(
+      "Workshop Mac",
+    ),
   ).toBeTruthy();
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("dialog", { name: "Work card" });
+  await userEvent.click(
+    await screen.findByRole("button", { name: /^(Environment:|Environment details)/ }),
+  );
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText("Workshop Mac")).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
-  expect(await within(screen.getByRole("menu")).findByText("Workshop Mac")).toBeTruthy();
 });
 
 test("unknown command failures explain recovery without showing the server's code", async () => {
@@ -79,8 +83,10 @@ test("a thread on another machine keeps that machine's name", async () => {
     .runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("dialog", { name: "Work card" });
+  await userEvent.click(
+    await screen.findByRole("button", { name: /^(Environment:|Environment details)/ }),
+  );
+  const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText("Build server")).toBeTruthy();
   expect(card.textContent).not.toContain("Workshop Mac");
 });

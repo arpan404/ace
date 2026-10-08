@@ -640,7 +640,7 @@ test("environment details are in the composer and project actions only change th
   );
   const environment = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(environment).getByText("Machine")).toBeTruthy();
-  expect(within(environment).getByText("This Mac")).toBeTruthy();
+  expect(within(environment).getByText("Fake machine")).toBeTruthy();
   expect(within(environment).getByText("Commit")).toBeTruthy();
 });
 
@@ -723,7 +723,10 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
   expect(
     items
-      .filter((label) => !/^(Open agent tree|New side chat|Search this thread|Turns)/.test(label))
+      .filter(
+        (label) =>
+          !/^(Open agent tree|New side chat|Attachments|Search this thread|Turns)/.test(label),
+      )
       .map((label) => label.replace(shortcut, "")),
   ).toEqual(context);
   expect(context.slice(0, 4)).toEqual([

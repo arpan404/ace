@@ -89,7 +89,7 @@ test("a preview the daemon won't sign in shows its reason, and Reload signs in a
   opened.browser.refusePreviews(undefined);
   await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
   expect(await within(opened.panel).findByTitle(frameTitle)).toBeTruthy();
-  expect(within(opened.panel).queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(within(opened.panel).queryByRole("alert")).toBeNull());
 });
 
 test("a frame whose sign-in doesn't stick signs in once more, then says the browser dropped it", async () => {
@@ -108,7 +108,7 @@ test("a frame whose sign-in doesn't stick signs in once more, then says the brow
   expect(
     within(failure).getByRole("heading", { name: "The preview didn't keep its sign-in" }),
   ).toBeTruthy();
-  expect(within(failure).getByText("HTTP 401 · signed_out")).toBeTruthy();
+  expect(within(failure).getByText(/never received its sign-in cookie/)).toBeTruthy();
 });
 
 test("a dev server that stopped behind the gateway is named, without signing in again", async () => {

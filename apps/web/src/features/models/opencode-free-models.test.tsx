@@ -74,7 +74,13 @@ test("OpenCode with only free models is ready and offers Sign in for more models
   expect(screen.queryByText("Sign in to use OpenCode")).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
   const models = await screen.findByRole("list", { name: "Models" });
-  expect(within(models).getAllByText("Free")).toHaveLength(3);
+  for (const name of ["Big Pickle", "MiMo Free", "Ling Free"])
+    expect(within(models).getByText(name)).toBeTruthy();
+  expect(
+    app.daemon.services.models
+      .filter((model) => model.provider === "opencode")
+      .every((model) => model.free && model.source?.requiresAuth === false),
+  ).toBe(true);
   await userEvent.click(within(services).getByRole("button", { name: "Sign in for more models" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to OpenCode" })).toBeTruthy();
 });

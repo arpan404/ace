@@ -60,8 +60,7 @@ test("offline, the project's Add action explains why it is unavailable and works
   await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
   const add = await screen.findByRole("menuitem", { name: /^Add project/ });
   expect(add.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.hover(add);
-  expect((await screen.findByRole("tooltip")).textContent).toBe("Needs ace");
+  expect(within(add).getByText("Connect to this computer to add a project.")).toBeTruthy();
   await userEvent.click(add);
   expect(screen.queryByRole("dialog")).toBeNull();
 
