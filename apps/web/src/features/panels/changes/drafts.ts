@@ -1,8 +1,10 @@
+import { ThreadId as ThreadIdSchema } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
 import type {
   CommandPayload,
   ReviewComment,
   ReviewData,
+  ReviewSession,
   ThreadId,
   WorkspaceId,
 } from "@ace/protocol";
@@ -76,7 +78,17 @@ async function review(client: ClientApi, payload: CommandPayload): Promise<Revie
 
 const refusals: Record<string, string> = {
   not_found: "the daemon no longer has this review",
+  review_not_found: "the daemon no longer has this review",
+  review_comment_unavailable: "the comment is resolved or its lines are gone",
   not_actionable: "the comment is resolved or its lines are gone",
+  review_reviewer_unavailable:
+    "AI review isn't available on this daemon; add comments and send them to the agent",
+  review_queue_rejected:
+    "the thread couldn't accept the comments; check its queue and provider settings",
+  review_target_mismatch: "the thread's checkout moved; open a new review of its current changes",
+  review_executor_unavailable: "this daemon has no running agent engine",
+  review_suggestion_conflict:
+    "the selected lines changed; refresh and check the suggestion before applying it",
   unsupported_by_fake_daemon: "this daemon can't do that yet",
 };
 const refusal = (code: string | undefined) =>
@@ -106,15 +118,20 @@ export async function sendDrafts(
   const sending = new Set(drafts.map((draft) => draft.key));
   patch(store, sending, ({ error: _error, ...draft }) => ({ ...draft, state: "sending" }));
   try {
-    const opened = await review(client, {
-      type: "review.open",
-      source: {
-        workspaceId: thread.workspaceId,
-        threadId: thread.id,
-        from: { kind: "commit", ref: "HEAD" },
-        to: { kind: "working-tree" },
-      },
-    });
+    const previous = drafts[0]?.sessionId;
+    const reuse =
+      previous && drafts.every((draft) => draft.sessionId === previous && draft.commentId);
+    const opened = reuse
+      ? await review(client, { type: "review.list", sessionId: previous, cursor: "", limit: 1 })
+      : await review(client, {
+          type: "review.open",
+          source: {
+            workspaceId: thread.workspaceId,
+            threadId: thread.id,
+            from: { kind: "commit", ref: "HEAD" },
+            to: { kind: "working-tree" },
+          },
+        });
     const sessionId = opened.session?.id;
     if (!sessionId) throw new Error("the daemon did not open a review session");
     const commentIds: string[] = [];
@@ -175,7 +192,7 @@ export async function resolveDraft(
 }
 
 /**
- * Read back what the daemon holds for this thread's sent comments: resolved elsewhere, outdated
+ * Read back the daemon's sessions and comments for this thread: resolved elsewhere, outdated
  * by a later edit, or addressed and waiting for review. Comments it no longer has keep their
  * last known state.
  */
@@ -184,16 +201,31 @@ export async function refreshDrafts(
   store: LocalStore<readonly ReviewDraft[]>,
   threadId: string,
 ): Promise<void> {
-  const sessions = new Set(
-    store
+  const sessions = new Map<string, ReviewSession>();
+  let sessionCursor = "";
+  // Discover daemon sessions as well as this device's comments. Bound each refresh.
+  for (let page = 0; page < 10; page++) {
+    const data = await review(client, {
+      type: "review.list",
+      threadId: ThreadIdSchema.parse(threadId),
+      cursor: sessionCursor,
+      limit: 20,
+    });
+    for (const session of data.sessions ?? [])
+      if (session.source.threadId === threadId) sessions.set(session.id, session);
+    if (!data.nextCursor) break;
+    sessionCursor = data.nextCursor;
+  }
+  const ids = new Set([
+    ...sessions.keys(),
+    ...store
       .get()
-      .filter((draft) => draft.threadId === threadId && draft.sessionId && draft.commentId)
+      .filter((draft) => draft.threadId === threadId && draft.sessionId)
       .map((draft) => draft.sessionId ?? ""),
-  );
+  ]);
   const held = new Map<string, ReviewComment>();
-  for (const sessionId of sessions) {
+  for (const sessionId of [...ids].slice(0, 20)) {
     let cursor = "";
-    // Bounded: 20 comments a page, at most 10 pages per session.
     for (let page = 0; page < 10; page++) {
       const data = await review(client, { type: "review.list", sessionId, cursor, limit: 20 });
       for (const comment of data.comments ?? []) held.set(comment.id, comment);
@@ -202,18 +234,46 @@ export async function refreshDrafts(
     }
   }
   if (!held.size) return;
-  store.set((drafts) =>
-    drafts.map((draft) => {
+  store.set((drafts) => {
+    const known = new Set(drafts.flatMap((draft) => (draft.commentId ? [draft.commentId] : [])));
+    const updated = drafts.map((draft) => {
       const comment = draft.commentId ? held.get(draft.commentId) : undefined;
       if (!comment || draft.state === "sending" || draft.state === "resolving") return draft;
+      const remoteState =
+        sessions.get(comment.sessionId)?.status === "changes-requested" ? "sent" : "draft";
       const state: DraftState = comment.resolved
         ? "resolved"
-        : draft.state === "resolved"
-          ? "sent"
+        : draft.state === "resolved" || draft.state === "draft"
+          ? remoteState
           : draft.state;
-      return state === draft.state && comment.anchor.state === draft.anchor
-        ? draft
-        : { ...draft, state, anchor: comment.anchor.state };
-    }),
-  );
+      return { ...draft, state, anchor: comment.anchor.state };
+    });
+    const usedKeys = new Set(updated.map((draft) => draft.key));
+    for (const comment of held.values()) {
+      if (known.has(comment.id)) continue;
+      if (updated.length >= 400) break;
+      const position = comment.anchor.position;
+      updated.push({
+        key: usedKeys.has(draftKey(threadId, position.file, position.side, position.start))
+          ? `remote:${comment.sessionId}:${comment.id}`
+          : draftKey(threadId, position.file, position.side, position.start),
+        threadId,
+        file: position.file,
+        side: position.side,
+        line: position.start,
+        text: comment.text,
+        state: comment.resolved
+          ? "resolved"
+          : sessions.get(comment.sessionId)?.status === "changes-requested"
+            ? "sent"
+            : "draft",
+        commentId: comment.id,
+        sessionId: comment.sessionId,
+        anchor: comment.anchor.state,
+        createdAt: sessions.get(comment.sessionId)?.createdAt ?? 0,
+      });
+      usedKeys.add(updated.at(-1)?.key ?? "");
+    }
+    return updated;
+  });
 }

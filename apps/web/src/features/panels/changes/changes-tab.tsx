@@ -2,6 +2,7 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { countChanges, type FileDiff } from "@ace/ui-core";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useFileDiffs } from "@/lib/diffs/use-file-diffs.ts";
 import { cn } from "@/lib/cn.ts";
 import { useElementWidth } from "@/lib/use-element-width.ts";
@@ -57,6 +58,15 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const services = usePanelServices();
   const client = useClient();
   const thread = useThreadMeta(threadId);
+  useDaemonQuery({
+    queryKey: ["review-drafts", threadId, thread?.status.state, thread?.details?.head],
+    staleTime: 0,
+    retry: false,
+    read: async (daemon) => {
+      await refreshDrafts(daemon, services.drafts, threadId);
+      return null;
+    },
+  });
   const turns = useTurns(threadId);
   const edited = useMemo(() => turns.filter((turn) => turn.edits.length), [turns]);
   const [scope, setScope] = useState<Scope>("last");

@@ -49,12 +49,40 @@ const messages: Record<string, string> = {
   script_not_found: "That script is no longer in the project.",
   script_shell_unsupported: "Scripts can't run on this daemon's platform yet.",
   editor_not_found: "That editor is no longer installed.",
-  head_changed: "The branch moved since you looked. Review the changes and try again.",
+  git_head_moved: "The branch moved since you looked. Refresh the changes and try again.",
+  git_hook_failed:
+    "A git hook rejected the change. Fix the hook's reported problem in a terminal and try again.",
+  git_auth_failed: "Git authentication failed. Sign in to your remote in a terminal and try again.",
+  git_conflicts: "Git found conflicts. Resolve them in the checkout and try again.",
+  git_remote_unreachable:
+    "Git couldn't reach the remote. Check the remote URL and your connection, then retry.",
+  git_quarantined:
+    "Git cleanup is still pending. Wait for cleanup or restart the daemon before retrying.",
+  forge_not_found:
+    "The pull request or repository wasn't found. Check its number and your repository access.",
+  forge_forbidden:
+    "GitHub denied access. Check your repository permissions and run gh auth login if needed.",
+  forge_rate_limit: "GitHub's request limit was reached. Wait before refreshing or trying again.",
+  forge_cli: "GitHub CLI failed. Check that gh is installed and run gh auth login, then retry.",
+  forge_auth: "GitHub authentication failed. Run gh auth login in a terminal and retry.",
+  forge_unsupported: "This forge isn't supported yet. Open the pull request on its website.",
+  forge_conflict:
+    "GitHub rejected the change because the PR changed or can't merge. Refresh and resolve conflicts or failing checks.",
+  forge_invalid_data: "GitHub returned unreadable data. Update gh and refresh the pull request.",
+  forge_limit: "The pull request is too large to read here. Open it on GitHub.",
+  forge_cancelled: "The GitHub request was cancelled. Try again.",
+  action_outcome_uncertain:
+    "The daemon lost the action's result. Check the checkout or GitHub before trying again.",
+  action_busy: "Too many actions are running. Wait for one to finish and retry.",
+  pr_link_changed: "The linked pull request changed. Refresh before trying again.",
+  forge_recovery_unavailable: "This daemon can't find an existing PR. Update the daemon and retry.",
+  workspace_change_in_progress: "The checkout is moving. Wait for it to finish, then retry.",
   repository_mismatch: "The checkout's remote changed. Refresh and try again.",
   terminal_limit: "Too many terminals are open. Close one and try again.",
   thread_tree_is_live: "Wait for the agents to stop: the checkout can't move under live work.",
   terminal_owned: "Close the thread's terminals first: the checkout can't move under them.",
-  git_dirty_worktree: "Commit or discard the uncommitted changes first.",
+  git_dirty_worktree:
+    "Commit or discard the uncommitted changes, or carry them to the selected branch.",
   git_invalid_ref: "That branch doesn't exist in the project.",
   engine_unavailable: "This daemon can't move a thread's checkout.",
 };
@@ -101,7 +129,7 @@ export interface WorkspaceSource {
   createPr(thread: ThreadRef, input: PrInput): Promise<number>;
   /**
    * Moves the thread's checkout: into a worktree of its own, or onto another branch. The daemon
-   * refuses while agents or terminals work in it, or while it has uncommitted changes.
+   * refuses while agents or terminals work in it. Uncommitted changes require explicit carry-over.
    */
   setCheckout(thread: ThreadRef, change: CheckoutChange): Promise<void>;
 }
@@ -109,6 +137,7 @@ export interface WorkspaceSource {
 export interface CheckoutChange {
   mode: "local" | "worktree";
   branch?: string | undefined;
+  allowUncommitted?: boolean | undefined;
 }
 
 const is = <K extends Result["kind"]>(
@@ -204,7 +233,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
         threadId: id(thread),
         mode: change.mode,
         ...(change.branch ? { branch: change.branch } : {}),
-        allowUncommitted: false,
+        allowUncommitted: change.allowUncommitted ?? false,
       });
     },
   };
