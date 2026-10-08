@@ -76,7 +76,7 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
         mode(
           ":workspace",
           "Auto",
-          "Can edit files and run commands in this project. Access beyond it needs approval.",
+          "Can edit files and run commands in this project. Other access follows the CLI's settings.",
           "medium",
         ),
         mode(
@@ -94,7 +94,7 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
         mode(
           ":danger-full-access",
           "Full access",
-          "Can change files anywhere and use the network without asking.",
+          "Can change files anywhere and use the network.",
           "high",
         ),
       ];

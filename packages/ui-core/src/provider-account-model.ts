@@ -131,7 +131,7 @@ export function providerAccountModel(input: {
     const selected = accounts.find((account) => account.isDefault) ?? runnable;
     const summary =
       selected?.implicit && selected.quota.auth === "logged_in" && input.row?.accountLabel
-        ? `Signed in as ${selected.signedInAs}`
+        ? `Signed in as ${input.row.accountLabel}`
         : selected
           ? accounts.length === 1 && selected.implicit && selected.quota.auth === "unknown"
             ? label

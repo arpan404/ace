@@ -167,3 +167,14 @@ test("service failures follow their account without changing a working sibling o
     ).text,
   ).toBe("Limit reached");
 });
+
+test("a reported native sign-in keeps its name when the installation probe is unknown", () => {
+  const model = providerAccountModel({
+    provider: "codex",
+    row: { ...row, installed: null, auth: "logged_in", accountLabel: "Ada" },
+    now: 10,
+    accounts: [account("normal", "logged_in", 0, true)],
+  });
+  expect(model.view?.summary).toBe("Signed in as Ada");
+  expect(model.accounts[0]?.label).toBe("Your CLI login");
+});
