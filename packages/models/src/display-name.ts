@@ -118,7 +118,9 @@ export function modelDisplayName(
     : undefined;
   const wrongVersion =
     identity.family?.startsWith("claude-") && namedVersion && namedVersion !== identity.version;
-  const displayName = supplied && !raw && !snapshot && !wrongVersion ? supplied : derived;
+  const lowercase = supplied && supplied === supplied.toLowerCase();
+  const displayName =
+    supplied && !raw && !snapshot && !wrongVersion && !lowercase ? supplied : derived;
   return {
     displayName,
     ...(upstreamProvider ? { upstreamProvider } : {}),

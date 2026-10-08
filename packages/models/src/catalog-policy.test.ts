@@ -168,3 +168,30 @@ test("accounts and upstream providers classify their own available versions", ()
   );
   expect(view.every((row) => row.tier === "current")).toBe(true);
 });
+
+test("a dated route is legacy only when its undated model also exists", () => {
+  const snapshot = "claude-haiku-4-5-20251001";
+  const datedOnly = configuredModels(rows([snapshot], "claude"), "claude", "account", {
+    provider: "claude",
+  });
+  expect(datedOnly[0]).toMatchObject({
+    displayName: "Haiku 4.5",
+    tier: "current",
+    isDefault: true,
+  });
+  const together = configuredModels(
+    rows([snapshot, "claude-haiku-4-5"], "claude"),
+    "claude",
+    "account",
+    { provider: "claude" },
+  );
+  expect(together.find((row) => row.id === snapshot)).toMatchObject({
+    displayName: "Haiku 4.5",
+    tier: "legacy",
+    isDefault: false,
+  });
+  expect(together.find((row) => row.id === "claude-haiku-4-5")).toMatchObject({
+    tier: "current",
+    isDefault: true,
+  });
+});

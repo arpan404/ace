@@ -87,3 +87,13 @@ test("a snapshot cannot turn Haiku's version into 25", () => {
     detail: "20251001",
   });
 });
+
+test("lowercase native labels and snapshot names read as human model names", () => {
+  expect(
+    modelDisplayName("opencode-go/muse-spark-1.3-contributor", "muse spark 1.3 contributor")
+      .displayName,
+  ).toBe("Muse Spark 1.3 Contributor");
+  expect(modelDisplayName("claude-haiku-4-5-20251001", "Haiku 4.5 20251001").displayName).toBe(
+    "Haiku 4.5",
+  );
+});

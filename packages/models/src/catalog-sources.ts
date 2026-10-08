@@ -1,4 +1,5 @@
 import type { CatalogModel, ModelSourceStatus } from "@ace/protocol";
+import { withoutEmptySourceModels } from "./availability.ts";
 import type { CacheEntry } from "./types.ts";
 
 export function sourceFailed(source: ModelSourceStatus): boolean {
@@ -28,7 +29,7 @@ export function refreshedSources(
       ).values(),
     ].flatMap((source) => (source ? [{ source, status: "fresh" as const }] : []));
   return {
-    models: [...models, ...retained],
+    models: withoutEmptySourceModels([...models, ...retained], statuses),
     // oxlint-disable-next-line oxc/no-map-spread -- Clone immutable cached values for this view.
     sources: statuses.map((status) => ({
       ...status,

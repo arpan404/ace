@@ -441,3 +441,40 @@ test("instance admission is bounded and a removed account frees capacity", async
   await catalog.refresh({ instance: "replacement" });
   expect(catalog.list({ instance: "replacement" }).models[0]?.provider).toBe("claude");
 });
+
+test.each(["opencode-go", "github-copilot"])(
+  "an authoritative empty source %s removes stale models from listing and resolution across restart",
+  async (sourceId) => {
+    const source = { kind: "subscription", id: sourceId, label: "Connected service" } as const;
+    const offered = models().flatMap((row) => [
+      Object.assign({}, row, { source }),
+      Object.assign({}, row, { id: `native-${row.id}`, nativeProviderId: sourceId }),
+    ]);
+    const result = Object.assign(offered, {
+      sources: [
+        {
+          source,
+          status: "fresh" as const,
+          error: { code: "no_models" as const, message: "No models", hint: "Pick another source" },
+        },
+      ],
+    });
+    const h = await setup(async () => result);
+    await h.catalog.refresh();
+    expect(h.catalog.list().models).toEqual([]);
+    expect(h.catalog.resolve({ role: "thread", provider: "codex", model: "coder" }).ok).toBe(false);
+    await h.catalog.close();
+    const restarted = new ModelCatalog({
+      storage: openModelStorage(h.path),
+      discover: async () => result,
+      instances: [instance()],
+      now: () => h.clock.now,
+      deadline: h.clock.deadline,
+    });
+    cleanups.push(() => restarted.close());
+    expect(restarted.list().models).toEqual([]);
+    expect(restarted.resolveCached({ role: "thread", provider: "codex", model: "coder" }).ok).toBe(
+      false,
+    );
+  },
+);

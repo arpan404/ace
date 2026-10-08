@@ -104,3 +104,13 @@ export function threadLiveFact(thread: {
       return undefined;
   }
 }
+
+/** Queue holds are waiting input, with no running provider to stop. */
+export function threadIsRunning(status: ThreadStatus | undefined): boolean {
+  return (
+    status?.state === "working" ||
+    status?.state === "needs_you" ||
+    status?.state === "unresponsive" ||
+    (status?.state === "waiting" && status.on !== "queue" && status.on !== "background_task")
+  );
+}
