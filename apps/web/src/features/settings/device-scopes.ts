@@ -18,11 +18,14 @@ export function deviceScopeLabels(scopes: readonly DeviceScope[]): string {
     ? "admin"
     : scopes.includes("operate")
       ? "operate"
-      : "read";
-  return [
-    labels[access],
+      : scopes.includes("read")
+        ? "read"
+        : undefined;
+  const granted = [
+    ...(access ? [labels[access]] : []),
     ...scopes
       .filter((scope) => !["read", "operate", "admin"].includes(scope))
       .map((scope) => labels[scope]),
-  ].join(", ");
+  ];
+  return granted.length ? granted.join(", ") : "No access";
 }

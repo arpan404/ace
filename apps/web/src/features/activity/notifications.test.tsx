@@ -159,7 +159,7 @@ test("turning a toast off in Settings silences it", async () => {
   });
 });
 
-test("an agent message raises Agent messages, opens its thread and respects the category toggle", async () => {
+test("an agent message opens its thread and respects the category toggle", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("watcher-started");
   await app.open("/settings/notifications");
@@ -175,9 +175,7 @@ test("an agent message raises Agent messages, opens its thread and respects the 
       actions: [],
     });
   say("ready", "Your preview is ready.");
-  expect(
-    await within(toasts()).findByText("Agent messages · Fix flaky checkout test"),
-  ).toBeTruthy();
+  expect(await within(toasts()).findByText("Agent message · Fix flaky checkout test")).toBeTruthy();
   await within(toasts()).findByText("Your preview is ready.");
   say("ready", "Your preview is ready.");
   expect(within(toasts()).getAllByText("Your preview is ready.")).toHaveLength(1);

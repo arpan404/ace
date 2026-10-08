@@ -64,7 +64,7 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   expect(screen.queryByText("OpenCode isn't signed in. Sign in to start this thread.")).toBeNull();
 });
 
-test("OpenCode with only free models is ready and offers Sign in for more models as an optional action", async () => {
+test("OpenCode with only free models is ready and offers connecting a service as an optional action", async () => {
   const app = harness();
   freeModels(app);
   await app.open("/settings/providers/opencode");
@@ -81,6 +81,6 @@ test("OpenCode with only free models is ready and offers Sign in for more models
       .filter((model) => model.provider === "opencode")
       .every((model) => model.free && model.source?.requiresAuth === false),
   ).toBe(true);
-  await userEvent.click(within(services).getByRole("button", { name: "Sign in for more models" }));
+  await userEvent.click(within(services).getByRole("button", { name: "Connect a service" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to OpenCode" })).toBeTruthy();
 });

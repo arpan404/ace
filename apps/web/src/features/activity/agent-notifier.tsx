@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { notifyInBrowser } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
+import { notificationTitle } from "@/lib/notification-title.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 
 /** Agent notices already passed delivery policy; use their stable id to replace retries. */
@@ -57,7 +58,7 @@ export function AgentNotifier() {
       if (!documentVisibility.visible()) {
         if (current.prefs.browser)
           notifyInBrowser({
-            title: `Agent messages · ${notice.title}`,
+            title: notificationTitle(notice),
             body: notice.message ?? "",
             tag: notice.id,
             open,
@@ -66,7 +67,7 @@ export function AgentNotifier() {
       }
       current.toast.add({
         id: notice.id,
-        title: `Agent messages · ${notice.title}`,
+        title: notificationTitle(notice),
         description: notice.message,
         timeout: 10_000,
         actionProps: { children: "Open", onClick: open },
