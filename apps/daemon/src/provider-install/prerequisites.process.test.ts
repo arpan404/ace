@@ -119,3 +119,73 @@ test("a registry agent installs missing uv first and verifies the agent without 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("Copilot requires Node 22 before its registry installation can start", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-copilot-prerequisite-"));
+  const bin = join(home, "bin");
+  await mkdir(bin);
+  await writeFile(join(bin, "npm"), `#!${process.execPath}\nconsole.log('10.0.0');\n`, {
+    mode: 0o700,
+  });
+  const nodePath = join(bin, "node");
+  await writeFile(nodePath, `#!${process.execPath}\nconsole.log('v20.0.0');\n`, { mode: 0o700 });
+  const env = { HOME: home, PATH: bin };
+  let id = 0;
+  const catalog = await AgentCatalog.open({
+    target: "darwin-aarch64",
+    now: () => 1000,
+    cache: fileCache(join(home, "catalog.json"), () => String(++id)),
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          version: "1.0.0",
+          agents: [
+            {
+              id: "github-copilot-cli",
+              name: "Copilot",
+              version: "1.0.0",
+              description: "Synthetic",
+              authors: ["Fixture"],
+              license_url: "https://example.org/license",
+              distribution: { npx: { package: "fixture-agent@1.0.0", args: [], env: {} } },
+            },
+          ],
+        }),
+      ),
+  });
+  const registry = await AgentRegistry.open({
+    catalog,
+    root: join(home, "installs"),
+    target: "darwin-aarch64",
+    env,
+    storage: fileInventoryStorage(join(home, "inventory.json"), () => String(++id)),
+  });
+  const installs = new ProviderInstalls(
+    { env, home, registry: registryInstaller(registry, async () => {}) },
+    {
+      now: () => 1000,
+      id: () => String(++id),
+      log() {},
+      changed: async () => {},
+      schedule() {
+        return () => {};
+      },
+    },
+  );
+  try {
+    const target = { provider: "acp" as const, acpAgentId: "official:github-copilot-cli" };
+    expect(await installs.plan(target, "install")).toMatchObject({
+      status: "unavailable",
+      prerequisite: { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" },
+    });
+    await writeFile(nodePath, `#!${process.execPath}\nconsole.log('v22.0.0');\n`, { mode: 0o700 });
+    expect(await installs.plan(target, "install")).toMatchObject({
+      status: "ready",
+      registryPlan: { runtime: "npm" },
+    });
+  } finally {
+    await installs.close();
+    await registry.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});

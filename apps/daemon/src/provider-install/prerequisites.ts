@@ -26,7 +26,9 @@ export async function registryPrerequisites(
       );
     const agent = InstallAgent.safeParse(plan.acpAgentId?.replace(/^official:/, ""));
     const spec = agent.success ? installer("acp", agent.data) : undefined;
-    if (!version || Number(version.split(".")[0]) < (spec?.nodeMajor ?? 16))
+    const minimum =
+      plan.acpAgentId === "official:github-copilot-cli" ? 22 : (spec?.nodeMajor ?? 16);
+    if (!version || Number(version.split(".")[0]) < minimum)
       prerequisite = { name: "Node.js", sourceUrl: "https://nodejs.org/en/download" };
   }
   if (!prerequisite) return plan;

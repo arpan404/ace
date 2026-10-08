@@ -51,3 +51,21 @@ test("Google authorization challenges belong only to ACP sign-in and never carry
     loginUrl("acp", url.replace("accounts.google.com", "accounts.google.com.evil.test")),
   ).toBeUndefined();
 });
+
+test("ACP bridges can relay reviewed vendor sign-in links without exposing credentials", () => {
+  for (const url of [
+    "https://claude.ai/oauth/authorize?client_id=synthetic&code_challenge=public-pkce",
+    "https://cursor.com/loginDeepControl?uuid=synthetic&challenge=public-pkce&redirectTarget=sdk",
+  ]) {
+    expect(loginObservation("acp", `Continue at ${url}`)).toMatchObject({
+      state: "awaiting_browser",
+      url,
+    });
+    expect(
+      loginObservation("acp", `Continue at ${url}&access_token=private-value`),
+    ).toBeUndefined();
+  }
+  expect(
+    loginUrl("acp", "https://cursor.com/loginDeepControl?redirectTarget=private-destination"),
+  ).toBeUndefined();
+});
