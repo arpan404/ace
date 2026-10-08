@@ -78,6 +78,12 @@ export class FakeCheckout {
     }
     return `${root}\0${clean(path)}`;
   }
+  retainedBytes(): number {
+    return (
+      [...this.files.values()].reduce((size, file) => size + file.bytes.length, 0) +
+      [...this.deleted.values()].reduce((size, entry) => size + entry.size, 0)
+    );
+  }
   version() {
     return `file-${++this.sequence}`;
   }
@@ -155,6 +161,10 @@ export class FakeCheckout {
     let destination: string | undefined;
     let trashId: string | undefined;
     if (op.op === "create" || op.op === "write" || op.op === "mkdir") {
+      const entries =
+        this.files.size +
+        [...this.deleted.values()].reduce((count, entry) => count + entry.files.length, 0);
+      if (!file && entries >= 4096) throw new Error("QUOTA");
       const bytes = new TextEncoder().encode(op.op === "mkdir" ? "" : op.text);
       if (bytes.length > 1024 * 1024) throw new Error("QUOTA");
       this.files.set(key, { bytes, version: id, ...(op.op === "mkdir" ? { folder: true } : {}) });

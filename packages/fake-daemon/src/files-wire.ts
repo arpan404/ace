@@ -185,7 +185,7 @@ export class FakeFilesWire {
               if ((this.file(threadId, op.path, key)?.version ?? null) !== op.expected)
                 throw new Error("CONFLICT");
               const total =
-                [...this.files.values()].reduce((n, value) => n + value.bytes.length, 0) +
+                this.checkout.retainedBytes() +
                 [...this.uploads.values()].reduce((n, value) => n + value.size, 0);
               if (this.uploads.size >= 64 || total + op.size > 16 * 1024 * 1024)
                 throw new Error("QUOTA");
@@ -277,6 +277,19 @@ export class FakeFilesWire {
               validator: op.previewId,
             });
             return;
+          }
+          if (op.op === "create" || op.op === "write") {
+            const key = this.key(threadId, op.path);
+            const reserved =
+              this.checkout.retainedBytes() +
+              [...this.uploads.values()].reduce((size, upload) => size + upload.size, 0);
+            if (
+              reserved +
+                new TextEncoder().encode(op.text).length -
+                (this.files.get(key)?.bytes.length ?? 0) >
+              16 * 1024 * 1024
+            )
+              throw new Error("QUOTA");
           }
           const value = this.checkout.apply(threadId, op);
           emit({ type: "files.result", requestId: message.requestId, value });
