@@ -640,6 +640,30 @@ export class Engine {
   cancelDelegatedInputs(id: ThreadId): void {
     cancelDelegatedInputs(this.repo, id, this.clock.now());
   }
+  /** Permanent task cancellation closes human requests without answering or granting permission. */
+  cancelDelegatedInteractions(id: ThreadId): void {
+    const state = this.repo.requireState(id);
+    const facts: import("@ace/core").Fact[] = Object.entries(state.interactions)
+      .filter(([, interaction]) => interaction.state === "pending")
+      .map(([interaction]) => ({ type: "interaction.closed", interaction, state: "cancelled" }));
+    if (facts.length) this.actor(id).apply(facts);
+  }
+  /** A stop timeout closes the provider through its owning session before publishing exit facts. */
+  async terminateDelegatedThread(id: ThreadId): Promise<void> {
+    this.discardRecovery(id);
+    this.cancelDelegatedInputs(id);
+    this.cancelDelegatedInteractions(id);
+    const actor = this.actor(id);
+    await actor.flush();
+    if (actor.session) await this.sessions.close(actor, "user");
+    else {
+      actor.lifetime?.abort();
+      actor.generation++;
+      actor.apply([{ type: "process.exited", deliberate: true }]);
+    }
+    actor.syncQueue();
+    this.wake(id);
+  }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);
   }

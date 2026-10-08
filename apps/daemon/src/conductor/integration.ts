@@ -10,12 +10,42 @@ export async function integrateCard(
   context: ServiceContext,
   worktrees: DeckWorktrees,
 ): Promise<Fact[]> {
-  const merged = await worktrees.git.integrate({
-    worktree: root.path,
-    revision: effect.completion.revision,
-    key: effect.id,
-  });
-  if (effect.mode === "pr" && !merged.conflict) {
+  let cancelledRevision: string | null = null;
+  if (["cancelling", "cancelled"].includes(state.phase)) {
+    try {
+      cancelledRevision = await worktrees.git.resolveCommit({
+        worktree: root.path,
+        ref: `refs/ace/conductor/${effect.id}`,
+      });
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "invalid_ref")) throw error;
+    }
+    if (!cancelledRevision)
+      return [
+        {
+          type: "merge_result",
+          operationId: effect.id,
+          workstream: effect.workstream,
+          revision: effect.completion.revision,
+          conflict: "Integration cancelled before merge",
+          trivial: false,
+        },
+      ];
+  }
+  const merged = cancelledRevision
+    ? { revision: cancelledRevision, conflict: null, trivial: false }
+    : await worktrees.git.integrate({
+        worktree: root.path,
+        revision: effect.completion.revision,
+        key: effect.id,
+      });
+  if (
+    effect.mode === "pr" &&
+    !merged.conflict &&
+    !["cancelling", "cancelled"].includes(
+      context.services.conductor?.state(state.id)?.phase ?? state.phase,
+    )
+  ) {
     const forge = context.services.workspaceActions?.forge;
     if (!forge || !root.baseBranch) throw new Error("deck_forge_executor_unavailable");
     const permitted = () => {
@@ -47,13 +77,17 @@ export async function integrateCard(
 }
 export async function verifyCard(
   effect: Extract<Effect, { type: "verify" }>,
+  state: State,
   root: RootBinding,
   context: ServiceContext,
   worktrees: DeckWorktrees,
 ): Promise<Fact[]> {
   let passed: boolean;
   let summary: string;
-  if (effect.mode === "pr") {
+  if (state.phase === "cancelling" || state.phase === "cancelled") {
+    passed = false;
+    summary = "Deck cancelled before verification";
+  } else if (effect.mode === "pr") {
     const forge = context.services.workspaceActions?.forge;
     if (!forge) throw new Error("deck_forge_executor_unavailable");
     const status = await forge.status(root.thread, root.path);
@@ -78,6 +112,17 @@ export async function verifyCard(
     summary = passed
       ? "Reviewed revision integrated into the clean Deck branch"
       : "Deck integration revision or worktree changed";
+  }
+  if (!passed) {
+    const key = state.nodes[effect.workstream]?.integrationKey;
+    if (!key) throw new Error("deck_integration_receipt_missing");
+    await worktrees.git.rollbackIntegration({
+      worktree: root.path,
+      key,
+      revision: effect.revision,
+    });
+    if (effect.mode === "pr") await worktrees.git.push({ worktree: root.path, remote: "origin" });
+    summary += "; unverified integration reverted";
   }
   return [
     {

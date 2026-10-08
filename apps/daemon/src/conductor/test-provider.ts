@@ -12,6 +12,10 @@ import { plan, review } from "./test-artifacts.ts";
 import { git } from "./test-git.ts";
 export interface DeckProviderOptions {
   hold?: boolean;
+  holdReviewer?: boolean;
+  ignoreInterrupt?: boolean;
+  failFirstIntegrator?: boolean;
+  artifactText?(role: string, artifact: unknown, attempt: number): string;
   cards?: ConductorPlan;
   longReview?: boolean;
   wrongReviewRevision?: boolean;
@@ -42,6 +46,8 @@ export function deckProvider(
   );
   const sends: { thread: ThreadId; text: string; cwd: string; resumed: boolean }[] = [];
   let hold = options.hold ?? false;
+  const attempts = new Map<ThreadId, number>();
+  let integratorFailed = false;
   const output = async (ctx: SessionContext, ...facts: Fact[]) => {
     await ctx.onFrame(frames.frame(...facts));
   };
@@ -76,6 +82,8 @@ export function deckProvider(
     }
     if (options.removeWorkerTree && role.includes("worker"))
       rmSync(ctx.cwd, { recursive: true, force: true });
+    const attempt = (attempts.get(threadId) ?? 0) + 1;
+    attempts.set(threadId, attempt);
     await output(
       ctx,
       {
@@ -85,7 +93,12 @@ export function deckProvider(
         draft: {
           type: "message",
           role: "assistant",
-          parts: [{ type: "text", text: JSON.stringify(artifact) }],
+          parts: [
+            {
+              type: "text",
+              text: options.artifactText?.(role, artifact, attempt) ?? JSON.stringify(artifact),
+            },
+          ],
           complete: true,
         },
       },
@@ -147,7 +160,14 @@ export function deckProvider(
           roles.set(ctx.threadId, role);
           writeFileSync(rolesPath, JSON.stringify(Object.fromEntries(roles)));
           await output(ctx, start);
-          if (
+          if (role.includes("integrator") && options.failFirstIntegrator && !integratorFailed) {
+            integratorFailed = true;
+            await output(ctx, {
+              ...end,
+              outcome: "failed",
+              error: { kind: "unknown", message: "Scripted integrator failure" },
+            });
+          } else if (
             role.includes("worker") &&
             options.quotaLimit &&
             !ctx.resume &&
@@ -179,7 +199,7 @@ export function deckProvider(
             });
           } else if (
             role.includes("planner") ||
-            role.includes("reviewer") ||
+            (role.includes("reviewer") && !options.holdReviewer) ||
             (!hold && role.includes("worker"))
           )
             await finish(ctx.threadId);
@@ -193,7 +213,7 @@ export function deckProvider(
         },
         async interrupt(target: Parameters<typeof session.interrupt>[0]) {
           await session.interrupt(target);
-          await output(ctx, { ...end, outcome: "interrupted" });
+          if (!options.ignoreInterrupt) await output(ctx, { ...end, outcome: "interrupted" });
         },
       };
     },

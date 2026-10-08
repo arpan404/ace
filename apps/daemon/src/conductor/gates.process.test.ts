@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { closeDeckFixtures, deckFixture } from "./test-support.ts";
+import { ThreadId } from "@ace/protocol";
 import { plan } from "./test-artifacts.ts";
 
 afterEach(closeDeckFixtures);
@@ -63,4 +64,52 @@ test("rejecting the plan drafts another one instead of cancelling the deck", asy
   expect(h.sends.filter((entry) => entry.text.includes("rejected an earlier plan"))).toHaveLength(
     1,
   );
+});
+
+test("only the plan gate is mirrored as a root-thread interaction", async () => {
+  const h = await deckFixture({ mergeAsk: true });
+  expect(await h.startRun()).toMatchObject({ ok: true });
+  await h.subscribe();
+  const run = await h.waitFor((view) => view.needsUser.some((gate) => gate.kind === "merge"));
+  await h.settle();
+  const parent = run.delegations[0]?.parentThreadId;
+  if (!parent) throw new Error("Missing root");
+  const snapshot = h.daemon.store.acquireThread(ThreadId.parse(parent));
+  try {
+    expect(
+      Object.values(snapshot.interactions).filter((interaction) => interaction.state === "pending"),
+    ).toEqual([]);
+    expect((await h.read()).needsUser[0]?.kind).toBe("merge");
+  } finally {
+    h.daemon.store.releaseThread(ThreadId.parse(parent));
+  }
+});
+
+test("feedback from the root plan card reaches the next planner", async () => {
+  const h = await deckFixture({ planApproval: "required" });
+  expect(await h.startRun()).toMatchObject({ ok: true });
+  await h.subscribe();
+  const run = await h.waitFor((view) => view.needsUser.some((gate) => gate.kind === "plan"));
+  await h.settle();
+  const parent = run.delegations[0]?.parentThreadId;
+  if (!parent) throw new Error("Missing root");
+  const snapshot = h.daemon.store.acquireThread(ThreadId.parse(parent));
+  const interaction = Object.values(snapshot.interactions).find(
+    (entry) => entry.state === "pending",
+  );
+  h.daemon.store.releaseThread(ThreadId.parse(parent));
+  if (!interaction) throw new Error("Missing plan interaction");
+  expect(
+    await h.commands({
+      type: "interaction.resolve",
+      interactionId: interaction.id,
+      resolution: {
+        kind: "plan_review",
+        decision: "reject",
+        feedback: "Split the risky migration into its own card",
+      },
+    }),
+  ).toMatchObject({ ok: true });
+  await h.settle();
+  expect(h.sends.at(-1)?.text).toContain("Split the risky migration into its own card");
 });

@@ -35,6 +35,10 @@ export async function deckFixture(
   options: {
     git?: GitOptions;
     hold?: boolean;
+    holdReviewer?: boolean;
+    ignoreInterrupt?: boolean;
+    failFirstIntegrator?: boolean;
+    artifactText?(role: string, artifact: unknown, attempt: number): string;
     question?: boolean;
     parallel?: number;
     cards?: ConductorPlan;

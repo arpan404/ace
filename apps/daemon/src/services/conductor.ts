@@ -51,6 +51,9 @@ export function startConductor(context: ServiceContext): void {
         runtime.approveInteraction(owner.run, `host.${command.id}`, {
           gateId: owner.gate,
           decision: payload.resolution.decision === "approve" ? "approve" : "reject",
+          ...(payload.resolution.feedback?.trim()
+            ? { feedback: payload.resolution.feedback.slice(0, 16_384) }
+            : {}),
         });
         return { commandId: command.id, ok: true };
       } catch {

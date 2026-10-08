@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 /** Script only the CLI HTTP boundary; Git pushes go to a real local bare repository. */
 export function scriptedForge() {
   const publications: { number: number; branch: string; base: string }[] = [];
-  let ci: "pending" | "success" = "pending";
+  let ci: "pending" | "success" | "failure" = "pending";
   let headOverride: string | undefined;
   let loseCreateResponse = false;
   const runner =
@@ -53,7 +53,7 @@ export function scriptedForge() {
               id: 1,
               name: "acceptance",
               status: ci === "pending" ? "in_progress" : "completed",
-              conclusion: ci === "success" ? "success" : null,
+              conclusion: ci === "pending" ? null : ci,
               completed_at: null,
             },
           ],
@@ -77,6 +77,9 @@ export function scriptedForge() {
   return {
     runner,
     publications,
+    fail: () => {
+      ci = "failure";
+    },
     pass: () => {
       ci = "success";
     },

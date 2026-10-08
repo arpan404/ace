@@ -291,7 +291,11 @@ export class DelegationService {
     this.deps.store.atomic(() => {
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
-      if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
+      if (this.deps.store.getThread(thread)) {
+        this.deps.engine.discardRecovery(thread);
+        this.deps.engine.cancelDelegatedInputs(thread);
+        this.deps.engine.cancelDelegatedInteractions(thread);
+      }
       this.reservationLifetimes.cancel(thread, (target, ancestor) =>
         this.journal.isDescendant(target, ancestor),
       );
@@ -314,6 +318,7 @@ export class DelegationService {
         if (this.deps.store.getThread(child.childId)) {
           this.deps.engine.discardRecovery(child.childId);
           this.deps.engine.cancelDelegatedInputs(child.childId);
+          this.deps.engine.cancelDelegatedInteractions(child.childId);
         }
         child.phase = "cancelling";
         this.journal.save(child);

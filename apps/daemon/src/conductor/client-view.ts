@@ -37,6 +37,13 @@ export function executionView(
   });
   const needsUser = [...view.needsUser];
   for (const entry of delegations) {
+    const lane = context.services.conductor?.state(view.id)?.lanes[entry.laneId];
+    if (
+      ["cancelling", "cancelled", "done"].includes(view.phase) ||
+      lane?.retiring ||
+      entry.phase === "settled"
+    )
+      continue;
     const snapshot = context.store.acquireThread(ThreadId.parse(entry.threadId));
     try {
       for (const interaction of Object.values(snapshot.interactions)) {

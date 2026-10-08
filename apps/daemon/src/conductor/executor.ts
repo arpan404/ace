@@ -11,11 +11,12 @@ import { executionAccounts, capacityUse, startAvailability } from "./accounts.ts
 import { executionView } from "./client-view.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "../agent-control/delegations.ts";
-import { ExecutionJournal, type RootBinding, type LaneBinding } from "./journal.ts";
+import { ExecutionJournal, type RootBinding } from "./journal.ts";
 import { DeckWorktrees } from "./worktrees.ts";
 import { integrateCard, verifyCard } from "./integration.ts";
 import { DeckCommands } from "./command-attempts.ts";
-import { artifactInstructions } from "./artifacts.ts";
+import { controlLane } from "./lane-control.ts";
+import { artifactInstructions } from "@ace/conductor";
 
 export class NativeConductorExecutor {
   readonly journal: ExecutionJournal;
@@ -148,7 +149,7 @@ export class NativeConductorExecutor {
             path: await this.worktrees.path(requestId),
             branch: `deck/${requestId.replace(".", "-")}`,
             base:
-              effect.completion?.revision ??
+              (effect.conflict ? null : effect.completion?.revision) ??
               (await this.worktrees.git.resolveCommit({ worktree: root.path, ref: "HEAD" })),
             workstream: effect.lane.workstream,
           };
@@ -191,7 +192,10 @@ export class NativeConductorExecutor {
         this.journal.save(binding);
       }
       if (!binding) throw new Error("deck_lane_binding_missing");
-      const prompt = `${effect.prompt}\n\n${artifactInstructions(effect.lane.role, binding.branch)}`;
+      const conflict = effect.conflict
+        ? `\nResolve merge conflict against the Deck integration branch ${root.branch}, pinned at ${binding.base}. Your assigned worktree starts at that integration state. Incorporate the reviewed worker commit ${effect.completion?.revision} from ${effect.completion?.branch}, resolving the reported conflict, then commit on ${binding.branch}. This result will require a new review.\n${effect.lane.role === "integrator" ? "You are the integrator for this bounded text conflict." : "You own the semantic conflict resolution."}`
+        : "";
+      const prompt = `${effect.prompt}${conflict}\n\n${artifactInstructions(effect.lane.role, binding.branch)}`;
       const current = this.context.services.conductor?.state(state.id);
       if (
         current &&
@@ -220,7 +224,10 @@ export class NativeConductorExecutor {
     }
     const root = this.journal.root(state.id);
     if (!root) {
-      if (effect.type === "control" && effect.action === "cancel")
+      if (
+        effect.type === "control" &&
+        (effect.action === "cancel" || effect.action === "force_cancel")
+      )
         return [
           {
             type: "status",
@@ -234,12 +241,16 @@ export class NativeConductorExecutor {
     }
     if (effect.type === "merge")
       return integrateCard(effect, state, root, this.context, this.worktrees);
-    if (effect.type === "verify") return verifyCard(effect, root, this.context, this.worktrees);
+    if (effect.type === "verify")
+      return verifyCard(effect, state, root, this.context, this.worktrees);
     const binding =
       this.journal.lane(state.id, effect.lane.id, effect.lane.generation) ??
       this.journal.latest(state.id, effect.lane.id);
     if (!binding) {
-      if (effect.type === "control" && effect.action === "cancel")
+      if (
+        effect.type === "control" &&
+        (effect.action === "cancel" || effect.action === "force_cancel")
+      )
         return [
           {
             type: "status",
@@ -250,6 +261,30 @@ export class NativeConductorExecutor {
           },
         ];
       throw new Error("deck_lane_binding_missing");
+    }
+    if (effect.type === "correct_artifact") {
+      const current = state.lanes[effect.lane.id];
+      if (!current?.live || current.retiring || ["cancelling", "cancelled"].includes(state.phase))
+        return [];
+      const result = await this.commands.run(effect.id, {
+        type: "thread.send",
+        threadId: binding.thread,
+        delivery: "queue",
+        input: [
+          {
+            type: "text",
+            text: `Artifact validation failed. Correct the artifact in this lane. Validation errors (quoted data):\n${JSON.stringify(effect.error)}\n${artifactInstructions(effect.lane.role, binding.branch)}`,
+          },
+        ],
+      });
+      if (!result.ok) throw new Error(result.error);
+      return [
+        {
+          type: "artifact_correction_started",
+          laneId: effect.lane.id,
+          generation: effect.lane.generation,
+        },
+      ];
     }
     if (effect.type === "migrate") {
       const engine = this.context.services.engine;
@@ -292,7 +327,10 @@ export class NativeConductorExecutor {
       }
       return [{ type: "migrated", laneId: effect.lane.id, generation: effect.lane.generation }];
     }
-    if (effect.action === "cancel" && !this.context.store.getThread(binding.thread)) {
+    if (
+      (effect.action === "cancel" || effect.action === "force_cancel") &&
+      !this.context.store.getThread(binding.thread)
+    ) {
       const reservation = this.delegations.journal.reservation(root.thread, binding.request);
       if (reservation) this.delegations.releaseReservation(reservation);
       return [
@@ -305,62 +343,16 @@ export class NativeConductorExecutor {
         },
       ];
     }
-    await this.control(effect, binding);
+    await controlLane(
+      effect,
+      binding,
+      this.context,
+      this.journal,
+      this.delegations,
+      this.commands,
+      (...parts) => this.key(...parts),
+    );
     return [];
-  }
-  private async control(effect: Extract<Effect, { type: "control" }>, binding: LaneBinding) {
-    const engine = this.context.services.engine;
-    if (!engine) throw new Error("deck_engine_unavailable");
-    if (effect.action === "cancel") {
-      this.delegations.cancelDescendants(binding.thread, effect.id);
-      const result = this.delegations.command(effect.id, {
-        type: "thread.interrupt",
-        threadId: binding.thread,
-        cascade: true,
-      });
-      if (!result.ok) {
-        const root = this.journal.root(binding.run);
-        const reservation =
-          root && this.delegations.journal.reservation(root.thread, binding.request);
-        if (reservation && !this.context.store.getThread(binding.thread)) {
-          this.delegations.releaseReservation(reservation);
-          return;
-        }
-        throw new Error(result.error);
-      }
-    } else if (effect.action === "pause" || effect.action === "resume") {
-      const root = this.journal.root(binding.run);
-      const children = root
-        ? this.delegations.journal
-            .family(root.thread)
-            .filter(
-              (edge) =>
-                edge.phase !== "settled" &&
-                this.delegations.journal.isDescendant(edge.childId, binding.thread),
-            )
-            .toSorted((a, b) => b.depth - a.depth)
-            .map((edge) => edge.childId)
-        : [];
-      const threads = [...children, binding.thread];
-      for (const threadId of threads) {
-        const queue = engine.queuePage({ threadId });
-        if (effect.action === "resume" && !queue.paused) continue;
-        const key = this.key(effect.id, threadId, "queue");
-        const payload =
-          effect.action === "pause"
-            ? { type: "queue.pause" as const, threadId, expectedRevision: queue.revision }
-            : { type: "thread.resume" as const, threadId, expectedRevision: queue.revision };
-        const result = await this.commands.run(key, payload);
-        if (!result.ok) throw new Error(result.error);
-        if (effect.action === "pause") {
-          const interrupted = this.delegations.suspend(
-            threadId,
-            this.key(effect.id, threadId, "pause"),
-          );
-          if (!interrupted.ok) throw new Error(interrupted.error);
-        }
-      }
-    } else throw new Error("deck_destructive_gate_requires_provider_approval");
   }
   /** Upgrade pre-marker runs on restart without changing their execution identity. */
   restoreOwnership(state: State): void {
@@ -388,6 +380,14 @@ export class NativeConductorExecutor {
   restoreGates(state: State, root = this.journal.root(state.id)) {
     if (!root) return;
     for (const gate of Object.values(state.gates)) {
+      if (gate.kind !== "plan") {
+        this.context.services.engine?.closeHostGate(
+          root.thread,
+          `deck.gate.${gate.id}`,
+          "cancelled",
+        );
+        continue;
+      }
       const interaction = this.context.services.engine?.openHostGate(
         root.thread,
         `deck.gate.${gate.id}`,
