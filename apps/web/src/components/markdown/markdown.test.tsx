@@ -105,6 +105,26 @@ test("copying code preserves what has arrived before and after its fence closes"
   expect(await navigator.clipboard.readText()).toBe("const a = 1;");
 });
 
+test("the writing marker stays visible as an answer becomes a list, code and a table", async () => {
+  const tail = <span role="status" aria-label="Streaming" />;
+  const view = render(<Markdown streaming text="Checking the retry path" tail={tail} />);
+  await screen.findByText("Checking the retry path");
+  expect(screen.getByRole("status", { name: "Streaming" })).toBeTruthy();
+  view.rerender(<Markdown streaming text="- Keep the saved cursor" tail={tail} />);
+  expect((await screen.findByRole("listitem")).textContent).toContain("Keep the saved cursor");
+  expect(screen.getByRole("status", { name: "Streaming" })).toBeTruthy();
+  view.rerender(<Markdown streaming text={"```ts\nconst cursor = 12"} tail={tail} />);
+  await userEvent.click(await screen.findByRole("button", { name: "Copy code" }));
+  expect(await navigator.clipboard.readText()).toBe("const cursor = 12");
+  expect(screen.getByRole("status", { name: "Streaming" })).toBeTruthy();
+  const table = "| check | result |\n| --- | --- |\n| replay | passed |";
+  view.rerender(<Markdown streaming text={table} tail={tail} />);
+  expect(await screen.findByRole("cell", { name: /^passed/ })).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Streaming" })).toBeTruthy();
+  view.rerender(<Markdown text={table} />);
+  await waitFor(() => expect(screen.queryByRole("status", { name: "Streaming" })).toBeNull());
+});
+
 test("a streamed answer, once finished, has the same readable content as its whole text", async () => {
   for (const [name, text] of Object.entries({ ...markdownSamples, long: longAnswer })) {
     const whole = render(<Markdown text={text} />);

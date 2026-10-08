@@ -371,7 +371,12 @@ export function buildBlocks(source: BlockSource): Block[] {
             // answer, below the log.
             const between = (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
             if (between) group("work", id);
-            else push({ kind: "message", key: id, itemId: id }, item.createdAt, true);
+            else
+              push(
+                { kind: "message", key: id, itemId: id },
+                item.complete ? item.createdAt : false,
+                true,
+              );
             // The agent spoke after the error: that error was not how the turn ended.
             if (mark) mark.failure = undefined;
           }

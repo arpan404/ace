@@ -27,14 +27,20 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   return (
     <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
       {name && <p className="mb-1 text-ui font-medium text-muted-foreground">{name}</p>}
-      <Prose text={text} stream={`${props.threadId}/${props.itemId}`} streaming={streaming} />
-      {streaming && (
-        <span
-          role="status"
-          aria-label="Streaming"
-          className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full bg-current align-[-0.15em] text-muted-foreground"
-        />
-      )}
+      <Prose
+        text={text}
+        stream={`${props.threadId}/${props.itemId}`}
+        streaming={streaming}
+        tail={
+          streaming && (
+            <span
+              role="status"
+              aria-label="Streaming"
+              className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full bg-current align-[-0.15em] text-muted-foreground"
+            />
+          )
+        }
+      />
       {item.complete && (
         <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
           <Suspense fallback={null}>

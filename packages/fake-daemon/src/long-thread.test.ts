@@ -5,6 +5,7 @@ import {
   FakeDaemon,
   ScenarioPlayer,
   fakeTransport,
+  dedupeReconnect,
   multiDayDemo,
   multiDayThread,
 } from "./index.ts";
@@ -37,6 +38,23 @@ async function connect(daemon: FakeDaemon, device = "phone") {
   await ready;
   return client;
 }
+
+test("fake catch-up keeps current agent counts after a subagent resumes and finishes", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, dedupeReconnect()).runThrough("follow-up");
+  const client = await connect(daemon);
+  try {
+    expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
+      { state: "working", agents: 3 },
+    );
+    daemon.apply("thread-dedupe", [{ type: "turn.ended", agent: "audit", outcome: "completed" }]);
+    expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
+      { state: "working", agents: 2 },
+    );
+  } finally {
+    await client.close();
+  }
+});
 
 // Mutation cases: count only approvals opened after the cutoff; omit descendant facts;
 // include inclusive provider/model-session token samples; use sequence order as time order.

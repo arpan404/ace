@@ -3,6 +3,8 @@ import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { PermissionReviewFacts } from "@/components/permission-review.tsx";
 import { displayCommand, patchLines, stepPath } from "@ace/ui-core";
@@ -274,6 +276,7 @@ function ShellOutput(props: {
   exitCode?: number | null | undefined;
   running: boolean;
 }) {
+  const live = useLiveConnection();
   const [full, setFull] = useState<string>();
   const text = full ?? props.output?.tail ?? "";
   return (
@@ -299,7 +302,7 @@ function ShellOutput(props: {
       <div className="flex h-8 items-center gap-2 px-3 text-xs text-subtle-foreground">
         {props.running ? (
           <>
-            <Spinner /> Running
+            <LiveWorkMark /> {live.fresh ? "Running" : "Last seen running"}
           </>
         ) : props.exitCode !== undefined && props.exitCode !== null ? (
           <span className={cn(props.exitCode !== 0 && "text-status-failed")}>

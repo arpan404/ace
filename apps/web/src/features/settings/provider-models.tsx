@@ -1,3 +1,4 @@
+import { pluralCount } from "@ace/ui-core";
 import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
 import {
   modelKey,
@@ -77,9 +78,7 @@ export function ProviderModels(props: { provider: ProviderKind }) {
       </SettingRow>
       <div className="flex min-h-9 items-center gap-2 text-ui">
         <span className="min-w-0 flex-1 text-muted-foreground">
-          {catalog === undefined
-            ? "Loading models…"
-            : `${unique.length} model${unique.length === 1 ? "" : "s"}`}
+          {catalog === undefined ? "Loading models…" : pluralCount(unique.length, "model")}
         </span>
         <Button
           size="sm"

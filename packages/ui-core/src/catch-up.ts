@@ -1,5 +1,6 @@
 import type { ThreadCatchUpResponse, TurnDigest } from "@ace/protocol";
-import { digestFacts, formatCount, oneLine, toolTotal, type DigestFact } from "./turn-digest.ts";
+import { digestFacts, oneLine, toolTotal, type DigestFact } from "./turn-digest.ts";
+import { formatCount } from "./counts.ts";
 
 /*
  * "While you were away": the deterministic catch-up digest (ADR 0062) as a card reads it.

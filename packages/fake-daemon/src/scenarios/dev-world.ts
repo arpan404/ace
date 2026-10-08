@@ -38,7 +38,13 @@ export function devWorld(): WorldThread[] {
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
-    { scenario: flakyCheckout(), agoMs: 3 * minute, live: { speed: 1 } },
+    // Reopening restores the pending approval; it must not manufacture a new toast each time.
+    {
+      scenario: flakyCheckout(),
+      agoMs: 3 * minute,
+      through: "approval-requested",
+      live: { speed: 1 },
+    },
     { scenario: replayCursor(), agoMs: 4 * minute, live: { speed: 1 } },
     // The thread the right and bottom panels are designed around: its turns already happened,
     // the subagents report back live.

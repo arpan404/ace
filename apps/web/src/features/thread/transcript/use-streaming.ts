@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import type { Item } from "@ace/protocol";
 import { useCallback, useMemo } from "react";
 
@@ -8,6 +9,7 @@ import { useCallback, useMemo } from "react";
  * a failure) leaves its partial text incomplete, but nothing more will arrive.
  */
 export function useStreaming(threadId: string, item: Item | undefined): boolean {
+  const live = useThreadLiveState(threadId);
   const incomplete = !!item && !item.complete;
   const runId = incomplete ? item.runId : undefined;
   const keys = useMemo(() => (runId ? ([`run:${runId}`] as const) : ([] as const)), [runId]);
@@ -16,5 +18,5 @@ export function useStreaming(threadId: string, item: Item | undefined): boolean 
     [runId],
   );
   const ended = useThread(threadId, keys, read) ?? false;
-  return incomplete && !ended;
+  return incomplete && !ended && live.fresh && !live.paused;
 }

@@ -40,7 +40,11 @@ export function MentionIcon(props: { kind: MentionKind; action?: string | undefi
       ? Object.entries(addIcons).find(([key]) => key === props.action)?.[1]
       : undefined;
   return (
-    <Icon icon={icon ?? icons[props.kind]} size={14} className="shrink-0 text-muted-foreground" />
+    <Icon
+      icon={icon ?? icons[props.kind]}
+      size={14}
+      className="self-center shrink-0 text-muted-foreground"
+    />
   );
 }
 /** The same quiet, inline reference in the input and the sent message. */
@@ -52,7 +56,7 @@ export function MentionChip(props: {
   return (
     <span
       title={props.detail}
-      className="inline-flex max-w-full items-center gap-1 align-baseline font-medium text-link"
+      className="inline-flex max-w-full items-baseline gap-1 align-baseline font-medium text-link"
     >
       <MentionIcon kind={props.kind} />
       <span className="truncate">{props.name}</span>

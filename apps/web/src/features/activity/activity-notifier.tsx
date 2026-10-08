@@ -2,6 +2,7 @@ import { useNow } from "@/lib/time.ts";
 import type { SidebarReader } from "@ace/client";
 import {
   arrayEqual,
+  useConnectionState,
   useInteraction,
   useInteractions,
   useSidebarAll,
@@ -53,6 +54,7 @@ export function ActivityNotifier() {
 
 function ThreadNotifier() {
   const [prefs] = useNotificationPrefs();
+  const ready = useConnectionState() === "ready";
   const toast = useToast();
   const projectName = useProjectName();
   const navigate = useNavigate();
@@ -120,7 +122,7 @@ function ThreadNotifier() {
   });
 
   useEffect(() => {
-    if (!statuses || !sidebar) return;
+    if (!statuses || !sidebar || !ready) return;
     const next = new Map<string, ThreadStatus["state"]>();
     for (const id of sidebar.ids) next.set(id, sidebar.thread(id)?.status.state ?? "new");
     const previous = seenThreads.current;
@@ -130,7 +132,7 @@ function ThreadNotifier() {
     const viewing = /^\/t\/([^/]+)/.exec(path)?.[1];
     for (const cause of threadToasts(previous, next, current, viewing))
       if (!(cause.kind === "needs_you" && path.startsWith("/activity"))) showRef.current(cause);
-  }, [statuses, sidebar]);
+  }, [statuses, sidebar, ready]);
   return waiting.map((threadId) => <NeedsYouToast key={threadId} threadId={threadId} />);
 }
 
@@ -148,17 +150,20 @@ function NeedsYouToast(props: { threadId: string }) {
   useEffect(() => {
     latest.current = { toast, navigate };
   });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const thread = useSidebarThread(threadId);
   const now = useNow();
   const first = useInteractions(threadId)?.[0];
   const interaction = useInteraction(threadId, first ?? "");
   const id = needsToastId(threadId);
   const left =
-    thread !== undefined &&
-    (thread.status.state !== "needs_you" ||
-      thread.archivedAt !== undefined ||
-      thread.deletedAt !== undefined ||
-      (thread.snoozedUntil ?? 0) > now);
+    pathname === `/t/${threadId}` ||
+    pathname.startsWith("/activity") ||
+    (thread !== undefined &&
+      (thread.status.state !== "needs_you" ||
+        thread.archivedAt !== undefined ||
+        thread.deletedAt !== undefined ||
+        (thread.snoozedUntil ?? 0) > now));
   useEffect(() => {
     if (left) latest.current.toast.close(id);
   }, [left, id]);

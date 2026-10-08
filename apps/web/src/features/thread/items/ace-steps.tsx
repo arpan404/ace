@@ -11,7 +11,7 @@ import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import type { ShownImage } from "@/components/attachment-format.ts";
 import { ImageTile } from "@/components/attachment-tiles.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useItemsSelect } from "../lib/use-items.ts";
 import { ToolMarkIcon } from "./tool-mark.tsx";
@@ -62,7 +62,7 @@ export function StepGroup(props: {
         onClick={() => setOpen(!open)}
         className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
       >
-        {group.running ? <Spinner className="mx-px" /> : <ToolMarkIcon mark={group.mark} />}
+        {group.running ? <LiveWorkMark className="mx-px" /> : <ToolMarkIcon mark={group.mark} />}
         <span className="min-w-0 truncate">{label}</span>
         <span className="shrink-0 text-xs text-subtle-foreground">
           {counts.map((count, index) => (

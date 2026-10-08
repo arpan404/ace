@@ -289,9 +289,7 @@ test("several questions are answered one at a time: Next through them, then Subm
 
   // Back keeps what was picked.
   await userEvent.click(within(region).getByRole("button", { name: "Back" }));
-  expect((within(region).getByRole("radio", { name: "SQLite" }) as HTMLInputElement).checked).toBe(
-    true,
-  );
+  expect(within(region).getByRole("radio", { name: "SQLite", checked: true })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
 
   await userEvent.click(within(region).getByRole("radio", { name: "A day" }));

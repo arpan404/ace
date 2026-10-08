@@ -229,3 +229,16 @@ test("an unknown provider shows a not-found page with a working way back", async
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
 });
+
+test("a provider with one available model labels it in the singular", async () => {
+  const app = harness();
+  const model = app.daemon.services.models.find((entry) => entry.provider === "codex");
+  if (!model) throw new Error("Missing Codex fixture model");
+  app.daemon.services.models = app.daemon.services.models
+    .filter((entry) => entry.provider !== "codex")
+    .concat(model);
+  await app.open("/settings/providers/codex");
+  const models = await screen.findByRole("region", { name: "Models" });
+  expect(await within(models).findByText("1 model")).toBeTruthy();
+  expect(within(models).queryByText("1 models")).toBeNull();
+});

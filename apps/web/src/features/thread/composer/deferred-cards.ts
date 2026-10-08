@@ -2,7 +2,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /*
  * What the tab attached to the thread's composer shows. Its code (and the request card's) loads
- * after the thread has painted, warmed while idle with `preloadDeferred`. Apart from the
+ * before a thread with pending requests paints; the other tabs warm while idle. Apart from the
  * composer's other deferred parts, which the transcript's rows import: the request card reaches
  * back to those rows.
  */

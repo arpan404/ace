@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { MarkdownLoading } from "./loading.tsx";
 
 // The lexer and renderer load as their own chunk, in parallel with the thread screen, so the
@@ -16,6 +16,7 @@ export function Prose(props: {
   stream?: string;
   streaming?: boolean;
   className?: string;
+  tail?: ReactNode;
 }) {
   return (
     <Suspense fallback={<MarkdownLoading text={props.text} className={props.className} />}>
@@ -24,6 +25,7 @@ export function Prose(props: {
         stream={props.stream}
         streaming={props.streaming}
         className={props.className}
+        tail={props.tail}
       />
     </Suspense>
   );

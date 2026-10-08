@@ -12,7 +12,7 @@ import {
 import { isMeasurementCall, reviewedInteraction, type StepIcon, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
@@ -150,7 +150,7 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
       className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
     >
       {!step.settled ? (
-        <Spinner className="mx-px" />
+        <LiveWorkMark className="mx-px" />
       ) : step.ace ? (
         <ToolMarkIcon mark={step.ace.mark} />
       ) : (

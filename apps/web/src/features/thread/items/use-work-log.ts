@@ -50,7 +50,7 @@ export function useWorkLog(
     return {
       label: activityText(activity, now),
       counts,
-      running: true,
+      running: activity.tone === "working",
       current: activity.current,
       awaiting: summary.awaiting,
     };

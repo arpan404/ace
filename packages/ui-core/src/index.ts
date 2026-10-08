@@ -15,6 +15,7 @@ export * from "./pull-request.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
 export * from "./content-hash.ts";
+export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export * from "./motion.ts";

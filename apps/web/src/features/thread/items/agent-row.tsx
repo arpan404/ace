@@ -5,7 +5,7 @@ import { CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { agentName, providerNames } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -51,7 +51,7 @@ function StatusMark(props: { agent: Agent }) {
   if (state === "unresponsive") return <Dot tone="unresponsive" label="Not responding" />;
   if (state === "idle" || state === "interrupted")
     return <CheckIcon aria-label="Finished" size={12} className="text-subtle-foreground" />;
-  return <Spinner label={state === "blocked" ? "Waiting" : "Working"} />;
+  return <LiveWorkMark label={state === "blocked" ? "Waiting" : "Working"} />;
 }
 
 // 22px per level; the elbow connector sits under the parent's status mark.

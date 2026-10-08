@@ -2,15 +2,15 @@ import type { AgentStatus } from "@ace/protocol";
 import { glyphOf } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import { Dot } from "@/components/ui/dot.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 
 /** An agent's status as one mark: spinner while it works, a dot when it needs you or failed. */
 export function AgentStatusMark(props: { status: AgentStatus }) {
   switch (glyphOf(props.status)) {
     case "spinner":
-      return <Spinner className="text-status-working" />;
+      return <LiveWorkMark className="text-status-working" />;
     case "waiting":
-      return <Spinner className="text-status-waiting" />;
+      return <LiveWorkMark className="text-status-waiting" />;
     case "needs-you":
       return <Dot tone="needs-you" className="mx-[2.5px]" />;
     case "failed":
