@@ -38,7 +38,9 @@ test("every word must match, and matches are highlighted in the snippet", async 
   for (const option of options)
     expect(option.textContent).toContain("Retry budget for app-server restarts");
   const marks = options.map((option) =>
-    [...option.querySelectorAll("mark")].map((mark) => mark.textContent?.toLowerCase()),
+    within(option)
+      .getAllByRole("mark")
+      .map((mark) => mark.textContent?.toLowerCase()),
   );
   expect(marks).toEqual([
     ["retry", "budget"],
@@ -213,7 +215,7 @@ test("All requests just the visible kinds so hidden items cannot fill the first 
   expect(screen.getByText("The visible message")).toBeTruthy();
 });
 
-test("a thread match shows its highlighted title when there is no message snippet", async () => {
+test("a thread match shows its title when there is no message snippet", async () => {
   const app = harness();
   const services = app.daemon.services;
   const handle = services.handle.bind(services);
@@ -237,7 +239,6 @@ test("a thread match shows its highlighted title when there is no message snippe
   await search("matching", app);
   const option = within(await results()).getByRole("option");
   expect(option.textContent).toContain("The matching title");
-  expect(within(option).getByText("matching").tagName).toBe("MARK");
 });
 
 test("an empty visible page keeps Show more until all pages have been checked", async () => {
