@@ -15,7 +15,9 @@ export function inputText(
   context: MessageContext | undefined,
 ): string {
   const text = input
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .flatMap((part) =>
+      part.type === "text" ? [part.text] : part.type === "mention" ? [part.name] : [],
+    )
     .join("")
     .trim();
   const files = (context?.mentions ?? []).map((mention) => mention.path);

@@ -243,6 +243,17 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
+  /** Fault injection: a restart lost proof that a queued message reached its provider. */
+  uncertainQueuedMessage(threadId: string, messageId: string): void {
+    const host = this.thread(threadId);
+    const message = host.queued.find((entry) => entry.key === messageId);
+    if (!message) throw new Error("No queued message to make uncertain");
+    message.state = "uncertain";
+    host.queue.paused = true;
+    host.queue.reason = "uncertain";
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -955,7 +966,7 @@ export class FakeDaemon implements Host {
     }
     if (isQueueCommand(payload)) {
       const result = this.run(commandId, payload.threadId, (host) =>
-        queueCommand(host, payload, this.options.clock()),
+        queueCommand(host, payload, this.options.clock(), commandId),
       );
       // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
       // does when none is named, the same provider's account with headroom.

@@ -1,3 +1,4 @@
+import { createPromptFilesSession } from "./prompt-files.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
@@ -57,6 +58,7 @@ export const socketServiceFactories = [
   createAccountsSession,
   createCursorAuthSession,
   createCommandsSession,
+  createPromptFilesSession,
   createFilesSession,
   createNotificationsSession,
   createPluginsSession,

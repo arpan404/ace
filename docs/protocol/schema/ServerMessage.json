@@ -385,6 +385,9 @@
       "$ref": "https://ace.local/protocol/v1/CommandsResolveResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PromptFilesResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CatalogListResult.json"
     },
     {

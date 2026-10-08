@@ -17,6 +17,15 @@ function bindings() {
   const suffix = process.platform === "darwin" && process.arch === "x64" ? "$INODE64" : "";
   return {
     open: library.func("int openat(int directory, const char *name, int flags)"),
+    create: library.func("int openat(int directory, const char *name, int flags, ...)"),
+    mkdir: library.func("int mkdirat(int directory, const char *name, unsigned int mode)"),
+    rename: library.func(
+      "int renameat(int olddir, const char *oldname, int newdir, const char *newname)",
+    ),
+    unlink: library.func("int unlinkat(int directory, const char *name, int flags)"),
+    link: library.func(
+      "int linkat(int olddir, const char *oldname, int newdir, const char *newname, int flags)",
+    ),
     directory: library.func(`fdopendir${suffix}`, "void *", ["int"]),
     next: library.func(`readdir${suffix}`, "void *", ["void *"]),
     close: library.func("int closedir(void *directory)"),
@@ -72,4 +81,47 @@ export async function directoryReader(fd: number): Promise<DirectoryReader> {
       }
     },
   };
+}
+
+/** Small descriptor-relative mutation primitives, shared by prompt file editing. */
+export async function createCommandDirectory(directory: number, name: string): Promise<void> {
+  await call(api().mkdir, directory, name, 0o700);
+  // The caller opens the result with O_NOFOLLOW, including when mkdir found an existing entry.
+}
+export async function createCommandFile(directory: number, name: string): Promise<number> {
+  // Koffi variadic calls are synchronous; openat is one bounded descriptor operation.
+  const fd = integer.parse(
+    api().create(
+      directory,
+      name,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_EXCL |
+        constants.O_NOFOLLOW |
+        closeOnExec,
+      "unsigned int",
+      0o600,
+    ),
+  );
+  if (fd < 0) throw new EntryUnavailable("Cannot create prompt file");
+  return fd;
+}
+export async function replaceCommandFile(
+  directory: number,
+  source: string,
+  target: string,
+): Promise<void> {
+  if (integer.parse(await call(api().rename, directory, source, directory, target)) < 0)
+    throw new Error("Cannot replace prompt file");
+}
+export async function removeCommandFile(directory: number, name: string): Promise<void> {
+  await call(api().unlink, directory, name, 0);
+}
+export async function linkCommandFile(
+  directory: number,
+  source: string,
+  target: string,
+): Promise<void> {
+  if (integer.parse(await call(api().link, directory, source, directory, target, 0)) < 0)
+    throw new Error("prompt_conflict");
 }

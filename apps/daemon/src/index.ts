@@ -181,6 +181,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
       ...services,
+      get promptFiles() {
+        return services.promptFiles;
+      },
       get commands() {
         return services.commands;
       },
@@ -296,6 +299,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       accounts: services.accounts,
       accountManagement: services.accountManagement,
       cursorAuth: services.cursorAuth,
+      get promptFiles() {
+        return services.promptFiles;
+      },
       get commands() {
         return services.commands;
       },

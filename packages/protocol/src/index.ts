@@ -109,3 +109,13 @@ export * from "./provider-login.ts";
 
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";
+
+export {
+  PromptFileName,
+  PromptFileScope,
+  PromptFile,
+  PromptFileOperation,
+  PromptFileResult,
+  PromptFilesRequest,
+  PromptFilesResponse,
+} from "./prompt-files.ts";
