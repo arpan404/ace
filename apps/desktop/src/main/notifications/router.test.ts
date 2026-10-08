@@ -72,7 +72,12 @@ describe("notification routing", () => {
     const notice = daemonAlert({ status: "agent_says", message: "The preview is ready." });
     expect(router().router.route(notice)).toMatchObject({
       kind: "show",
-      notification: { body: "The preview is ready.", actions: [], link: { threadId: "thread-1" } },
+      notification: {
+        title: "Agent says · Fix flaky checkout test",
+        body: "The preview is ready.",
+        actions: [],
+        link: { threadId: "thread-1" },
+      },
     });
     expect(router({ categories: { agentSays: false } }).router.route(notice)).toEqual({
       kind: "drop",

@@ -74,7 +74,7 @@ export function alertFromDaemon(notification: Notification): Alert {
     category,
     id: notification.id,
     threadId: notification.threadId,
-    title: notification.title,
+    title: category === "agentSays" ? `Agent says · ${notification.title}` : notification.title,
     body,
     link: notification.interactionId
       ? { kind: "thread", threadId: notification.threadId, itemId: notification.interactionId }

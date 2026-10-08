@@ -13,19 +13,24 @@ export default function BrowserPushSettings() {
   const [error, setError] = useState("");
   useEffect(() => {
     let stopped = false;
-    void client
-      .request({ type: "notification.config" })
-      .then(async (reply) => {
-        if (stopped) return;
-        setKey(reply.publicKey);
-        if ("serviceWorker" in navigator) {
-          const registration = await navigator.serviceWorker.getRegistration("/");
-          const subscription = await registration?.pushManager.getSubscription();
-          if (!stopped) setOn(Boolean(subscription));
-        }
-      })
-      .catch(() => {});
+    const read = () => {
+      void client
+        .request({ type: "notification.config" })
+        .then(async (reply) => {
+          if (stopped) return;
+          setKey(reply.publicKey);
+          if ("serviceWorker" in navigator) {
+            const registration = await navigator.serviceWorker.getRegistration("/");
+            const subscription = await registration?.pushManager.getSubscription();
+            if (!stopped) setOn(Boolean(subscription));
+          }
+        })
+        .catch(() => {});
+    };
+    read();
+    const stop = client.connectionState().subscribe(read);
     return () => {
+      stop();
       stopped = true;
     };
   }, [client]);
