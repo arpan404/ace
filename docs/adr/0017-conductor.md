@@ -41,3 +41,43 @@ Use only installed, logged-in local CLIs through the engine. Account ids are opa
 Test public transitions, scheduler outputs, prompts and progress. Exercise invalid plans, capacity/quota/priority, out-of-order completion, stale generations, gates, fixes, migration/reset, cancellation, merge verification and replay. A deterministic six-workstream simulation includes account migration, two failed reviews before passing, a conflict and an escalation answered by the user. Real temporary SQLite files test atomic commits, reopen, actual approval retries, migration observations before acknowledgement, full-history preservation, saturated receipt/outbox cleanup, cache rollback, legacy upgrade and outbox recovery. Real workspace inode probes test case semantics and composed/decomposed Unicode aliases. Buffered repeated-done tests with withheld acknowledgement guard both deadlines, cold restore and late-artifact escalation. Unicode reports/plans test UTF-8 caps. A restored live retiring lane at final verification tests the root terminal guard, and prompts assert exact quoted reviewer rules. Each review blocker was reproduced with a failing public-API test before its fix. Fake ports represent unavailable executors, not internal decision logic. Apply twenty-two production mutations and record the failing behavioural test for each, including removal of the live-lane terminal guard and reviewer repository rules. Both mutations survived the initial review and now fail assertions. The verifier's NFC-normalization survivor now fails a real-filesystem admission test. A dedicated non-gating probe measures the full-state-reparse mutation; performance has no wall-clock gating assertion. Run the repository check and a non-gating scheduling/status benchmark with throughput and RSS before opening the PR.
 
 Current delivery policy: tests run once at merge. Worker validation is formatting, lint, typechecking and the 1,500-line size check only. Behaviour tests remain part of the implementation; mutation cases are marked “not executed (tests run at merge)”. Existing benchmark and load-comparison artifacts are historical measurements from before this policy changed. Any current execution or performance-verification claim needs run at merge.
+
+## Lifecycle and artifact correction amendment, 2026-10-07
+
+A stop retires a lane immediately when its latest whole-thread observation is
+already done or failed. Other lanes remain live until the engine proves
+settlement. Permanent stops cancel pending provider interactions and inputs,
+including descendants. After 30 seconds, the host closes the owned sessions
+through the engine; a failed close retains the live lane and is retried rather
+than reporting false completion. Retired planner and reviewer scheduling rows
+are removed, while the daemon keeps their readable thread bindings.
+
+Working activity or a valid artifact closes that lane generation's stall
+escalation automatically. Pause/resume gives live work a fresh activity anchor.
+Starting lanes held behind a plan, budget, deadline or card gate have no stall
+deadline until the gate opens. A failed integrator retry preserves its role and
+conflict context. Completion consumes conflict instructions so later review
+fixes do not inherit them.
+
+Prompts give complete JSON envelopes and object shapes. Admission accepts bare
+JSON or one JSON fence surrounded by prose. Validation failures produce up to
+two correction turns in the same lane before the existing missing-artifact
+escalation. Retry counts, rejected message identities and correction admission
+barriers are durable. A passing review still covers each acceptance criterion
+verbatim; a changes_required report may stop after a failing subset of known
+criteria. A changes_required review may stop early with explicit failure
+or blocking evidence; a pass still requires fifteen distinct caught mutations,
+two repeat runs and passing evidence throughout.
+
+Verification failure restores the integration tree before opening an escalation
+or releasing the integration slot. Native Git records the pre-merge revision
+and creates a forward revert commit, including a normal PR branch push. A
+verification retry starts its worker at the restored integration state. Dirty
+or externally moved integration worktrees fail closed and require repair; no
+card can be declined while rollback remains incomplete. Cancelling pending CI
+performs the same rollback without waiting for CI.
+
+New fake-daemon runs execute the same browser-safe reducer and artifact parser.
+The fake scripts provider/engine/Git effects; lifecycle decisions are shared.
+Legacy seeded demo cards remain presentation scenarios, with cancelled provider
+questions and plan-only root mirroring. UI labels and routes are unchanged.

@@ -29,19 +29,19 @@ Example:
 
 ```json
 {
-  "concurrency": 6,
+  "concurrency": 5,
   "enabled": true,
   "id": "example",
-  "jitterMs": 0,
-  "missedRun": "skip",
+  "jitterMs": 9,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
     "kind": "manual"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -98,14 +98,14 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 9,
+    "concurrency": 2,
     "enabled": false,
     "id": "example",
-    "jitterMs": 9,
-    "missedRun": "skip",
+    "jitterMs": 1,
+    "missedRun": "run_once",
     "model": "example",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "claude",
     "title": "example",
     "trigger": {
       "kind": "schedule",
@@ -117,7 +117,7 @@ Example:
       }
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -191,8 +191,7 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "limit": 6,
+  "limit": 9,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -217,10 +216,13 @@ Example:
 
 ```json
 {
-  "automations": [],
+  "error": "example",
+  "inbox": {
+    "before": null,
+    "runs": []
+  },
   "ok": false,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -249,8 +251,10 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 6,
+  "result": "example",
+  "startedAt": 5,
   "status": "succeeded",
+  "threadId": "example",
   "title": "example",
   "trigger": "manual"
 }
@@ -272,7 +276,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "cron",
+  "kind": "rrule",
   "startAt": 0,
   "timezone": "example"
 }
@@ -332,10 +336,10 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60006,
-  "repository": "GZ3naedK/JK3dBo"
+  "pollIntervalMs": 60002,
+  "repository": "6mEUR89i/TBZUiFTFEx"
 }
 ```
 

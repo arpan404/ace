@@ -45,3 +45,47 @@ Add startedAt and updatedAt to run views and gatedAt to needsUser entries, with 
 ## Verification
 
 Write process tests using scripted adapters and real daemon stores, sockets and temporary Git repositories for completion, human gates, subtree cancellation, restart and capacity. Static review checks effect receipts, account fences and terminal guards. The owner authorized execution of the changed conductor process tests in this round. They use a shared injected clock, scripted provider milestones, conductor change pushes and durable queue state; real Git/socket/child-process I/O has explicit safety deadlines. Other tests and mutation cases remain unexecuted until merge. Development checks are typecheck, lint, formatting, file size and generated protocol documentation. No provider CLI prompts or recorder sessions are used.
+
+## Native lifecycle amendment, 2026-10-07
+
+Only plan gates become root-thread plan_review interactions. Merge, budget,
+deadline, destructive and escalation decisions remain in the Deck gate view.
+Plan-review feedback is bounded, persisted with the rejected summary and quoted
+in the next planner prompt. Existing non-plan root mirrors are cancelled during
+restoration.
+
+Artifact correction is a durable conductor effect admitted through the existing
+engine command journal, with at most two turns per lane. Its pending admission
+barrier prevents the previous turn's done observation from settling a lane while
+correction work is still queued. Prose around a single fenced JSON artifact is
+accepted; ambiguous multiple fences are rejected. The observer reports schema,
+revision, branch and acceptance-validation errors back to the same lane. Missing
+source data still preserves whole-thread status and timed escalation.
+
+Permanent subtree cancellation closes pending interactions without answering
+or granting provider permission. A durable 30-second stop deadline requests
+engine-owned session termination, deepest descendants first. Cancellation never
+publishes settlement merely because an interrupt was admitted. Session-close
+failure remains visible and retryable; the host cannot honestly guarantee
+termination of a process its provider adapter refuses to close.
+
+Conflict worktrees fork history from the owning lane but start their filesystem
+at the current Deck integration revision. Their prompt names the integration
+branch/revision and worker branch/commit to incorporate. A single .md or .txt
+conflict is assigned to the integrator; other conflicts remain with the owning
+worker. Every resolved conflict requires another independent review.
+
+Git integration records both the merge and pre-merge refs. Failed verification
+restores the prior tree with a forward commit before returning a failed fact,
+and PR mode pushes that revert without force. The integration slot stays held
+until rollback completes. Cancelling a run with pending CI uses this cleanup
+path rather than waiting for CI. Interrupted merges reconcile their durable ref
+before cancellation can abandon them. Existing pre-amendment verification rows
+without an integration receipt fail closed instead of silently declining a
+merged revision.
+
+Validation for this amendment uses focused process tests with real daemon
+sockets, SQLite and temporary Git repositories, scripted provider boundaries,
+manual clocks and event milestones. Reducer and fake-daemon tests guard the
+same lifecycle decisions. No real provider CLI or recorder is used. The full
+suite remains the orchestrator's merge responsibility.
