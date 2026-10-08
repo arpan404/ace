@@ -1,4 +1,3 @@
-import { useToast } from "@/components/ui/toast.tsx";
 import { ClientError } from "@ace/client";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
