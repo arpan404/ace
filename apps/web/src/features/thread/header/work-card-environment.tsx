@@ -7,6 +7,7 @@ import {
   DotsThreeIcon,
   FolderOpenIcon,
   GitForkIcon,
+  LaptopIcon,
   TerminalWindowIcon,
 } from "@phosphor-icons/react";
 import type { ReactElement } from "react";
@@ -60,6 +61,7 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
   const worktreeReason =
     noCheckout ?? (checkout?.mode === "worktree" ? "Already in a worktree of its own" : live);
   const switchReason = noCheckout ?? live;
+  const worktree = checkout?.mode === "worktree";
   return (
     <>
       {switchReason ? (

@@ -142,8 +142,6 @@ function PairedDevices() {
       {devices.data?.map((device) => (
         <SettingSummaryRow
           key={device.id}
-          compact
-          inline
           title={device.name}
           description={[deviceScopeLabels(device.scopes)].join(" · ")}
         >
