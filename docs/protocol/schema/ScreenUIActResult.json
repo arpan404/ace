@@ -31,8 +31,24 @@
       ],
       "type": "string"
     },
+    "phase": {
+      "enum": [
+        "rejected-before-dispatch",
+        "dispatched",
+        "partial"
+      ],
+      "type": "string"
+    },
     "snapshot": {
       "$ref": "https://ace.local/protocol/v1/ScreenUITreeResult.json"
+    },
+    "warnings": {
+      "items": {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
     }
   },
   "required": [

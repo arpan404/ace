@@ -116,6 +116,10 @@ struct ShareableContent {
     struct PointerPress { let window: SCWindow; let application: NSRunningApplication; let button: String; let location: CGPoint; let mode: String }
     let heldPointer = HeldPointer<PointerPress>()
     var pointerAction: PointerPress? { heldPointer.target }
+    let resolver = WindowResolver()
+    var dispatched = false
+    var deliveryConfirmed = false
+    var deliveryProbe: (() -> Bool)?
     private(set) var captureWindow: SCWindow?
     private(set) var target: Target?
     private(set) var allowed = Set<String>()
@@ -308,6 +312,6 @@ struct ShareableContent {
         try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         if let output { writer.retire(output.sessionId) }
-        stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; captureWindow = nil; settings = nil; output = nil; allowed.removeAll(); cachedContent = nil
+        stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; captureWindow = nil; settings = nil; output = nil; allowed.removeAll(); cachedContent = nil; resolver.invalidate()
     }
 }

@@ -36,7 +36,7 @@ export type HelperOptions = {
 };
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "version" | "id"> : never;
 export class Helper {
-  private commandTail: Promise<void> = Promise.resolve();
+  private readonly commandTails = new Map<string, Promise<void>>();
   private queuedCommands = 0;
   private readonly pending = new Map<
     string,
@@ -78,7 +78,12 @@ export class Helper {
         else
           pending.reject(
             typeof reply.error === "object"
-              ? new HelperCommandError(reply.error.code, reply.error.message)
+              ? new HelperCommandError(
+                  reply.error.code,
+                  reply.error.message,
+                  reply.error.phase,
+                  reply.error.candidates,
+                )
               : new Error(reply.error ?? "Helper rejected command"),
           );
       } catch (error) {
@@ -248,8 +253,7 @@ export class Helper {
       };
     });
   }
-  /** Main.swift executes every macOS command serially. Keep even observations in this
-   * queue so no mutation enters native stdin behind work with stale authority. */
+  /** Revalidate authority when this target lane becomes available. Other apps may proceed. */
   private dispatch(
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
     beforeDispatch?: () => void,
@@ -268,13 +272,20 @@ export class Helper {
     }
     if (this.queuedCommands >= 32) return Promise.reject(new Error("Helper request limit"));
     this.queuedCommands++;
-    const request = this.commandTail.then(send).finally(() => {
+    const key = "sessionId" in command && command.sessionId ? command.sessionId : "control";
+    const previous = this.commandTails.get(key) ?? Promise.resolve();
+    const request = previous.then(send).finally(() => {
       this.queuedCommands--;
     });
-    this.commandTail = request.then(
-      () => {},
-      () => {},
-    );
+    const tail = request
+      .then(
+        () => {},
+        () => {},
+      )
+      .finally(() => {
+        if (this.commandTails.get(key) === tail) this.commandTails.delete(key);
+      });
+    this.commandTails.set(key, tail);
     return request;
   }
   private send(
@@ -380,15 +391,24 @@ export class Helper {
       this.pending.clear();
     }
     await this.proc.stop({ graceMs: 1000 });
-    await this.commandTail;
+    await Promise.all(this.commandTails.values());
     await this.cleanup();
   }
 }
 
 export class HelperCommandError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly phase: import("@ace/protocol").ScreenError["phase"];
+  readonly candidates: import("@ace/protocol").ScreenError["candidates"];
+  constructor(
+    code: string,
+    message: string,
+    phase?: import("@ace/protocol").ScreenError["phase"],
+    candidates?: import("@ace/protocol").ScreenError["candidates"],
+  ) {
     super(message);
     this.code = code;
+    this.phase = phase;
+    this.candidates = candidates;
   }
 }

@@ -83,3 +83,30 @@ the helper, so the daemon confirms process cleanup before clearing capture.
 A stop that never acknowledges relies on the existing daemon command timeout
 and supervised process cleanup, at most 15 to 25 seconds for measurement commands.
 The watchdog cannot prove SCK has stopped until acknowledgement or process cleanup.
+
+### Exact window identity and background app operations
+
+See the 2026-10-07 amendment in [ADR 0067](../../docs/adr/0067-background-computer-use.md).
+The optional read-only `_AXUIElementGetWindow` identity query is the helper's one
+private AX call. Title/frame fallback refuses ambiguous windows and returns
+candidates in CG stacking order. Background operations never restore desktop focus.
+
+`open.url` takes `bundleId`, `allowlist` and an absolute `url`, and opens it with
+NSWorkspace `activates=false`. `menu.press` takes the live `sessionId` and a `path`
+of menu titles, such as `["File", "Open Location…"]`. Both acknowledge destination
+acceptance; application-specific nil-target menu actions may still be ineffective.
+`delivery_unconfirmed` means input may already have taken effect. Inspect it before
+retrying. V2 failures include `phase`; successful actions can include `warnings`.
+
+The disposable fixture has two windows with identical frames and separate text
+responders. It launches without activation and can move one window farther off-display.
+Only this app is used by the identity regression and latency harness:
+
+```sh
+sh native/screen-helper/Tests/Fixture/build.sh
+ACE_SCREEN_INTEGRATION=1 bunx vitest run --project process packages/screen/src/identity.native.process.test.ts
+node packages/screen/bench/identity.ts
+```
+
+These commands require existing Screen Recording and Accessibility grants; tests
+never request them. Run each test file separately. Latency reports are non-gating.

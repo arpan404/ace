@@ -1671,7 +1671,7 @@ Example:
 | ok | yes | boolean |  |
 | data | no | any JSON value |  |
 | error | no | string |  |
-| errorCode | no | ["forbidden","permission_denied","approval_required","screen_disabled","denied","read_only","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed"] |  |
+| errorCode | no | ["forbidden","permission_denied","approval_required","screen_disabled","denied","read_only","target_gone","not_supported","bounds","busy","timeout","internal","target_busy","foreground_required","focus_changed","window_minimized","window_offscreen","secure_input_required","clipboard_changed","window_ambiguous","key_unsupported","modifier_unsupported","no_key_window","delivery_unconfirmed"] |  |
 | holder | no | object | {"properties":{"sessionId":{"$ref":"https://ace.local/protocol/v1/ScreenId.json"},"owner":{"type":"string","maxLength":1024}},"required":["sessionId","owner"]} |
 
 Example:
@@ -1679,7 +1679,7 @@ Example:
 ```json
 {
   "data": null,
-  "errorCode": "clipboard_changed",
+  "errorCode": "delivery_unconfirmed",
   "ok": false,
   "requestId": "QxOqpLHy_LCoi",
   "type": "screen.result"

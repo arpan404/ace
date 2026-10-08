@@ -283,8 +283,11 @@ impl X11 {
                 "shift" => 0xffe1,
                 "control" => 0xffe3,
                 "alt" | "option" => 0xffe9,
-                "super" | "command" => 0xffeb,
-                _ => return Err(Fault::new("bounds", "Unknown modifier")),
+                "meta" | "super" | "command" => 0xffeb,
+                _ => {
+                    return Err(Fault::new("modifier_unsupported", "Unsupported modifier")
+                        .phase("rejected-before-dispatch"));
+                }
             })?);
         }
         let mut sent = Ok(());
@@ -322,21 +325,34 @@ impl X11 {
     }
 }
 pub fn keysym(key: &str) -> Result<u32> {
-    let symbol = match key {
-        "Enter" => 0xff0d,
-        "Tab" => 0xff09,
-        "Escape" => 0xff1b,
-        "Backspace" => 0xff08,
-        "Delete" => 0xffff,
-        "Left" | "ArrowLeft" => 0xff51,
-        "Up" | "ArrowUp" => 0xff52,
-        "Right" | "ArrowRight" => 0xff53,
-        "Down" | "ArrowDown" => 0xff54,
-        "Home" => 0xff50,
-        "End" => 0xff57,
-        "Space" => 32,
+    let symbol = match key.to_ascii_lowercase().as_str() {
+        "enter" | "return" => 0xff0d,
+        "tab" => 0xff09,
+        "escape" | "esc" => 0xff1b,
+        "backspace" => 0xff08,
+        "delete" => 0xffff,
+        "left" | "arrowleft" => 0xff51,
+        "up" | "arrowup" => 0xff52,
+        "right" | "arrowright" => 0xff53,
+        "down" | "arrowdown" => 0xff54,
+        "home" => 0xff50,
+        "end" => 0xff57,
+        "space" => 32,
+        "pageup" => 0xff55,
+        "pagedown" => 0xff56,
+        name if name
+            .strip_prefix('f')
+            .and_then(|n| n.parse::<u32>().ok())
+            .is_some_and(|n| (1..=20).contains(&n)) =>
+        {
+            0xffbd + name[1..].parse::<u32>().unwrap_or(0)
+        }
         _ if key.chars().count() == 1 => key.chars().next().map(u32::from).unwrap_or(0),
-        _ => return Err(Fault::new("not_supported", "Unknown key name")),
+        _ => {
+            return Err(
+                Fault::new("key_unsupported", "Unsupported key").phase("rejected-before-dispatch")
+            );
+        }
     };
     Ok(if symbol > 255 && symbol < 0xff00 {
         0x01000000 | symbol

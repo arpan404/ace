@@ -43,6 +43,8 @@ export function screenPublicFailure(
   return new PublicToolError(
     code.data,
     explicit.success ? explicit.data : (inferred ?? permissionHint),
+    "phase" in error ? error.phase : undefined,
+    "candidates" in error ? error.candidates : undefined,
     safeMessages.has(error.message) ? error.message : undefined,
   );
 }

@@ -32,6 +32,16 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
   HelperEnvelope.extend({ op: z.literal("hello") }),
   HelperEnvelope.extend({ op: z.literal("metrics") }),
   HelperEnvelope.extend({
+    op: z.literal("open.url"),
+    bundleId: ScreenBundle,
+    allowlist: z.array(ScreenBundle).max(64),
+    url: z.string().min(1).max(8192),
+  }),
+  HelperEnvelope.extend({
+    op: z.literal("menu.press"),
+    path: z.array(z.string().min(1).max(256)).min(1).max(8),
+  }),
+  HelperEnvelope.extend({
     op: z.literal("measure_interaction"),
     ...ScreenMeasurementOptions.omit({ repeat: true }).shape,
     // Daemon remaining repeat budget includes native input preparation.

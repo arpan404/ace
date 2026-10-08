@@ -70,3 +70,84 @@ it("only intentional fixed failures reach agents; raw messages, hints, stacks an
   });
   lease.end();
 });
+
+it("native delivery reasons and dispatch phases reach agents without raw helper messages", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const credentials = new CredentialRegistry(() => "b".repeat(64));
+  const lease = credentials.issue(scope("root", ["screen"]), new AbortController().signal);
+  registry.registerContent({
+    name: "screen_key",
+    capability: "screen",
+    description: "Key",
+    timeoutMs: 1000,
+    input: z.strictObject({ dispatched: z.boolean() }),
+    async run(args) {
+      const error = new PublicToolError(
+        args.dispatched ? "delivery_unconfirmed" : "key_unsupported",
+        undefined,
+        args.dispatched ? "dispatched" : "rejected-before-dispatch",
+      );
+      error.message = "private helper text";
+      throw error;
+    },
+  });
+  try {
+    for (const dispatched of [true, false]) {
+      const result = await registry.call(
+        "screen_key",
+        { dispatched },
+        lease.principal,
+        new AbortController().signal,
+      );
+      const content = result.content[0];
+      if (content?.type !== "text") throw new Error("Missing public failure");
+      const failure = z
+        .object({ code: z.string(), phase: z.string(), hint: z.string() })
+        .parse(JSON.parse(content.text));
+      expect(failure.code).toBe(dispatched ? "delivery_unconfirmed" : "key_unsupported");
+      expect(failure.phase).toBe(dispatched ? "dispatched" : "rejected-before-dispatch");
+      if (dispatched) expect(failure.hint).toContain("Do not retry automatically");
+      expect(content.text).not.toContain("private helper text");
+    }
+  } finally {
+    lease.end();
+    credentials.close();
+  }
+});
+
+it("ambiguous windows expose candidate IDs without arbitrary helper text", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const credentials = new CredentialRegistry(() => "c".repeat(64));
+  const lease = credentials.issue(scope("root", ["screen"]), new AbortController().signal);
+  registry.registerContent({
+    name: "screen_window",
+    capability: "screen",
+    description: "Window",
+    timeoutMs: 1000,
+    input: z.strictObject({}),
+    async run() {
+      throw new PublicToolError("window_ambiguous", undefined, "rejected-before-dispatch", [
+        { windowId: 42, title: "private helper text" },
+        { windowId: 43 },
+      ]);
+    },
+  });
+  try {
+    const result = await registry.call(
+      "screen_window",
+      {},
+      lease.principal,
+      new AbortController().signal,
+    );
+    const content = result.content[0];
+    if (content?.type !== "text") throw new Error("Missing public failure");
+    expect(JSON.parse(content.text)).toMatchObject({
+      code: "window_ambiguous",
+      candidates: [{ windowId: 42 }, { windowId: 43 }],
+    });
+    expect(content.text).not.toContain("private helper text");
+  } finally {
+    lease.end();
+    credentials.close();
+  }
+});
