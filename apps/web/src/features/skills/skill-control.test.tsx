@@ -123,7 +123,7 @@ test("Use in a thread opens an editable skill draft and sends the invocation whe
   await userEvent.click(await screen.findByRole("link", { name: "Use in a thread" }));
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   const field = await screen.findByRole("combobox", { name: "Message" });
-  expect(field).toHaveProperty("value", "/code-review ");
+  expect(field.textContent).toBe("/code-review ");
   await userEvent.type(field, "Review the reconnect change{Enter}");
   await screen.findByRole("heading", {
     level: 1,

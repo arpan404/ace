@@ -86,7 +86,7 @@ test("Something else puts the caret in the message, whose text is then the answe
     }),
   );
   // The text went as the answer, not as a message: the composer is empty and nothing queued.
-  await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
+  await waitFor(() => expect(message.textContent).toBe(""));
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
