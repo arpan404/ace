@@ -1,4 +1,4 @@
-import { ThreadId, WorkspaceId, type SearchQuery, type SearchResults } from "@ace/protocol";
+import { ThreadId, WorkspaceId, ItemId, type SearchQuery, type SearchResults } from "@ace/protocol";
 import { searchThreads, type FakeSearchKind } from "../catalog/search.ts";
 
 const week = 7 * 24 * 60 * 60_000;
@@ -15,12 +15,18 @@ export function search(query: SearchQuery, now: number): SearchResults {
     .filter(
       (hit) =>
         (!query.filters.workspaceId || hit.workspaceId === query.filters.workspaceId) &&
-        (!query.filters.provider || hit.provider === query.filters.provider),
+        (!query.filters.provider || hit.provider === query.filters.provider) &&
+        (!query.filters.kinds || query.filters.kinds.includes(hit.kind)) &&
+        (query.filters.after === undefined || hit.createdAt >= query.filters.after) &&
+        (query.filters.before === undefined || hit.createdAt <= query.filters.before),
     )
     .slice(0, query.limit);
   return {
+    // These are new wire values, not copies of catalog rows.
+    // oxlint-disable-next-line oxc/no-map-spread
     hits: hits.map((hit, index) => ({
       threadId: ThreadId.parse(hit.threadId),
+      ...(hit.itemId ? { itemId: ItemId.parse(hit.itemId) } : {}),
       threadTitle: hit.threadTitle,
       workspaceId: WorkspaceId.parse(hit.workspaceId),
       provider: hit.provider,
