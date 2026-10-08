@@ -15,6 +15,7 @@
     "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/fake-daemon": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@playwright/test": "1.63.0"
   }

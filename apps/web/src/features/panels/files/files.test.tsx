@@ -1,6 +1,6 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -207,4 +207,44 @@ test("the thread's Files tab is the checkout tree; it opens files beside itself 
   await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
   expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
   expect(within(side).getByRole("button", { name: "Show the file tree" })).toBeTruthy();
+});
+
+test("a selected source range is mentioned inline and sends only those lines", async () => {
+  const { app } = await openThread();
+  const sent: unknown[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    if (command.payload.type === "thread.send") sent.push(command.payload.context?.mentions);
+    return receive(command);
+  };
+  await quickOpen("socket");
+  await userEvent.keyboard("{Enter}");
+  const source = await within(await panel()).findByRole("region", {
+    name: "Source of apps/web/src/relay/socket.ts",
+  });
+  await waitFor(() => expect(source.textContent).toContain("export class RelaySocket"));
+  // Select the visible source words exactly as a mouse drag does.
+  const walk = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+  const words: Text[] = [];
+  while (walk.nextNode()) if (walk.currentNode instanceof Text) words.push(walk.currentNode);
+  const first = words.find((node) => node.textContent?.includes("import"));
+  const last = words.find((node) => node.textContent?.includes("RelaySocket"));
+  if (!first || !last) throw new Error("Source words are missing");
+  const range = document.createRange();
+  range.setStart(first, 0);
+  range.setEnd(last, last.length);
+  document.getSelection()?.removeAllRanges();
+  document.getSelection()?.addRange(range);
+  fireEvent.mouseUp(source);
+  const action = await screen.findByRole("button", { name: /Mention selection · lines 1–/ });
+  const end = Number(action.textContent?.split("–").at(-1));
+  await userEvent.click(action);
+  const message = screen.getByRole("combobox", { name: "Message" });
+  expect(message.textContent).toContain(`@apps/web/src/relay/socket.ts:1-${end}`);
+  await userEvent.type(message, "Explain this{Enter}");
+  await waitFor(() =>
+    expect(sent.at(-1)).toEqual([
+      { path: "apps/web/src/relay/socket.ts", lines: { start: 1, end } },
+    ]),
+  );
 });

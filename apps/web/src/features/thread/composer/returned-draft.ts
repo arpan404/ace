@@ -1,4 +1,5 @@
-import { inputText, localAttachment, type ReturnedDraft } from "./send-store.ts";
+import { tokensFromInput } from "@ace/ui-core";
+import { localAttachment, type ReturnedDraft } from "./send-store.ts";
 
 export type SendPayload = Extract<
   import("@ace/protocol").CommandPayload,
@@ -8,7 +9,7 @@ export type SendPayload = Extract<
 /** What Edit gives back to the composer: the text, mentions, files and picks it carried. */
 export function draftOf(payload: SendPayload): ReturnedDraft {
   return {
-    text: inputText(payload.input),
+    ...tokensFromInput(payload.input),
     mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
     attachments: (payload.context?.attachments ?? []).map((file) => ({
       sha256: file.sha256,

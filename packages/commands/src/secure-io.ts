@@ -1,9 +1,15 @@
-import { fstat, read, close } from "node:fs";
+import { createHash } from "node:crypto";
+import { fstat, read, close, write, fsync } from "node:fs";
 import { promisify } from "node:util";
 import { dirname, relative, resolve, sep } from "node:path";
 import type { Stats } from "node:fs";
 import type { DiscoveryRoot } from "./roots.ts";
 import {
+  createCommandDirectory,
+  createCommandFile,
+  replaceCommandFile,
+  removeCommandFile,
+  linkCommandFile,
   openCommandChild,
   directoryReader,
   directoryFlags,
@@ -122,6 +128,70 @@ export class SecureCommandIo implements CommandFileIo {
       return { text: buffer.subarray(0, offset).toString("utf8"), bytes: offset, stat };
     } finally {
       await closeFd(fd);
+    }
+  }
+  /** Atomic prompt replacement beneath the same pinned root used by discovery. */
+  async writePrompt(
+    root: DiscoveryRoot,
+    path: string,
+    text: string,
+    expected: string | null,
+    temporary: string,
+  ): Promise<void> {
+    if (Buffer.byteLength(text) > 65536) throw new Error("prompt_limit");
+    const anchor = resolve(root.trustedRoot ?? dirname(root.path));
+    const tail = relative(anchor, resolve(path));
+    if (tail.startsWith("..") || tail.startsWith(sep) || tail.includes("\0"))
+      throw new Error("prompt_unavailable");
+    const parts = tail.split(sep).filter(Boolean);
+    if (parts.length > 128 || !/^[a-zA-Z0-9.-]+$/.test(temporary))
+      throw new Error("prompt_unavailable");
+    let parent = await this.openChild(await this.anchor(anchor), ".", directoryFlags);
+    let temp: number | undefined;
+    try {
+      for (const name of parts.slice(0, -1)) {
+        await createCommandDirectory(parent, name);
+        const next = await this.openChild(parent, name, directoryFlags);
+        await closeFd(parent);
+        parent = next;
+      }
+      const name = parts.at(-1);
+      if (!name) throw new Error("prompt_unavailable");
+      // Compare via the pinned root, never follow a supplied path.
+      let current: string | null = null;
+      const stat = await this.stat(root, path);
+      if (stat)
+        current = createHash("sha256")
+          .update((await this.read(root, path)).text)
+          .digest("hex");
+      if (current !== expected) throw new Error("prompt_conflict");
+      temp = await createCommandFile(parent, temporary);
+      const bytes = Buffer.from(text);
+      let at = 0;
+      while (at < bytes.length) {
+        const count = await new Promise<number>((accept, reject) =>
+          write(temp ?? -1, bytes, at, bytes.length - at, at, (error, written) =>
+            error ? reject(error) : accept(written),
+          ),
+        );
+        if (!count) throw new Error("prompt_unavailable");
+        at += count;
+      }
+      await promisify(fsync)(temp);
+      await closeFd(temp);
+      temp = undefined;
+      if (expected === null) await linkCommandFile(parent, temporary, name);
+      else {
+        const latest = createHash("sha256")
+          .update((await this.read(root, path)).text)
+          .digest("hex");
+        if (latest !== expected) throw new Error("prompt_conflict");
+        await replaceCommandFile(parent, temporary, name);
+      }
+    } finally {
+      if (temp !== undefined) await closeFd(temp);
+      await removeCommandFile(parent, temporary);
+      await closeFd(parent);
     }
   }
   async close(): Promise<void> {

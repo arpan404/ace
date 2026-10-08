@@ -16,6 +16,12 @@ export interface SettingEntry {
 }
 
 const entries = [
+  {
+    id: "prompts",
+    page: "/settings/prompts",
+    title: "Prompt files",
+    keywords: ["slash", "commands", "templates", "skills"],
+  },
   // General
   {
     id: "profile.name",

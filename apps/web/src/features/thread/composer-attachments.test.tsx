@@ -102,13 +102,13 @@ test("each chip names its file's kind and size, and Delete removes it, focus mov
   const chips = await screen.findByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   const meta = (name: string) =>
-    within(chips).getByRole("button", { name: `Preview ${name}` }).lastElementChild?.textContent;
-  expect(meta("spec.pdf")).toBe("8 B · PDF");
-  expect(meta("router.ts")).toBe("10 B · TypeScript");
-  expect(meta("totals.csv")).toBe("7 B · CSV");
-  expect(meta("bundle.zip")).toBe("4 B · ZIP archive");
-  expect(meta("memo.mp3")).toBe("3 B · MP3");
-  expect(meta("core.bin")).toBe("2 B · BIN");
+    within(chips).getByRole("button", { name: `Preview ${name}` }).textContent;
+  expect(meta("spec.pdf")).toContain("8 B · PDF");
+  expect(meta("router.ts")).toContain("10 B · TypeScript");
+  expect(meta("totals.csv")).toContain("7 B · CSV");
+  expect(meta("bundle.zip")).toContain("4 B · ZIP archive");
+  expect(meta("memo.mp3")).toContain("3 B · MP3");
+  expect(meta("core.bin")).toContain("2 B · BIN");
 
   within(chips).getByRole("button", { name: "Preview totals.csv" }).focus();
   await user.keyboard("{Delete}");
@@ -284,8 +284,12 @@ test("a provider without native images still accepts image files", async () => {
   await app.open("/t/thread-no-images");
   const message = await screen.findByRole("combobox", { name: "Message" });
   await user.click(screen.getByRole("button", { name: "Add files and context" }));
-  const images = await screen.findByRole("menuitem", { name: /Images/ });
-  expect(images.getAttribute("aria-disabled")).toBeNull();
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  expect(
+    within(menu)
+      .getByRole("option", { name: /Attach files/ })
+      .getAttribute("aria-disabled"),
+  ).toBeNull();
   await user.keyboard("{Escape}");
 
   await user.type(message, "Describe it");

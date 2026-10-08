@@ -107,7 +107,7 @@ await withPerfApp(async ({ browser, origin }) => {
     await open(page, `${origin}/t/thread-soak?rate=20&history=1000000`);
     const feed = page.getByRole("feed", { name: "Transcript" });
     await feed.waitFor({ timeout: 30_000 });
-    await page.locator("textarea").first().waitFor();
+    await page.getByRole("combobox", { name: "Message" }).waitFor();
     const load = await page.evaluate(() => ({
       fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? Number.NaN,
       ready: performance.now(),

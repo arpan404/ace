@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFilesResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "type": "string"
+    },
+    "result": {
+      "$ref": "https://ace.local/protocol/v1/PromptFileResult.json"
+    },
+    "type": {
+      "const": "prompts.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

@@ -12,8 +12,7 @@ function app(storage = memoryKeyValue()) {
   made.play(replayCursor()).runThrough("finding");
   return made;
 }
-const message = () =>
-  screen.findByRole("combobox", { name: "Message" }) as Promise<HTMLTextAreaElement>;
+const message = () => screen.findByRole("combobox", { name: "Message" });
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
 test("an unsent draft is still there after visiting another thread", async () => {
@@ -23,11 +22,11 @@ test("an unsent draft is still there after visiting another thread", async () =>
   await userEvent.click(within(threads()).getByRole("link", { name: /Replay cursor resets/ }));
   await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
   // The other thread has its own, empty draft.
-  expect((await message()).value).toBe("");
+  expect((await message()).textContent).toBe("");
 
   await userEvent.click(within(threads()).getByRole("link", { name: /Document the router/ }));
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  expect((await message()).value).toBe("Half a thought about nested routes");
+  expect((await message()).textContent).toBe("Half a thought about nested routes");
 });
 
 test("a draft and its uploaded files survive a reload, and go once the message is sent", async () => {
@@ -54,7 +53,7 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   const reloaded = running;
   await reloaded.open("/t/thread-router");
   const field = await message();
-  expect(field.value).toBe("Compare with @");
+  expect(field.textContent).toBe("Compare with @");
   expect(
     within(screen.getByRole("list", { name: "Attachments" })).getByText("routes.png"),
   ).toBeTruthy();
@@ -66,6 +65,6 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   cleanup();
 
   await running.open("/t/thread-router");
-  expect((await message()).value).toBe("");
+  expect((await message()).textContent).toBe("");
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });

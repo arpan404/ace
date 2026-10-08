@@ -157,7 +157,7 @@ test("a subagent opens as its own tab: who started it, what it was asked, and on
 
   // A provider's own subagent can't be messaged directly; the composer says where to ask.
   const box = within(panel).getByRole("combobox", { name: "Message resume-sweep" });
-  expect(box.hasAttribute("disabled")).toBe(true);
+  expect(box.getAttribute("aria-disabled")).toBe("true");
   expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
     /take instructions only from the agent that started them/,
   );

@@ -8,7 +8,7 @@ import { inputLine, inputPadding } from "./composer-styles.ts";
  * Runs on every edit and when the composer's width changes (a panel opening rewraps the text).
  */
 export function useAutosize(
-  ref: RefObject<HTMLTextAreaElement | null>,
+  ref: RefObject<HTMLDivElement | null>,
   text: string,
   width: number,
 ): void {

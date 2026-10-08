@@ -1,3 +1,4 @@
+import { MessageReferences } from "./message-references.tsx";
 import { useItem } from "@ace/client-react";
 import { formatClock } from "@ace/ui-core";
 import { Suspense } from "react";
@@ -69,7 +70,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
       ? inputText(local.send.payload.input)
       : (local.staged?.text ?? "");
   // Most messages carry no files: only those load the thumbnails' code.
-  const parts = message?.parts ?? local.send?.payload.input ?? [];
+  const parts = message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [];
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -105,7 +106,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
             />
           </Suspense>
         )}
-        {text}
+        {parts.length ? <MessageReferences parts={parts} /> : text}
       </div>
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are
           the same height, so the row doesn't move when "Sending…" goes. */}

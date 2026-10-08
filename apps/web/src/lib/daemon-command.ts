@@ -25,7 +25,11 @@ const refusals: Record<string, string> = {
   snooze_in_past: "That time has already passed.",
   queue_conflict: "Another device changed the queue. Here is the latest.",
   message_already_claimed: "The agent already took that message.",
-  uncertain_delivery: "A message may have reached the agent. Remove it before continuing.",
+  uncertain_delivery:
+    "A message may have reached the agent. Send it again or remove it before continuing.",
+  message_not_uncertain:
+    "That message already changed. Review the latest queue before trying again.",
+  no_agent: "This conversation has no agent yet. Start a new thread to send your message.",
   reset_time_unknown: "The provider didn't say when the limit resets.",
   migration_unavailable: "There's no other account to move to.",
   recovery_in_progress: "The thread is already resuming.",

@@ -99,7 +99,13 @@ test("fake catalog subscriptions push replacement definitions and stop after uns
       {
         type: "catalog.changed",
         requestId: "catalog-watch",
-        entries: [{ description: "Changed project skill" }],
+        entries: expect.arrayContaining([
+          { ...skill, description: "Changed project skill" },
+          expect.objectContaining({
+            name: "explain",
+            source: { provider: "ace", scope: "global" },
+          }),
+        ]),
       },
     ]);
     // A subsequent correlated read is the delivery barrier for the unsubscribe.

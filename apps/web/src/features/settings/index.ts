@@ -1,6 +1,7 @@
 /** Settings: every page, its navigation and the theme editor. */
 export {
   AdvancedSettingsScreen,
+  PromptsSettingsScreen,
   AppearanceSettingsScreen,
   ComputerUseSettingsScreen,
   GeneralSettingsScreen,

@@ -83,12 +83,12 @@ test("the composer offers the daemon's slash commands and the project's files", 
   const message = page.getByRole("combobox", { name: "Message" });
 
   await message.fill("/rev");
-  const commands = page.getByRole("listbox", { name: "Commands" });
-  await expect(commands.getByRole("option", { name: /\/review/ })).toBeVisible();
+  const commands = page.getByRole("listbox", { name: "Add and commands" });
+  await expect(commands.getByRole("option", { name: /review/ })).toBeVisible();
   await message.press("Escape");
 
   await message.fill("Look at @READ");
-  const files = page.getByRole("listbox", { name: "Files" });
+  const files = page.getByRole("listbox", { name: "Files and threads" });
   await expect(files.getByRole("option", { name: /README\.md/ })).toBeVisible();
   await message.press("Escape");
 });

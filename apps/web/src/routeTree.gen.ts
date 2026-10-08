@@ -38,6 +38,7 @@ import { Route as SettingsComputerUseRouteImport } from "./routes/settings.compu
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
+import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
 import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsThemeEditorRouteImport } from "./routes/settings.theme-editor"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
@@ -192,6 +193,11 @@ const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
   path: "/notifications",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
+  id: "/prompts",
+  path: "/prompts",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsRemoteRoute = SettingsRemoteRouteImport.update({
   id: "/remote",
   path: "/remote",
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -301,6 +308,7 @@ export interface FileRoutesByTo {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -342,6 +350,7 @@ export interface FileRoutesById {
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -384,6 +393,7 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/prompts"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -418,6 +428,7 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/prompts"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -458,6 +469,7 @@ export interface FileRouteTypes {
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/prompts"
     | "/settings/remote"
     | "/settings/theme-editor"
     | "/skills/$skillId"
@@ -693,6 +705,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsNotificationsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/prompts": {
+      id: "/settings/prompts"
+      path: "/prompts"
+      fullPath: "/settings/prompts"
+      preLoaderRoute: typeof SettingsPromptsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/remote": {
       id: "/settings/remote"
       path: "/remote"
@@ -855,6 +874,7 @@ interface SettingsRouteChildren {
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
+  SettingsPromptsRoute: typeof SettingsPromptsRoute
   SettingsRemoteRoute: typeof SettingsRemoteRoute
   SettingsThemeEditorRoute: typeof SettingsThemeEditorRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -869,6 +889,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
+  SettingsPromptsRoute: SettingsPromptsRoute,
   SettingsRemoteRoute: SettingsRemoteRoute,
   SettingsThemeEditorRoute: SettingsThemeEditorRoute,
   SettingsIndexRoute: SettingsIndexRoute,

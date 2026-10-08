@@ -55,6 +55,7 @@ export interface Services {
   cursorAuth?: CursorAuthService;
   providerActivation?: Promise<void>;
   accountRegistry?: AccountRegistry;
+  promptFiles?: import("@ace/commands").PromptFiles;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

@@ -28,7 +28,7 @@ async function open(scenario: "idle" | "busy", options: Parameters<typeof harnes
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });
-  return { app, feed, message: message as HTMLTextAreaElement };
+  return { app, feed, message: message as HTMLDivElement };
 }
 
 test("a message sent offline shows as its bubble at once and becomes the daemon's item when the connection returns", async () => {
@@ -37,7 +37,7 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
 
   await userEvent.type(message, "Add a route for /settings{Enter}");
-  expect(message.value).toBe("");
+  expect(message.textContent).toBe("");
   expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
   // The live end says since when this window has been offline.
@@ -67,7 +67,7 @@ test("a message the daemon refuses keeps its bubble with the reason, and Edit pu
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
-    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
+    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement).textContent).toBe(
       "Also bump the changelog",
     ),
   );
@@ -202,7 +202,7 @@ test("typing on the page writes into the composer", async () => {
   expect(document.activeElement?.closest("textarea, input")).toBeNull();
   await userEvent.keyboard("hello");
   expect(document.activeElement).toBe(message);
-  expect(message.value).toBe("hello");
+  expect(message.textContent).toBe("hello");
 });
 
 test("a draft written in another window replaces an idle composer's, and is offered to a focused one", async () => {
@@ -218,14 +218,14 @@ test("a draft written in another window replaces an idle composer's, and is offe
   };
   message.blur();
   other("Written on the laptop");
-  expect(message.value).toBe("Written on the laptop");
+  expect(message.textContent).toBe("Written on the laptop");
 
   await userEvent.click(message);
   await userEvent.type(message, " and here");
   other("Changed again elsewhere");
-  expect(message.value).toBe("Written on the laptop and here");
+  expect(message.textContent).toBe("Written on the laptop and here");
   await userEvent.click(screen.getByRole("button", { name: "Use that version" }));
-  expect(message.value).toBe("Changed again elsewhere");
+  expect(message.textContent).toBe("Changed again elsewhere");
 });
 
 test("a draft with a file written in another window brings the file, and sends it", async () => {
@@ -252,8 +252,8 @@ test("a draft with a file written in another window brings the file, and sends i
   });
   const chips = await screen.findByRole("list", { name: "Attachments" });
   expect(within(chips).getByText("shot.png")).toBeTruthy();
-  const composer = screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement;
-  expect(composer.value).toBe("Look at this");
+  const composer = screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement;
+  expect(composer.textContent).toBe("Look at this");
   // This window doesn't write its own (older) copy back over the other window's, even when the
   // page hides and every pending draft is written at once.
   act(() => {

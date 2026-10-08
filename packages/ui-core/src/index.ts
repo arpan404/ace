@@ -83,3 +83,9 @@ export * from "./system-events.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export {
+  composerInput,
+  editComposerTokens,
+  tokensFromInput,
+  type ComposerToken,
+} from "./composer-tokens.ts";

@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFileResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PromptFile.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "kind": {
+          "const": "list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "file": {
+          "$ref": "https://ace.local/protocol/v1/PromptFile.json"
+        },
+        "kind": {
+          "const": "file",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "file",
+        "text",
+        "revision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "enum": [
+            "unavailable",
+            "forbidden",
+            "not_found",
+            "conflict",
+            "limit"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "error",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2048,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

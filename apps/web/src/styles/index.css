@@ -358,3 +358,9 @@
 @utility touch-hit-xl {
   --hit: 14px;
 }
+
+.message-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--subtle-foreground);
+  pointer-events: none;
+}

@@ -112,7 +112,7 @@ export function queueNotice(
       return {
         kind: "uncertain",
         title: "A message may already have reached the agent",
-        detail: "Remove it below, or send it again as a new message, then continue.",
+        detail: "Send again may run it twice. Remove it if the agent already handled it.",
         actions: [],
       };
     case "manual":

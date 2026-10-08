@@ -86,8 +86,8 @@ test("a worktree's steps advance under the first message, with checkout's percen
   expect(within(tab).getByRole("status").textContent).toBe(
     "Creating worktree…· Checking out files · 48%",
   );
-  expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).disabled).toBe(
-    true,
+  expect(screen.getByRole("combobox", { name: "Message" }).getAttribute("aria-disabled")).toBe(
+    "true",
   );
   // The bubble leaves its sending state to the card.
   expect(screen.queryByText(/Sending…|Still waiting/)).toBeNull();
@@ -126,8 +126,8 @@ test("once made, the card folds to one line that opens on its steps and log", as
     "Worktree setup",
   );
   // The composer is the thread's own again.
-  expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).disabled).toBe(
-    false,
+  expect(screen.getByRole("combobox", { name: "Message" }).getAttribute("aria-disabled")).not.toBe(
+    "true",
   );
 }, 30_000);
 

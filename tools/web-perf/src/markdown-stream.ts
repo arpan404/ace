@@ -70,7 +70,7 @@ async function measureStream(): Promise<void> {
     await open(page, `${origin}/t/thread-soak?markdown=1&rate=${limits.eventsPerSecond}`);
     const feed = page.getByRole("feed", { name: "Transcript" });
     await feed.waitFor({ timeout: 30_000 });
-    const composer = page.locator("textarea").first();
+    const composer = page.getByRole("combobox", { name: "Message" });
     await composer.waitFor();
     const startUpdates = (await readUpdates(page)).length;
     const startProbe = await readProbe(page);

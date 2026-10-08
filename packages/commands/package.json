@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./invocation": "./src/native-command-inputs.ts"
+    "./invocation": "./src/native-command-inputs.ts",
+    "./prompt-format": "./src/parse-markdown.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

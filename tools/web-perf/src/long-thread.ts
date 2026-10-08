@@ -46,7 +46,7 @@ async function measureLongThread(): Promise<void> {
     await open(page, `${origin}/t/thread-multi-day?long=1&rate=${limits.liveRate}`);
     const feed = page.getByRole("feed", { name: "Transcript" });
     await feed.waitFor({ timeout: 30_000 });
-    await page.locator("textarea").first().waitFor();
+    await page.getByRole("combobox", { name: "Message" }).waitFor();
     const ready = await page.evaluate(() => performance.now());
     // The perf device last read the thread five turns ago: the catch-up card says what changed.
     const catchUp = page.getByRole("region", { name: "While you were away" });

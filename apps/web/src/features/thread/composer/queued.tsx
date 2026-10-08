@@ -18,14 +18,14 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
-import { cn } from "@/lib/cn.ts";
+import { StatusLabel } from "@/components/status-label.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { queuedText, type QueueControls } from "./use-queue.ts";
 
 /**
- * The daemon's queue for this thread, as pills above the composer: each waiting message with
+ * The daemon's queue for this thread, above the composer: each waiting message with
  * Send now, Edit, Move up and down and Remove. A message the daemon can't vouch for (it may
- * have reached the agent before a restart) can only be removed. A message just queued shows at
+ * have reached the agent before a restart) can be sent again or removed. A message just queued shows at
  * once, from this window's outbox, and can be changed once the daemon has it (UX audit SY-7).
  * After Stop the queue waits ("paused after Stop") rather than dropping anything (CMP-1).
  */
@@ -67,7 +67,7 @@ function SavingPill(props: { message: PendingQueued }) {
   return (
     <li
       aria-busy
-      className="fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-2.5 pl-2.5 text-sm text-muted-foreground"
+      className="fx-rise-in inline-flex min-h-8 max-w-full items-center gap-2 px-2.5 text-sm text-muted-foreground"
     >
       <Icon icon={ClockIcon} size={14} />
       <span className="shrink-0">Queued</span>
@@ -110,15 +110,16 @@ function QueuedPill(props: {
       </li>
     );
   return (
-    <li
-      className={cn(
-        "fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-1 pl-2.5 text-sm text-muted-foreground",
-      )}
-    >
-      <Icon icon={uncertain ? WarningIcon : props.stopped ? PauseIcon : ClockIcon} size={14} />
-      <span className="shrink-0">
-        {uncertain ? "May have been sent" : props.stopped ? "Queued · paused after Stop" : "Queued"}
-      </span>
+    <li className="fx-rise-in inline-flex min-h-8 max-w-full items-center gap-2 px-2.5 text-sm text-muted-foreground">
+      <StatusLabel
+        tone={uncertain ? "needs-you" : "idle"}
+        mark={
+          <Icon icon={uncertain ? WarningIcon : props.stopped ? PauseIcon : ClockIcon} size={14} />
+        }
+        label={
+          uncertain ? "May have been sent" : props.stopped ? "Queued · paused after Stop" : "Queued"
+        }
+      />
       <span className="min-w-0 truncate font-medium text-foreground">
         {text || "Attached files"}
       </span>
@@ -126,6 +127,11 @@ function QueuedPill(props: {
         <span className="shrink-0 text-xs text-subtle-foreground">
           +{files} {files === 1 ? "file" : "files"}
         </span>
+      )}
+      {uncertain && (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue.resend(message)}>
+          Send again
+        </Button>
       )}
       {!uncertain && (
         <Menu>
@@ -198,7 +204,7 @@ function EditQueued(props: {
     void props.onSave(next);
   };
   return (
-    <div className="fx-rise-in glass flex flex-col gap-2 rounded-xl p-2">
+    <div className="fx-rise-in flex flex-col gap-2 p-2">
       <Textarea
         aria-label="Edit queued message"
         value={text}

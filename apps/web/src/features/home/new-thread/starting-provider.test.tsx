@@ -77,8 +77,7 @@ test("an installed CLI whose catalog lists no models shows an empty state, not a
   // The composer empties on Enter; a message that wasn't started comes back into it.
   await waitFor(async () => {
     const restored = await screen.findByRole("combobox", { name: "Message" });
-    if (!(restored instanceof HTMLTextAreaElement)) throw new Error("Expected message textarea");
-    expect(restored.value).toBe("Explain the restart backoff");
+    expect(restored.textContent).toBe("Explain the restart backoff");
   });
   expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
 });

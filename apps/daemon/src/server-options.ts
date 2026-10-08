@@ -52,6 +52,7 @@ export interface ServerOptions {
   accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   providerActivation?: Promise<void>;
+  promptFiles?: import("@ace/commands").PromptFiles | undefined;
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

@@ -75,7 +75,9 @@ export function AttachmentChipRow(props: {
     const next =
       chips[at + 1] ??
       chips[at - 1] ??
-      list.current?.closest('[data-slot="composer"]')?.querySelector("textarea");
+      list.current
+        ?.closest('[data-slot="composer"]')
+        ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]');
     next?.focus();
     props.onRemove(key);
   };
@@ -141,10 +143,9 @@ function Chip(props: {
   return (
     <li
       className={cn(
-        "inline-flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-lg bg-secondary pr-1 pl-1 text-ui leading-4",
+        "inline-flex h-8 min-w-0 shrink-0 items-center gap-1 pr-1 pl-1 text-ui leading-4",
         failed ? "max-w-80" : "max-w-60",
       )}
-      style={failed ? { boxShadow: "inset 0 0 0 1px var(--color-status-failed)" } : undefined}
     >
       <button
         type="button"
