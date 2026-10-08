@@ -277,7 +277,7 @@ export class Sessions {
           const committed = accepted.then(() => {
             if (actor.poisoned) throw new Error("Provider frame failed to commit");
             if (generation === actor.generation && !lifetime.signal.aborted) {
-              const data = providerCommandMetadata(frame);
+              const data = providerCommandMetadata(frame, state.config.provider);
               if (data !== undefined)
                 this.dependencies.commandEvent?.({
                   type: "commands.runtime",

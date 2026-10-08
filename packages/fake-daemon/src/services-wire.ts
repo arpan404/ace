@@ -1,3 +1,4 @@
+import { FakeCatalogWire } from "./catalog-wire.ts";
 import {
   BrowserClientMessage,
   ServerMessage,
@@ -20,10 +21,14 @@ import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeConductor } from "./conductor/fake-conductor.ts";
 import { FakePlanningWire, type PlanningSeed } from "./planning-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
-import type { FakeServiceContext } from "./service-context.ts";
+import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
+export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends PlanningSeed {
+  extensionCatalogs?: Partial<
+    Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
+  >;
   /** Seed the small PNG fixture for scoped client attachment reads. */
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
@@ -31,11 +36,6 @@ export interface ServicesSeed extends PlanningSeed {
   pullRequests?: Record<string, ForgePrStatus>;
   /** Global settings the person has changed from the shipped defaults. */
   settings?: Readonly<Record<string, unknown>>;
-}
-export interface FakeWireSession {
-  authenticated?(device: string): void;
-  handle(message: ClientMessage, device: string): Promise<void>;
-  close(): void;
 }
 /** A correlated request no fixture service answers gets the daemon's `unsupported` error. */
 export function replyUnsupported(message: ClientMessage, send: (message: Message) => void): void {
@@ -53,6 +53,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  * `FakeServices`; this reads settings through the same store.
  */
 export class FakeServicesWire {
+  private readonly catalog = new FakeCatalogWire();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -77,6 +78,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
@@ -116,6 +118,7 @@ export class FakeServicesWire {
     });
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
+    const catalog = this.catalog.session(this.host, this.context, emit);
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
@@ -125,9 +128,11 @@ export class FakeServicesWire {
     return {
       authenticated: (device) => {
         owner = device;
+        catalog.authenticated?.(device);
       },
       close: () => {
         closed = true;
+        catalog.close();
         picker?.abort();
         stopProjects();
 
@@ -139,6 +144,10 @@ export class FakeServicesWire {
       },
       handle: async (message, device) => {
         try {
+          if (message.type === "catalog.list" || message.type === "catalog.unsubscribe") {
+            await catalog.handle(message, device);
+            return;
+          }
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;
