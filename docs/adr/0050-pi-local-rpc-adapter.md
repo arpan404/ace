@@ -13,9 +13,9 @@ The competitor release was read only as a feature inventory, never as implementa
 Gate support to the inspected 0.85.1 release. Unknown versions fail before opening
 a session rather than assuming that newer documentation describes an older binary.
 Automatic discovery runs `--version` only and leaves authentication unknown.
-Pi also has a provider-specific `auth check --json --no-refresh`; ace does not
-select an arbitrary LLM provider or inspect credentials during discovery. Login remains
-Pi's interactive `/login` on the local machine. Never read auth files.
+Pi also has a provider-specific `auth check --json --no-refresh`. Authentication
+and readiness now follow the reviewed SDK amendment below; session execution keeps
+its separate 0.85.1 gate. Never read auth files.
 
 ## State and native history
 
@@ -111,3 +111,33 @@ schema or file-restore operation is added.
 
 Primary contracts: [Pi 0.85.1 extension context](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/docs/extensions.md#ctxsessionmanager)
 and [turn persistence order](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/src/core/agent-session.ts).
+
+## Amendment: native sign-in (2026-10-08)
+
+The installed executable is now 1.1.0. For authentication only, admit the reviewed
+0.85.1 and 1.1.0 SDK contracts. Resolve the SDK from the selected executable's real
+package directory and verify its package name, entry point and matching version.
+Run `ModelRuntime.create({refreshOnCreate:false})` and native OAuth login/logout
+inside an isolated child. The installed SDK owns credential access and persistence;
+ace discards login results and diagnostics. Only bounded, validated authorization
+URLs and device codes leave that child. Cancellation drains the child before the
+login job settles. No SDK is bundled into ace and no provider prompt is sent.
+
+Choose OpenAI Codex's device method, Anthropic's local browser callback, and
+GitHub Copilot's GitHub.com device method. Other services use an owner-scoped PTY
+running the selected Pi executable, started by its first subscriber. The client
+fits and focuses the terminal on open and forwards input/resize. It remains
+awaiting input until Pi exits, then refreshes readiness and models before success.
+A terminal start failure is returned before a subscription is acknowledged.
+
+Pi removed built-in Gemini CLI and Antigravity in 0.71.0; neither reviewed release
+supports their login. Do not advertise unsupported choices. Keep their shared brand
+marks for services or ACP agents that actually expose them.
+
+Readiness checks the configured default, if present, and the three supported OAuth
+services with native non-refreshing auth checks. Any ready service establishes
+sign-in; only uniformly missing credentials establish sign-out. Ambiguous native
+results remain unknown, including unsupported releases. This supports first login
+without requiring a settings file or reading an auth file.
+
+Evidence: [installed SDK contracts and versioned sources](../research/providers/pi.md#sign-in-update-2026-10-08).

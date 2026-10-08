@@ -1,3 +1,4 @@
+import { piLoginDriver, piLoginChoices, type PiLoginOptions } from "./pi-login-driver.ts";
 import {
   loginArgs,
   logoutArgs,
@@ -18,14 +19,7 @@ export const upstreamChoices = {
     { id: "opencode", label: "OpenCode Zen" },
     { id: "other", label: "Other provider (terminal)" },
   ],
-  pi: [
-    { id: "github-copilot", label: "GitHub Copilot" },
-    { id: "openai-codex", label: "ChatGPT / Codex" },
-    { id: "anthropic", label: "Claude" },
-    { id: "google-gemini-cli", label: "Google Gemini CLI" },
-    { id: "google-antigravity", label: "Google Antigravity" },
-    { id: "other", label: "Other provider (terminal)" },
-  ],
+  pi: piLoginChoices,
 };
 type NativeLoginProvider = Exclude<ProviderKind, "cursor">;
 export function manualLogin(
@@ -65,10 +59,12 @@ export interface CliLoginOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   manager: TerminalManager;
+  openTerminal?: PiLoginOptions["openTerminal"];
 }
 /** PTY output has no scrollback or logging. Only finite, reviewed observations leave here. */
 export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
   const { provider, action, help } = options;
+  if (provider === "pi") return piLoginDriver(options);
   const manual = manualLogin(provider, action, options.instance);
   let live: ReturnType<TerminalManager["openLiveTerminal"]> | undefined;
   let enter: (() => void) | undefined;
@@ -85,12 +81,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
     input(input: ProviderLoginInput) {
       if ("choice" in input && nativeChoice) return nativeChoice(input.choice);
       if ("choice" in input && select) {
-        const choices =
-          provider === "opencode"
-            ? upstreamChoices.opencode
-            : provider === "pi"
-              ? upstreamChoices.pi
-              : [];
+        const choices = provider === "opencode" ? upstreamChoices.opencode : [];
         if (!choices.some((choice) => choice.id === input.choice)) return false;
         const accept = select;
         select = undefined;
@@ -107,7 +98,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
     },
     async run(signal, emit) {
       let upstream: string | undefined;
-      if (provider === "opencode" || provider === "pi") {
+      if (provider === "opencode") {
         upstream = await new Promise<string>((resolve, reject) => {
           const abort = () => {
             select = undefined;
@@ -127,12 +118,8 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         });
       }
       signal.throwIfAborted();
-      // Pi exposes /login inside its editor, with no reviewed unattended command.
       // Key entry and paste-code providers always stay in the native terminal.
-      if (
-        provider === "pi" ||
-        (provider === "opencode" && (upstream !== "github-copilot" || action === "logout"))
-      )
+      if (provider === "opencode" && (upstream !== "github-copilot" || action === "logout"))
         return {
           success: false,
           manual: {

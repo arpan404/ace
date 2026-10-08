@@ -154,6 +154,7 @@ export async function prepareProviderLogin(
     };
   }
   const provider = target.provider;
+  const management = services.accountManagement;
   const instanceId = target.instance ?? `${target.provider}-cli-default`;
   const instance = registry.get(instanceId)?.instance;
   if (
@@ -260,6 +261,9 @@ export async function prepareProviderLogin(
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
             manager,
+            ...(management
+              ? { openTerminal: (launch) => management.openLoginTerminal(owner, launch) }
+              : {}),
           });
     const result: ProviderLoginDriver = {
       ...driver,
@@ -268,9 +272,13 @@ export async function prepareProviderLogin(
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
         const after =
           provider === "pi"
-            ? await discoverPiStatus({ ...discovery, signal: changeSignal })
+            ? await discoverPiStatus({
+                ...discovery,
+                executable: status.path,
+                signal: changeSignal,
+              })
             : await discoverProvider(provider, { ...discovery, signal: changeSignal });
-        if (action === "logout" && after.auth !== "logged_out")
+        if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
           throw new Error("CLI logout unconfirmed");
         if (action === "login" && after.auth === "logged_out")
           throw new Error("CLI is still signed out");

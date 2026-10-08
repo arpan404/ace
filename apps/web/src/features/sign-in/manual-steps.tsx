@@ -178,10 +178,18 @@ export function ManualSteps(props: {
 }
 
 /** Protocol-advertised terminal login starts directly in the sign-in dialog. */
-export function AgentLoginTerminal(props: { id: string; name: string; cancel(): void }) {
+export function AgentLoginTerminal(props: {
+  id: string;
+  name: string;
+  instruction?: string;
+  cancel(): void;
+}) {
   return (
     <>
-      <StepTitle title="Finish signing in" line="Complete the agent's own prompts here." />
+      <StepTitle
+        title="Finish signing in"
+        line={props.instruction ?? "Complete the agent's own prompts here."}
+      />
       <Suspense fallback={<Spinner />}>
         <AuthTerminal terminalId={props.id} label={`${props.name} sign-in`} onExit={() => {}} />
       </Suspense>

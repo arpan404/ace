@@ -100,13 +100,13 @@ export function createTerminalSession({
               throw new Error("Auth subscription limit");
             authStreams.set(op.subscriptionId, { id: op.terminalId, owner: authOwner });
             // Auth terminals have one live subscriber, no replay and no retained credit queue.
-            reply(true);
             await auth.subscribe(op.terminalId, authOwner, (event) => {
               if (event.type === "exit") authStreams.delete(op.subscriptionId);
               if (connected() && authorize(authScope))
                 send({ type: "terminal.output", subscriptionId: op.subscriptionId, event });
               else void auth.stop(op.terminalId, authOwner).catch(() => {});
             });
+            reply(true);
           }
           if (op.op === "write") auth.write(op.terminalId, authOwner, op.data);
           if (op.op === "resize") auth.resize(op.terminalId, authOwner, op.cols, op.rows);
