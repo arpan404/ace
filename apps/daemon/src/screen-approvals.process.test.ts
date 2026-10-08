@@ -2,7 +2,7 @@ import { expect, test, onTestFinished } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Command } from "@ace/protocol";
+import { Command, McpScope } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { createDevThread } from "./commands.ts";
 import { ScreenGrants } from "./screen-grants.ts";
@@ -299,7 +299,7 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
   const mcp = context.services.mcp;
   if (!mcp) throw new Error("Missing audit MCP service");
   const lease = mcp.openSession(
-    { sessionId: "audit-mcp", threadId, agentId, capabilities: ["screen"] },
+    McpScope.parse({ sessionId: "audit-mcp", threadId, agentId, capabilities: ["screen"] }),
     new AbortController().signal,
   );
   const connection = { url: mcp.url, bearer: lease.bearer };

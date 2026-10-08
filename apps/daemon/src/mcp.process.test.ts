@@ -404,10 +404,9 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     "screen_request_app",
   ]);
   await screen.approve("dev.ace.catalog", true);
-  await daemon.devices.request(
-    { op: "enable", enabled: true },
-    { kind: "human", owner: "catalog" },
-  );
+  const devices = daemon.devices;
+  if (!devices) throw new Error("Missing catalog devices service");
+  await devices.request({ op: "enable", enabled: true }, { kind: "human", owner: "catalog" });
   const names = await catalog();
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
