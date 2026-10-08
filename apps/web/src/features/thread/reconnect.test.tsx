@@ -38,5 +38,5 @@ test("after a dropped connection the transcript catches up by replay, without du
   expect(
     screen.getAllByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
   ).toHaveLength(1);
-  expect(screen.getByRole("button", { name: "Account and connection" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /, account$/ })).toBeTruthy();
 });

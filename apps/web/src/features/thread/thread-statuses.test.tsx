@@ -20,9 +20,12 @@ async function open(scenario: Scenario) {
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const header = screen.getByRole("banner");
-  const row = await within(screen.getByRole("navigation", { name: "Threads" })).findByRole("link", {
-    name: new RegExp(`^${scenario.thread.title}`),
-  });
+  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+    "link",
+    {
+      name: new RegExp(`^${scenario.thread.title}`),
+    },
+  );
   return { app, feed, header, row };
 }
 

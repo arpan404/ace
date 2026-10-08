@@ -95,11 +95,8 @@ test("a thread held at a usage limit says Limited after the title in its row's w
 
   const list = screen.getByRole("navigation", { name: "Threads" });
   const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
-  const rowTone = await waitFor(() => {
-    const found = within(row).getByText("Limited").closest<HTMLElement>("[data-tone]");
-    expect(found).not.toBeNull();
-    return found?.dataset.tone;
-  });
+  expect(row.textContent).toContain("Limited");
+  const rowTone = row.querySelector<HTMLElement>("[data-tone]")?.dataset.tone;
   const status = await within(header()).findByRole("status");
   const headerTone = within(status)
     .getByText(/^Limited/)

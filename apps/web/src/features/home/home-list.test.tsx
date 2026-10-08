@@ -173,12 +173,12 @@ test("a row's name says its status, provider and subagents, branch, pull request
   await openHome(workbenchApp());
   expect(
     await within(threads()).findByRole("link", {
-      name: /^Partial refunds double-count tax\. Needs you, Claude Code, .*Pull request #77/,
+      name: /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
     }),
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Working, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect\. Waiting on 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
@@ -208,7 +208,7 @@ test("hovering a row offers one quick action in place of its marks, named by its
   expect(snooze.textContent).toBe("");
   await userEvent.hover(snooze);
   await waitFor(() =>
-    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Snooze"),
+    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Snooze…"),
   );
 });
 
@@ -242,7 +242,7 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   await openHome(workbenchApp());
   await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
   const tip = await screen.findByRole("tooltip");
-  expect(tip.textContent).toContain("Needs you");
+  expect(tip.textContent).toContain("Waiting for your approval");
   expect(tip.textContent).toContain("Pull request #77");
 });
 
