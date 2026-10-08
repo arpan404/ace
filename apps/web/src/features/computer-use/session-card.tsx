@@ -3,7 +3,7 @@ import type { ScreenState } from "@ace/protocol";
 import { screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
-import { StatusPill } from "@/components/status-pill.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -67,7 +67,7 @@ export function SessionCard(props: {
               Capturing
             </span>
           )}
-          <StatusPill
+          <StatusLabel
             tone={view.foreground ? "needs-you" : "idle"}
             label={view.foreground ? "Foreground" : "Background"}
           />

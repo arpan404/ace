@@ -1,4 +1,4 @@
-import { facts, flakyCheckout, replayCursor, type Scenario } from "@ace/fake-daemon";
+import { facts, flakyCheckout, replayCursor, teamAtLimit, type Scenario } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -85,6 +85,30 @@ test("the header keeps only navigation, the title, its ⋯, the work card and th
   expect(within(header()).getByRole("heading", { level: 1 }).textContent).toBe(
     "Replay cursor resets on every resume",
   );
+});
+
+test("a thread held at a usage limit says Limited after the title in its row's waiting tone, never needs-you amber", async () => {
+  const app = harness();
+  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
+  await app.open("/t/thread-limit-flags");
+  await screen.findByRole("feed", { name: "Transcript" });
+
+  const list = screen.getByRole("navigation", { name: "Threads" });
+  const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
+  const rowTone = await waitFor(() => {
+    const found = within(row).getByText("Limited").closest<HTMLElement>("[data-tone]");
+    expect(found).not.toBeNull();
+    return found?.dataset.tone;
+  });
+  const status = await within(header()).findByRole("status");
+  const headerTone = within(status)
+    .getByText(/^Limited/)
+    .closest<HTMLElement>("[data-tone]");
+
+  expect(rowTone).toBe("waiting");
+  expect(headerTone?.dataset.tone).toBe(rowTone);
+  // One status in the header: the limit, with its hollow waiting ring, and nothing in amber.
+  expect(status.querySelector('[data-tone="needs-you"]')).toBeNull();
 });
 
 test("search and turns live in the ⋯ menu, and their shortcuts still work", async () => {
