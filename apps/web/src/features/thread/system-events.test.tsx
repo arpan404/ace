@@ -240,7 +240,7 @@ test("number keys pick an option and Enter answers", async () => {
   const card = await screen.findByRole("article", {
     name: "How should the sheet recover after rotate?",
   });
-  const first = within(card).getAllByRole("radio")[0]!;
+  const first = within(card).getByRole("radio", { name: /Persist the draft/ });
   await userEvent.click(first);
   expect(document.activeElement).toBe(first);
   await userEvent.keyboard("3");

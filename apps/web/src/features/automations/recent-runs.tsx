@@ -12,7 +12,7 @@ import { formatWhen } from "./schedule.ts";
 import { useAutomationHistory } from "./use-automations.ts";
 
 /** Runs belong to this automation, newest first, with older pages on demand. */
-export function RecentRuns(props: { automationId: string }) {
+export function RecentRuns(props: { automationId: string; timezone?: string | undefined }) {
   const history = useAutomationHistory(props.automationId);
   return (
     <SettingSection label="Recent runs">
@@ -25,7 +25,7 @@ export function RecentRuns(props: { automationId: string }) {
       ) : history.runs.length ? (
         <ul aria-label="Recent runs">
           {history.runs.map((run) => (
-            <RunItem key={run.id} run={run} />
+            <RunItem key={run.id} run={run} timezone={props.timezone} />
           ))}
         </ul>
       ) : (
@@ -65,7 +65,7 @@ const triggers: Record<AutomationRun["trigger"], string> = {
   manual: "By hand",
 };
 
-function RunItem(props: { run: AutomationRun }) {
+function RunItem(props: { run: AutomationRun; timezone?: string | undefined }) {
   const { run } = props;
   const now = useNow();
   const [open, setOpen] = useState(false);
@@ -87,16 +87,16 @@ function RunItem(props: { run: AutomationRun }) {
         </span>
         <span
           className="shrink-0 text-xs text-muted-foreground tabular-nums"
-          title={new Date(run.startedAt).toLocaleString()}
+          title={new Date(run.startedAt).toLocaleString(undefined, { timeZone: props.timezone })}
         >
-          {formatWhen(run.startedAt, now)}
+          {formatWhen(run.startedAt, now, props.timezone)}
         </span>
         <StatusLabel {...status} />
       </button>
       {open && (
         <section aria-label={`Run details for ${run.title}`} className="pb-3">
           <p className="text-sm text-muted-foreground">
-            {triggers[run.trigger]} · {new Date(run.startedAt).toLocaleString()}
+            {triggers[run.trigger]}
             {run.finishedAt !== undefined &&
               ` · ${Math.max(1, Math.round((run.finishedAt - run.startedAt) / 60_000))} min`}
           </p>

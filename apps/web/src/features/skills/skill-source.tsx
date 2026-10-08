@@ -66,6 +66,7 @@ export function SkillSource({ skill }: { skill: Skill }) {
   };
   return (
     <SettingSection label="Source">
+      <p className="break-words font-mono text-sm text-muted-foreground">{skill.path}</p>
       {source.isError ? (
         <p role="alert" className="text-sm text-destructive">
           Couldn't read the source.{" "}

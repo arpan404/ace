@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { CommandsList, PromptArguments, PaletteCommand } from "./command-library.ts";
 
@@ -71,11 +72,22 @@ export const CatalogList = z
   .object({
     ...CommandsList.shape,
     type: z.literal("catalog.list"),
+    workspace: z
+      .object({
+        workspaceId: WorkspaceId,
+        provider: ProviderKind,
+        instanceId: z.string().min(1).max(128).optional(),
+      })
+      .optional(),
     subscribe: z.boolean().default(false),
     limit: z.number().int().min(1).max(512).default(100),
   })
-  .refine((value) => (value.threadId === undefined) !== (value.draft === undefined))
-  .meta({ "x-ace-constraint": "Exactly one of threadId or draft is required." });
+  .refine(
+    (value) =>
+      [value.threadId, value.draft, value.workspace].filter((target) => target !== undefined)
+        .length === 1,
+  )
+  .meta({ "x-ace-constraint": "Exactly one of threadId, draft or workspace is required." });
 export const CatalogUnsubscribe = z.object({
   type: z.literal("catalog.unsubscribe"),
   requestId: z.string().min(1).max(128),

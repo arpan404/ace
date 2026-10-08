@@ -10,7 +10,7 @@ type Seed = ReturnType<typeof workbenchServices>;
 
 /** The design's daemon: its threads, then the automations and recent runs it holds. */
 async function open(path: string, change?: (seed: Seed) => void) {
-  const app = harness();
+  const app = harness({ clock: () => Date.now() });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   const seed = workbenchServices(Date.now(), "UTC");
   change?.(seed);
@@ -114,7 +114,7 @@ test("a run reads when it started, how long it took and what started it", async 
   await userEvent.click(
     runs.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
   );
-  expect(screen.getByText(/^Scheduled · .* · 4 min$/)).toBeTruthy();
+  expect(screen.getByText("Scheduled · 4 min")).toBeTruthy();
 });
 
 test("a recent run shows its output and opens the thread it produced", async () => {
@@ -138,7 +138,7 @@ test("a recent run without a thread opens what started it and what it found", as
     flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
   );
   const details = await screen.findByRole("region", { name: "Run details for Flaky test triage" });
-  expect(within(details).getByText(/^Scheduled · .* · 4 min$/)).toBeTruthy();
+  expect(within(details).getByText("Scheduled · 4 min")).toBeTruthy();
   expect(within(details).getByRole("region", { name: "Run output" }).textContent).toContain(
     "Nothing flaky across 3 runs",
   );
@@ -705,4 +705,22 @@ test("the detail has one Edit entry point and keeps a selected time zone when re
   await userEvent.click(screen.getByRole("link", { name: "Edit" }));
   await heading("Edit automation");
   expect(screen.getByRole("combobox", { name: "Time zone" }).textContent).toContain("Asia/Tokyo");
+});
+
+test("scheduled runs and the next run use the schedule's timezone without a repeated timestamp", async () => {
+  await open("/automations/auto-dependency-audit", (seed) =>
+    Object.assign(seed, workbenchServices(Date.now(), "Asia/Kolkata")),
+  );
+  await heading("Nightly dependency audit");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  expect(runs.getAllByText(/02:00/)).toHaveLength(4);
+  await waitFor(() => expect(next()).toMatch(/02:00.*Asia\/Kolkata/));
+  await userEvent.click(
+    runs.getByRole("button", { name: "Open the run 2 advisories · opened a thread in ace" }),
+  );
+  const details = await screen.findByRole("region", {
+    name: "Run details for Nightly dependency audit",
+  });
+  expect(within(details).getByText("Scheduled · 4 min")).toBeTruthy();
+  expect(within(details).queryByText(/\d+\/\d+\/\d{4}/)).toBeNull();
 });

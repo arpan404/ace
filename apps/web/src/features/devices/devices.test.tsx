@@ -297,3 +297,23 @@ test("an approved device can be delegated to one of the thread's agents, who the
   await userEvent.click(within(iphone).getByRole("button", { name: "Take back" }));
   expect(await within(iphone).findByText("You're using it")).toBeTruthy();
 });
+
+test("Simulator explains approval before starting and can restart its live view", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  expect(
+    within(iphone).getByText("Approve this device above to start its live view."),
+  ).toBeTruthy();
+  expect(
+    within(iphone).getByRole("button", { name: "Start live view" }).hasAttribute("disabled"),
+  ).toBe(true);
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
+  await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
+  await userEvent.click(
+    within(iphone).getByRole("button", { name: /Device actions|More|iPhone 16 Pro actions/ }),
+  );
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Stop live view/ }));
+  await userEvent.click(await within(iphone).findByRole("button", { name: "Start live view" }));
+  await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
+});

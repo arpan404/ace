@@ -65,7 +65,7 @@ import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
-import { startedThread } from "./scenarios/started-thread.ts";
+import { completedThread, startedThread } from "./scenarios/started-thread.ts";
 import {
   busy,
   drainQueue,
@@ -91,6 +91,8 @@ export interface FakeDaemonOptions {
   version?: string;
   catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
   deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
+  /** Optional finite response for newly created demo threads; tests can step it directly. */
+  threadCompletionSchedule?: (callback: () => void) => void;
   projectScheduler?: (callback: () => void) => void;
   /** Credential the hello must present. */
   token?: string;
@@ -1310,7 +1312,7 @@ export class FakeDaemon implements Host {
         return { commandId, ok: true, threadId: payload.threadId };
       }
       case "thread.create": {
-        // Never reaches a provider: the new thread reads the request and keeps "working".
+        // No provider is contacted; the host may schedule a fixture completion.
         const id = payload.threadId ?? `thread-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
         const base = fakeWorktreeBase(payload, id, this.remoteReachable);
@@ -1366,6 +1368,12 @@ export class FakeDaemon implements Host {
           )
             fact.draft.attachments = attachments;
         this.apply(id, started.facts);
+        const runId = this.threads.get(id)?.state.agents.root?.activeRun;
+        this.options.threadCompletionSchedule?.(() => {
+          const host = this.threads.get(id);
+          if (runId && host?.state.agents.root?.activeRun === runId)
+            this.apply(id, completedThread(commandId));
+        });
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
       case "thread.send":

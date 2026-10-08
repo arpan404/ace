@@ -3,6 +3,7 @@ import {
   BackgroundTask,
   Interaction,
   Item,
+  Thread,
   type AgentStatus,
   type Run,
   type ToolCall,
@@ -333,4 +334,33 @@ test("waiting on subagents counts them", () => {
   expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 2 subagents");
   thread.status({ state: "blocked", on: "subagents", refs: ["web"] });
   expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 1 subagent");
+});
+
+test("saved history has no live activity until a new turn starts", () => {
+  const thread = world({ state: "unresponsive", lastSignalAt: 0 }, [
+    said("saved reply", "assistant", 0),
+  ]);
+  const reader = {
+    ...thread.reader,
+    thread: Thread.parse({
+      id: "thread-1",
+      workspaceId: "project",
+      title: "Saved conversation",
+      provider: "claude",
+      status: { state: "new" },
+      createdAt: 0,
+      updatedAt: 0,
+      imported: {
+        sourceId: "saved",
+        instanceId: "account",
+        importedAt: 0,
+        native: { provider: "claude", nativeId: "native" },
+      },
+    }),
+  };
+  expect(turnActivity(reader, "root")).toBeUndefined();
+  thread.status({ state: "starting" });
+  expect(turnActivity(reader, "root")).toBeUndefined();
+  thread.status({ state: "working", activity: "thinking" });
+  expect(turnActivity(thread.reader, "root")?.label).toBe("Thinking");
 });

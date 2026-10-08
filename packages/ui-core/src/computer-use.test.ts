@@ -114,3 +114,9 @@ test("the indicator keeps a session that is stopping or failed while capture is 
     "s-com.apple.calculator",
   ]);
 });
+
+test("human takeover stays visible in the profile and says who is in control", () => {
+  const human = state({ controller: "human", indicator: false });
+  expect(screenSession(human).status).toBe("You're in control");
+  expect(indicatorSessions([human])).toEqual(visibleSessions([human]));
+});

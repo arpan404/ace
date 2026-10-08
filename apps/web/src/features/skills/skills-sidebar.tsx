@@ -1,4 +1,13 @@
-import { CommandIcon, PlugIcon, RobotIcon, ScrollIcon, SparkleIcon } from "@phosphor-icons/react";
+import { useSkillDiscovery } from "./discovered-skills.tsx";
+import {
+  ClockIcon,
+  CommandIcon,
+  PlugIcon,
+  RobotIcon,
+  ScrollIcon,
+  SparkleIcon,
+  WrenchIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
@@ -18,6 +27,7 @@ import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPluginButton } from "./install-plugin.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { catalogSourceLabel } from "@/lib/catalog.ts";
 import { skillTitle } from "./skills-model.ts";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
@@ -28,6 +38,8 @@ export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }
   { kind: "agent", label: "Agents", icon: RobotIcon },
   { kind: "rule", label: "Rules", icon: ScrollIcon },
   { kind: "plugin", label: "Plugins", icon: PlugIcon },
+  { kind: "mcp-tool", label: "Tools", icon: WrenchIcon },
+  { kind: "workflow", label: "Workflows", icon: ClockIcon },
 ];
 
 /** The catalog as the sidebar draws it: grouped by kind, in catalog order within a kind. */
@@ -50,6 +62,7 @@ function matches(skill: Skill, query: string): boolean {
 /** Skills' list in the sidebar: what installed plugins ship, searchable and by plugin. */
 export function SkillsSidebar() {
   const skills = useSkills();
+  const discovery = useSkillDiscovery();
   useRemovalReconciler();
   const [query, setQuery] = useState("");
   const [plugin, setPlugin] = useState("all");
@@ -82,6 +95,7 @@ export function SkillsSidebar() {
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
+          {discovery.controls}
           <SearchField
             label="Search skills"
             placeholder="Search skills"
@@ -122,12 +136,31 @@ export function SkillsSidebar() {
                 <Link
                   to="/skills/$skillId"
                   params={{ skillId: skill.id }}
+                  aria-label={
+                    skill.discovered
+                      ? [
+                          skillTitle(skill),
+                          catalogSourceLabel(skill.discovered),
+                          !skill.enabled && "Off",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
+                      : undefined
+                  }
                   className={compactViewRowClass}
                 >
                   <CompactViewRowBody
                     icon={group.icon}
                     title={skillTitle(skill)}
-                    status={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
+                    status={
+                      !skill.enabled ? (
+                        <StatusLabel tone="idle" label="Off" />
+                      ) : skill.discovered && catalogSourceLabel(skill.discovered) ? (
+                        <span className="text-xs text-subtle-foreground">
+                          {catalogSourceLabel(skill.discovered)}
+                        </span>
+                      ) : undefined
+                    }
                   />
                 </Link>
               </li>

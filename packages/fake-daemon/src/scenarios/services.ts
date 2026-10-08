@@ -1,3 +1,4 @@
+import { savedTranscripts } from "../catalog/history.ts";
 import { aceToolThreadIds } from "./ace-tool-results.ts";
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
@@ -12,9 +13,10 @@ import type { ServicesSeed } from "../services-wire.ts";
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
     attachmentImages: aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
+    historyTranscripts: savedTranscripts,
     history: (["claude", "codex", "opencode"] as const).map((provider, index) => ({
       id: `relay-${provider}`,
-      instanceId: `${provider}-default`,
+      instanceId: provider === "opencode" ? provider : `${provider}-personal`,
       provider,
       nativeId: `fixture-${provider}`,
       cwd: "/Users/dev/relay",
@@ -23,13 +25,16 @@ export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
           index
         ] ?? "Saved session",
       lastActivity: now - (index + 1) * 3_600_000,
-      messageCount: 12,
+      messageCount: 2,
       countAccuracy: "exact" as const,
       support: { status: "supported" as const },
       continuation: { status: "supported" as const },
     })),
-    automations: automationList(Math.floor(now / 60_000) * 60_000, timeZone),
-    runs: automationRuns(now),
+    automations: automationList(
+      Math.max(0, Math.floor(now / 60_000) * 60_000 - 30 * 86_400_000),
+      timeZone,
+    ),
+    runs: automationRuns(now, timeZone),
     plugins: pluginCatalog(now),
     pullRequests: pullRequests(now),
     // The design's machine runs its automations, so schedules show their next run.

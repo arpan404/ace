@@ -17,8 +17,9 @@ import { z } from "zod";
 
 export const skillsLoadError = "Couldn't load your skills. Check your connection and try again.";
 
-export type SkillKind = PluginComponent["kind"] | "plugin";
+export type SkillKind = PluginComponent["kind"] | "plugin" | "workflow" | "mcp-tool";
 export interface Skill {
+  discovered?: import("@ace/protocol").CatalogEntry | undefined;
   /** Route id: `plugin~kind~name` for a component, `plugin~name` for a plugin. */
   id: string;
   kind: SkillKind;

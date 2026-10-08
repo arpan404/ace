@@ -321,6 +321,12 @@ export class CommandLibrary implements CommandService {
     });
   }
   listCatalogDraft(draft: string, input: LibraryContext, query = "", limit = 100) {
+    return this.readContextCatalog(`draft:${draft}`, input, query, limit);
+  }
+  listCatalogWorkspace(input: LibraryContext, query = "", limit = 100) {
+    return this.readContextCatalog("workspace-catalog", input, query, limit);
+  }
+  private readContextCatalog(owner: string, input: LibraryContext, query: string, limit: number) {
     return this.enqueue(async () => {
       const parsed = context.parse(input);
       const selected =
@@ -328,7 +334,7 @@ export class CommandLibrary implements CommandService {
           ? (this.readInstances().find((i) => i.provider === parsed.provider)?.id ??
             parsed.instance)
           : parsed.instance;
-      const { entry, target } = await this.getContext(`draft:${draft}`, {
+      const { entry, target } = await this.getContext(owner, {
         ...parsed,
         instance: selected,
       });

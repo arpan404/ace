@@ -1,3 +1,4 @@
+import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { afterEach, expect, test } from "vitest";
 import { mkdtemp, mkdir, writeFile, appendFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,28 +17,47 @@ test("authenticated history import publishes a daemon thread with windowed canon
   const root = await mkdtemp(join(tmpdir(), "ace-history-daemon-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "claude"),
-    cwd = "/repo/history";
+    cwd = join(root, "project");
+  await mkdir(cwd);
   await mkdir(join(home, "projects/p"), { recursive: true });
   await writeFile(
     join(home, "projects/p/native.jsonl"),
-    JSON.stringify({
-      type: "user",
-      sessionId: "native",
-      cwd,
-      message: { role: "user", content: "existing history" },
-    }) + "\n",
+    (
+      await readFile(new URL("../fixtures/history/relay-claude.jsonl", import.meta.url), "utf8")
+    ).replaceAll("/repo/history", cwd),
   );
   const config = readConfig({
     ACE_HOME: join(root, "ace"),
     ACE_PORT: "0",
     ACE_LOG_LEVEL: "silent",
   });
-  // The sixth argument supplies registered homes; before the fix it is ignored.
+  const resumed: string[] = [];
+  const scripted = createTurnProvider({
+    provider: "claude",
+    reply: "Regression coverage added.",
+    config: ScriptedTurnConfig.parse({}),
+    now: () => 1000,
+    schedule: (_delay, callback) => {
+      queueMicrotask(() => void callback());
+      return () => {};
+    },
+  });
+  const registry = new AdapterRegistry();
+  registry.register(
+    {
+      ...scripted,
+      async openSession(context) {
+        resumed.push(context.resume?.nativeSessionId ?? "new session");
+        return scripted.openSession(context);
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "fixture only" },
+  );
   const daemon = await startDaemon({
     config: config,
     toolkits: [],
     modelInstances: [],
-    engine: { registry: new AdapterRegistry() },
+    engine: { registry },
     history: {
       instances: [{ id: "account", provider: "claude", homeDir: home }],
     },
@@ -71,19 +91,75 @@ test("authenticated history import publishes a daemon thread with windowed canon
     instanceId: "account",
     native: { nativeId: "native" },
   });
-  expect(daemon.store.snapshotThread(threadId).itemOrder).toHaveLength(1);
-  const item = Object.values(daemon.store.snapshotThread(threadId).items)[0];
-  expect(item).toMatchObject({
+  expect(daemon.store.snapshotThread(threadId).itemOrder).toHaveLength(2);
+  const firstMessage = Object.values(daemon.store.snapshotThread(threadId).items)[0];
+  expect(firstMessage).toMatchObject({
     type: "message",
-    parts: [{ type: "text", text: "existing history" }],
+    parts: [
+      {
+        type: "text",
+        text: "Check how reconnect replay orders the last saved event and the first live event.",
+      },
+    ],
   });
+  expect(Object.values(daemon.store.snapshotThread(threadId).items)).toContainEqual(
+    expect.objectContaining({
+      type: "message",
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "The replay cursor advances only after the event is stored. Live events arriving during replay wait behind that cursor, so reconnects preserve transcript order.",
+        },
+      ],
+    }),
+  );
+  expect(daemon.store.getThread(threadId)?.status.state).toBe("new");
   client.socket.send(JSON.stringify({ type: "history.import", sourceId: source.id, workspaceId }));
   expect(await client.next()).toMatchObject({
     type: "history.import",
     status: "imported",
     threadId,
   });
-  // Imported threads have persisted events and no live engine snapshot (I17).
+  expect(resumed).toEqual([]);
+  const replied = Promise.withResolvers<void>();
+  const stop = daemon.store.subscribe(() => {
+    if (
+      Object.values(daemon.store.snapshotThread(threadId).items).some(
+        (item) =>
+          item.type === "message" &&
+          item.role === "assistant" &&
+          item.parts.some(
+            (part) => part.type === "text" && part.text === "Regression coverage added.",
+          ),
+      )
+    )
+      replied.resolve();
+  });
+  client.send({
+    type: "command",
+    command: Command.parse({
+      id: "follow-up",
+      deviceId: "host-client",
+      payload: {
+        type: "thread.send",
+        threadId,
+        input: [{ type: "text", text: "Add regression coverage" }],
+      },
+    }),
+  });
+  expect(await client.next()).toMatchObject({
+    type: "commandResult",
+    commandId: "follow-up",
+    ok: true,
+  });
+  await replied.promise;
+  stop();
+  await daemon.engine?.flush();
+  expect(resumed).toEqual(["native"]);
+  expect(daemon.store.snapshotThread(threadId).itemOrder).toHaveLength(4);
+  expect(daemon.store.getThread(threadId)?.status.state).toBe("done");
+  // Retried metadata commands still apply once after continuation.
   const command = Command.parse({
     id: "archive-imported",
     deviceId: "host-client",
@@ -99,7 +175,14 @@ test("authenticated history import publishes a daemon thread with windowed canon
     });
   }
   expect(daemon.store.getThread(threadId)?.archivedAt).toBeTypeOf("number");
-  expect(daemon.store.readEvents({ afterSeq: beforeArchive, limit: 10 })).toHaveLength(1);
+  expect(
+    daemon.store
+      .readEvents({ afterSeq: beforeArchive, limit: 10 })
+      .filter(
+        (event) =>
+          event.payload.type === "thread.updated" && event.payload.archivedAt !== undefined,
+      ),
+  ).toHaveLength(1);
 });
 
 test("native continuation uses the registered home-bound adapter and persists its live output", async () => {
