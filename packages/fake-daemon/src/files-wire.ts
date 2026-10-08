@@ -1,4 +1,9 @@
-import { FilesClientMessage, type ClientMessage, type ServerMessage } from "@ace/protocol";
+import {
+  type ReviewComment,
+  FilesClientMessage,
+  type ClientMessage,
+  type ServerMessage,
+} from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 import { checkoutFiles } from "./services/checkout-contents.ts";
 
@@ -63,6 +68,53 @@ export class FakeFilesWire {
     const file = { bytes: new TextEncoder().encode(text), version: `checkout-${++this.sequence}` };
     this.files.set(key, file);
     return file;
+  }
+  reviewTarget(threadId: string): { workspaceId: string; worktree: string } | undefined {
+    const thread = this.host.thread(threadId)?.thread;
+    if (
+      !thread ||
+      thread.deletedAt !== undefined ||
+      thread.details?.workspaceChange?.state === "preparing" ||
+      thread.details?.workspaceChange?.uncertain
+    )
+      return undefined;
+    return {
+      workspaceId: thread.workspaceId,
+      worktree: thread.details?.worktree ?? `/fake/${thread.workspaceId}`,
+    };
+  }
+  reviewLines(threadId: string, path: string, start: number, end: number): string[] {
+    const file = this.file(threadId, path, this.key(threadId, path));
+    if (!file || file.bytes.length > 1024 * 1024) return [];
+    return new TextDecoder()
+      .decode(file.bytes)
+      .split("\n")
+      .slice(start - 1, end);
+  }
+  applyReviewSuggestion(threadId: string, comment: ReviewComment): boolean {
+    const p = comment.anchor.position;
+    const key = this.key(threadId, p.file);
+    const file = this.file(threadId, p.file, key);
+    if (!file || file.bytes.length > 1024 * 1024 || comment.suggestion === undefined) return false;
+    const text = new TextDecoder().decode(file.bytes);
+    const lines = text.replace(/\n$/, "").split("\n");
+    if (
+      JSON.stringify(lines.slice(p.start - 1, p.end)) !==
+      JSON.stringify(comment.anchor.fingerprint.lines)
+    )
+      return false;
+    const replacement =
+      comment.suggestion === "" ? [] : comment.suggestion.replace(/\n$/, "").split("\n");
+    lines.splice(p.start - 1, p.end - p.start + 1, ...replacement);
+    const bytes = new TextEncoder().encode(
+      lines.join("\n") + (text.endsWith("\n") || comment.suggestion.endsWith("\n") ? "\n" : ""),
+    );
+    const total =
+      [...this.files.values()].reduce((sum, value) => sum + value.bytes.length, 0) +
+      [...this.uploads.values()].reduce((sum, value) => sum + value.size, 0);
+    if (total - file.bytes.length + bytes.length > 16 * 1024 * 1024) return false;
+    this.files.set(key, { bytes, version: `file-${++this.sequence}` });
+    return true;
   }
   session(send: (message: ServerMessage) => void) {
     const channels = new Map<number, Channel>();

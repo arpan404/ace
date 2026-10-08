@@ -218,15 +218,16 @@ export class FakeDaemon implements Host {
       },
       this.services.settings,
     );
-    this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
-      this.apply(threadId, [
-        {
-          type: "item.upsert",
-          agent: "root",
-          item: `review-${this.seq + 1}`,
-          draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
-        },
-      ]),
+    this.review = new FakeReviewDesk(
+      options.clock,
+      (threadId, text, requestId) =>
+        this.run(CommandId.parse(`review-fix:${requestId}`), threadId, (host) =>
+          sendFacts(host, `review-fix:${requestId}`, {
+            input: [{ type: "text", text }],
+            delivery: "queue",
+          }),
+        ),
+      this.servicesWire.files,
     );
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
@@ -1259,7 +1260,7 @@ export class FakeDaemon implements Host {
       case "review.refresh":
       case "review.status":
       case "review.list":
-        return { commandId, ...this.review.execute(payload) };
+        return { commandId, ...this.review.execute(payload, commandId) };
       default:
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
     }
