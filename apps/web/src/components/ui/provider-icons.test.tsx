@@ -52,18 +52,30 @@ test("Claude draws in its brand orange unless asked for mono, which takes the te
   );
 });
 
-test("each Codex mark paints with its own top-to-bottom gradient", async () => {
+test("Codex draws the OpenAI Blossom in the text colour, so it reads in every theme", async () => {
+  const blossom = (await brandArt.openai()).mono[0]?.d;
+  render(<ProviderIcon provider="codex" size={20} />);
+  const icon = await screen.findByRole("img", { name: "Codex" });
+  await waitFor(() => expect(icon.querySelector("path")?.getAttribute("d")).toBe(blossom));
+  expect(icon.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
+  expect(icon.classList.contains("text-foreground")).toBe(true);
+});
+
+test("each gradient mark paints with a gradient defined inside itself", async () => {
   render(
     <>
-      <ProviderIcon provider="codex" size={20} label="first" />
-      <ProviderIcon provider="codex" size={20} label="second" />
+      <ProviderIcon provider="acp" acpAgentId="official:gemini" size={20} label="first" />
+      <ProviderIcon provider="acp" acpAgentId="official:gemini" size={20} label="second" />
     </>,
   );
   const gradients = await Promise.all(
     ["first", "second"].map(async (name) => {
       const icon = await screen.findByRole("img", { name });
       await waitFor(() => expect(icon.querySelector("linearGradient")).not.toBeNull());
-      const fill = icon.querySelector("path")?.getAttribute("fill") ?? "";
+      const fill =
+        [...icon.querySelectorAll("path")]
+          .map((path) => path.getAttribute("fill") ?? "")
+          .find((value) => value.startsWith("url(")) ?? "";
       const id = /^url\(#(.+)\)$/.exec(fill)?.[1] ?? "";
       // The fill resolves inside this very mark, not a sibling's defs.
       const gradient = [...icon.querySelectorAll("linearGradient")].find((g) => g.id === id);
@@ -72,13 +84,6 @@ test("each Codex mark paints with its own top-to-bottom gradient", async () => {
     }),
   );
   expect(gradients[0]?.id).not.toBe(gradients[1]?.id);
-  for (const gradient of gradients)
-    expect(["x1", "y1", "x2", "y2"].map((name) => gradient?.getAttribute(name))).toEqual([
-      "12",
-      "3",
-      "12",
-      "21",
-    ]);
 });
 
 /** A gradient as the browser reads it from an SVG document: what a mark must keep. */
