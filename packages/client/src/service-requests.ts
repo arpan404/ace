@@ -17,11 +17,13 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 export type ServiceResponse<Q extends ServiceRequest> =
   Q["type"] extends `provider.accounts.${string}`
     ? Replies<"provider.accounts.result">
-    : Q["type"] extends `provider.login.${string}` | "provider.logout"
-      ? Replies<"provider.login.result">
-      : Q["type"] extends `onboarding.${string}`
-        ? Replies<"onboarding.result">
-        : LegacyServiceResponse<Q>;
+    : Q["type"] extends `provider.install.${string}`
+      ? Replies<"provider.install.result">
+      : Q["type"] extends `provider.login.${string}` | "provider.logout"
+        ? Replies<"provider.login.result">
+        : Q["type"] extends `onboarding.${string}`
+          ? Replies<"onboarding.result">
+          : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "host.identity"
   ? Replies<"host.identity.result">
@@ -148,6 +150,11 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.accounts.remove": ["provider.accounts.result"],
   "provider.accounts.reauth": ["provider.accounts.result"],
   "provider.login.apiKey": ["provider.login.result"],
+
+  "provider.install.plan": ["provider.install.result"],
+  "provider.install.run": ["provider.install.result"],
+  "provider.install.poll": ["provider.install.result"],
+  "provider.install.cancel": ["provider.install.result"],
   "provider.login.start": ["provider.login.result"],
   "provider.login.poll": ["provider.login.result"],
   "provider.login.input": ["provider.login.result"],

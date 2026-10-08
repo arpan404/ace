@@ -19,6 +19,8 @@ export const ProviderStatus = z.object({
     .optional(),
   installHint: z.string().max(1024).optional(),
   installCommand: z.string().max(256).optional(),
+  latestVersion: z.string().max(256).optional(),
+  versionCheckedAt: z.number().nonnegative().optional(),
   updateAvailable: z.boolean().optional(),
   runtime: z.enum(["cli", "cursor-sdk"]),
   installed: z.boolean().nullable(),

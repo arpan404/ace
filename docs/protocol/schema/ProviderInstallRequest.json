@@ -1,0 +1,120 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderInstallRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/InstallAction.json",
+          "default": "install"
+        },
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.plan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/InstallAction.json"
+        },
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+        },
+        "method": {
+          "$ref": "https://ace.local/protocol/v1/InstallMethod.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.run",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "action",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "session": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "session"
+      ],
+      "type": "object"
+    }
+  ]
+}

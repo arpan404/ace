@@ -22,6 +22,10 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     row: Status,
   ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail">>;
   authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
+  versions?(
+    row: Status,
+    signal: AbortSignal,
+  ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
   checked?(rows: readonly Status[]): void;
   modelsAvailable?(provider: Status["provider"]): boolean;
   cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
@@ -127,7 +131,15 @@ export class ProviderStatuses {
       try {
         const status = await probe(row);
         const result = providerStatusRow(row, status, this.runtime.now());
-        return { ...result, ...(await this.options.authInfo?.(result, this.controller.signal)) };
+        const versions =
+          result.installed && this.options.versions
+            ? await this.options.versions(result, this.controller.signal)
+            : {};
+        return {
+          ...result,
+          ...versions,
+          ...(await this.options.authInfo?.(result, this.controller.signal)),
+        };
       } catch {
         return {
           provider: row.provider,
@@ -157,6 +169,10 @@ export class ProviderStatuses {
           }, 300_000);
       });
     return this.flight;
+  }
+  async refreshAfterMutation(): Promise<void> {
+    await this.flight;
+    await this.refresh();
   }
   async close(): Promise<void> {
     this.controller.abort();

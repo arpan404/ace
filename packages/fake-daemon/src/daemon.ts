@@ -676,6 +676,19 @@ export class FakeDaemon implements Host {
       }
     }
     if (
+      message.type.startsWith("provider.install.") &&
+      this.options.deviceScopes &&
+      !this.options.deviceScopes[connection.deviceId]?.includes("operate")
+    ) {
+      if ("requestId" in message && message.requestId)
+        connection.push({
+          type: "provider.install.result",
+          requestId: message.requestId,
+          result: { ok: false, error: "forbidden" },
+        });
+      return true;
+    }
+    if (
       message.type.startsWith("provider.accounts.") ||
       message.type.startsWith("provider.login.") ||
       message.type === "provider.logout" ||

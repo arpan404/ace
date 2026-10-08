@@ -1,3 +1,4 @@
+import { ProviderKind } from "@ace/protocol";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { cursorInstanceHome } from "@ace/adapter-cursor/instance";
 import { daemonCursorInstance } from "./cursor-instance.ts";
@@ -140,6 +141,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
       config.dataDir,
       services.providerConfigurations?.current() ?? [],
     );
+    services.refreshModelInstances = (provider) =>
+      models.hasInstance(`${provider}-cli-default`)
+        ? Promise.resolve()
+        : registerDefaultModelInstances(
+            models,
+            config.dataDir,
+            process.env,
+            context.signal,
+            new Set(ProviderKind.options.filter((kind) => kind !== provider)),
+            services.providerConfigurations?.current() ?? [],
+          );
     const admission = registerDefaultModelInstances(
       models,
       config.dataDir,

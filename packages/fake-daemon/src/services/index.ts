@@ -1,5 +1,6 @@
 import { fakeProviderAccounts } from "./provider-accounts.ts";
 import { fakeApiKeySupport } from "../provider-auth-support.ts";
+import { FakeProviderInstalls } from "../provider-install.ts";
 import { onboardingChecklist } from "@ace/core";
 import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
@@ -46,6 +47,7 @@ const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string
  * public fields to stage what the daemon reports next.
  */
 export class FakeServices {
+  readonly providerInstalls: FakeProviderInstalls;
   readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];
   readonly authTerminals = new Map<
@@ -95,12 +97,50 @@ export class FakeServices {
       authMethod: loggedIn.has(provider) ? "browser" : "unknown",
       accountLabel: loggedIn.has(provider) ? "ada@example.com" : undefined,
       loginHint: provider === "cursor" ? "Sign in to Cursor" : "Use the CLI login command",
+      updateAvailable: provider === "codex",
+      latestVersion: provider === "codex" ? "9.0.0" : undefined,
       checkedAt: now,
       stale: false,
       refreshing: false,
     }));
     for (const row of this.providerStatuses)
       if (this.installed.has(row.provider)) Object.assign(row, fakeInstall[row.provider]);
+    this.providerInstalls = new FakeProviderInstalls(
+      () => this.providerRows(),
+      (progress) => {
+        const installed = progress.action !== "uninstall";
+        if (installed) this.installed.add(progress.provider);
+        else this.installed.delete(progress.provider);
+        this.providerStatuses = fakeReadiness(
+          this.providerStatuses.map((row) => {
+            if (row.provider !== progress.provider) return row;
+            const {
+              version: _version,
+              path: _path,
+              readiness: _readiness,
+              state: _state,
+              actionId: _actionId,
+              ...rest
+            } = row;
+            return {
+              ...rest,
+              installed,
+              auth: installed ? row.auth : "unknown",
+              updateAvailable: false,
+              ...(installed
+                ? {
+                    version: "9.0.0",
+                    path: `/fake/bin/${progress.provider}`,
+                    latestVersion: "9.0.0",
+                  }
+                : {}),
+            };
+          }),
+        );
+        this.host.broadcast?.({ type: "providers.changed", providers: this.providerRows() });
+        this.host.broadcast?.({ type: "models.changed", filter: { provider: progress.provider } });
+      },
+    );
     this.providerLogin = new FakeProviderLogin(
       host.clock,
       () => this.providerRows(),
@@ -175,6 +215,7 @@ export class FakeServices {
       })
     )
       return true;
+    if (this.providerInstalls.handle(message, device, push)) return true;
     if (this.providerLogin.handle(message, device, push)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
@@ -230,6 +271,7 @@ export class FakeServices {
   }
   release(push: Push): void {
     this.providerLogin.release(push);
+    this.providerInstalls.release(push);
     for (const [id, flow] of this.authTerminals)
       if (flow.owner === push) this.authTerminals.delete(id);
     this.settings.release(push);

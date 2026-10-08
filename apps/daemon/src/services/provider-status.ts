@@ -74,6 +74,17 @@ export function startProviderStatuses(context: ServiceContext): void {
           authMethod: reportedAuthMethod(row.authDetail),
         };
       },
+      async versions(row, signal) {
+        const installs = context.services.providerInstalls;
+        if (!installs || row.provider === "cursor") return {};
+        const plan = await installs.planner.plan(
+          { provider: row.provider },
+          "update",
+          undefined,
+          signal,
+        );
+        return installs.versions.check(plan, signal);
+      },
       attention(row) {
         const registry = context.services.accountRegistry;
         const selected =

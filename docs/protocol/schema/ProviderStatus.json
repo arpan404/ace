@@ -63,6 +63,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "latestVersion": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "loginHint": {
       "maxLength": 1024,
       "type": "string"
@@ -119,6 +123,10 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "versionCheckedAt": {
+      "minimum": 0,
+      "type": "number"
     }
   },
   "required": [
