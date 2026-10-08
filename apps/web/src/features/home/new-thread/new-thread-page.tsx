@@ -93,10 +93,11 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   // thread only and isn't remembered, so full access is never carried into the next thread.
   // A mode the provider can't run in (Ask on Cursor) is never sent: its fallback is, said so.
   const [permission, setPermission] = useState<PermissionMode>();
-  const [defaultMode] = useDaemonSetting(
-    "permissions.defaultMode",
+  const [providerModes] = useDaemonSetting(
+    "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
+  const defaultMode = provider ? providerModes?.[provider] ?? null : null;
   const permissions = usePermissionCapabilities(provider);
   const admitted = permissionAdmission(
     permissions.capabilities,
@@ -233,7 +234,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             }
             controls={
               <PermissionPicker
-                current={admitted.mode && permissionOption(admitted.mode)}
+                current={permissionOption(admitted.mode ?? null, permissions.capabilities)}
                 detail={
                   admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
                 }
@@ -241,7 +242,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 menu={{
                   options: permissionOptions(permissions.capabilities, providerName),
                   value: admitted.mode,
-                  loading: !!provider && (permissions.loading || defaultMode === undefined),
+                  loading: !!provider && (permissions.loading || providerModes === undefined),
                   unavailable: permissions.failed
                     ? "The daemon couldn't say what this provider can gate"
                     : undefined,

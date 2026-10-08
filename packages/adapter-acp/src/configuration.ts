@@ -1,3 +1,4 @@
+import { acpPermissionModes } from "@ace/provider-kit/permission-modes";
 import type { SessionContext } from "@ace/engine-api";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import { sessionSelectors, selectorRequest, type SelectorState } from "@ace/agent-registry";
@@ -53,8 +54,16 @@ export class AcpConfiguration {
   }
   publish(mcp: AcpSessionSupport["mcp"]): void {
     if (!this.negotiated) return;
+    const permissionModes = acpPermissionModes(this.selectors.raw);
     this.capabilities = {
       ...this.negotiated.capabilities,
+      permissionModes,
+      permissions: {
+        modes: permissionModes.map((mode) => mode.id),
+        permissionModes,
+        nativeAutoReview: false,
+        toolGate: true,
+      },
       planMode: this.selectors.mode?.values.includes("plan") ?? false,
     };
     this.support = sessionSupport(
@@ -69,18 +78,8 @@ export class AcpConfiguration {
     );
     this.#ctx.onCapabilities?.(this.capabilities, this.support);
   }
-  restrictedMode(): string | undefined {
-    const modes = this.selectors.mode?.values ?? [];
-    return ["read-only", "read_only", "plan"].find((mode) => modes.includes(mode));
-  }
   async select(kind: "model" | "mode", value: string, sessionId: string): Promise<void> {
     const request = selectorRequest(this.selectors, kind, value, sessionId);
-    if (
-      kind === "mode" &&
-      this.#ctx.permissionMode !== "full-access" &&
-      value !== this.restrictedMode()
-    )
-      throw new Error("ACP restricted permission mode cannot be widened by a native selector");
     const result = await this.#rpc.request(request.method, request.params, {
       signal: this.#ctx.signal,
     });

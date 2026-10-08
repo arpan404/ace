@@ -17,7 +17,7 @@ import { CheckpointQuota } from "./checkpoint-quota.ts";
 import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
-import { sandboxCursorOptions, limitedCursorOptions, fullCursorOptions } from "./agent-options.ts";
+import { nativeCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 
@@ -248,22 +248,16 @@ export class HostRuntime {
         },
         (runId) => journal.afterObserve(runId),
       );
-      const requestedOptions =
-        options.policy === "full-access"
-          ? fullCursorOptions(options, this.store)
-          : sandboxCursorOptions(options, this.store);
+      const agentOptions = nativeCursorOptions(options, this.store);
       let sandboxSupported = false;
-      if (options.policy === "restricted") {
+      if (agentOptions.local?.sandboxOptions?.enabled) {
         if (this.sdk.sandboxSupport) {
-          const admission = await this.sdk.sandboxSupport(requestedOptions);
+          const admission = await this.sdk.sandboxSupport(agentOptions);
           sandboxSupported = admission.supported;
           if (admission.supported) this.sandboxRelease = admission.release;
         } else sandboxSupported = options.autoReviewAvailable;
+        if (!sandboxSupported) throw new Error("Cursor native sandbox is unavailable");
       }
-      const agentOptions =
-        options.policy === "full-access" || sandboxSupported
-          ? requestedOptions
-          : limitedCursorOptions(options, this.store);
       if (nativeId?.startsWith("bc-")) throw new Error("Cloud continuation is forbidden");
       if (nativeId) await checkpointRevision(this.store, nativeId);
       if (this.closing) throw new Error("Host closed during SDK admission");
@@ -272,7 +266,7 @@ export class HostRuntime {
         : await this.sdk.Agent.create(agentOptions);
       if (this.closing) throw new Error("Host closed during SDK admission");
       await this.frame("open", {
-        policy: options.policy,
+        permissionMode: options.permissionMode ?? null,
         sandboxSupported,
         sdkVersion: "1.0.35",
         resumed: !!nativeId,

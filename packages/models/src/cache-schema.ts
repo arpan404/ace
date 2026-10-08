@@ -1,4 +1,4 @@
-import { CatalogModel, ProviderKind, ModelSourceStatus } from "@ace/protocol";
+import { CatalogModel, ProviderKind, ModelSourceStatus, NativePermissionMode } from "@ace/protocol";
 import { z } from "zod";
 import { freezeCatalogModel } from "./freeze.ts";
 import { discoveryError } from "./discovery-errors.ts";
@@ -18,6 +18,7 @@ export const CachedEntry = z
     revision: z.string().min(1).max(256),
     refreshedAt: z.number().nonnegative(),
     models: z.array(CatalogModel).max(512),
+    permissionModes: z.array(NativePermissionMode).max(256).optional(),
   })
   .refine(
     (entry) =>

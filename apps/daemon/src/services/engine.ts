@@ -195,11 +195,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         const thread = store.getThread(id);
         if (!thread) throw new Error("Thread unavailable");
         const workspace = store.getWorkspace(thread.workspaceId);
-        const entry = await services.settings?.get("permissions.defaultMode", {
+        const entry = await services.settings?.get("permissions.providerModes", {
           thread: id,
           ...(workspace ? { workspace: workspace.path } : {}),
         });
-        return entry?.value ?? "auto-review";
+        return entry?.value[thread.provider] ?? null;
       }),
     selectInstance:
       engineOptions.selectInstance ??

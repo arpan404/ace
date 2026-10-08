@@ -13,11 +13,18 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
       },
-      "maxItems": 4,
+      "maxItems": 256,
       "type": "array"
     },
     "nativeAutoReview": {
       "type": "boolean"
+    },
+    "permissionModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+      },
+      "maxItems": 256,
+      "type": "array"
     },
     "toolGate": {
       "type": "boolean"

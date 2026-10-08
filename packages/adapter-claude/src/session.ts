@@ -1,3 +1,4 @@
+import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
 import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -146,9 +147,8 @@ export async function openSession(
       pathToClaudeCodeExecutable: executable,
       ...(ctx.permissionMode
         ? {
-            permissionMode: ctx.permissionMode === "full-access" ? "bypassPermissions" : "default",
-            allowDangerouslySkipPermissions: ctx.permissionMode === "full-access",
-            settingSources: [],
+            permissionMode: ClaudePermissionMode.parse(ctx.permissionMode),
+            allowDangerouslySkipPermissions: ctx.permissionMode === "bypassPermissions",
           }
         : {}),
       mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
@@ -157,24 +157,6 @@ export async function openSession(
       perTaskStopAffordance: true,
       includeHookEvents: true,
       hooks: {
-        ...(ctx.permissionMode && ctx.permissionMode !== "full-access"
-          ? {
-              PreToolUse: [
-                {
-                  hooks: [
-                    async () => ({
-                      hookSpecificOutput: {
-                        hookEventName: "PreToolUse" as const,
-                        permissionDecision: "ask" as const,
-                        permissionDecisionReason:
-                          "ace permission policy reviews this exact tool call",
-                      },
-                    }),
-                  ],
-                },
-              ],
-            }
-          : {}),
         SubagentStart: [
           {
             hooks: [
@@ -284,13 +266,8 @@ export async function openSession(
       const executionOptions = ClaudeSelectionOptions.parse(selection.options);
       ensureOpen();
       await q.setModel(selection.model);
-      await q.setPermissionMode(
-        ctx.permissionMode
-          ? ctx.permissionMode === "full-access"
-            ? "bypassPermissions"
-            : "default"
-          : (configuration.permissionMode ?? "default"),
-      );
+      if (ctx.permissionMode)
+        await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
       await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
     },
     async send(parts, delivery, commandId, origin) {
@@ -357,8 +334,6 @@ export async function openSession(
       ensureOpen();
       const id = nativeKey(key, "interaction");
       pending.resolve(id, resolution);
-      if (resolution.kind === "plan_review" && resolution.decision === "approve")
-        await q.setPermissionMode("default");
     },
     async stopTask(key) {
       ensureOpen();

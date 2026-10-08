@@ -25,7 +25,7 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
   const permission = useThreadPermission(props.thread.id, meta?.permission);
   const { capabilities, loading } = usePermissionCapabilities(
     meta?.provider,
-    meta?.capabilities?.permissions,
+    (meta?.effectiveCapabilities ?? meta?.capabilities)?.permissions,
   );
   const mode =
     (permission.chosen !== undefined ? permission.chosen : meta?.permission?.override) ??
@@ -34,10 +34,10 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
   const planReason =
     loading || !meta
       ? "Checking what the provider can gate"
-      : !permissionModes(capabilities).includes("read-only")
-        ? `${provider} has no read-only mode to plan in`
-        : mode === "read-only"
-          ? "Already read only"
+      : !permissionModes(capabilities).includes("plan")
+        ? `${provider} has no native plan mode`
+        : mode === "plan"
+          ? "Already in plan mode"
           : undefined;
   const pages = contextPages(workspace).slice(0, shownPages);
   return (
@@ -49,11 +49,11 @@ export function ThreadContextRows(props: { thread: ThreadRef; onInsert(text: str
         onClick={() => {
           // The approvals chip shows the change at once; only a refusal takes it back.
           toast.add({
-            title: "Approvals: Read only",
+            title: "Plan",
             description: "The agent plans from its next turn; switch back to let it act.",
           });
           void permission
-            .change("read-only")
+            .change("plan")
             .catch((error: unknown) =>
               toast.add({ title: "Couldn't change approvals", description: failureMessage(error) }),
             );

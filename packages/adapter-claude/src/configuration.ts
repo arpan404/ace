@@ -1,24 +1,23 @@
+import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
 import { z } from "zod";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 
-const PermissionMode = z.enum(["default", "acceptEdits", "plan", "dontAsk", "auto"]);
+const PermissionMode = ClaudePermissionMode;
 export const ClaudeConfiguration = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("coding"),
     settingSources: z.array(z.enum(["user", "project", "local"])).max(3),
-    permissionMode: PermissionMode,
+    permissionMode: PermissionMode.optional(),
   }),
-  z.object({ kind: z.literal("isolated"), permissionMode: PermissionMode }),
+  z.object({ kind: z.literal("isolated"), permissionMode: PermissionMode.optional() }),
 ]);
 export type ClaudeConfiguration = z.infer<typeof ClaudeConfiguration>;
 export const codingConfiguration: ClaudeConfiguration = {
   kind: "coding",
   settingSources: ["user", "project", "local"],
-  permissionMode: "default",
 };
 export const isolatedConfiguration: ClaudeConfiguration = {
   kind: "isolated",
-  permissionMode: "default",
 };
 export function configurationOptions(
   value: ClaudeConfiguration,
@@ -28,7 +27,11 @@ export function configurationOptions(
     ? {
         systemPrompt: { type: "preset", preset: "claude_code" },
         settingSources: config.settingSources,
-        permissionMode: config.permissionMode,
+        ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
       }
-    : { settingSources: [], permissionMode: config.permissionMode, strictMcpConfig: true };
+    : {
+        settingSources: [],
+        ...(config.permissionMode ? { permissionMode: config.permissionMode } : {}),
+        strictMcpConfig: true,
+      };
 }

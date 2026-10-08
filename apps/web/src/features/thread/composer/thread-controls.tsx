@@ -54,13 +54,14 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useToast();
   const permission = useThreadPermission(props.thread.id, meta?.permission);
-  const [defaultMode] = useDaemonSetting("permissions.defaultMode", {
+  const [providerModes] = useDaemonSetting("permissions.providerModes", {
     workspaceId: WorkspaceId.parse(props.thread.workspaceId),
   });
   const { capabilities, loading, failed } = usePermissionCapabilities(
     meta?.provider,
     meta?.capabilities?.permissions,
   );
+  const defaultMode = meta ? providerModes?.[meta.provider] : undefined;
   const summary = threadPermissionSummary(meta?.permission, capabilities, {
     chosen: permission.chosen,
     defaultMode,
@@ -81,8 +82,8 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     defaultMode && permissionUnavailable(capabilities, defaultMode, provider);
   return (
     <PermissionPicker
-      current={summary && permissionOption(summary.mode)}
-      next={summary?.next && permissionOption(summary.next)}
+      current={summary && permissionOption(summary.mode, capabilities)}
+      next={summary?.next ? permissionOption(summary.next, capabilities) : undefined}
       // The daemon has no field yet for why a change waits; when it reports one ("busy"),
       // pass it here and the note says the running command must finish first.
       note={summary?.next && (permission.note ?? permissionPendingNote())}
@@ -90,7 +91,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
       inherited={summary?.inherited}
       menu={{
         options: permissionOptions(capabilities, provider),
-        value: wanted,
+        value: wanted ?? undefined,
         loading: loading || (!meta?.permission && !failed),
         unavailable:
           failed && !meta?.permission
@@ -100,7 +101,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
         reset:
           defaultMode && !summary?.inherited
-            ? { label: permissionLabel(defaultMode), unavailable: resetUnavailable || undefined }
+            ? { label: permissionLabel(defaultMode, capabilities), unavailable: resetUnavailable || undefined }
             : undefined,
       }}
       onChange={change}

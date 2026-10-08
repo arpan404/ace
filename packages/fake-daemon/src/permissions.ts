@@ -1,3 +1,4 @@
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import {
   reviewPermission,
   permissionDecisionOption,
@@ -30,49 +31,16 @@ export const fakePermissionCapabilities: Capabilities = {
   // Effort and other launch options change on a live thread through a queued switch.
   sessionOptions: true,
   launchOptions: ["effort", "serviceTier"],
-  permissions: {
-    modes: ["read-only", "ask", "auto-review", "full-access"],
-    nativeAutoReview: false,
-    toolGate: true,
-    guarantees: [
-      {
-        mode: "auto-review",
-        level: "tool-gate",
-        gates: { writes: true, network: true, protectedReads: true, shell: true },
-        limitations: [
-          "Simulated permission requests only; no native provider or host tools execute.",
-        ],
-      },
-    ],
-  },
+  permissions: { modes: [], permissionModes: [], nativeAutoReview: false, toolGate: true },
 };
-
-/**
- * Cursor SDK and generic ACP agents have no pre-execution approval gate, so like the daemon's
- * adapters they don't offer Ask, and Ask is refused for them (ADR 0061).
- */
-const ungatedPermissions: PermissionCapabilities = {
-  modes: ["read-only", "auto-review", "full-access"],
-  nativeAutoReview: false,
-  toolGate: false,
-  guarantees: [
-    {
-      mode: "auto-review",
-      level: "sandbox",
-      gates: { writes: true, network: false, protectedReads: false, shell: true },
-      limitations: ["Simulated: no public approval decision callback."],
-    },
-  ],
-};
-
-/** The permission modes `provider`'s fake adapter offers, as `permissions.capabilities` says. */
 export function fakeProviderPermissions(provider: ProviderKind): PermissionCapabilities {
-  const permissions =
-    provider === "cursor" || provider === "acp"
-      ? ungatedPermissions
-      : fakePermissionCapabilities.permissions;
-  if (!permissions) throw new Error("fake capabilities list permission modes");
-  return structuredClone(permissions);
+  const permissionModes = nativePermissionModes(provider);
+  return {
+    modes: permissionModes.map((mode) => mode.id),
+    permissionModes,
+    nativeAutoReview: ["claude", "codex", "cursor"].includes(provider),
+    toolGate: provider !== "pi" && provider !== "cursor",
+  };
 }
 
 /** Fake paths describe an in-memory filesystem. No host filesystem is read. */
@@ -99,13 +67,12 @@ export function fakeReviewEvents(
   at: number,
 ): EventPayload[] {
   const result: EventPayload[] = [];
-  const mode = host.view.thread.permission?.effective ?? "auto-review";
+  const mode = "ask";
   for (const event of events) {
     if (
       event.type !== "interaction.opened" ||
       event.interaction.request.kind !== "approval" ||
-      mode === "ask" ||
-      mode === "full-access"
+      event.interaction.request.target?.origin !== "ace"
     )
       continue;
     const interaction = event.interaction;
