@@ -1,5 +1,6 @@
 import type { Browser, CDPSession, Page } from "@playwright/test";
 import { budgets } from "./budgets.ts";
+import { pageMemory, reportDOM } from "./measure.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
 /*
@@ -21,6 +22,7 @@ interface Sample {
   pageMb: number;
   workerMb: number;
   nodes: number;
+  chromeNodes: number;
   listeners: number;
   articles: number;
 }
@@ -71,19 +73,17 @@ async function workerHeap(browser: Browser): Promise<number> {
 }
 
 async function sample(browser: Browser, page: Page, cdp: CDPSession): Promise<Sample> {
-  await cdp.send("HeapProfiler.collectGarbage");
-  await cdp.send("HeapProfiler.collectGarbage");
-  const heap = await cdp.send("Runtime.getHeapUsage");
-  const counters = await cdp.send("Memory.getDOMCounters");
+  const memory = await pageMemory(cdp);
   const articles = await page
     .getByRole("feed", { name: "Transcript" })
     .getByRole("article")
     .count();
   return {
-    pageMb: mb(heap.usedSize),
+    pageMb: memory.heapMb,
     workerMb: mb(await workerHeap(browser)),
-    nodes: counters.nodes,
-    listeners: counters.jsEventListeners,
+    nodes: memory.nodes,
+    chromeNodes: memory.chromeNodes,
+    listeners: memory.listeners,
     articles,
   };
 }
@@ -91,7 +91,7 @@ async function sample(browser: Browser, page: Page, cdp: CDPSession): Promise<Sa
 const line = (label: string, value: string) =>
   process.stdout.write(`  ${label.padEnd(54)} ${value}\n`);
 const describe = (s: Sample) =>
-  `page ${s.pageMb.toFixed(1)} MB · worker ${s.workerMb.toFixed(1)} MB · ${s.nodes} DOM nodes · ${s.articles} rows`;
+  `page ${s.pageMb.toFixed(1)} MB · worker ${s.workerMb.toFixed(1)} MB · ${s.nodes} attached DOM nodes · Chrome counter ${s.chromeNodes} · ${s.articles} rows`;
 
 const failures: string[] = [];
 const check = (ok: boolean, message: string) => {
@@ -136,7 +136,7 @@ await withPerfApp(async ({ browser, origin }) => {
     const paged = await sample(browser, page, cdp);
     line(`after paging back ${historyPages} times`, describe(paged));
     check(
-      paged.nodes <= budgets.memory.domNodes,
+      reportDOM(paged, budgets.memory.domNodes),
       `${paged.nodes} DOM nodes after paging back (budget ${budgets.memory.domNodes})`,
     );
     check(
@@ -172,7 +172,7 @@ await withPerfApp(async ({ browser, origin }) => {
     const peak = (pick: (s: Sample) => number) => Math.max(...samples.map(pick));
     line(
       "peak",
-      `page ${peak((s) => s.pageMb).toFixed(1)} MB · worker ${peak((s) => s.workerMb).toFixed(1)} MB · ${peak((s) => s.nodes)} DOM nodes`,
+      `page ${peak((s) => s.pageMb).toFixed(1)} MB · worker ${peak((s) => s.workerMb).toFixed(1)} MB · ${peak((s) => s.nodes)} attached DOM nodes · Chrome counter ${peak((s) => s.chromeNodes)}`,
     );
     const pageGrowth = last.pageMb - first.pageMb;
     const workerGrowth = last.workerMb - first.workerMb;
@@ -189,7 +189,10 @@ await withPerfApp(async ({ browser, origin }) => {
       `client worker heap grew ${workerGrowth.toFixed(1)} MB streaming (budget ${budgets.memory.workerGrowthMb})`,
     );
     check(
-      peak((s) => s.nodes) <= budgets.memory.domNodes,
+      reportDOM(
+        { nodes: peak((s) => s.nodes), chromeNodes: peak((s) => s.chromeNodes) },
+        budgets.memory.domNodes,
+      ),
       `${peak((s) => s.nodes)} DOM nodes streaming (budget ${budgets.memory.domNodes})`,
     );
     check(!Number.isNaN(last.workerMb), "the client worker's heap could not be read");

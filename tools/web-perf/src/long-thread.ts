@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { retryTiming, checkBudgets } from "@ace/perf-kit";
 import { budgets } from "./budgets.ts";
-import { observe, pageMemory, readRecord, report, resetRecord } from "./measure.ts";
+import { observe, pageMemory, readRecord, report, reportDOM, resetRecord } from "./measure.ts";
 import { selectTurn, scrollTranscript, stepTurn } from "./navigation.ts";
 import { open, withPerfApp } from "./perf-app.ts";
 
@@ -57,6 +57,12 @@ async function measureLongThread(): Promise<void> {
     const jumps: number[] = [];
     const searches: number[] = [];
     const nodes: number[] = [];
+    const chromeNodes: number[] = [];
+    const sampleDOM = async () => {
+      const sample = await pageMemory(cdp);
+      nodes.push(sample.nodes);
+      chromeNodes.push(sample.chromeNodes);
+    };
     const start = await resetRecord(page);
     let warm: number | undefined;
     for (let round = 0; round < limits.rounds; round++) {
@@ -81,7 +87,7 @@ async function measureLongThread(): Promise<void> {
       }
       await stepTurn(page, `Alt+${mod}+ArrowDown`);
       await stepTurn(page, `Alt+${mod}+ArrowUp`);
-      nodes.push((await pageMemory(cdp)).nodes);
+      await sampleDOM();
       // Search the thread and step through what it finds.
       await page.keyboard.press(`${mod}+f`);
       const bar = page.getByRole("search", { name: "Search this thread" });
@@ -114,7 +120,7 @@ async function measureLongThread(): Promise<void> {
         await expect(
           bar.getByText(/^Nothing (in this thread matches|yet in the history read so far)\.$/),
         ).toBeVisible();
-      nodes.push((await pageMemory(cdp)).nodes);
+      await sampleDOM();
       await page.keyboard.press("Escape");
       // Back to the live end, then a look at the live tail.
       await page
@@ -125,7 +131,7 @@ async function measureLongThread(): Promise<void> {
       await feed.hover();
       await scrollTranscript(page, -1_200, 200);
       await scrollTranscript(page, 1_200, 400);
-      nodes.push((await pageMemory(cdp)).nodes);
+      await sampleDOM();
       if (round === 0) {
         // Retained heap is measured from a warm state: caches and the JIT have settled once.
         warm = (await pageMemory(cdp)).heapMb;
@@ -133,7 +139,10 @@ async function measureLongThread(): Promise<void> {
     }
     const main = await readRecord(page, start);
     const last = await pageMemory(cdp);
-    process.stdout.write(`  DOM nodes after jump, search, live per round: ${nodes.join(" ")}\n`);
+    process.stdout.write(
+      `  attached DOM nodes after jump, search, live per round: ${nodes.join(" ")}\n`,
+    );
+    process.stdout.write(`  Chrome DOM counters at the same samples: ${chromeNodes.join(" ")}\n`);
     const timing = [
       report("transcript and composer usable (ms)", ready, limits.readyMs, ready <= limits.readyMs),
       report("catch-up card shown (ms from navigation)", caughtUp, "-", true),
@@ -161,11 +170,9 @@ async function measureLongThread(): Promise<void> {
       ),
     ];
     const resources = [
-      report(
-        "DOM nodes, peak",
-        Math.max(...nodes),
+      reportDOM(
+        { nodes: Math.max(...nodes), chromeNodes: Math.max(...chromeNodes) },
         limits.domNodes,
-        Math.max(...nodes) <= limits.domNodes,
       ),
       report(
         `retained page heap growth over ${limits.rounds - 1} rounds (MB)`,
