@@ -1,5 +1,5 @@
 import { readSourcePage, sourcePage } from "./source-page.ts";
-import { body } from "./project-shared.ts";
+import { componentTitle } from "./component-title.ts";
 import { inlineSource } from "./inline-source.ts";
 import { cp, open, writeFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -109,9 +109,7 @@ export class PluginClientOperations {
               kind === "skill"
                 ? `${normalizePath(entry.path)}/SKILL.md`
                 : normalizePath(entry.path);
-            const title = /^# ([^\r\n]{1,200})(?:\r?\n|$)/
-              .exec(body(snapshot.text[path] ?? "").trimStart())?.[1]
-              ?.trim();
+            const title = componentTitle(snapshot.text[path] ?? "", entry.name);
             components.push({
               plugin: snapshot.install.name,
               name: entry.name,

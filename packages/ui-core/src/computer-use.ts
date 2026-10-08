@@ -40,7 +40,7 @@ const lifecycleOrder: Record<ScreenState["lifecycle"], number> = {
   stopped: 4,
 };
 
-function targetBundle(state: ScreenState): string {
+export function targetBundle(state: ScreenState): string {
   return state.target.kind === "display"
     ? (state.target.bundleIds[0] ?? "")
     : state.target.bundleId;

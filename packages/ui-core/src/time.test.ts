@@ -41,3 +41,10 @@ test("reset clocks follow the locale's 12 or 24 hour setting without padding the
   expect(formatClock(at, "en-US")).toBe("1:33 PM");
   expect(formatClock(at, "en-GB")).toBe("13:33");
 });
+
+test("day periods have the same casing across locales and explicit schedule zones", () => {
+  const at = Date.UTC(2026, 9, 8, 22, 32);
+  expect(formatClock(at, "en-US", "America/Chicago")).toBe("5:32 PM");
+  expect(formatClock(at, "en-AU", "America/Chicago")).toBe("5:32 PM");
+  expect(formatClock(at, "en-GB", "America/Chicago")).toBe("17:32");
+});

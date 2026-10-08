@@ -353,7 +353,8 @@ function DiscoveredSkillDetail({ skill }: { skill: Skill }) {
       subtitle={kinds.find((entry) => entry.kind === skill.kind)?.label}
     >
       <div className="mx-auto max-w-(--column) px-4 pt-6 sm:px-8 sm:pt-11">
-        <p className="text-base text-muted-foreground">{skill.description}</p>
+        <p className="font-mono text-sm text-subtle-foreground">{skill.name}</p>
+        <p className="mt-2 text-base text-muted-foreground">{skill.description}</p>
         <SettingSection label="Source">
           <p className="text-sm text-muted-foreground">
             {source?.provider === "ace" ? "ace" : source && providerNames[source.provider]} ·{" "}

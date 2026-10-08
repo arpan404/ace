@@ -64,6 +64,7 @@ export interface CatalogSignal {
   problem?: string | undefined;
   /** Upstream providers (not local runtimes) with models and no error: OpenCode Go, OpenAI… */
   connected: number;
+  serviceProblems?: number | undefined;
 }
 
 /** A provider's catalog signal, from the catalog's models and per-account statuses. */
@@ -88,7 +89,11 @@ export function catalogSignal(
     ?.message;
   const failing = new Set(
     own.flatMap((status) =>
-      (status.sources ?? []).flatMap((entry) => (entry.error ? [entry.source.id] : [])),
+      (status.sources ?? []).flatMap((entry) =>
+        entry.error && entry.source.kind !== "account" && entry.source.kind !== "local"
+          ? [entry.source.id]
+          : [],
+      ),
     ),
   );
   const connected = new Set<string>();
@@ -110,6 +115,7 @@ export function catalogSignal(
     ),
     problem,
     connected: connected.size,
+    serviceProblems: failing.size,
   };
 }
 

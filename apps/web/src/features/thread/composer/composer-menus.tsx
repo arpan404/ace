@@ -33,7 +33,7 @@ export function PermissionMenu(props: {
 }) {
   const { view } = props;
   if (view.unavailable) return <Note>{view.unavailable}</Note>;
-  if (view.loading) return <Note pending>Checking what the provider can gate…</Note>;
+  if (view.loading) return <Note pending>Checking available approval modes…</Note>;
   if (!view.options.length)
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
   return (

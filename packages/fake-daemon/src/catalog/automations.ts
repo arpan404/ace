@@ -155,6 +155,8 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       now,
       "succeeded",
       "2 advisories · opened a thread in ace",
+      "schedule",
+      "thread-bump-codex",
     ),
     run("run-audit-2", "auto-dependency-audit", audit, day, now, "succeeded", "Nothing to fix"),
     run(

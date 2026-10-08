@@ -32,7 +32,7 @@ export function ApprovalHeading(props: { copy: ApprovalCopy }) {
   if (!copy.app) return copy.heading;
   return (
     <span className="flex items-center gap-2">
-      <AppMark name={copy.app} />
+      <AppMark name={copy.app} bundleId={copy.bundleId} />
       {copy.heading}
     </span>
   );

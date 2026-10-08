@@ -11,7 +11,7 @@ const tabData = z.looseObject({ scope: z.string().optional() });
 
 export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
   if (scope === "working-tree") return "Uncommitted";
-  if (scope === "all") return "All turns";
+  if (scope === "all") return "This thread";
   if (scope === "last") return "Last turn";
   const turn = turns.find((candidate) => candidate.id === scope);
   return turn ? `Turn ${turn.number}` : "Last turn";

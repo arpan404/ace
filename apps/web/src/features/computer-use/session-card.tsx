@@ -25,6 +25,7 @@ export function SessionCard(props: {
   /** Draw the live picture (off in compact lists such as the rail's popover). */
   live?: boolean;
   compact?: boolean | undefined;
+  fallback?: "group" | "row";
 }) {
   const { state, use } = props;
   const [expanded, setExpanded] = useState(false);
@@ -45,11 +46,18 @@ export function SessionCard(props: {
           onClick={() => setExpanded(!expanded)}
           className="focus-ring flex h-9 w-full min-w-0 items-center gap-2 text-left text-ui"
         >
-          <AppMark name={view.app} bundleId={view.bundleId} />
+          <AppMark name={view.app} bundleId={view.bundleId} fallback={props.fallback} />
           <span className="min-w-0 flex-1 truncate">{view.app}</span>
           {!expanded && <StatusLabel tone={view.tone} label={view.status} />}
         </button>
-        {expanded && <SessionCard state={state} use={use} threadId={props.threadId} />}
+        {expanded && (
+          <SessionCard
+            state={state}
+            use={use}
+            threadId={props.threadId}
+            fallback={props.fallback}
+          />
+        )}
       </article>
     );
   return (
@@ -61,7 +69,7 @@ export function SessionCard(props: {
       )}
       <div className="flex min-w-0 flex-col gap-2 p-3">
         <div className="flex min-w-0 items-center gap-2">
-          <AppMark name={view.app} bundleId={view.bundleId} />
+          <AppMark name={view.app} bundleId={view.bundleId} fallback={props.fallback} />
           <h3 className="min-w-0 flex-1 truncate text-ui font-medium">{view.app}</h3>
           {view.capturing && (
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">

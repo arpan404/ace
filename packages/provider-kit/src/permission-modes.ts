@@ -36,93 +36,103 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
         mode(
           "default",
           "Manual",
-          "Prompts for permission before running tools that require approval.",
+          "Reads files freely; asks before other actions that need approval.",
           "medium",
         ),
         mode(
           "acceptEdits",
           "Accept edits",
-          "Automatically accepts file edits; other tools follow permission rules.",
+          "Can edit files without asking. Other actions may need approval.",
           "medium",
         ),
         mode(
           "plan",
           "Plan",
-          "Analyzes the codebase without editing files or executing commands.",
+          "Reads and explores the project to make a plan before editing.",
           "low",
         ),
         mode(
           "auto",
           "Auto",
-          "Claude evaluates tool calls and handles permission decisions automatically.",
+          "Claude reviews actions for safety and handles approvals for you.",
           "medium",
         ),
         mode(
           "dontAsk",
           "Don't ask",
-          "Denies tools that require permission instead of prompting.",
+          "Allows reads and actions you already approved; blocks anything that would ask.",
           "low",
         ),
         mode("bypassPermissions", "Bypass permissions", "Skips permission checks.", "high"),
       ];
     case "codex":
       return [
-        mode(":read-only", "Read only", "Read-only permission profile.", "low"),
+        mode(
+          ":read-only",
+          "Read only",
+          "Can read files and run commands that don't change them.",
+          "low",
+        ),
         mode(
           ":workspace",
           "Auto",
-          "Workspace permission profile; approvals are handled by the configured reviewer.",
+          "Can edit files and run commands in this project. Access beyond it needs approval.",
           "medium",
         ),
         mode(
           codexReviewerMode("auto_review"),
           "Approve for me",
-          "Codex reviews approval requests using its native risk reviewer.",
+          "Codex checks the risk of each request and approves safe actions for you.",
           "medium",
         ),
         mode(
           codexReviewerMode("guardian_subagent"),
           "Guardian review",
-          "Routes approvals to Codex's guardian subagent reviewer.",
+          "A separate Codex agent checks requests before approving them.",
           "medium",
         ),
         mode(
           ":danger-full-access",
           "Full access",
-          "Unrestricted filesystem and network access.",
+          "Can change files anywhere and use the network without asking.",
           "high",
         ),
       ];
     case "opencode":
       return [
-        mode("allow", "Allow", "Runs matching operations without approval.", "high"),
-        mode("ask", "Ask", "Prompts for approval for matching operations.", "medium"),
-        mode("deny", "Deny", "Blocks matching operations.", "low"),
+        mode(
+          "allow",
+          "Allow",
+          "Runs actions covered by your permission rules without asking.",
+          "high",
+        ),
+        mode("ask", "Ask", "Asks before actions covered by your permission rules.", "medium"),
+        mode("deny", "Deny", "Blocks actions covered by your permission rules.", "low"),
       ];
     case "cursor":
       return [
         mode(
           cursorMode(false, false),
           "Sandbox disabled",
-          "Sandbox and automatic review disabled (SDK defaults).",
+          "Can run commands without isolation or automatic review.",
           "high",
         ),
         mode(
           cursorMode(true, false),
           "Sandbox enabled",
-          "Enables the native local sandbox.",
+          "Runs commands in an isolated environment on this computer.",
           "medium",
         ),
         mode(
           cursorMode(true, true),
           "Auto review",
-          "Enables the sandbox and native automatic review.",
+          "Runs commands in isolation. Cursor reviews approval requests for you.",
           "medium",
         ),
         mode(
           cursorMode(false, true),
           "Auto review · sandbox disabled",
-          "Automatic review enabled without the local sandbox.",
+          "Cursor reviews requests, but commands run without isolation.",
           "high",
         ),
       ];

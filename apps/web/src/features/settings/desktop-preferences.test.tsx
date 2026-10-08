@@ -113,7 +113,7 @@ test("a browser offers notification categories in Settings", async () => {
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
   view.unmount();
   await app.open("/settings/notifications");
-  expect(await screen.findByRole("switch", { name: "Agent says" })).toBeTruthy();
+  expect(await screen.findByRole("switch", { name: "Agent messages" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Thread done" })).toBeNull();
 });
 

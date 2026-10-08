@@ -331,13 +331,14 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry ? item.entry.name : item.threadId ? item.label : item.insert;
+    const label = item.entry || item.threadId ? item.label : item.insert;
     const next = accept(text, at, label);
     const catalog: CatalogMention | undefined = item.entry
       ? {
           type: "mention",
           entryId: item.entry.id,
           name: item.entry.name,
+          title: label,
           kind: item.entry.kind,
           ...(item.entry.icon ? { icon: item.entry.icon } : {}),
           arguments: "",

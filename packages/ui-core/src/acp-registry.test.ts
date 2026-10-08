@@ -1,6 +1,6 @@
 import type { RegistryInstallPlan } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { planCommand, registryFailure, registrySetup } from "./acp-registry.ts";
+import { planCommand, registryFailure, registrySetup, registryPublisher } from "./acp-registry.ts";
 
 test("a registry login hint becomes a command to run, what to type after it, or plain words", () => {
   expect(registrySetup("codex login")).toEqual({ run: "codex login" });
@@ -51,4 +51,13 @@ test("daemon refusals read as fixed words; anything unrecognised never echoes it
     "This daemon can't install from the ACP registry yet.",
   );
   expect(registryFailure("npm ERR! token=secret")).toBe("That didn't work. Try again.");
+});
+
+test("registry publishers show names and omit contact addresses or opaque handles", () => {
+  expect(registryPublisher(["Google", "Anthropic <team@example.invalid>", "Zed Industries"])).toBe(
+    "Google, Anthropic, Zed Industries",
+  );
+  expect(registryPublisher(["tao12345666333", "enquiries@fast-agent.ai", "unknown_handle"])).toBe(
+    "",
+  );
 });

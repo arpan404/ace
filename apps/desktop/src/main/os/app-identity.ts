@@ -1,16 +1,16 @@
 import { execFile } from "node:child_process";
 import { z } from "zod";
 import { AppIdentity, AppIdentityRequest } from "../../shared/contract.ts";
-import type { AppImage } from "./editor-icon.ts";
 const application = z.object({
   path: z.string().startsWith("/").max(4096),
   displayName: z.string().min(1).max(256),
 });
 export interface ApplicationLookup {
   application(bundleId: string): Promise<z.infer<typeof application> | null>;
-  icon(path: string): Promise<AppImage>;
+  icon(path: string): Promise<string | null>;
 }
-/** Bounded cache includes missing apps and concurrent requests. Icons are normal OS file icons. */
+const pngIcon = AppIdentity.unwrap().shape.icon.unwrap();
+/** Bounded cache includes missing apps and concurrent requests. */
 export function appIdentities(lookup: ApplicationLookup) {
   const cache = new Map<string, Promise<z.infer<typeof AppIdentity>>>();
   let active = 0;
@@ -21,10 +21,7 @@ export function appIdentities(lookup: ApplicationLookup) {
       if (!found) return null;
       let icon: string | null = null;
       try {
-        const image = await lookup.icon(found.path);
-        const url = image.isEmpty() ? null : image.toDataURL();
-        if (url && url.length <= 128 * 1024 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(url))
-          icon = url;
+        icon = pngIcon.nullable().parse(await lookup.icon(found.path));
       } catch {
         /* A name remains useful when the OS has no icon. */
       }
@@ -48,6 +45,39 @@ export function appIdentities(lookup: ApplicationLookup) {
     cache.set(checked.bundleId, pending);
     return pending;
   };
+}
+
+// NSWorkspace supplies the app's Finder icon. Electron's getFileIcon can return the same
+// generic application icon for different bundles on macOS. Draw the OS image at a bounded
+// size; this never opens the app or reads its bundle resources.
+const iconScript = `ObjC.import('AppKit');
+function run(argv) {
+  const icon = $.NSWorkspace.sharedWorkspace.iconForFile(argv[0]);
+  const image = $.NSImage.alloc.initWithSize($.NSMakeSize(32, 32));
+  image.lockFocus;
+  icon.drawInRectFromRectOperationFraction(
+    $.NSMakeRect(0, 0, 32, 32), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
+  image.unlockFocus;
+  const bitmap = $.NSBitmapImageRep.imageRepWithData(image.TIFFRepresentation);
+  const png = bitmap.representationUsingTypeProperties($.NSPNGFileType, $.NSDictionary.dictionary);
+  return 'data:image/png;base64,' + ObjC.unwrap(png.base64EncodedStringWithOptions(0));
+}`;
+export function systemApplicationIcon(
+  path: string,
+  platform: NodeJS.Platform,
+): Promise<string | null> {
+  if (platform !== "darwin") return Promise.resolve(null);
+  return new Promise((resolve) =>
+    execFile(
+      "/usr/bin/osascript",
+      ["-l", "JavaScript", "-e", iconScript, path],
+      { timeout: 5000, maxBuffer: 128 * 1024 },
+      (error, stdout) => {
+        const result = error ? undefined : pngIcon.safeParse(stdout.trim());
+        resolve(result?.success ? result.data : null);
+      },
+    ),
+  );
 }
 
 // Launch Services resolves bundle IDs, including apps outside /Applications. Arguments never

@@ -108,9 +108,14 @@ export function withDiscoveredSkills(
   for (const entry of entries) {
     if (entry.kind === "builtin") continue;
     if (
-      entry.source.provider === "ace" &&
       entry.source.plugin &&
-      portablePlugins.has(entry.source.plugin)
+      portablePlugins.has(entry.source.plugin) &&
+      skills.some(
+        (skill) =>
+          skill.plugin === entry.source.plugin &&
+          skill.kind === entry.kind &&
+          (skill.name === entry.name || skill.name === entry.name.split(":").at(-1)),
+      )
     )
       continue;
     const kind = entry.kind;
@@ -120,6 +125,7 @@ export function withDiscoveredSkills(
       id,
       kind,
       name: entry.name,
+      title: entry.title,
       description: entry.description,
       plugin: entry.source.plugin ?? "",
       path: entry.source.path,

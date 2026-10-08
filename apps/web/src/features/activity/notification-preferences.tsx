@@ -11,7 +11,7 @@ const rows: {
 }[] = [
   {
     key: "agentSays",
-    title: "Agent says",
+    title: "Agent messages",
     description: "Messages an agent asks ace to tell you about.",
   },
   {

@@ -64,6 +64,7 @@ export interface ApprovalCopy {
   command: string | undefined;
   /** The app an app request is about, by name: drawn as its mark beside the title. */
   app: string | undefined;
+  bundleId?: string | undefined;
   /**
    * The one plain reason: what the agent said it needs this for, else the request's own
    * description, else why ace's review sent it on.
@@ -97,6 +98,7 @@ const texts = (value: unknown) =>
 interface ToolCopy {
   title: string;
   app?: string | undefined;
+  bundleId?: string | undefined;
   reason?: string | undefined;
   risk?: ApprovalCopy["risk"];
   facts?: ApprovalFact[];
@@ -113,6 +115,7 @@ function screenApp(input: Record<string, unknown>, description: string | undefin
   return {
     title: `Let an agent use ${name}`,
     app: name,
+    bundleId,
     reason: description,
     risk: sensitive
       ? {
@@ -140,6 +143,7 @@ function screenForeground(
   return {
     title: `Let the agent bring ${name} to the front`,
     app: name,
+    bundleId,
     reason: description,
     risk: {
       level: "high",
@@ -343,6 +347,7 @@ export function approvalCopy(
     heading: copy ? title : heading(title, command),
     command,
     app: copy?.app,
+    bundleId: copy?.bundleId,
     reason: copy
       ? copy.reason
       : (request.description ??

@@ -68,7 +68,7 @@ export function ScopeMenu(props: {
             Last turn{last ? ` · Turn ${last.number}` : ""}
           </MenuRadioItem>
           <MenuRadioItem closeOnClick value="all">
-            All turns
+            This thread
           </MenuRadioItem>
           {props.turns.length > 1 && (
             <>

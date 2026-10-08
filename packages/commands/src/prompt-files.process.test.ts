@@ -54,7 +54,7 @@ test("global and project prompts can be created, reopened and edited with their 
     expectedRevision: opened.revision,
   });
   expect(saved.kind === "file" && saved.file.diagnostics[0]?.message).toBe(
-    "Invalid command metadata or document",
+    "The settings at the top of this prompt have invalid syntax. Check the names, brackets and indentation.",
   );
   expect(await readFile(join(root, ".ace/prompts/review.md"), "utf8")).toContain("Repair this.");
   expect(await readFile(join(home, "prompts/review.md"), "utf8")).toBe(text);
@@ -134,4 +134,31 @@ test("a prompt that is too large or has an invalid file name cannot be saved", a
       expectedRevision: null,
     }),
   ).toMatchObject({ kind: "error", code: "limit" });
+});
+
+test("a prompt names the settings problem and becomes usable after it is edited", async () => {
+  const { files } = await setup();
+  for (const [name, text, reason] of [
+    ["missing-close.md", "---\nname: review\nReview this.", "closing --- line"],
+    ["invalid-value.md", "---\nprovider: made-up\n---\nReview this.", "unsupported value"],
+  ]) {
+    if (!name || !text || !reason) throw new Error("Missing fixture");
+    const broken = await files.request({
+      op: "write",
+      scope: global,
+      name,
+      text,
+      expectedRevision: null,
+    });
+    if (broken.kind !== "file") throw new Error("Prompt didn't open");
+    expect(broken.file.diagnostics[0]?.message).toContain(reason);
+    const saved = await files.request({
+      op: "write",
+      scope: global,
+      name,
+      text: "Review this.",
+      expectedRevision: broken.revision,
+    });
+    expect(saved.kind === "file" && saved.file.diagnostics).toEqual([]);
+  }
 });

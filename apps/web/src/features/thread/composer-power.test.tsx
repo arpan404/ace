@@ -42,9 +42,9 @@ test("mid-message selections remain inline and are sent as structured references
   await userEvent.type(message, "then /review");
   await screen.findByRole("listbox", { name: "Add and commands" });
   await userEvent.keyboard("{Enter}");
-  expect(message.textContent).toBe("Please writing then review ");
+  expect(message.textContent).toBe("Please Writing then Review ");
   await userEvent.type(message, "this branch{Enter}");
-  await waitFor(() => expect(feed.textContent).toContain("Please writing then review this branch"));
+  await waitFor(() => expect(feed.textContent).toContain("Please Writing then Review this branch"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
   const sent =
     view?.kind === "thread"
@@ -67,13 +67,13 @@ test("a command with typed arguments opens a form and sends the chosen values", 
   await userEvent.type(message, "Use /explain");
   await screen.findByRole("listbox", { name: "Add and commands" });
   await userEvent.keyboard("{Enter}");
-  const form = await screen.findByRole("dialog", { name: "explain" });
+  const form = await screen.findByRole("dialog", { name: "Explain" });
   await userEvent.type(within(form).getByRole("textbox", { name: "topic" }), "Reconnects");
   await userEvent.click(within(form).getByRole("button", { name: "Add command" }));
-  expect(message.textContent).toBe("Use explain ");
+  expect(message.textContent).toBe("Use Explain ");
   await userEvent.type(message, "carefully{Enter}");
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  await waitFor(() => expect(feed.textContent).toContain("Use explain carefully"));
+  await waitFor(() => expect(feed.textContent).toContain("Use Explain carefully"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
   const references =
     view?.kind === "thread"
@@ -92,7 +92,7 @@ test("an inline reference survives navigation and can be removed with the keyboa
   cleanup();
   await app.open("/t/thread-router");
   const restored = await screen.findByRole("combobox", { name: "Message" });
-  expect(restored.textContent).toBe("Try writing ");
+  expect(restored.textContent).toBe("Try Writing ");
   // Selecting the whole draft and deleting also removes its structured references.
   await userEvent.clear(restored);
   await userEvent.type(restored, "Use plain prose{Enter}");
@@ -114,10 +114,10 @@ test("the catalog refreshes while its menu is open", async () => {
   const { app, message } = await open();
   await userEvent.type(message, "/");
   const menu = await screen.findByRole("listbox", { name: "Add and commands" });
-  expect(within(menu).getByText("writing")).toBeTruthy();
+  expect(within(menu).getByText("Writing")).toBeTruthy();
   act(() => app.daemon.seedServices({ extensionCatalogs: { opencode: catalog } }));
-  expect(await within(menu).findByText("explain")).toBeTruthy();
-  expect(within(menu).queryByText("writing")).toBeNull();
+  expect(await within(menu).findByText("Explain")).toBeTruthy();
+  expect(within(menu).queryByText("Writing")).toBeNull();
 });
 
 test("@ offers another conversation in the project and sends its thread reference", async () => {
@@ -238,7 +238,7 @@ test("answering a question with an inline reference clears it before the next me
   await userEvent.keyboard("{Tab}");
   await userEvent.type(message, "first{Enter}");
   await waitFor(() => expect(message.textContent).toBe(""));
-  await waitFor(() => expect(feed.textContent).toContain("Use writing first"));
+  await waitFor(() => expect(feed.textContent).toContain("Use Writing first"));
   await userEvent.type(message, "Now move on");
   expect(message.textContent).toBe("Now move on");
 });

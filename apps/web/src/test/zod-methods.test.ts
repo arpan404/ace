@@ -273,17 +273,22 @@ let sizes: { full: number; trimmed: number };
 let corpus: ProtocolCorpus;
 
 beforeAll(async () => {
-  const [fullCode, trimmedCode, workerCode, recorded] = await Promise.all([
-    bundle([]),
-    bundle([zodWithoutMetadata(), zodWithoutUnusedMethods(), zodPureSchemas(), workerZod()]),
-    bundle(
-      [
-        zodWithoutMetadata(),
-        zodWithoutUnusedMethods(droppedWorkerZodMethods),
-        zodPureSchemas(),
-        workerZod(),
-      ],
-      `
+  // Builds share the host with other worktrees; run one build at a time.
+  const fullCode = await bundle([]);
+  const trimmedCode = await bundle([
+    zodWithoutMetadata(),
+    zodWithoutUnusedMethods(),
+    zodPureSchemas(),
+    workerZod(),
+  ]);
+  const workerCode = await bundle(
+    [
+      zodWithoutMetadata(),
+      zodWithoutUnusedMethods(droppedWorkerZodMethods),
+      zodPureSchemas(),
+      workerZod(),
+    ],
+    `
       export { ClientMessage, ServerMessage } from "@ace/protocol";
       export { WorkerTarget } from "@/boot/worker-target.ts";
       export { MachineTarget } from "@/boot/machine-target.ts";
@@ -292,9 +297,8 @@ beforeAll(async () => {
       // The machine-pool worker's entry loads with the worker build's Zod.
       import "@/boot/machine-worker.ts";
     `,
-    ),
-    protocolCorpus(),
-  ]);
+  );
+  const recorded = await protocolCorpus();
   full = load(fullCode);
   trimmed = load(trimmedCode);
   worker = load(workerCode);

@@ -76,3 +76,13 @@ test("the same code from another run, another agent or after work in between sho
   expect(echoAt([error, notice("b", "model_not_found", { agentId: "child" })])).toBe(false);
   expect(echoAt([error, { id: "m", type: "message" }, notice("b", "model_not_found")])).toBe(false);
 });
+
+test("a model failure with tagged provider detail still names the model after replay", () => {
+  const view = describeProviderError({
+    text: "Choose an installed model.",
+    code: "model_not_found",
+    detail: '[claude-code:unrecognized_model] {"model":"opus-5.5"}',
+  });
+  expect(view.title).toBe("Claude Code doesn't recognise the model “opus-5.5”");
+  expect(view.action).toBe("change_model");
+});

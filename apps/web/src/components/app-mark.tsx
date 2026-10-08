@@ -1,14 +1,37 @@
-import { AppWindowIcon } from "@phosphor-icons/react";
+import { MonitorIcon } from "@phosphor-icons/react";
 import { useAppIcon } from "@/lib/app-icons.ts";
 import { cn } from "@/lib/cn.ts";
 
-/** The installed app's own OS icon; an app glyph while metadata isn't available. */
-export function AppMark(props: { name: string; bundleId?: string; className?: string }) {
+/** The OS icon on desktop; one monogram per app group when no icon is available. */
+export function AppMark(props: {
+  name: string;
+  bundleId?: string | undefined;
+  fallback?: "group" | "row" | undefined;
+  className?: string;
+}) {
   const icon = useAppIcon(props.bundleId);
-  const className = cn("size-5 shrink-0", props.className);
-  return icon ? (
-    <img alt="" src={icon} className={className} />
-  ) : (
-    <AppWindowIcon aria-hidden className={className} />
+  if (icon)
+    return (
+      <img
+        src={icon}
+        alt=""
+        width={24}
+        height={24}
+        draggable={false}
+        className={cn("size-6 shrink-0", props.className)}
+      />
+    );
+  if (props.fallback === "row")
+    return <MonitorIcon aria-hidden size={14} className={props.className} />;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid size-6 shrink-0 place-items-center rounded-md bg-foreground/8 text-xs font-medium text-foreground",
+        props.className,
+      )}
+    >
+      {props.name.charAt(0).toUpperCase()}
+    </span>
   );
 }

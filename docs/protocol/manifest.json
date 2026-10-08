@@ -21,8 +21,8 @@
       "sha256": "9e1548e09876526f7f2ea03c11c3fa49a9f5d190069912719d034bfc03a85773"
     },
     "mcp.md": {
-      "bytes": 113687,
-      "sha256": "f46acb7578c393907c934da9ec9e89fec6853f3d14a1ec3ca1ed63debdd1f2cf"
+      "bytes": 113743,
+      "sha256": "ef0fd858e18c9a8654c62b8edf2f58d37f25f32eaeb2993ca48a8f6360726118"
     },
     "models.md": {
       "bytes": 14376,
@@ -413,8 +413,8 @@
       "sha256": "205839c56abf0f90114f46a4c1f8f1e4413b55774ad5c9ddfcb33c99ade481ee"
     },
     "schema/CatalogEntry.json": {
-      "bytes": 1517,
-      "sha256": "9dbd4359a24ce6eec2f5a46a3c913e069afae2a41826b2c5df31fa0598091c6b"
+      "bytes": 1608,
+      "sha256": "40c7e8822214a01e7400086bd877203e9970e1f85439fa49c943b139227bda2d"
     },
     "schema/CatalogInvocation.json": {
       "bytes": 3793,
@@ -433,8 +433,8 @@
       "sha256": "772fca11685d5194aea29d7800c0c092cb6b99646c83e2d770cbf29e78a060ef"
     },
     "schema/CatalogMention.json": {
-      "bytes": 927,
-      "sha256": "d6c56cadc46957eec67078e99c52e2bb814c0dde01758d1fda4a13766dd57c5e"
+      "bytes": 1018,
+      "sha256": "6269c7ed76ee1e95f0df35cf634ff5b6b1885290f0caa441802c01899b7e6907"
     },
     "schema/CatalogModel.json": {
       "bytes": 4562,
@@ -2665,8 +2665,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 195870,
-      "sha256": "fc8c8e5936b1d7f2b1715b6d9f82c65af155d6d895b92596ae059f1a4046fe1d"
+      "bytes": 196061,
+      "sha256": "89304528c50e60fd08fe27c90bf71aa2af931f600b14de92a106d55df5e97f89"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -2837,10 +2837,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 617897,
-      "sha256": "3ce649d6043a252141e1e8cd458793923584370fe90759d7398bf702418cc1f6"
+      "bytes": 617272,
+      "sha256": "041ff21959b00cb913bafecfb447dac8c97229ffbd807334ac704834872ddaf1"
     }
   },
-  "input": "756feee8b95a49e15e74a0f41067844f46d948dee1f8467561c8c765a3e3b45f",
+  "input": "fe6f1105b2b0674e459f3258cfa2da694b3dd2cd8a81540a3ed62431c5a7846d",
   "version": 1
 }

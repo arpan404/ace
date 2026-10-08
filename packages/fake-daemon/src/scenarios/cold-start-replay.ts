@@ -242,7 +242,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               type: "notice",
               complete: true,
               level: "warning",
-              text: "Claude Code · personal has used 82% of its 5-hour window; new turns may wait for the reset.",
+              text: "Claude Code · Personal has used 82% of its 5-hour window; new turns may wait for the reset.",
             },
           },
           output(
