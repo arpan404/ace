@@ -1,4 +1,5 @@
 import { ConductorRunView } from "@ace/protocol";
+import { executionView } from "./execution.ts";
 import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
 
 /*
@@ -51,6 +52,7 @@ function phase(run: FakeDeckRun): ConductorRunView["phase"] {
       return "done";
     case "paused":
     case "cancelled":
+    case "cancelling":
     case "planning":
       return run.phase;
     default:
@@ -100,6 +102,27 @@ export function runView(
     providerGates?: ConductorRunView["needsUser"];
   } = {},
 ): ConductorRunView {
+  if (run.execution) {
+    const view = executionView(run.execution);
+    return {
+      ...view,
+      branch: run.branch,
+      baseBranch: "main",
+      delegations: execution.delegations ?? [],
+      lanes: view.lanes.map((lane) =>
+        Object.assign({}, lane, {
+          agentId:
+            execution.delegations?.find((edge) => edge.laneId === lane.id)?.agentId ?? lane.agentId,
+        }),
+      ),
+      needsUser: [
+        ...view.needsUser,
+        ...(["cancelling", "cancelled", "done"].includes(view.phase)
+          ? []
+          : (execution.providerGates ?? [])),
+      ],
+    };
+  }
   const work = run.cards.filter((card) => card.kind === "work");
   const ids = new Set(work.map((card) => card.id));
   // The fake's goal reads like a person's: its title is the first sentence.

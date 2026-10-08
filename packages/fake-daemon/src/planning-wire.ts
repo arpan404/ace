@@ -55,6 +55,9 @@ export class FakePlanningWire {
           runId: answer.runId,
           approval: {
             gateId: answer.gateId,
+            ...(resolution?.kind === "plan_review" && resolution.feedback?.trim()
+              ? { feedback: resolution.feedback.slice(0, 16_384) }
+              : {}),
             decision:
               resolution?.kind === "plan_review" && resolution.decision === "approve"
                 ? "approve"

@@ -1,4 +1,5 @@
 import { WorkspaceId, ThreadId, type ConductorRunView } from "@ace/protocol";
+import { executionDelegations } from "./execution-threads.ts";
 import type { FakeServiceContext } from "../service-context.ts";
 import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
 
@@ -57,6 +58,7 @@ export function fakeDelegations(
   run: FakeDeckRun,
   host?: FakeServiceContext,
 ): ConductorRunView["delegations"] {
+  if (run.execution) return executionDelegations(run, run.execution, host);
   return run.cards
     .filter((card) => card.kind === "work" && card.state !== "planned")
     .slice(0, 64)
@@ -96,7 +98,15 @@ export function fakeDelegations(
         const settled =
           ["approved", "merged", "declined"].includes(card.state) ||
           ["cancelled", "merged"].includes(run.phase);
-        const asking = role === "worker" && !settled && !!card.question;
+        const asking =
+          role === "worker" && !settled && run.phase !== "cancelling" && !!card.question;
+        if (host && (settled || run.phase === "cancelling")) {
+          for (const interaction of Object.values(host.thread(threadId)?.interactions ?? {}))
+            if (interaction.state === "pending")
+              host.apply?.(threadId, [
+                { type: "interaction.closed", interaction: questionKey(card), state: "cancelled" },
+              ]);
+        }
         if (host && asking) ask(host, threadId, card);
         const thread = host?.thread(threadId)?.thread;
         // An open question keeps the thread waiting on the person; the engine owns that status.
@@ -244,7 +254,7 @@ export function fakeDeckAnswer(
   key: string,
 ): { runId: string; gateId: string } | { runId: string; cardId: string } | undefined {
   for (const run of runs) {
-    if (deckRootId(run) === threadId && run.gate?.id === key)
+    if (deckRootId(run) === threadId && run.gate?.kind === "plan" && run.gate.id === key)
       return { runId: run.id, gateId: run.gate.id };
     const card = run.cards.find(
       (entry) =>
@@ -287,7 +297,11 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
     host.update(id, { type: "thread.client.updated", changes: { deck } });
   for (const interaction of Object.values(host.thread(id)?.interactions ?? {})) {
     const marker = interaction.raw.find((raw) => raw.type === deckGateMarker);
-    if (interaction.state === "pending" && marker?.name && marker.name !== run.gate?.id)
+    if (
+      interaction.state === "pending" &&
+      marker?.name &&
+      (marker.name !== run.gate?.id || run.gate?.kind !== "plan")
+    )
       host.apply?.(id, [
         {
           type: "interaction.closed",
@@ -296,7 +310,7 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
         },
       ]);
   }
-  if (run.gate)
+  if (run.gate?.kind === "plan")
     host.apply?.(id, [
       {
         type: "interaction.opened",

@@ -459,6 +459,7 @@
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/conductor": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/project-picker": "workspace:*",
@@ -474,7 +475,6 @@
       },
       "devDependencies": {
         "@ace/adapter-opencode": "workspace:*",
-        "@ace/conductor": "workspace:*",
       },
     },
     "packages/files": {

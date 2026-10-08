@@ -1,3 +1,5 @@
+import type { Lane, State, Effect } from "@ace/conductor/core";
+import type { ConductorPlan } from "@ace/protocol";
 import type { ProviderKind } from "@ace/protocol";
 
 /*
@@ -82,12 +84,14 @@ export type FakeDeckPhase =
   | "merged"
   | "paused"
   | "cancelled"
+  | "cancelling"
   | "failed";
 export interface FakeLogEntry {
   at: number;
   text: string;
 }
 export interface FakeDeckRun {
+  execution?: FakeDeckExecution;
   id: string;
   title: string;
   goal: string;
@@ -117,3 +121,15 @@ export interface FakeDeckRun {
 
 /** A staged deck the design's world doesn't hold (`deckRuns(now, extra)`). */
 export type FakeDeckScenario = "planning" | "budget" | "unresponsive";
+
+export interface FakeDeckExecution {
+  state: State;
+  sequence: number;
+  plan: ConductorPlan;
+  pending: Effect[];
+  corrections: { laneId: string; error: string }[];
+  bindings: Lane[];
+  /** Scripted process boundary: an interrupt can require a later terminal observation. */
+  holdStops?: boolean;
+  holdVerification?: boolean;
+}
