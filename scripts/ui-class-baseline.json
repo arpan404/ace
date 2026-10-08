@@ -80,8 +80,7 @@
     "bare-outline": 1
   },
   "apps/web/src/features/home/row-parts.tsx": {
-    "text-size": 3,
-    "radius": 1
+    "text-size": 2
   },
   "apps/web/src/features/home/thread-list.tsx": {
     "bare-outline": 1

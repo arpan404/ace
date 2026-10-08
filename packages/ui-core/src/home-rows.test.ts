@@ -4,17 +4,20 @@ import { homeRowKey, homeRows, type HomeGroups } from "./home-rows.ts";
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: ReturnType<typeof homeRows>) =>
   rows.map((row) =>
-    row.kind === "settled-header"
-      ? `settled ${row.count}`
-      : row.kind === "pinned-header"
-        ? `pinned ${row.count}`
-        : row.kind === "pinned-end"
-          ? "—"
-          : row.id,
+    row.kind === "recent-header"
+      ? "recent"
+      : row.kind === "settled-header"
+        ? `settled ${row.count}`
+        : row.kind === "pinned-header"
+          ? `pinned ${row.count}`
+          : row.kind === "pinned-end"
+            ? "—"
+            : row.id,
   );
 const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
   pinned: [],
   active: [],
+  recent: [],
   settled: [],
   ...patch,
 });
@@ -34,6 +37,20 @@ test("with nothing pinned there is no Pinned heading, except as a drop zone mid-
   expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: false, pinZone: true }))).toEqual(
     ["pinned 0", "—", "a", "settled 0"],
   );
+});
+
+test("threads at rest follow the work in hand under Recent, which needs nothing above it to head", () => {
+  expect(
+    words(homeRows(groups({ active: ["a"], recent: ["r1", "r2"] }), { settledOpen: false })),
+  ).toEqual(["a", "recent", "r1", "r2", "settled 0"]);
+  expect(words(homeRows(groups({ pinned: ["p"], recent: ["r"] }), { settledOpen: false }))).toEqual(
+    ["pinned 1", "p", "—", "recent", "r", "settled 0"],
+  );
+  // With only threads at rest, a heading over the whole list would say nothing.
+  expect(words(homeRows(groups({ recent: ["r"] }), { settledOpen: false }))).toEqual([
+    "r",
+    "settled 0",
+  ]);
 });
 
 test("Settled closes the list and lists its threads only when open", () => {
@@ -60,4 +77,5 @@ const threadKeys = (patch: Partial<HomeGroups>) =>
 test("a thread keeps its key when pinned, unpinned or settled, so each move slides", () => {
   expect(threadKeys({ pinned: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
   expect(threadKeys({ settled: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
+  expect(threadKeys({ recent: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
 });

@@ -16,9 +16,11 @@ const order = () =>
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 /** The Pinned group, top to bottom: the rows between its heading and the first unpinned row. */
 const pinnedGroup = () => {
-  const heading = within(threads()).queryByText(/^Pinned \(\d+\)$/);
+  const [heading] = within(threads()).queryAllByText(
+    (_, element) => element !== null && /^Pinned \d+$/.test(element.textContent ?? ""),
+  );
   if (!heading) return [];
-  const count = Number(/\((\d+)\)/.exec(heading.textContent ?? "")?.[1]);
+  const count = Number(/(\d+)$/.exec(heading.textContent ?? "")?.[1]);
   return order().slice(0, count);
 };
 /** What the live region last said. */

@@ -27,7 +27,7 @@ export function HomeEmptyScreen() {
   // The last thread only while Home still lists it (not archived, inside the project filter).
   const listed =
     last !== null &&
-    (list.pinned.includes(last) || list.active.includes(last) || list.settled.includes(last));
+    [list.pinned, list.active, list.recent, list.settled].some((ids) => ids.includes(last));
   const target = listed ? last : loaded ? topThread(list) : undefined;
   // Asked only once the list is known to be empty: a returning person never waits on it.
   const onboarding = useOnboarding({ enabled: loaded && !target });

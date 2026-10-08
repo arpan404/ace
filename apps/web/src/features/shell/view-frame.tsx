@@ -111,10 +111,18 @@ export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
       className={cn(
         "group/heading flex shrink-0 items-center gap-1.5 pr-2.5 pl-4",
         // Beside a column, the heading takes the header's height so both titles share a line.
-        inPane ? "h-(--header-h)" : "h-10 pt-1",
+        inPane ? "h-(--header-h)" : "h-9 pt-1",
       )}
     >
-      <h2 className="min-w-0 flex-1 truncate text-ui text-muted-foreground">{props.title}</h2>
+      {/* In the sidebar, a quiet section label like the list's own headings. */}
+      <h2
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          inPane ? "text-ui text-muted-foreground" : "text-xs font-medium text-subtle-foreground",
+        )}
+      >
+        {props.title}
+      </h2>
       {props.actions}
     </div>
   );

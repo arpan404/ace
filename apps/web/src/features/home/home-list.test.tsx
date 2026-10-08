@@ -14,6 +14,12 @@ const order = () =>
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 const card = (title: string | RegExp) => within(threads()).getByRole("link", { name: title });
 
+/** The titles of the rows marked as the open thread. */
+const current = () =>
+  within(threads())
+    .getAllByRole("link", { current: "page" })
+    .map((link) => titles.find((title) => link.textContent?.includes(title)));
+
 /** `a` shows above `b` in the list. */
 const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b);
 
@@ -46,7 +52,7 @@ test("Home lists every project's threads as one list, in the order of what needs
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
-  const settled = screen.getByRole("button", { name: "Settled (1)" });
+  const settled = screen.getByRole("button", { name: "Settled 1" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(settled);
   expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
@@ -65,29 +71,51 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
   expect(card(/^Rewrite the install page for the daemon\..*Pinned/)).toBeTruthy();
 });
 
-test("a task row shows its project badge, status, title, branch, changes and provider", async () => {
+test("a row is one line of initials, title and marks; only a working row adds where it works", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
-  expect(within(refund).getByText("billing-api")).toBeTruthy();
   expect(within(refund).getByText("BA")).toBeTruthy();
-  expect(within(refund).getByText("Needs you")).toBeTruthy();
-  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
-  // A linked pull request stands in for the diff.
-  expect(refund.textContent).toContain("#77");
+  // Its linked pull request shows by number; its branch and project are left to its name.
+  expect(refund.textContent).toContain("77");
+  expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
+  expect(within(refund).queryByText("billing-api")).toBeNull();
 
+  // A working thread's second line: its worktree, and its subagents beside the provider…
+  const dedupe = card(/^Dedupe thread events after reconnect/);
+  expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
+  expect(within(dedupe).getByText("2")).toBeTruthy();
+  // …or its branch and what it has changed so far.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(within(install).getByText("DS")).toBeTruthy();
   expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
   expect(within(install).getByText("+120")).toBeTruthy();
-  expect(within(install).getByText("−88")).toBeTruthy();
-
-  const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).getByText(/^Working/)).toBeTruthy();
-  // Its subagents count beside the provider's mark.
-  expect(within(dedupe).getByText("2")).toBeTruthy();
 });
 
-test("a working thread's pill counts the seconds it has been working", async () => {
+/** Bring the settled thread back to the list, done and at rest. */
+async function unsettleBump() {
+  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
+}
+
+test("finished threads rest under Recent, below the work in hand", async () => {
+  await openHome(workbenchApp());
+  await unsettleBump();
+  const items = within(threads())
+    .getAllByRole("listitem")
+    .map((item) => item.textContent ?? "");
+  const recent = items.indexOf("Recent");
+  const at = (title: string) => items.findIndex((text) => text.includes(title));
+  expect(recent).toBeGreaterThan(0);
+  expect(at("Partial refunds double-count tax")).toBeGreaterThanOrEqual(0);
+  expect(at("Partial refunds double-count tax")).toBeLessThan(recent);
+  expect(at("Dedupe thread events after reconnect")).toBeLessThan(recent);
+  expect(at("Bump Codex app-server to 0.48")).toBeGreaterThan(recent);
+});
+
+test("a working row counts the seconds it has been working", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
     const app = harness({ clock: () => Date.now() });
@@ -103,10 +131,8 @@ test("a working thread's pill counts the seconds it has been working", async () 
       })
       .runUntilBlocked();
     await openHome(app);
-    const seconds = () => {
-      const text = within(card(/^Fresh task/)).getByText(/^Working/).textContent ?? "";
-      return Number(/(\d+)s$/.exec(text)?.[1]);
-    };
+    // The row ends with how long it has been working.
+    const seconds = () => Number(/(\d+)s$/.exec(card(/^Fresh task/).textContent ?? "")?.[1]);
     const start = seconds();
     expect(start).toBeLessThan(5);
     await vi.advanceTimersByTimeAsync(6_000);
@@ -132,7 +158,7 @@ test("Up and Down (and j and k) move between rows, past the Settled heading", as
   const last = rows.at(-1);
   last?.focus();
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled (1)" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled 1" }));
   await userEvent.keyboard("{Enter}{ArrowDown}");
   expect(document.activeElement).toBe(card(/^Bump Codex app-server to 0.48/));
 });
@@ -157,6 +183,55 @@ test("a row's name says its status, provider and subagents, branch, pull request
   ).toBeTruthy();
 });
 
+test("hovering a row offers one quick action in place of its marks, named by its tooltip", async () => {
+  await openHome(workbenchApp());
+  await unsettleBump();
+  await userEvent.hover(card(/^Bump Codex app-server to 0.48/));
+  // Finished: Settle. Its accessible name says which thread; its tooltip just what it does.
+  const settle = screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" });
+  expect(settle.textContent).toBe("");
+  await userEvent.hover(settle);
+  await waitFor(() =>
+    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Settle"),
+  );
+  // Still at work: Snooze instead, icon-only with its tooltip.
+  await userEvent.hover(card(/^Dedupe thread events after reconnect/));
+  const snooze = screen.getByRole("button", {
+    name: "Snooze Dedupe thread events after reconnect",
+  });
+  expect(snooze.textContent).toBe("");
+  await userEvent.hover(snooze);
+  await waitFor(() =>
+    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Snooze"),
+  );
+});
+
+test("Settled stays open or closed as the person left it, across a reload", async () => {
+  const storage = memoryKeyValue();
+  const view = await openHome(workbenchApp({ storage }));
+  const toggle = await screen.findByRole("button", { name: "Settled 1" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await userEvent.click(toggle);
+  expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
+  view.unmount();
+
+  await openHome(workbenchApp({ storage }));
+  const reopened = await screen.findByRole("button", { name: "Settled 1" });
+  expect(reopened.getAttribute("aria-expanded")).toBe("true");
+  expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
+  await userEvent.click(reopened);
+  await waitFor(() =>
+    expect(within(threads()).queryByRole("link", { name: /^Bump Codex/ })).toBeNull(),
+  );
+});
+
+test("the open thread's row is the current one, and moves with the thread opened", async () => {
+  await openHome(workbenchApp(), "/t/thread-fan-out");
+  await waitFor(() => expect(current()).toEqual(["Backpressure on broadcast fan-out"]));
+  await userEvent.click(card(/^Partial refunds double-count tax/));
+  await waitFor(() => expect(current()).toEqual(["Partial refunds double-count tax"]));
+});
+
 test("hovering a row's link shows what its marks mean in a tooltip", async () => {
   await openHome(workbenchApp());
   await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
@@ -168,18 +243,18 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
   expect(order()).toContain("Bump Codex app-server to 0.48");
 
   await userEvent.click(
     screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
   );
   expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
@@ -190,7 +265,7 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   const toast = screen.getByText("Settled · Bump Codex app-server to 0.48").closest("[role]");
   if (!(toast instanceof HTMLElement)) throw new Error("no toast");
   await userEvent.click(within(toast).getByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
   expect(settledAt()).toBeUndefined();
 });
 
@@ -207,28 +282,28 @@ test("a thread that is still working offers no Settle", async () => {
 test("a settled thread comes back to the list as soon as it moves again", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
   await userEvent.click(
     screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
   await userEvent.click(
     screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
   );
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 0" })).toBeTruthy());
   expect(card(/^Bump Codex app-server to 0\.48\. Working/)).toBeTruthy();
 });
 
 test("Settled lists settled threads without the settle rule, which lives in Settings", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
   expect(await screen.findByRole("button", { name: /^Unsettle / })).toBeTruthy();
   expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
@@ -297,7 +372,7 @@ test("Tab walks a row's link, its Snooze and Pin, then the next row", async () =
   expect(document.activeElement).toBe(second);
 });
 
-test("a row names its branch cut in the middle, and no branch when it is on main", async () => {
+test("a row's name and tooltip give its whole branch, and no branch when it is on main", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "thread-on-main",
@@ -316,8 +391,6 @@ test("a row names its branch cut in the middle, and no branch when it is on main
   await openHome(app);
 
   const hashed = card(/^Support spare-part materials/);
-  expect(within(hashed).getByText("ace/33594883…a4fc70aeea5")).toBeTruthy();
-  // The whole name is still in the row's name and its tooltip.
   expect(hashed.getAttribute("aria-label") ?? hashed.textContent).toContain(
     "Worktree ace/33594883e2b3ea4fc70aeea5",
   );

@@ -12,7 +12,10 @@ export function isRemoved(entry: ThreadListEntry): boolean {
   return entry.archivedAt !== undefined || entry.deletedAt !== undefined;
 }
 
-/** Needs you, then moving, then trouble, then the rest; a snooze sinks a thread to the end. */
+/**
+ * Needs you, then moving, then trouble, then the rest; a snooze sinks a thread to the end. The
+ * first three are the work in hand; the rest (done, new, snoozed) is at rest: see `restingRank`.
+ */
 export function rank(entry: ThreadListEntry, now: number): number {
   if (isSnoozed(entry, now)) return 4;
   switch (entry.status.state) {
@@ -30,10 +33,16 @@ export function rank(entry: ThreadListEntry, now: number): number {
   }
 }
 
+/** From this rank on a thread is at rest (done, new or snoozed) and Home lists it as Recent. */
+const restingRank = 3;
+
 export interface Arrangement {
   /** Pinned threads in the person's own order, settled or not: they put them there. */
   pinned: string[];
+  /** Work in hand: needs you, moving, then trouble. */
   active: string[];
+  /** At rest and not yet settled: done, new, then snoozed. */
+  recent: string[];
   settled: string[];
 }
 
@@ -42,7 +51,7 @@ export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 
 
 /**
  * Home order: pinned threads first in their own order; then by rank, most recent first within
- * a rank; Settled by recency.
+ * a rank, split into the work in hand and the Recent threads at rest; Settled by recency.
  */
 export function arrange(
   entries: readonly ThreadListEntry[],
@@ -67,9 +76,12 @@ export function arrange(
   );
   active.sort((a, b) => a.rank - b.rank || activityOf(b.entry) - activityOf(a.entry));
   settled.sort((a, b) => activityOf(b) - activityOf(a));
+  const resting = active.findIndex((row) => row.rank >= restingRank);
+  const split = resting < 0 ? active.length : resting;
   return {
     pinned: pinned.map((entry) => entry.id),
-    active: active.map((row) => row.entry.id),
+    active: active.slice(0, split).map((row) => row.entry.id),
+    recent: active.slice(split).map((row) => row.entry.id),
     settled: settled.map((entry) => entry.id),
   };
 }

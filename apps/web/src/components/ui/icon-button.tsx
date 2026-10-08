@@ -6,7 +6,8 @@ import { Tip } from "./tooltip.tsx";
 
 /**
  * A square icon-only button. The label is its accessible name and its tooltip, with the
- * shortcut beside it. `pressed` makes it a toggle: the icon fills and `aria-pressed` is set.
+ * shortcut beside it; `tip` words the tooltip shorter where the name says more ("Snooze" for
+ * "Snooze Fix the login"). `pressed` makes it a toggle: the icon fills and `aria-pressed` is set.
  * Disabled with a `reason`, it stays focusable and hoverable (`aria-disabled`, clicks do
  * nothing), so its tooltip can say why it can't be used.
  */
@@ -19,6 +20,7 @@ function IconButton({
   pressed,
   size = "default",
   tooltip = true,
+  tip,
   reason,
   className,
   ...props
@@ -32,6 +34,8 @@ function IconButton({
   pressed?: boolean;
   size?: "sm" | "default" | "lg";
   tooltip?: boolean;
+  /** The tooltip's words when shorter than the accessible name. */
+  tip?: string;
   /** Shown as the tooltip while disabled: why it can't be used now. */
   reason?: string | undefined;
 }) {
@@ -59,7 +63,7 @@ function IconButton({
   if (!tooltip) return button;
   return (
     <Tip
-      label={props.disabled && reason ? reason : label}
+      label={props.disabled && reason ? reason : (tip ?? label)}
       {...(props.disabled && reason ? {} : shortcut ? { shortcut } : {})}
       {...(props.disabled && reason ? {} : keys ? { keys } : {})}
       {...(resolve === false ? { resolve } : {})}

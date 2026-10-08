@@ -14,7 +14,12 @@ test("settling puts a finished thread in Settled and drops its snooze", () => {
   const settled = patchEntry(done({ snoozedUntil: now + 3_600_000 }), { settled: true }, now);
   expect(isSettled(settled)).toBe(true);
   expect(isSnoozed(settled, now)).toBe(false);
-  expect(arrange([settled], view, now)).toEqual({ pinned: [], active: [], settled: ["t"] });
+  expect(arrange([settled], view, now)).toEqual({
+    pinned: [],
+    active: [],
+    recent: [],
+    settled: ["t"],
+  });
 });
 
 test("unsettling brings it back to the list as the newest activity", () => {
@@ -24,7 +29,7 @@ test("unsettling brings it back to the list as the newest activity", () => {
     { settled: false },
     now,
   );
-  expect(arrange([older, back], view, now).active).toEqual(["t", "old"]);
+  expect(arrange([older, back], view, now).recent).toEqual(["t", "old"]);
 });
 
 test("snoozing sinks a thread until its wake time, and null wakes it", () => {
@@ -41,11 +46,11 @@ test("marking read reads up to the thread's latest activity even with a slow clo
 
 test("archive and delete take a thread off Home; unarchive brings it back", () => {
   const archived = patchEntry(done(), { archived: true }, now);
-  expect(arrange([archived], view, now).active).toEqual([]);
-  expect(arrange([patchEntry(archived, { archived: false }, now)], view, now).active).toEqual([
+  expect(arrange([archived], view, now).recent).toEqual([]);
+  expect(arrange([patchEntry(archived, { archived: false }, now)], view, now).recent).toEqual([
     "t",
   ]);
-  expect(arrange([patchEntry(done(), { deleted: true }, now)], view, now).active).toEqual([]);
+  expect(arrange([patchEntry(done(), { deleted: true }, now)], view, now).recent).toEqual([]);
 });
 
 test("pending actions apply oldest first, so an Undo wins over what it undoes", () => {

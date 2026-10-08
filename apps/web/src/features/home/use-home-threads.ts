@@ -7,15 +7,19 @@ import { archivedOrder, arrange, projectCounts, type ProjectCount } from "@ace/u
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
-/** Home's threads: pinned first in their own order, then the rest in Home order, Settled apart. */
+/**
+ * Home's threads: pinned first in their own order, then the work in hand in Home order, then
+ * Recent (threads at rest), Settled apart.
+ */
 export interface HomeList {
   pinned: string[];
   active: string[];
+  recent: string[];
   settled: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
 }
-const empty: HomeList = { pinned: [], active: [], settled: [], needsYou: [] };
+const empty: HomeList = { pinned: [], active: [], recent: [], settled: [], needsYou: [] };
 const noProjects: ProjectCount[] = [];
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
@@ -47,6 +51,7 @@ function useEveryEntryKey(): readonly SidebarKey[] {
 const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.pinned, b.pinned) &&
   arrayEqual(a.active, b.active) &&
+  arrayEqual(a.recent, b.recent) &&
   arrayEqual(a.settled, b.settled) &&
   arrayEqual(a.needsYou, b.needsYou);
 
@@ -64,10 +69,10 @@ export function useHomeList(): HomeList {
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const entries = read(reader);
-      const { pinned, active, settled } = arrange(entries, state, now);
+      const { pinned, active, recent, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
-      return { pinned, active, settled, needsYou };
+      return { pinned, active, recent, settled, needsYou };
     },
     [state, now, read],
   );
@@ -76,7 +81,7 @@ export function useHomeList(): HomeList {
 
 /** The top of the Home list: the first pinned thread, else the first thread in Home order. */
 export function topThread(list: HomeList): string | undefined {
-  return list.pinned[0] ?? list.active[0];
+  return list.pinned[0] ?? list.active[0] ?? list.recent[0];
 }
 
 const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>

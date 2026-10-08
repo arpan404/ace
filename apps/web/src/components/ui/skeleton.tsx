@@ -53,20 +53,28 @@ function LoadingRegion(props: { label: string; className?: string; children: Rea
 function ListSkeleton(props: {
   label: string;
   /**
-   * `card`: a Home or Activity card; `row`: a one-line list or settings row; `tile`: a
-   * second-sidebar row (`ViewRowBody`) with its icon tile, title and description.
+   * `card`: an Activity card; `thread`: a Home thread row, its project's tile and title; `row`:
+   * a one-line list or settings row; `tile`: a second-sidebar row (`ViewRowBody`) with its icon
+   * tile, title and description.
    */
-  shape: "card" | "row" | "tile";
+  shape: "card" | "thread" | "row" | "tile";
   rows?: number;
   className?: string;
 }) {
-  const rows = props.rows ?? (props.shape === "card" ? 6 : 4);
+  const rows = props.rows ?? (props.shape === "card" ? 6 : props.shape === "thread" ? 8 : 4);
   return (
     <LoadingRegion label={props.label} className={cn("flex flex-col", props.className)}>
       {Array.from({ length: rows }, (_, index) => {
         const style = { animationDelay: `${index * 70}ms` };
         // Vary the widths a little so the placeholder reads as content, not a grid.
         const width = `${62 + ((index * 23) % 30)}%`;
+        if (props.shape === "thread")
+          return (
+            <span key={index} className="flex h-8 items-center gap-2 px-2">
+              <Skeleton className="h-4 w-5 rounded-xs" style={style} />
+              <Skeleton className="h-3" style={{ ...style, width }} />
+            </span>
+          );
         if (props.shape === "tile")
           return (
             <span

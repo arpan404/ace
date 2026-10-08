@@ -34,7 +34,7 @@ export function HomeSidebar() {
   const organizer = useOrganizer();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
-  const empty = !list.pinned.length && !list.active.length && !list.settled.length;
+  const empty = [list.pinned, list.active, list.recent, list.settled].every((ids) => !ids.length);
   const directory = useProjectDirectory();
   const dialogs = useProjectDialogs();
   const noProjects = directory.loaded && directory.projects.length === 0;
@@ -49,7 +49,7 @@ export function HomeSidebar() {
           </Suspense>
         )}
         {!loaded ? (
-          <ListSkeleton label="threads" shape="card" className="px-2" />
+          <ListSkeleton label="threads" shape="thread" className="px-2" />
         ) : empty ? (
           <>
             <EmptyState
