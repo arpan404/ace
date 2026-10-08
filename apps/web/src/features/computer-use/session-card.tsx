@@ -25,7 +25,7 @@ export function SessionCard(props: {
   /** Draw the live picture (off in compact lists such as the rail's popover). */
   live?: boolean;
   compact?: boolean | undefined;
-  fallback?: "group" | "row";
+  fallback?: "group" | "row" | undefined;
 }) {
   const { state, use } = props;
   const [expanded, setExpanded] = useState(false);
