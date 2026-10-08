@@ -35,6 +35,8 @@ function describe(entry: PluginReviewEntry): { title: string; detail: string } {
  */
 export function PluginReviewStep(props: {
   prepared: PreparedPlugin;
+  action?: "Accept changes";
+  onAcceptingChange?(pending: boolean): void;
   /** "getsentry/sentry @ main", when known. */
   from?: string | undefined;
   onBack(): void;
@@ -48,11 +50,14 @@ export function PluginReviewStep(props: {
   // A new step: focus goes to Install, not back to the dialog's frame.
   useEffect(() => install.current?.focus(), []);
   const run = async () => {
+    props.onAcceptingChange?.(true);
     try {
       await accept.mutateAsync(review);
       await props.onInstalled(review.name);
     } catch (reason) {
       setError(failure(reason, "The plugin didn't install."));
+    } finally {
+      props.onAcceptingChange?.(false);
     }
   };
   return (
@@ -62,11 +67,10 @@ export function PluginReviewStep(props: {
           Review {review.name} {review.version}
         </DialogTitle>
         <DialogDescription>
-          {props.from ? `From ${props.from}, pinned` : "Pinned"} at{" "}
-          <code>{review.commit.slice(0, 12)}</code>.{" "}
+          {props.from && `From ${props.from}. `}
           {review.executionCount
-            ? "Once enabled it runs the commands below on this machine."
-            : "It runs nothing on this machine: it ships prompts only."}
+            ? "Once enabled it runs the commands below on this computer."
+            : "It contains prompts only."}
           {review.unsupportedCount > 0 &&
             ` ${review.unsupportedCount} part${review.unsupportedCount === 1 ? "" : "s"} ace can't load will be skipped.`}
         </DialogDescription>
@@ -104,7 +108,7 @@ export function PluginReviewStep(props: {
           disabled={accept.isPending}
           onClick={() => void run()}
         >
-          {accept.isPending ? "Installing…" : "Install"}
+          {accept.isPending ? "Saving…" : (props.action ?? "Install")}
         </Button>
       </DialogFooter>
     </div>

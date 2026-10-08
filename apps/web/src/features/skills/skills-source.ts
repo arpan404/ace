@@ -81,19 +81,57 @@ export function useSkills() {
   return useDaemonQuery({ queryKey: key, read: readCatalog, select });
 }
 
-/** The first page (64 KiB) of a component's source, as accepted at install. */
+/** Read bounded source pages against one accepted hash, without cutting off at 64 KiB. */
 export function useSkillSource(skill: Skill) {
   return useDaemonQuery({
     queryKey: [...key, "source", skill.plugin, skill.path ?? ""],
     enabled: skill.path !== undefined,
     read: async (client, signal) => {
-      const page = await plugins(
-        client,
-        { type: "plugins.source", name: skill.plugin, path: skill.path ?? "" },
-        "plugins.source",
-        signal,
-      );
-      return { text: page.text, truncated: page.nextOffset < page.bytes };
+      let offset = 0;
+      let hash: string | undefined;
+      const parts: string[] = [];
+      for (let count = 0; count < 66; count++) {
+        const page = await plugins(
+          client,
+          {
+            type: "plugins.source",
+            name: skill.plugin,
+            path: skill.path ?? "",
+            offset,
+          },
+          "plugins.source",
+          signal,
+        );
+        if (
+          (hash && hash !== page.hash) ||
+          page.offset !== offset ||
+          page.nextOffset > page.bytes ||
+          page.bytes > 4 * 1024 ** 2
+        )
+          throw new Error("The source changed while loading. Try again.");
+        hash = page.hash;
+        parts.push(page.text);
+        if (page.nextOffset >= page.bytes) return { text: parts.join(""), hash, bytes: page.bytes };
+        if (page.nextOffset <= offset) break;
+        offset = page.nextOffset;
+      }
+      throw new Error("This source is too large to open. Open it in your editor.");
+    },
+  });
+}
+
+export function useEditPlugin() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      path: string;
+      expectedHash: string;
+      text: string;
+      signal?: AbortSignal;
+    }) => {
+      const { signal, ...request } = input;
+      return ownReview(client, { type: "plugins.edit", ...request }, signal);
     },
   });
 }

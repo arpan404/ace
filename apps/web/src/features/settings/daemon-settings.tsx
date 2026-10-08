@@ -20,14 +20,16 @@ export function DaemonSettings() {
   const [editing, setEditing] = useState(false);
   const fake = connection.mode === "fake";
   return (
-    <SettingSection label="Daemon" card scope="device">
+    <SettingSection label="Connection" scope="device">
       <SettingRow
         id="daemon.connection"
-        title={fake ? "Fake daemon (development)" : "Connected daemon"}
+        title={fake ? "Demo connection" : "Connected computer"}
         description={
           <>
-            <span className="font-mono text-sm break-all">{connection.url}</span> ·{" "}
-            {stateLabels[state]}
+            <span className="font-mono text-sm break-all">
+              {fake ? "Demo data" : connection.url}
+            </span>{" "}
+            · {stateLabels[state]}
           </>
         }
       >

@@ -1,3 +1,5 @@
+import { SkillSource } from "./skill-source.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { ArrowsClockwiseIcon, CubeIcon, TrashIcon } from "@phosphor-icons/react";
 import { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
@@ -16,7 +18,7 @@ import {
   MenuItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { SkeletonText } from "@/components/ui/skeleton.tsx";
+
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ViewRowBody, viewRowClass } from "@/components/ui/view-row.tsx";
@@ -33,7 +35,7 @@ import {
   sourceText,
   type Skill,
 } from "./skills-model.ts";
-import { useSetAvailability, useSkillSource, useSkills } from "./skills-source.ts";
+import { useSetAvailability, useSkills } from "./skills-source.ts";
 
 /** One skill, command, agent, rule or plugin: on or off, who may load it, and its source. */
 export function SkillPage(props: { skillId: string }) {
@@ -172,14 +174,16 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
                 onCheckedChange={setEnabled}
               />
             ) : (
-              <span className="mt-2 shrink-0 rounded-sm bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                {skill.enabled ? "On" : `Off · ${plugin.name} is off`}
-              </span>
+              <StatusLabel
+                tone={skill.enabled ? "done" : "idle"}
+                label={skill.enabled ? "On" : `Off · ${plugin.name} is off`}
+              />
             )}
           </div>
-          <SettingSection label={isPlugin ? "Plugin" : "Details"} card>
+          <SettingSection label={isPlugin ? "Plugin" : "Details"}>
             {!isPlugin && (
               <SettingRow
+                inline
                 title={
                   <Link
                     to="/skills/$skillId"
@@ -206,7 +210,11 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
                 description={<span className="font-mono text-sm">{skill.path}</span>}
               />
             )}
-            <SettingRow title="Available to" description={availabilityText(plugin.providers)}>
+            <SettingRow
+              inline
+              title="Available to"
+              description={availabilityText(plugin.providers)}
+            >
               <AvailabilityMenu
                 providers={plugin.providers}
                 onCommit={(providers) =>
@@ -220,7 +228,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
             </SettingRow>
           </SettingSection>
           {isPlugin && components.length > 0 && <Contents components={components} />}
-          {skill.path && <SourcePreview skill={skill} />}
+          {skill.path && <SkillSource key={skill.id} skill={skill} />}
         </div>
       </div>
     </Screen>
@@ -334,24 +342,6 @@ function Contents(props: { components: readonly Skill[] }) {
           </ul>
         );
       })}
-    </SettingSection>
-  );
-}
-
-function SourcePreview(props: { skill: Skill }) {
-  const source = useSkillSource(props.skill);
-  return (
-    <SettingSection label="Preview">
-      {source.isError ? (
-        <p className="text-ui text-muted-foreground">{errorText(source.error)}</p>
-      ) : source.data === undefined ? (
-        <SkeletonText lines={4} />
-      ) : (
-        <pre className="rounded-lg bg-code px-4 py-3.5 font-mono text-sm leading-[1.6] whitespace-pre-wrap">
-          {source.data.text}
-          {source.data.truncated && "\n…"}
-        </pre>
-      )}
     </SettingSection>
   );
 }

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { DiagnosticsHealth } from "@ace/protocol";
 import { ArrowClockwiseIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
@@ -60,7 +61,7 @@ export function DaemonLog(props: TabViewProps) {
         ) : health.isError ? (
           <EmptyState
             icon={WarningCircleIcon}
-            title="Couldn't read the daemon's health"
+            title="Couldn't read this computer's health"
             description={health.error.message}
             action={
               <Button size="sm" variant="outline" onClick={() => void health.refetch()}>
@@ -94,7 +95,7 @@ function LogFolder(props: { directory: string | undefined }) {
     );
   return (
     <div className="mt-4 flex max-w-[640px] flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
-      <span>The daemon's own log isn't streamed yet.</span>
+      <span>App logs are available in the support bundle.</span>
       {props.directory && (
         <Button
           size="sm"
@@ -106,9 +107,9 @@ function LogFolder(props: { directory: string | undefined }) {
           Copy log folder path
         </Button>
       )}
-      <span>
-        <code className="rounded-xs bg-muted px-1 font-mono">ace support-bundle</code> collects it.
-      </span>
+      <Link to="/settings/advanced" className="underline underline-offset-4">
+        Run checks or export a support bundle in Advanced settings.
+      </Link>
     </div>
   );
 }

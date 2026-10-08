@@ -80,7 +80,11 @@ test("arrow keys move through the catalog as one Tab stop", async () => {
   await screen.findByRole("heading", { level: 1, name: "code-review" });
   const first = within(catalog()).getByRole("link", { name: /^code-review/ });
   // A route lands focus on its heading; take it from there into the list.
-  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: "code-review" }),
+    ),
+  );
   first.focus();
 
   await userEvent.keyboard("{ArrowDown}");
@@ -164,7 +168,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
   await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
 
   let review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
-  expect(within(review).getByText(/From getsentry\/sentry, pinned/)).toBeTruthy();
+  expect(within(review).getByText(/From getsentry\/sentry\./)).toBeTruthy();
   await waitFor(() =>
     expect(document.activeElement).toBe(within(review).getByRole("button", { name: "Install" })),
   );

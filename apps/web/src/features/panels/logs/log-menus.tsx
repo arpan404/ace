@@ -86,7 +86,7 @@ export function ScopeMenu(props: {
   const value = logScopeId(scope) ?? "thread";
   const current =
     scope.kind === "daemon"
-      ? "Daemon"
+      ? "App"
       : scope.kind === "agent"
         ? (agents.find((agent) => agent.id === scope.agentId)?.name ?? "Agent")
         : "Thread";
@@ -127,7 +127,7 @@ export function ScopeMenu(props: {
             </MenuGroup>
           )}
           <MenuSeparator />
-          <MenuRadioItem value="daemon">Daemon</MenuRadioItem>
+          <MenuRadioItem value="daemon">App</MenuRadioItem>
         </MenuRadioGroup>
       </MenuContent>
     </Menu>
