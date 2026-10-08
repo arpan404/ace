@@ -18,6 +18,14 @@ test("phone search keeps Project and Date usable beside the kind filters", async
   await expect(
     results.getByText("bun run test apps/server --filter replay", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Threads", exact: true }).click();
+  await page.getByRole("combobox", { name: "Project" }).click();
+  await page.getByRole("option", { name: "All projects", exact: true }).click();
+  await page.getByRole("combobox", { name: "Date" }).click();
+  await page.getByRole("option", { name: "Any time", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search every thread" }).fill("codex");
+  await expect(results.getByRole("option")).toHaveCount(1);
+  await expect(results.getByText("Bump Codex app-server to 0.48", { exact: true })).toBeVisible();
 });
 
 test("phone file triggers can be created and Edit, Run now and run output remain reachable", async ({

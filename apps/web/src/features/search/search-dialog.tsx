@@ -308,12 +308,14 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   )}
                 >
                   <ProviderIconTip provider={hit.provider} />
-                  <span
-                    className="max-w-48 truncate text-ui max-sm:sr-only"
-                    title={`${hit.threadTitle} · ${projectName(hit.workspaceId)} · ${kindLabel[hit.kind]}`}
-                  >
-                    {hit.threadTitle}
-                  </span>
+                  {hit.kind !== "thread" && (
+                    <span
+                      className="max-w-48 truncate text-ui max-sm:sr-only"
+                      title={`${hit.threadTitle} · ${projectName(hit.workspaceId)} · ${kindLabel[hit.kind]}`}
+                    >
+                      {hit.threadTitle}
+                    </span>
+                  )}
                   <Snippet snippet={hit.snippet} />
                   <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
                     {formatAge(hit.createdAt, now)}

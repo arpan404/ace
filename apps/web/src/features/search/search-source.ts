@@ -82,7 +82,7 @@ async function readPage(
               provider: hit.provider,
               kind: hit.kind,
               createdAt: hit.createdAt,
-              snippet: hit.snippet,
+              snippet: hit.kind === "thread" ? hit.title : hit.snippet,
             },
           ]
         : [],

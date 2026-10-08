@@ -213,6 +213,33 @@ test("All requests just the visible kinds so hidden items cannot fill the first 
   expect(screen.getByText("The visible message")).toBeTruthy();
 });
 
+test("a thread match shows its highlighted title when there is no message snippet", async () => {
+  const app = harness();
+  const services = app.daemon.services;
+  const handle = services.handle.bind(services);
+  services.handle = (message, push) => {
+    if (message.type !== "search.query") return handle(message, push);
+    push({
+      type: "search.results",
+      requestId: message.requestId,
+      hits: [
+        {
+          ...hit("thread", 0),
+          title: { text: "The matching title", highlights: [{ start: 4, end: 12 }] },
+          snippet: { text: "", highlights: [] },
+        },
+      ],
+      cursor: null,
+      generation: 1,
+    });
+    return true;
+  };
+  await search("matching", app);
+  const option = within(await results()).getByRole("option");
+  expect(option.textContent).toContain("The matching title");
+  expect(within(option).getByText("matching").tagName).toBe("MARK");
+});
+
 test("an empty visible page keeps Show more until all pages have been checked", async () => {
   const app = harness();
   const services = app.daemon.services;
