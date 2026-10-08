@@ -101,6 +101,8 @@ export interface ThreadCard {
   pill: TaskPill | undefined;
   /** Lines added and removed in the thread's checkout. */
   diff: { added: number; removed: number } | undefined;
+  /** A linked pull request remains visible even without a feature branch. */
+  pr: number | undefined;
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
   /** "tomorrow 9:00 AM" while snoozed. */
@@ -189,6 +191,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
         : undefined,
+    pr: details?.pr,
     announceUnread: unread && !needsYou,
     wake:
       snoozed && entry.snoozedUntil !== undefined

@@ -94,7 +94,7 @@ test("a thread held at a usage limit says Limited after its title", async () => 
   await screen.findByRole("feed", { name: "Transcript" });
   const list = screen.getByRole("navigation", { name: "Threads" });
   const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
-  expect(row.textContent).toContain("Limited");
+  expect(row.getAttribute("aria-label")).toContain("Limited");
   const status = await within(header()).findByRole("status");
   expect(status.textContent).toMatch(/^Limited/);
   expect(within(header()).getAllByRole("status")).toHaveLength(1);

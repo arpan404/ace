@@ -133,3 +133,14 @@ test("the home machine is where most threads run", () => {
   expect(homeMachine([on("a", "laptop"), on("b", "build-box"), on("c", "laptop")])).toBe("laptop");
   expect(homeMachine([entry("x", { state: "done" }, now)])).toBeUndefined();
 });
+
+test("an untouched New thread draft stays out of the task list, while named new tasks remain", () => {
+  const draft = entry("draft", { state: "new" }, now, { title: "New thread" });
+  const task = entry("sent", { state: "working", agents: 1 }, now, { title: "New thread" });
+  const named = entry("named", { state: "new" }, now, { title: "Plan rollout" });
+  const list = arrange([draft, task, named], state(), now);
+  expect([...list.pinned, ...list.active, ...list.recent, ...list.settled]).toEqual([
+    "sent",
+    "named",
+  ]);
+});
