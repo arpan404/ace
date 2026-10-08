@@ -6,13 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { useAgentLabel } from "@/components/agent-picker.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover.tsx";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useBrowserControls, type BrowserControl } from "@/lib/browser-control.ts";
 import { AppMark } from "@/components/app-mark.tsx";
@@ -69,12 +63,12 @@ export default function ComputerUseIndicator() {
           ))}
         </ul>
         <div className="flex items-center gap-2 border-t pt-2">
-          <PopoverClose
-            render={<Link to="/settings/computer-use" />}
+          <Link
+            to="/settings/computer-use"
             className="min-w-0 flex-1 rounded-xs text-sm text-link focus-ring hover:underline"
           >
             Open live sessions
-          </PopoverClose>
+          </Link>
           {sessions.length > 0 && <StopAllButton use={use} />}
         </div>
       </PopoverContent>
@@ -133,12 +127,13 @@ function BrowserRow(props: { control: BrowserControl }) {
           {control.private ? "Private: agents can't see this page" : "An agent is using this page"}
         </p>
       </div>
-      <PopoverClose
-        render={<Link to="/t/$threadId" params={{ threadId: control.threadId }} />}
+      <Link
+        to="/t/$threadId"
+        params={{ threadId: control.threadId }}
         className="rounded-xs px-2 text-sm text-link focus-ring hover:underline"
       >
         Show
-      </PopoverClose>
+      </Link>
     </li>
   );
 }
