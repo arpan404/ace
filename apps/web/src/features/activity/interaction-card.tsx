@@ -34,10 +34,7 @@ export function InteractionCard(props: {
       cardKey={cardKey}
       title={request.kind === "approval" ? approvalCopy(request).title : requestTitle(request)}
       heading={request.kind === "approval" && <Heading interaction={interaction} />}
-      context={
-        props.context ??
-        (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread")
-      }
+      context={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread"}
       at={interaction.createdAt}
     >
       <CardBody interaction={interaction} cardKey={cardKey} />
