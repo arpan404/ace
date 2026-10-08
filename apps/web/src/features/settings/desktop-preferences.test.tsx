@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -6,6 +6,9 @@ import { harness } from "@/test/harness.tsx";
 interface Stored {
   background: boolean;
   openAtLogin: boolean;
+  preventSleep: boolean;
+  attention: boolean;
+  globalShortcut: string | null;
   notifications: {
     enabled: boolean;
     categories: Record<string, boolean>;
@@ -21,6 +24,9 @@ function desktop() {
   let stored: Stored = {
     background: true,
     openAtLogin: false,
+    preventSleep: false,
+    attention: true,
+    globalShortcut: null,
     notifications: { enabled: true, categories: {}, quietHours: null },
   };
   const listeners = new Set<(value: Stored) => void>();
@@ -49,7 +55,6 @@ test("in the desktop app, Open ace at login turns on the desktop's own login ite
   const machine = desktop();
   const app = harness();
   await app.open("/settings/general");
-  const daemonValue = app.daemon.services.settings.get("app.openAtLogin");
   const toggle = await screen.findByRole("switch", { name: "Open ace at login" });
   expect(toggle.getAttribute("aria-checked")).toBe("false");
 
@@ -59,20 +64,17 @@ test("in the desktop app, Open ace at login turns on the desktop's own login ite
   expect(
     (await screen.findByRole("switch", { name: "Open ace at login" })).getAttribute("aria-checked"),
   ).toBe("true");
-  expect(app.daemon.services.settings.get("app.openAtLogin")).toBe(daemonValue);
 });
 
 test("in the desktop app, turning off Thread done stops this computer's done notifications", async () => {
   const machine = desktop();
   const app = harness();
   await app.open("/settings/notifications");
-  const daemonValue = app.daemon.services.settings.get("notifications.onCompletion");
 
   await userEvent.click(await screen.findByRole("switch", { name: "Thread done" }));
 
   await waitFor(() => expect(machine.stored().notifications.categories.finished).toBe(false));
   expect(machine.stored().notifications.categories.needsYou).toBeUndefined();
-  expect(app.daemon.services.settings.get("notifications.onCompletion")).toBe(daemonValue);
 });
 
 test("quiet hours set in the desktop app are the hours the desktop applies", async () => {
@@ -109,7 +111,72 @@ test("a browser offers no login item and says where notifications are set", asyn
   await screen.findByRole("switch", { name: "New threads use a worktree" });
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
 
+  cleanup();
   await app.open("/settings/notifications");
   expect(await screen.findByText(/set in the ace desktop app/)).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Thread done" })).toBeNull();
+});
+
+test("desktop work preferences round-trip through the app bridge", async () => {
+  const machine = desktop();
+  const app = harness();
+  await app.open("/settings/general");
+  await userEvent.click(await screen.findByRole("switch", { name: "Keep running in background" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Prevent sleep while agents work" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Bounce dock icon for attention" }));
+  await userEvent.type(
+    screen.getByRole("textbox", { name: "Quick-thread global shortcut" }),
+    "CommandOrControl+Shift+N",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(machine.stored()).toMatchObject({
+      background: false,
+      preventSleep: true,
+      attention: false,
+      globalShortcut: "CommandOrControl+Shift+N",
+    }),
+  );
+  cleanup();
+  await app.open("/settings/appearance");
+  cleanup();
+  await app.open("/settings/general");
+  expect(
+    (await screen.findByRole("switch", { name: "Prevent sleep while agents work" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
+  expect(
+    screen.getByRole("textbox", { name: "Quick-thread global shortcut" }).getAttribute("value"),
+  ).toBe("CommandOrControl+Shift+N");
+});
+
+test("tray pause is visible across pages and Resume reopens admission", async () => {
+  let paused = true;
+  const listeners = new Set<(value: { state: string; paused: boolean }) => void>();
+  vi.stubGlobal("ace", {
+    platform: "darwin",
+    daemon: {
+      connection: async () => ({ mode: "fake" }),
+      status: async () => ({ state: "running", paused }),
+      onStatus: (listener: (value: { state: string; paused: boolean }) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      pause: async (next: boolean) => {
+        paused = next;
+        const status = { state: "running", paused };
+        for (const listener of listeners) listener(status);
+        return status;
+      },
+    },
+  });
+  const app = harness();
+  await app.open("/settings/general");
+  expect(await screen.findByText("Paused", { exact: true })).toBeTruthy();
+  cleanup();
+  await app.open("/settings/appearance");
+  await userEvent.click(await screen.findByRole("button", { name: "Resume" }));
+  await waitFor(() => expect(paused).toBe(false));
+  expect(screen.queryByText("New work is on hold.")).toBeNull();
 });

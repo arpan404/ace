@@ -82,6 +82,28 @@ const entries = [
     title: "Connected daemon",
     keywords: ["server", "url", "disconnect"],
   },
+  {
+    id: "threads.settleOnClose",
+    page: "/settings/general",
+    title: "Settle when the PR closes",
+    keywords: ["pull request", "closed"],
+  },
+  {
+    id: "permissions.providerModes",
+    page: "/settings/general",
+    title: "Default permissions",
+    keywords: ["approval", "native", "project"],
+  },
+  {
+    id: "projects.roots",
+    page: "/settings/general",
+    title: "Project folders",
+    keywords: ["allow", "folder", "roots"],
+  },
+  { id: "app.background", page: "/settings/general", title: "Keep running in background" },
+  { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
+  { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
+  { id: "app.attention", page: "/settings/general", title: "Bounce dock icon for attention" },
   // Appearance
   {
     id: "appearance.theme",

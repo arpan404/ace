@@ -19,6 +19,7 @@ type Value<K extends SettingsKey> = SettingsValues[K];
  */
 class SettingWatch {
   private value: unknown;
+  private localValue: unknown;
   /** The layer the value came from; `defaults` means nobody has set it. */
   private provenance: SettingsProvenance | undefined;
   private listeners = new Set<() => void>();
@@ -43,6 +44,7 @@ class SettingWatch {
     this.onEmpty = onEmpty;
   }
   get = (): unknown => this.value;
+  getLocal = (): unknown => this.localValue;
   getProvenance = (): SettingsProvenance | undefined => this.provenance;
   subscribe = (listener: () => void): (() => void) => {
     if (!this.listeners.size) this.start();
@@ -58,6 +60,7 @@ class SettingWatch {
     const parsed = SettingsValues.shape[this.key].safeParse(entry.value);
     this.value = parsed.success ? parsed.data : undefined;
     this.provenance = entry.provenance;
+    this.localValue = entry.localValue;
     for (const listener of this.listeners) listener();
   }
   private ask() {
@@ -168,4 +171,13 @@ export function useExplicitDaemonSetting<K extends SettingsKey>(
     value: provenance === undefined || provenance === "defaults" ? undefined : value,
     loaded: provenance !== undefined,
   };
+}
+
+/** Provider selections stored on this scope, before global defaults fill the other providers. */
+export function useLocalPermissionModes(scope: SettingsScope) {
+  const client = useClient();
+  const watch = watchFor(client, "permissions.providerModes", scope);
+  const raw = useSyncExternalStore(watch.subscribe, watch.getLocal, watch.getLocal);
+  const parsed = SettingsValues.shape["permissions.providerModes"].safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }

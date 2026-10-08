@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import type { Machine } from "@/lib/machines.ts";
+import { AllowFolder } from "./allow-folder.tsx";
 import { AllowedPlaces } from "./folder-notices.tsx";
 import { FolderSearchBox } from "./folder-search.tsx";
 import { Footer, Offer, Problem } from "./form-parts.tsx";
@@ -34,13 +35,14 @@ export function OpenFolderTab(props: {
   });
   const [highlighted, setHighlighted] = useState<FolderRow>();
   const [problem, setProblem] = useState<
-    { key: string; message: string; denied: boolean } | undefined
+    { key: string; message: string; denied: boolean; canAllow?: boolean | undefined } | undefined
   >(
     () =>
       props.attempt && {
         key: `${machine.id}\u0000${props.attempt.path}`,
         message: props.attempt.problem,
         denied: true,
+        canAllow: props.attempt.canAllow,
       },
   );
   const [adding, setAdding] = useState(false);
@@ -70,6 +72,7 @@ export function OpenFolderTab(props: {
         key: `${where.id}\u0000${path}`,
         message: failure.message,
         denied: failure.denied ?? false,
+        canAllow: failure.canAllow,
       });
     } finally {
       setAdding(false);
@@ -115,6 +118,13 @@ export function OpenFolderTab(props: {
       {shownProblem ? (
         <Problem>
           {shownProblem.message}
+          {shownProblem.canAllow && target && (
+            <AllowFolder
+              client={on.client}
+              path={target.path}
+              onAllowed={() => void add(target.path, "open", on)}
+            />
+          )}
           {shownProblem.denied && (
             <AllowedPlaces
               className="mt-1 justify-start"

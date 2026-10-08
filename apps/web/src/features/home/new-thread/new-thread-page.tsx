@@ -97,7 +97,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
-  const defaultMode = provider ? providerModes?.[provider] ?? null : null;
+  const defaultMode = provider ? (providerModes?.[provider] ?? null) : null;
   const permissions = usePermissionCapabilities(provider);
   const admitted = permissionAdmission(
     permissions.capabilities,

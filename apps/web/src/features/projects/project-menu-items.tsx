@@ -1,4 +1,4 @@
-import { FolderPlusIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import { FolderPlusIcon, PencilSimpleIcon, ShieldIcon, TrashIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { keymap } from "@/lib/keymap.ts";
@@ -24,6 +24,13 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
   const projects = useProjectDialogs();
   return (
     <>
+      <MenuItem
+        icon={<Icon icon={ShieldIcon} />}
+        onClick={() => projects.open({ kind: "permissions", projectId: props.projectId })}
+        onPointerEnter={projects.preload}
+      >
+        Project permissions…
+      </MenuItem>
       <MenuItem
         icon={<Icon icon={PencilSimpleIcon} className="text-muted-foreground" />}
         onClick={() => projects.open({ kind: "rename", projectId: props.projectId })}

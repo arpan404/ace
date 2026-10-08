@@ -101,7 +101,10 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
         reset:
           defaultMode && !summary?.inherited
-            ? { label: permissionLabel(defaultMode, capabilities), unavailable: resetUnavailable || undefined }
+            ? {
+                label: permissionLabel(defaultMode, capabilities),
+                unavailable: resetUnavailable || undefined,
+              }
             : undefined,
       }}
       onChange={change}

@@ -181,7 +181,7 @@ function DangerRow(props: { title: string; detail: string; children: ReactNode }
   return (
     <section
       aria-label={props.title}
-      className="mt-7 flex items-center gap-4 rounded-card border px-4 py-3.5"
+      className="mt-7 flex min-h-9 items-center gap-4 border-t py-1.5"
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium">{props.title}</p>

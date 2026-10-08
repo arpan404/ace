@@ -41,6 +41,7 @@ export async function desktopConnection(scope: object = globalThis): Promise<Des
 /** The desktop's view of its daemon (`DaemonStatus` in apps/desktop), as far as the web uses it. */
 export interface DesktopDaemonStatus {
   state: string;
+  paused?: boolean;
   message?: string | undefined;
 }
 
@@ -57,6 +58,7 @@ export interface DesktopDaemon {
   status(): Promise<DesktopDaemonStatus | undefined>;
   onStatus(listener: (status: DesktopDaemonStatus) => void): () => void;
   restart(): Promise<DesktopDaemonStatus | undefined>;
+  pause?(paused: boolean): Promise<DesktopDaemonStatus | undefined>;
   diagnose(): Promise<DiagnosticCheck[]>;
   /** Absent on a desktop build that predates it. */
   showLogs?(): Promise<boolean>;
@@ -68,6 +70,7 @@ export function desktopDaemon(scope: object = globalThis): DesktopDaemon | undef
   if (!daemon) return undefined;
   const app = record(Reflect.get(scope, "ace"))?.app;
   const statusCall = call(daemon, "status");
+  const pauseCall = call(daemon, "pause");
   const restartCall = call(daemon, "restart");
   const diagnoseCall = call(daemon, "diagnose");
   const onStatusCall = call(daemon, "onStatus");
@@ -76,6 +79,9 @@ export function desktopDaemon(scope: object = globalThis): DesktopDaemon | undef
   return {
     status: async () => parseStatus(await statusCall?.()),
     restart: async () => parseStatus(await restartCall?.()),
+    ...(pauseCall
+      ? { pause: async (paused: boolean) => parseStatus(await pauseCall(paused)) }
+      : {}),
     async diagnose() {
       if (!diagnoseCall) return [];
       const report = record(await diagnoseCall());
@@ -135,6 +141,7 @@ function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
   if (!status || typeof status.state !== "string") return undefined;
   return {
     state: status.state,
+    paused: status.paused === true,
     message: typeof status.message === "string" ? status.message : undefined,
   };
 }

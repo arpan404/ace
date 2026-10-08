@@ -19,8 +19,19 @@ test("saved settings survive a restart", async () => {
   const path = join(await root(), "nested", "settings.json");
   const store = new SettingsStore(path);
   await store.update({ openAtLogin: true });
-  await store.update({ preventSleep: true });
-  expect(new SettingsStore(path).get()).toMatchObject({ openAtLogin: true, preventSleep: true });
+  await store.update({
+    preventSleep: true,
+    background: false,
+    attention: false,
+    globalShortcut: "CommandOrControl+Shift+N",
+  });
+  expect(new SettingsStore(path).get()).toMatchObject({
+    openAtLogin: true,
+    preventSleep: true,
+    background: false,
+    attention: false,
+    globalShortcut: "CommandOrControl+Shift+N",
+  });
 });
 
 test("a failed save changes nothing, and later saves still reach the disk", async () => {

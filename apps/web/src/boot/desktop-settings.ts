@@ -24,11 +24,19 @@ const Notifications = z.looseObject({
 });
 export const DesktopPreferences = z.looseObject({
   openAtLogin: z.boolean(),
+  background: z.boolean().default(true),
+  preventSleep: z.boolean().default(false),
+  attention: z.boolean().default(true),
+  globalShortcut: z.string().max(64).nullable().default(null),
   notifications: Notifications,
 });
 export type DesktopPreferences = z.infer<typeof DesktopPreferences>;
 export interface DesktopPreferencesPatch {
   openAtLogin?: boolean;
+  background?: boolean;
+  preventSleep?: boolean;
+  attention?: boolean;
+  globalShortcut?: string | null;
   notifications?: DesktopPreferences["notifications"];
 }
 

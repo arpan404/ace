@@ -141,13 +141,23 @@ export interface PermissionOption {
   risk: PermissionRisk;
   unavailable?: string | undefined;
 }
-export function permissionOption(mode: PermissionMode | null, capabilities?: PermissionCapabilities): PermissionOption {
-  return capabilities?.permissionModes?.find((entry) => entry.id === mode) ?? {
-    id: mode ?? "", label: permissionLabel(mode, capabilities),
-    description: permissionCoverage(capabilities, mode), risk: "medium",
-  };
+export function permissionOption(
+  mode: PermissionMode | null,
+  capabilities?: PermissionCapabilities,
+): PermissionOption {
+  return (
+    capabilities?.permissionModes?.find((entry) => entry.id === mode) ?? {
+      id: mode ?? "",
+      label: permissionLabel(mode, capabilities),
+      description: permissionCoverage(capabilities, mode),
+      risk: "medium",
+    }
+  );
 }
-export function permissionOptions(capabilities: PermissionCapabilities | undefined, _provider = "This provider"): PermissionOption[] {
+export function permissionOptions(
+  capabilities: PermissionCapabilities | undefined,
+  _provider = "This provider",
+): PermissionOption[] {
   return capabilities?.permissionModes ?? [];
 }
 export function permissionModeOf(id: string): PermissionMode | undefined {

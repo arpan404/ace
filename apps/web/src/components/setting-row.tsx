@@ -1,24 +1,10 @@
 import { useLocation } from "@tanstack/react-router";
-import {
-  createContext,
-  use,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** Rows inside a card: the card draws the hairlines between them. */
-const InCard = createContext(false);
-
 /**
- * Settings-style row: title and description on the left, the control on the right. Inside a
- * `SettingSection card` the card draws hairlines between rows; elsewhere rows rule off from
- * each other. Narrow (below 30rem of row width) the control drops under the text and wide
+ * Settings-style row: title and description on the left, the control on the right. Rows are separated by hairlines. Narrow (below 30rem of row width) the control drops under the text and wide
  * controls take the full width, unless `inline` (switches, small buttons). `id` makes the row
  * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
  */
@@ -33,7 +19,6 @@ export function SettingRow(props: {
   /** The row's anchor, from the settings index (`settingsIndex`). */
   id?: string;
 }) {
-  const inCard = use(InCard);
   const Title = props.htmlFor ? "label" : "div";
   const row = useRef<HTMLDivElement>(null);
   const flashing = useHashFlash(props.id, row);
@@ -43,13 +28,13 @@ export function SettingRow(props: {
       ref={row}
       className={cn(
         "@container transition-colors duration-(--dur-4)",
-        inCard ? "px-4" : "border-t first:border-t-0",
+        "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
       <div
         className={cn(
-          "flex gap-4 py-3.5 compact:py-2.5",
+          "flex min-h-9 gap-4 py-0.5",
           props.inline
             ? "items-center"
             : "flex-col items-stretch gap-2.5 @[30rem]:flex-row @[30rem]:items-center @[30rem]:gap-4",
@@ -107,18 +92,18 @@ export type SettingScope = "daemon" | "device" | "computer";
 const scopes: Record<SettingScope, { label: string; tip: string }> = {
   daemon: {
     label: "All devices",
-    tip: "Stored on the daemon; every paired device follows it",
+    tip: "Every paired device follows these settings",
   },
   device: { label: "This device", tip: "Kept in this browser or app only" },
   computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
 };
 
 /**
- * A labelled group of rows. `card` groups them on one surface with hairlines between rows
- * (Settings); without it, rows sit on the page. `scope` says where its settings live.
+ * A labelled group of rows. `scope` says where its settings live.
  */
 export function SettingSection(props: {
   label: string;
+  anchor?: string;
   children: ReactNode;
   card?: boolean;
   scope?: SettingScope | undefined;
@@ -130,7 +115,7 @@ export function SettingSection(props: {
   const id = useId();
   const scope = props.scope ? scopes[props.scope] : undefined;
   return (
-    <section className="mt-7" aria-labelledby={id}>
+    <section id={props.anchor} className="mt-7" aria-labelledby={id}>
       <div className="mb-2 flex items-center gap-2">
         <h3 id={id} className="text-sm font-medium text-muted-foreground">
           {props.label}
@@ -145,13 +130,7 @@ export function SettingSection(props: {
         {props.actions && <div className="ml-auto flex items-center gap-1">{props.actions}</div>}
       </div>
       {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
-      {props.card ? (
-        <InCard value>
-          <div className="divide-y rounded-card border bg-card">{props.children}</div>
-        </InCard>
-      ) : (
-        props.children
-      )}
+      {props.children}
     </section>
   );
 }

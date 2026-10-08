@@ -2,7 +2,9 @@ import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
 import { AdvancedSettings } from "./advanced-page.tsx";
 import { AppearanceSettings } from "./appearance-page.tsx";
-import { GeneralSettings } from "./general-page.tsx";
+const GeneralSettings = lazy(() =>
+  import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
+);
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { Navigate } from "@tanstack/react-router";
@@ -18,7 +20,9 @@ import { SettingsPageLinks } from "./settings-nav.tsx";
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <GeneralSettings />
+      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={5} />}>
+        <GeneralSettings />
+      </Suspense>
     </SettingsBody>
   );
 }

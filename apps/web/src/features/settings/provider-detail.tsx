@@ -1,4 +1,3 @@
-import { ProviderPermissions } from "./provider-permissions.tsx";
 import { CaretLeftIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, type ReactNode } from "react";
@@ -7,7 +6,7 @@ import { SettingSection } from "@/components/setting-row.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { cn } from "@/lib/cn.ts";
+import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { ProviderUsage } from "@/features/accounts/index.ts";
 import { ReadinessAction } from "@/features/sign-in/index.ts";
@@ -84,7 +83,6 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       lede={status}
     >
       <div className="fx-view-in">
-        <ProviderPermissions provider={install.kind} />
         {view?.primary && row && (
           <Callout
             tone={view.tone === "problem" ? "problem" : "action"}
@@ -93,6 +91,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             action={<ReadinessAction provider={install.kind} name={install.name} view={view} />}
           />
         )}
+        <ProviderPreferences provider={install.kind} />
         {missing ? (
           <InstallSteps install={install} row={row} />
         ) : (
@@ -138,9 +137,7 @@ function Callout(props: {
     <div
       role={props.tone === "problem" ? "alert" : "status"}
       data-tone={props.tone === "problem" ? "failed" : "needs-you"}
-      className={cn(
-        "mt-7 flex items-center gap-3 rounded-card bg-(--tone)/12 px-4 py-3.5 shadow-[inset_0_0_0_1px_var(--border)]",
-      )}
+      className="mt-4 flex items-center gap-2 text-ui"
     >
       <WarningCircleIcon aria-hidden size={20} className="shrink-0 text-(--tone)" />
       <div className="min-w-0 flex-1">
