@@ -38,3 +38,19 @@ it.each(["cursor", "antigravity", "acp"] as const)(
     });
   },
 );
+it("Claude's MCP servers reach the composer by name only, never with their connection state", () => {
+  const parsed = parseRuntime(
+    {
+      type: "system",
+      subtype: "init",
+      slash_commands: [],
+      mcp_servers: [
+        { name: "vercel", status: "needs-auth" },
+        { name: "github", status: "failed" },
+      ],
+    },
+    { provider: "claude", instance: "claude", session: "claude" },
+  );
+  expect(parsed.commands.map((command) => command.name)).toEqual(["vercel", "github"]);
+  expect(JSON.stringify(parsed.commands)).not.toMatch(/needs-auth|failed/);
+});

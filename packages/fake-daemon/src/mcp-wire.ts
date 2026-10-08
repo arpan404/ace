@@ -1,54 +1,54 @@
+import { McpProviderRequest } from "@ace/protocol";
 import type { ClientMessage, McpSources, ServerMessage } from "@ace/protocol";
 
-/** Native-server fixture shares one catalog across connections, like the provider runtime. */
+const types = new Set<string>(McpProviderRequest.options.map((option) => option.shape.type.value));
+const isMcp = (message: ClientMessage): message is McpProviderRequest => types.has(message.type);
+
+/**
+ * Native-server fixture shares one catalog across connections, like the provider runtime: per
+ * thread for thread-scoped requests, per provider for Settings' provider-wide ones. Providers in
+ * `idle` have no live session.
+ */
 export class FakeMcpWire {
   readonly servers = new Map<string, McpSources["servers"]>();
+  readonly idle = new Set<string>();
   handle(message: ClientMessage, send: (message: ServerMessage) => void): boolean {
-    if (
-      message.type !== "mcp.sources" &&
-      message.type !== "mcp.status" &&
-      message.type !== "mcp.add" &&
-      message.type !== "mcp.replace" &&
-      message.type !== "mcp.reconnect" &&
-      message.type !== "mcp.enable" &&
-      message.type !== "mcp.disable"
-    )
-      return false;
-    const catalog = this.servers.get(message.threadId) ?? [
+    if (!isMcp(message)) return false;
+    const mcp = message;
+    const scope = "threadId" in mcp ? { threadId: mcp.threadId } : { provider: mcp.provider };
+    const key = "threadId" in mcp ? mcp.threadId : mcp.provider;
+    const live = !("provider" in mcp) || !this.idle.has(mcp.provider);
+    const catalog = this.servers.get(key) ?? [
       { name: "Project tools", status: "connected" },
-      { name: "Documentation", status: "failed" },
+      { name: "vercel", status: "needs_auth" },
     ];
-    this.servers.set(message.threadId, catalog);
+    this.servers.set(key, catalog);
+    const fail = (text: string) =>
+      send({ type: "error", requestId: mcp.requestId, code: "mcp_failed", message: text });
     let result: unknown = null;
-    if (message.type === "mcp.sources")
+    if (mcp.type === "mcp.sources" || mcp.type === "mcp.provider.sources")
       result = {
-        groups: ["thread", "agents", "browser", "notify"],
-        servers: catalog,
-        live: true,
-        canAdd: true,
+        groups: [],
+        servers: live ? catalog : [],
+        live,
+        canAdd: live,
         appliesNextTurn: false,
       };
-    else if (message.type === "mcp.status") result = catalog;
-    else if (message.type === "mcp.add") {
-      if (catalog.some((server) => server.name === message.name)) {
-        send({
-          type: "error",
-          requestId: message.requestId,
-          code: "mcp_failed",
-          message: "Name already used",
-        });
+    else if (!live) {
+      fail("Provider MCP session unavailable");
+      return true;
+    } else if (mcp.type === "mcp.status") result = catalog;
+    else if (mcp.type === "mcp.add" || mcp.type === "mcp.provider.add") {
+      if (catalog.some((server) => server.name === mcp.name)) {
+        fail("Name already used");
         return true;
       }
-      catalog.push({ name: message.name, status: "connected" });
-    } else if (
-      message.type === "mcp.enable" ||
-      message.type === "mcp.disable" ||
-      message.type === "mcp.reconnect"
-    ) {
-      const server = catalog.find((entry) => entry.name === message.name);
-      if (server) server.status = message.type === "mcp.disable" ? "disabled" : "connected";
+      catalog.push({ name: mcp.name, status: "connected" });
+    } else if (mcp.type !== "mcp.replace") {
+      const server = catalog.find((entry) => entry.name === mcp.name);
+      if (server) server.status = mcp.type.endsWith(".disable") ? "disabled" : "connected";
     }
-    send({ type: "mcp.result", threadId: message.threadId, requestId: message.requestId, result });
+    send({ type: "mcp.result", ...scope, requestId: mcp.requestId, result });
     return true;
   }
 }

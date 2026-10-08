@@ -72,7 +72,12 @@ export async function bindMcpSession(
       },
     });
     if (session.mcp && adapter.provider !== "claude" && options.mcp)
-      unbind = options.mcp.providers.bind(context.threadId, session.mcp, lifetime);
+      unbind = options.mcp.providers.bind(
+        context.threadId,
+        adapter.provider,
+        session.mcp,
+        lifetime,
+      );
     const configure = session.configure?.bind(session);
     const setModel = session.setModel?.bind(session);
     const setMode = session.setMode?.bind(session);

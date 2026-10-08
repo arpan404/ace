@@ -58,6 +58,7 @@ import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
+import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
@@ -315,6 +316,10 @@ export class FakeDaemon implements Host {
   /** The host folders and project catalog behind `projects.request` and project commands. */
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
+  }
+  /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
+  get mcp(): Pick<FakeMcpWire, "servers" | "idle"> {
+    return this.servicesWire.mcp;
   }
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
   get workspace(): Pick<FakeWorkspaceWire, "gitStatus" | "setGitStatus" | "setGitDiff"> {

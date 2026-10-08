@@ -12,10 +12,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog.tsx";
-import type { mcpSource } from "../sources/mcp-source.ts";
+import type { ProviderMcpSource } from "./provider-mcp-source.ts";
 
 export default function AddMcpServer(props: {
-  source: ReturnType<typeof mcpSource>;
+  source: ProviderMcpSource;
   provider?: ProviderKind | undefined;
   onClose(): void;
   onAdded(): Promise<void>;

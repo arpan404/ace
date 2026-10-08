@@ -7,7 +7,6 @@ import { ActionsSection } from "./work-card-actions.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
 import { ChangesSection } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
-import { SourcesSection } from "./work-card-sources.tsx";
 import { OpenInSection } from "./work-card-open-in.tsx";
 import { Rule } from "./work-card-parts.tsx";
 
@@ -53,8 +52,6 @@ export function WorkCard(props: {
           <ActionsSection thread={props.thread} onClose={props.onClose} />
           <Rule />
           <OpenInSection thread={props.thread} onClose={close} />
-          <Rule />
-          <SourcesSection thread={props.thread} onClose={close} />
         </Floating>
       )}
       {git.dialog}
