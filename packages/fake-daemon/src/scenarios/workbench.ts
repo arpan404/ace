@@ -238,6 +238,28 @@ function installPage(): Scenario {
       ...installPageEdits(),
       {
         kind: "facts",
+        agoMs: 74_000,
+        facts: [
+          tool("root", "install-plan", {
+            kind: "todo",
+            title: "Update the plan",
+            detail: {
+              kind: "todo",
+              todos: [
+                { content: "Read the daemon's CLI help", status: "completed" },
+                { content: "Outline the page around ace start", status: "completed" },
+                { content: "Rewrite the service install section", status: "completed" },
+                { content: "Draft the troubleshooting notes", status: "in_progress" },
+                { content: "Check every command on a clean machine", status: "pending" },
+                { content: "Link the page from the README", status: "pending" },
+              ],
+            },
+          }),
+          toolDone("root", "install-plan"),
+        ],
+      },
+      {
+        kind: "facts",
         facts: [
           message(
             "root",

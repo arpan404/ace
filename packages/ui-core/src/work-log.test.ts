@@ -317,3 +317,14 @@ test("before the tool wording loads (idle, after first paint), a step reads plai
     describeStep(call({ kind: "shell", command: "/bin/zsh -lc 'pwd'" }, "running", 0)).target,
   ).toBe("pwd");
 });
+
+test("a plan update reads as one quiet line with how far the plan is", () => {
+  const todos = [
+    { content: "Read", status: "completed" as const },
+    { content: "Fix", status: "in_progress" as const },
+    { content: "Test", status: "pending" as const },
+  ];
+  const step = describeStep(call({ kind: "todo", todos }, "succeeded", 1, 2));
+  expect(step).toMatchObject({ verb: "Updated the plan", note: "1 of 3" });
+  expect(describeStep(call({ kind: "plan" }, "succeeded", 1, 2)).note).toBeUndefined();
+});

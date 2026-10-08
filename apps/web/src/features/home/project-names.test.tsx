@@ -56,9 +56,7 @@ test("Home's task rows and the thread header name the project, not its id", asyn
 
 test("New thread offers the daemon's projects by name", async () => {
   await app().open("/new");
-  expect(
-    await screen.findByRole("heading", { name: "What should we work on in billing?" }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: billing" })).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
   expect(await screen.findByRole("menuitemradio", { name: "billing" })).toBeTruthy();
 });

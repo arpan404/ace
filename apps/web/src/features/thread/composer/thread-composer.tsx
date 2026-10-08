@@ -13,16 +13,22 @@ import { useToastClearance } from "@/lib/toast-clearance.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
+import { useComposerAnswer } from "./answer-slot.ts";
 import {
   ControlsPending,
   DeferredCursorContinuation,
   DeferredModelControl,
   DeferredPermissionControl,
-  DeferredPlanChip,
   DeferredQueueArea,
 } from "./deferred-parts.tsx";
-import { DeferredRequestStack, DeferredThreadEnvironment } from "./deferred-cards.ts";
-import { ThreadEnvironmentPill } from "./environment-pill.tsx";
+import {
+  DeferredEnvironmentStrip,
+  DeferredPlanTab,
+  DeferredRequestStack,
+  DeferredStatusStrip,
+  DeferredThreadEnvironment,
+} from "./deferred-cards.ts";
+import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
 
@@ -52,10 +58,12 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * bubble at once and goes through the client's outbox under its own command id. While the agent
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
- * wait as pills above it, with the reason when the queue is held. Its footer shows where the
- * thread runs (opening that as a card), how actions are approved and the model, the last two
- * changeable from the next turn. The agent's open requests sit on it as a deck of attached
- * cards, answered there. The unsent draft is kept per thread.
+ * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
+ * are approved and the model, both changeable from the next turn. One tab is attached to its top
+ * edge, the first of: the agent's open requests (a deck of cards answered there, a picked answer
+ * sent with the send button), the agents' to-do list, what the agents are doing with Stop, and
+ * where the thread runs. Stop is in the send slot only while the tab doesn't carry it, and never
+ * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
   composer,
@@ -152,6 +160,9 @@ export function ThreadComposer({
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
+  const plans = useShownPlans(props.thread.id);
+  const answer = useComposerAnswer(props.thread.id);
+  const tab = asking ? "requests" : plans.length ? "plan" : busy ? "status" : "environment";
   // The environment card, while the person has it open on this thread.
   const [shown, setShown] = useState<string>();
   const environment = shown === props.thread.id;
@@ -212,7 +223,7 @@ export function ThreadComposer({
           followUp={followUp}
           canSteer={canSteer}
           onSubmit={submit}
-          onStop={stop}
+          onStop={tab === "plan" ? stop : undefined}
           stopping={stopping}
           onReturnedOptions={(options) => {
             const identity = selectionIdentity(runsOn(meta));
@@ -223,8 +234,23 @@ export function ThreadComposer({
           reader={reader}
           sendsWhileUploading
           attached={
-            environment ? (
-              <Suspense fallback={null}>
+            <Suspense fallback={null}>
+              {tab === "requests" && open ? (
+                <DeferredRequestStack.Component
+                  threadId={props.thread.id}
+                  ids={open}
+                  onLeave={toMessage}
+                />
+              ) : tab === "plan" ? (
+                <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
+              ) : tab === "status" ? (
+                <DeferredStatusStrip.Component
+                  threadId={props.thread.id}
+                  status={props.status}
+                  stopping={stopping}
+                  onStop={stop}
+                />
+              ) : environment ? (
                 <DeferredThreadEnvironment.Component
                   thread={props.thread}
                   id={environmentId}
@@ -233,33 +259,23 @@ export function ThreadComposer({
                     toMessage();
                   }}
                 />
-              </Suspense>
-            ) : open?.length ? (
-              <Suspense fallback={null}>
-                <DeferredRequestStack.Component
-                  threadId={props.thread.id}
-                  ids={open}
-                  onLeave={toMessage}
+              ) : (
+                <DeferredEnvironmentStrip.Component
+                  thread={props.thread}
+                  controls={environmentId}
+                  onOpen={() => setShown(props.thread.id)}
                 />
-              </Suspense>
-            ) : undefined
+              )}
+            </Suspense>
           }
+          answer={tab === "requests" ? answer : undefined}
           controls={
-            <>
-              <ThreadEnvironmentPill
-                thread={props.thread}
-                open={environment}
-                controls={environmentId}
-                onToggle={() => setShown(environment ? undefined : props.thread.id)}
-              />
-              <Suspense fallback={<ControlsPending />}>
-                <DeferredPermissionControl.Component thread={props.thread} />
-              </Suspense>
-            </>
+            <Suspense fallback={<ControlsPending />}>
+              <DeferredPermissionControl.Component thread={props.thread} />
+            </Suspense>
           }
           trailing={
             <Suspense fallback={<ControlsPending />}>
-              <DeferredPlanChip.Component threadId={props.thread.id} />
               <DeferredModelControl.Component thread={props.thread} busy={busy} next={next} />
             </Suspense>
           }

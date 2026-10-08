@@ -1,12 +1,4 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import type { PermissionCapabilities, PermissionMode, ProviderKind } from "@ace/protocol";
-import {
-  permissionChoices,
-  permissionCoverageNote,
-  permissionLabel,
-  permissionUnavailable,
-  providerNames,
-} from "@ace/ui-core";
 import {
   ArrowCounterClockwiseIcon,
   AtIcon,
@@ -22,7 +14,8 @@ import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { permissionIcons } from "./permission-icons.ts";
+import { riskIcons } from "./permission-icons.ts";
+import type { PermissionMenuView } from "./permission-view.ts";
 import { ThreadContextRows } from "./thread-context-rows.tsx";
 
 function Note(props: { children: string; pending?: boolean }) {
@@ -38,86 +31,80 @@ function Note(props: { children: string; pending?: boolean }) {
 }
 
 /**
- * The approval modes the provider supports, each with what it means in one line, then once
- * what this provider actually gates. Ask shows disabled, with why, for a provider that can't
- * honour it. A thread with its own mode can go back to the default, unless the provider can't
- * run in it. `fallback` says why the mode shown isn't the one asked for.
+ * The approval modes the provider offers, each with what it means in one line, then once what
+ * the provider gates in the mode in effect. A mode it can't honour shows disabled, with why. A
+ * thread with its own mode can go back to the default, unless the provider can't run in it.
+ * It reads a generic `{id, label, description, risk}` list, so a provider's native modes need
+ * nothing of their own.
  */
 export function PermissionMenu(props: {
-  mode: PermissionMode | undefined;
-  capabilities: PermissionCapabilities | undefined;
-  provider?: ProviderKind | undefined;
-  loading: boolean;
-  unavailable?: string | undefined;
-  inherited?: boolean | undefined;
-  defaultMode?: PermissionMode | undefined;
-  fallback?: string | undefined;
-  onChange(mode: PermissionMode | null): void;
+  view: PermissionMenuView;
+  onChange(id: string | null): void;
 }) {
-  if (props.unavailable) return <Note>{props.unavailable}</Note>;
-  if (props.loading) return <Note pending>Checking what the provider can gate…</Note>;
-  const provider = props.provider ? providerNames[props.provider] : "This provider";
-  const choices = permissionChoices(props.capabilities, provider);
-  if (!choices.length)
+  const { view } = props;
+  if (view.unavailable) return <Note>{view.unavailable}</Note>;
+  if (view.loading) return <Note pending>Checking what the provider can gate…</Note>;
+  if (!view.options.length)
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
-  const defaultUnavailable =
-    props.defaultMode && permissionUnavailable(props.capabilities, props.defaultMode, provider);
   return (
     <>
-      {props.fallback && <Note>{props.fallback}</Note>}
+      {view.fallback && <Note>{view.fallback}</Note>}
       <MenuGroup>
-        <MenuLabel>How actions get approved</MenuLabel>
+        <MenuLabel>Approvals</MenuLabel>
         <MenuPrimitive.RadioGroup
-          value={props.mode ?? ""}
+          value={view.value ?? ""}
           onValueChange={(value: string) => {
-            const choice = choices.find((entry) => entry.mode === value);
-            if (choice && !choice.unavailable) props.onChange(choice.mode);
+            const option = view.options.find((entry) => entry.id === value);
+            if (option && !option.unavailable) props.onChange(option.id);
           }}
         >
-          {choices.map((choice) => (
-            <MenuPrimitive.RadioItem
-              key={choice.mode}
-              value={choice.mode}
-              aria-label={choice.label}
-              disabled={!!choice.unavailable}
-              closeOnClick
-              className={cn(menuItem, "h-auto items-start py-2")}
-            >
-              <Icon
-                icon={permissionIcons[choice.mode]}
-                className={cn("mt-px", choice.attention && "text-status-needs-you!")}
-              />
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
-                <span className={cn(choice.attention && "text-status-needs-you")}>
-                  {choice.label}
+          {view.options.map((option) => {
+            const attention = option.risk === "high";
+            return (
+              <MenuPrimitive.RadioItem
+                key={option.id}
+                value={option.id}
+                aria-label={option.label}
+                disabled={!!option.unavailable}
+                closeOnClick
+                className={cn(menuItem, "h-auto items-start py-2")}
+              >
+                <Icon
+                  icon={riskIcons[option.risk]}
+                  className={cn("mt-px", attention && "text-status-needs-you!")}
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
+                  <span className={cn(attention && "text-status-needs-you")}>{option.label}</span>
+                  <span className="truncate text-xs leading-4 text-muted-foreground">
+                    {option.unavailable ?? option.description}
+                  </span>
                 </span>
-                <span className="truncate text-xs leading-4 text-muted-foreground">
-                  {choice.unavailable ?? choice.description}
+                <span className="grid size-4 shrink-0 place-items-center">
+                  <MenuPrimitive.RadioItemIndicator>
+                    <CheckIcon aria-hidden size={14} />
+                  </MenuPrimitive.RadioItemIndicator>
                 </span>
-              </span>
-              <span className="grid size-4 shrink-0 place-items-center">
-                <MenuPrimitive.RadioItemIndicator>
-                  <CheckIcon aria-hidden size={14} />
-                </MenuPrimitive.RadioItemIndicator>
-              </span>
-            </MenuPrimitive.RadioItem>
-          ))}
+              </MenuPrimitive.RadioItem>
+            );
+          })}
         </MenuPrimitive.RadioGroup>
       </MenuGroup>
-      <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
-        <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
-        {permissionCoverageNote(props.capabilities, provider, props.mode)}
-      </p>
-      {props.defaultMode && !props.inherited && (
+      {view.coverage && (
+        <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
+          <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
+          {view.coverage}
+        </p>
+      )}
+      {view.reset && (
         <>
           <MenuSeparator />
           <MenuItem
             icon={<Icon icon={ArrowCounterClockwiseIcon} />}
-            reason={defaultUnavailable || undefined}
-            disabled={!!defaultUnavailable}
+            reason={view.reset.unavailable}
+            disabled={!!view.reset.unavailable}
             onClick={() => props.onChange(null)}
           >
-            Use the default · {permissionLabel(props.defaultMode)}
+            Use the default · {view.reset.label}
           </MenuItem>
         </>
       )}
