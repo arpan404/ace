@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, DotsThreeIcon, FileTextIcon, GlobeIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, FileTextIcon, GlobeIcon } from "@phosphor-icons/react";
 import {
   useCallback,
   useEffect,
