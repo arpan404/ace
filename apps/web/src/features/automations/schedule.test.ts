@@ -3,6 +3,8 @@ import { expect, test } from "vitest";
 import {
   describeSchedule,
   formatRunInZone,
+  formatWhen,
+  formatNextRun,
   presetToSchedule,
   scheduleToPreset,
   upcomingRuns,
@@ -123,4 +125,19 @@ test("a schedule with a COUNT or UNTIL survives an edit that only renames it", (
   const form = { ...formFromAutomation(limited, "UTC"), title: "Three mornings only" };
   const saved = automationFromForm(form, { id: limited.id, now: startAt, previous: limited });
   expect(saved.trigger).toEqual(limited.trigger);
+});
+
+test("friendly times use the requested timezone and keep calendar days across daylight saving", () => {
+  const zone = "America/Chicago";
+  expect(formatNextRun(Date.UTC(2026, 9, 9, 7), Date.UTC(2026, 9, 8, 13), zone)).toBe(
+    "Tomorrow 02:00 · in 18h",
+  );
+  expect(formatWhen(Date.UTC(2026, 9, 8, 7), Date.UTC(2026, 9, 8, 13), zone)).toBe("Today 02:00");
+  expect(formatWhen(Date.UTC(2026, 2, 9, 14), Date.UTC(2026, 2, 7, 18), zone)).toBe("Monday 09:00");
+  expect(formatWhen(Date.UTC(2026, 10, 2, 15), Date.UTC(2026, 10, 1, 18), zone)).toBe(
+    "Tomorrow 09:00",
+  );
+  expect(formatWhen(Date.UTC(2026, 9, 8, 7), Date.UTC(2026, 9, 8, 13), "Asia/Kolkata")).toBe(
+    "Today 12:30",
+  );
 });

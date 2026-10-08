@@ -30,8 +30,11 @@ export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
       support: { status: "supported" as const },
       continuation: { status: "supported" as const },
     })),
-    automations: automationList(Math.floor(now / 60_000) * 60_000, timeZone),
-    runs: automationRuns(now),
+    automations: automationList(
+      Math.max(0, Math.floor(now / 60_000) * 60_000 - 30 * 86_400_000),
+      timeZone,
+    ),
+    runs: automationRuns(now, timeZone),
     plugins: pluginCatalog(now),
     pullRequests: pullRequests(now),
     // The design's machine runs its automations, so schedules show their next run.

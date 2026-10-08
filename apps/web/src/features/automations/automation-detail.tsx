@@ -17,7 +17,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
 import { missedRunLabels, runsOn } from "./labels.ts";
 import { RecentRuns } from "./recent-runs.tsx";
-import { describeWhen, formatNextRun, formatRunInZone, localTimeZone } from "./schedule.ts";
+import { describeWhen, formatNextRun, localTimeZone } from "./schedule.ts";
 import {
   undoWindowMs,
   useAutomation,
@@ -146,7 +146,14 @@ export function AutomationScreen(props: { id: string }) {
           )}
         </div>
         {entry.lastPollError && <PollError error={entry.lastPollError} />}
-        <RecentRuns automationId={automation.id} />
+        <RecentRuns
+          automationId={automation.id}
+          timezone={
+            automation.trigger.kind === "schedule"
+              ? automation.trigger.schedule.timezone
+              : undefined
+          }
+        />
       </Page>
     </Screen>
   );
@@ -176,11 +183,9 @@ function NextRun(props: {
   if (nextRunAt !== undefined) {
     const zone =
       automation.trigger.kind === "schedule" ? automation.trigger.schedule.timezone : undefined;
-    const when = formatNextRun(nextRunAt, props.now);
-    // Local time first; a schedule kept in another zone also says its own wall clock.
-    return zone && zone !== localTimeZone()
-      ? `${when} (${formatRunInZone(nextRunAt, zone)} in ${zone})`
-      : when;
+    const when = formatNextRun(nextRunAt, props.now, zone);
+    // Next and recent runs use the schedule's wall clock; name a different zone.
+    return zone && zone !== localTimeZone() ? `${when} (${zone})` : when;
   }
   switch (automation.trigger.kind) {
     case "github":

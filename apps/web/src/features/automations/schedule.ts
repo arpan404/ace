@@ -1,3 +1,4 @@
+import { civilStamp, zonedCalendar } from "@ace/automations/calendar";
 import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule, AutomationTrigger } from "@ace/protocol";
 
@@ -147,14 +148,7 @@ function timeOfDay(rule: Rule, schedule: AutomationSchedule): string | undefined
 
 function wallClock(instant: number, timezone: string): { hour: number; minute: number } {
   try {
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: timezone,
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(instant);
-    const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
-    return { hour: read("hour"), minute: read("minute") };
+    return zonedCalendar(timezone).local(instant);
   } catch {
     return { hour: 0, minute: 0 };
   }
@@ -283,26 +277,26 @@ export function describeWhen(trigger: AutomationTrigger, localZone: string): str
 const day = 86_400_000;
 const hour = 3_600_000;
 
-/** "Today 14:00", "Tonight 02:00", "Tomorrow 09:30", "Friday 16:00", "Oct 12 09:00"; local. */
-export function formatWhen(instant: number, now: number): string {
-  const target = new Date(instant);
-  const time = clock(target.getHours(), target.getMinutes());
-  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
-  const days = Math.floor((new Date(instant).setHours(0, 0, 0, 0) - startOfToday) / day);
-  if (days === 0) return `${target.getHours() >= 18 ? "Tonight" : "Today"} ${time}`;
-  // Small hours after an evening read as tonight; after midnight they're tomorrow's.
+/** "Today 14:00", "Tonight 02:00", "Tomorrow 09:30", "Friday 16:00", "Oct 12 09:00"; in the requested zone. */
+export function formatWhen(instant: number, now: number, timezone = localTimeZone()): string {
+  const calendar = zonedCalendar(timezone);
+  const target = calendar.local(instant);
+  const today = calendar.local(now);
+  const time = clock(target.hour, target.minute);
+  const midnight = (civil: typeof target) => civilStamp({ ...civil, hour: 0, minute: 0 });
+  const days = (midnight(target) - midnight(today)) / day;
+  if (days === 0) return `${target.hour >= 18 ? "Tonight" : "Today"} ${time}`;
   if (days === 1)
-    return target.getHours() < 6 && new Date(now).getHours() >= 18
-      ? `Tonight ${time}`
-      : `Tomorrow ${time}`;
+    return target.hour < 6 && today.hour >= 18 ? `Tonight ${time}` : `Tomorrow ${time}`;
   if (days === -1) return `Yesterday ${time}`;
+  const date = new Date(instant);
   if (days > 0 && days < 7)
-    return `${target.toLocaleDateString("en-US", { weekday: "long" })} ${time}`;
-  return `${target.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${time}`;
+    return `${date.toLocaleDateString("en-US", { timeZone: timezone, weekday: "long" })} ${time}`;
+  return `${date.toLocaleDateString("en-US", { timeZone: timezone, month: "short", day: "numeric" })} ${time}`;
 }
 
 /** "Tomorrow 02:00 · in 3h": the wall clock, and how far off it is within a day. */
-export function formatNextRun(next: number, now: number): string {
+export function formatNextRun(next: number, now: number, timezone = localTimeZone()): string {
   const diff = next - now;
   if (diff < 60_000) return "Any moment";
   const relative =
@@ -311,7 +305,7 @@ export function formatNextRun(next: number, now: number): string {
       : diff < day
         ? ` · in ${Math.round(diff / hour)}h`
         : "";
-  return `${formatWhen(next, now)}${relative}`;
+  return `${formatWhen(next, now, timezone)}${relative}`;
 }
 
 /**

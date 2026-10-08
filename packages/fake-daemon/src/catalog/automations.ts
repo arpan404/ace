@@ -1,3 +1,4 @@
+import { compileSchedule } from "@ace/automations/recurrence";
 import type { Automation, AutomationRun } from "@ace/protocol";
 
 const hour = 3_600_000;
@@ -111,10 +112,10 @@ const run = (
 });
 
 /** Recent runs, newest first, timed relative to `now`. */
-export function automationRuns(now: number): AutomationRun[] {
+export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
   const audit = "Nightly dependency audit";
   const review = "Review pull requests on open";
-  return [
+  const runs = [
     run(
       "run-review-212",
       "auto-pr-review",
@@ -184,4 +185,23 @@ export function automationRuns(now: number): AutomationRun[] {
       "Draft posted to #releases",
     ),
   ];
+  const schedules = automationList(
+    Math.max(0, Math.floor((now - 30 * day) / 60_000) * 60_000),
+    zone,
+  );
+  return runs.flatMap((record) => {
+    const automation = schedules.find((entry) => entry.id === record.automationId);
+    if (record.trigger !== "schedule" || automation?.trigger.kind !== "schedule") return [record];
+    const recurrence = compileSchedule(automation.trigger.schedule);
+    let cursor = Math.max(-1, record.startedAt - 8 * day);
+    let latest: number | undefined;
+    for (let i = 0; i < 512; i++) {
+      const next = recurrence.next(cursor);
+      if (next === undefined || next > record.startedAt) break;
+      latest = cursor = next;
+    }
+    return latest === undefined
+      ? []
+      : [{ ...record, startedAt: latest, finishedAt: latest + 4 * 60_000 }];
+  });
 }
