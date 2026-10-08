@@ -31,7 +31,7 @@ test("a message sent to a settled thread lands in the transcript and the agent s
   await userEvent.type(message, "Add a route for /settings{Enter}");
   expect(await within(feed).findByText("Add a route for /settings")).toBeTruthy();
   expect((message as HTMLTextAreaElement).value).toBe("");
-  // The agent is busy now, so an empty composer offers Stop instead of Send.
+  // The agent is busy now: the composer's tab says so and offers Stop.
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
@@ -141,12 +141,17 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, personal/ })).toBeTruthy();
 });
 
-test("the environment pill shows where the thread runs and follows its branch past a commit", async () => {
-  await open("busy");
-  const pill = await screen.findByRole("button", {
+test("once the agent is idle, the tab shows where the thread runs and raises its details", async () => {
+  const { app } = await open("busy");
+  // While the agent works the tab says so; Stop ends the turn and the background relay.
+  await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "background.ended", task: "relay", status: "stopped" },
+  ]);
+  const strip = await screen.findByRole("button", {
     name: "Environment: Local · fix/replay-cursor",
   });
-  await userEvent.click(pill);
+  await userEvent.click(strip);
   const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(card).getByText("Local checkout")).toBeTruthy();
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
@@ -160,7 +165,7 @@ test("the environment pill shows where the thread runs and follows its branch pa
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
 
-  // Escape puts the card away and the caret back in the message.
+  // Escape folds the details back to the strip and puts the caret in the message.
   const close = within(card).getByRole("button", { name: "Close" });
   // Once the commit dialog has handed focus back.
   await waitFor(() => {
@@ -171,6 +176,7 @@ test("the environment pill shows where the thread runs and follows its branch pa
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
   );
+  expect(screen.getByRole("button", { name: /^Environment: Local/ })).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
 });
 
@@ -202,7 +208,7 @@ test("a wide composer spells out the @ and / hints", async () => {
   expect(message.getAttribute("placeholder")).toBe("Ask anything, @ to mention, / for commands");
 });
 
-test("a phone-width composer shows approvals by its icon alone, the mode kept in its name", async () => {
+test("approvals show as an icon alone, the mode kept in its name; a phone drops the model's effort", async () => {
   layoutWidth(358);
   await open("busy");
   const approvals = await screen.findByRole("button", { name: /^Approvals: Auto-review/ });
@@ -211,11 +217,4 @@ test("a phone-width composer shows approvals by its icon alone, the mode kept in
   const model = screen.getByRole("button", { name: /^Model: / });
   expect(model.textContent).toContain("Opus 5.5");
   expect(model.textContent).not.toContain("·");
-});
-
-test("a wide composer names the approval mode on its chip", async () => {
-  layoutWidth(900);
-  await open("busy");
-  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto-review/ });
-  expect(approvals.textContent).toContain("Auto-review");
 });

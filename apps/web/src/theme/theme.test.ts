@@ -66,6 +66,34 @@ test("links read at AA on every surface whatever accent is chosen, white on Ligh
   ).toBe("#7AA2F7");
 });
 
+/** A declaration's value in a theme's generated rule, as the page receives it. */
+const declared = (css: string, name: string) => new RegExp(`${name}:([^;}]+)`).exec(css)?.[1];
+const statusHues = ["needs-you", "working", "waiting", "unresponsive", "failed", "done"] as const;
+
+test("status words read at AA on every surface of every preset, a selected row over clear glass included", () => {
+  for (const theme of presetThemes) {
+    const css = themeRule(theme);
+    const surfaces = themeSurfaces(theme.tokens).map((surface) => surface.rgb);
+    for (const hue of statusHues) {
+      const text = declared(css, `--status-${hue}-text`);
+      expect(text, `${theme.id} ${hue}`).toBeDefined();
+      expect(worstContrast(rgb(text ?? ""), surfaces), `${theme.id} ${hue}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  }
+});
+
+test("a custom theme's pale status hue is deepened until its words read, and a readable one is kept", () => {
+  const pale = withToken(basePreset("light"), "--status-needs-you", "#FFE8C2");
+  const surfaces = themeSurfaces(pale.tokens).map((surface) => surface.rgb);
+  const text = declared(themeRule(pale), "--status-needs-you-text") ?? "";
+  expect(worstContrast(rgb(text), surfaces)).toBeGreaterThanOrEqual(4.5);
+  // Dark's working blue already reads everywhere: the words keep the person's exact hue.
+  const dark = basePreset("dark");
+  expect(declared(themeRule(dark), "--status-working-text")).toBe(dark.tokens["--status-working"]);
+});
+
 test("grey text that reads on the page but not on a solid popover or a selected row is flagged", () => {
   // The old Dark subtle grey: 4.9:1 on the page, about 4:1 on a menu with glass turned off.
   const theme = withToken(basePreset("dark"), "--subtle-foreground", "#808080");

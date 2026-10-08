@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
  * A 6px status dot in its tone's hue (`data-tone`, see index.css): needs you, working, failed,
  * done, idle; a hollow ring when unresponsive. Held at a usage limit, a thread waits on its
  * provider, not on the person, so its dot is a hollow ring in the waiting tone, the same tone as
- * its Limited pill. Always paired with text for assistive tech (`label`).
+ * its Limited label. Always paired with text for assistive tech (`label`).
  */
 function Dot(props: {
   tone: "needs-you" | "working" | "failed" | "unresponsive" | "limited" | "idle" | "done";

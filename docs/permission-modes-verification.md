@@ -122,7 +122,7 @@ Engine spawn inheritance, host approvals, permission-option validation and provi
 | Integration mutation                                              | Guarding behavior                                                                                                      | Result                            |
 | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | Omit permission capability metadata on the scripted turn provider | turn-provider-permissions.process.test.ts completes real engine turns under default auto-review and all explicit modes | not executed (tests run at merge) |
-| Lose the permission parent on a delegated child | permission-ownership.process.test.ts prepared delegates inherit ask and refuse widening | not executed (tests run at merge) |
+| Lose the permission parent on a delegated child                   | permission-ownership.process.test.ts prepared delegates inherit ask and refuse widening                                | not executed (tests run at merge) |
 
 Only the permitted static checks run locally. Dependency links were refreshed with bun install --ignore-scripts --frozen-lockfile after merging main; no lifecycle scripts ran. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.
 

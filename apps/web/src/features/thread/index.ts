@@ -3,12 +3,15 @@ export { Composer, type Draft } from "./composer/composer.tsx";
 export { useDraftScope } from "./composer/draft-scope.ts";
 /** A thread New thread just started reads this title until the daemon titles it. */
 export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";
-/** The composer's footer pieces New thread reuses: the approvals chip and the chip style. */
+/** The composer's pieces New thread reuses: the approvals icon, the chip and tab styles. */
 export { PermissionPicker } from "./composer/permission-picker.tsx";
 export { usePermissionCapabilities } from "./composer/permission-hooks.ts";
-export { chipControl as composerChip } from "./composer/composer-styles.ts";
-/** Where a thread runs, as the footer's pill, and the card shell attached to the composer. */
-export { EnvironmentPill } from "./composer/environment-pill.tsx";
+export {
+  chipControl as composerChip,
+  stripControl as composerStrip,
+  stripRow as composerStripRow,
+} from "./composer/composer-styles.ts";
+/** The tab attached to the composer's top edge. */
 export { AttachedCard } from "./composer/attached-card.tsx";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";

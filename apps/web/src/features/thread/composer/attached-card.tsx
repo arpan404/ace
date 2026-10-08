@@ -6,14 +6,19 @@ import { attachedSurface } from "./composer-styles.ts";
 const slivers = ["inset-x-6 -top-4 opacity-60", "inset-x-3 -top-2 opacity-90"];
 
 /**
- * A card attached to the composer: above it, a little narrower, its bottom tucked behind the
- * composer's top edge, one step quieter than the composer. It rises from behind the composer
- * when it arrives, and its contents settle in when the card on top changes (`cardKey`).
- * `behind` cards wait under it as slivers peeking out above, like a deck.
+ * The tab attached to the composer: above it, a little narrower, its bottom tucked behind the
+ * composer's top edge so the composer overlaps it like the front card of a stack, one step
+ * quieter than the composer itself. A `strip` is one line (where the thread runs, what the
+ * agents are doing, the step of their plan); a card is raised (the whole plan, a question, the
+ * environment's details) and scrolls past half the window. It rises from behind the composer
+ * when it arrives, and its contents settle in when what it shows changes (`cardKey`). `behind`
+ * cards wait under it as slivers peeking out above, like a deck.
  */
 export function AttachedCard(props: {
   /** The region's name for assistive tech: "Waiting for you", "Where this thread runs". */
   label: string;
+  /** One line rather than a raised card. */
+  strip?: boolean | undefined;
   /** How many more cards wait under this one. */
   behind?: number | undefined;
   cardKey: string;
@@ -22,7 +27,7 @@ export function AttachedCard(props: {
 }) {
   const behind = Math.min(props.behind ?? 0, slivers.length);
   return (
-    <div className="relative z-0 mx-3 -mb-4">
+    <div className="relative z-0 mx-4 -mb-4">
       {slivers.slice(slivers.length - behind).map((place) => (
         <div
           key={place}
@@ -37,11 +42,12 @@ export function AttachedCard(props: {
         // Before anything inside (a tooltip closing on Escape) can keep the key to itself.
         onKeyDownCapture={props.onKeyDown}
         className={cn(
-          "fx-panel-in relative max-h-[50vh] overflow-y-auto overscroll-contain pb-7",
+          "fx-panel-in relative",
+          props.strip ? "pb-4" : "max-h-[50vh] overflow-y-auto overscroll-contain pb-7",
           attachedSurface,
         )}
       >
-        {/* A new card on top settles in place; the surface stays. */}
+        {/* What it shows changing settles in place; the surface stays. */}
         <div key={props.cardKey} className="fx-rise-in">
           {props.children}
         </div>

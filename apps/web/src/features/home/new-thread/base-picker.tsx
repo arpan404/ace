@@ -1,107 +1,13 @@
 import type { WorktreeBase } from "@ace/protocol";
 import { baseOptions, sameBase, type BaseOption } from "@ace/ui-core";
-import {
-  CheckIcon,
-  GitForkIcon,
-  LaptopIcon,
-  MagnifyingGlassIcon,
-  XIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+import { CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useId, useState, type KeyboardEvent } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { AttachedCard } from "@/features/thread/index.ts";
 import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
-import type { WorkMode } from "./choices.ts";
-
-const places: { mode: WorkMode; icon: PhosphorIcon; title: string; hint: string }[] = [
-  {
-    mode: "worktree",
-    icon: GitForkIcon,
-    title: "New worktree",
-    hint: "A branch and folder of its own; your checkout stays as it is.",
-  },
-  {
-    mode: "local",
-    icon: LaptopIcon,
-    title: "Local checkout",
-    hint: "Works directly in the project's folder, on its current branch.",
-  },
-];
-
-/**
- * Where a new thread runs, attached to the composer: a new worktree or the local checkout, and
- * for a worktree the branch it starts from, local or on a remote, found by typing. The remote's
- * copy of the default branch is offered first; it is fetched just before the worktree is made.
- */
-export function NewThreadEnvironmentCard(props: {
-  id: string;
-  mode: WorkMode;
-  onMode(mode: WorkMode): void;
-  branches: BaseRefs;
-  base: WorktreeBase | undefined;
-  onBase(base: WorktreeBase): void;
-  onClose(): void;
-}) {
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    props.onClose();
-  };
-  return (
-    <AttachedCard label="Where this thread runs" cardKey="environment" onKeyDown={onKeyDown}>
-      <div id={props.id} className="px-4 pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-ui font-medium text-foreground">Where should it run?</h3>
-          <IconButton icon={XIcon} label="Close" size="sm" onClick={props.onClose} />
-        </div>
-        <div
-          role="radiogroup"
-          aria-label="Where the work happens"
-          className="mt-2 grid gap-2 sm:grid-cols-2"
-        >
-          {places.map((place) => {
-            const checked = props.mode === place.mode;
-            return (
-              <button
-                key={place.mode}
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                onClick={() => props.onMode(place.mode)}
-                className={cn(
-                  "flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors duration-(--dur-1) focus-ring",
-                  checked
-                    ? "bg-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent)]"
-                    : "bg-muted hover:bg-accent",
-                )}
-              >
-                <place.icon
-                  aria-hidden
-                  size={18}
-                  className="mt-px shrink-0 text-muted-foreground"
-                />
-                <span className="min-w-0">
-                  <span className="block text-ui font-medium text-foreground">{place.title}</span>
-                  <span className="block text-xs text-subtle-foreground">{place.hint}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {props.mode === "worktree" && (
-          <BasePicker branches={props.branches} base={props.base} onBase={props.onBase} />
-        )}
-      </div>
-    </AttachedCard>
-  );
-}
 
 /** The branches a worktree can start from, remote ones first, narrowed as the person types. */
-function BasePicker(props: {
+export function BasePicker(props: {
   branches: BaseRefs;
   base: WorktreeBase | undefined;
   onBase(base: WorktreeBase): void;
@@ -170,7 +76,7 @@ function BasePicker(props: {
       </li>
     );
   return (
-    <div className="mt-3">
+    <div>
       {/* The field is the box, so its focus edge goes round the glass too. */}
       <div className="relative text-ui">
         <MagnifyingGlassIcon

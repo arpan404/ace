@@ -33,9 +33,6 @@
   "apps/web/src/components/permission-review.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/status-pill.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/components/ui/command.tsx": {
     "text-size": 1
   },
