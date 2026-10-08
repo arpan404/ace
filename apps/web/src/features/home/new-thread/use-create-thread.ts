@@ -30,6 +30,7 @@ export interface CreateRequest {
   /** An explicit approval mode for this thread; the daemon's default when omitted. */
   permission?: PermissionMode | undefined;
   text: string;
+  input?: import("@ace/protocol").ContentPart[] | undefined;
   context?: MessageContext | undefined;
 }
 
@@ -58,7 +59,7 @@ export function createPayload(request: CreateRequest): CreatePayload {
       : {}),
     ...(Object.keys(options).length ? { options } : {}),
     ...(request.permission ? { permissionMode: request.permission } : {}),
-    input: [{ type: "text", text: request.text }],
+    input: request.input ?? [{ type: "text", text: request.text }],
     ...(request.context ? { context: request.context } : {}),
   };
 }

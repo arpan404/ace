@@ -31,7 +31,7 @@ async function send(page: Page, text: string) {
   const field = page.getByRole("combobox", { name: "Message" });
   await field.fill(text);
   await field.press("Enter");
-  await expect(field).toHaveValue("");
+  await expect(field).toHaveText("");
 }
 
 test("a message sent while the agent works waits in the daemon's queue until Send now steers it in", async ({

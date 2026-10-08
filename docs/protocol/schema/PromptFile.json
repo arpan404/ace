@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CommandDiagnostic.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PromptFileName.json"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/PromptFileScope.json"
+    },
+    "title": {
+      "maxLength": 128,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "title",
+    "description",
+    "scope",
+    "diagnostics"
+  ],
+  "type": "object"
+}

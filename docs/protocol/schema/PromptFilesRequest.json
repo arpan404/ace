@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFilesRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "$ref": "https://ace.local/protocol/v1/PromptFileOperation.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "prompts.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

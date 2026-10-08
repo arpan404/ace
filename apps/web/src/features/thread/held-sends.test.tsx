@@ -35,7 +35,7 @@ async function open(storage = memoryKeyValue()) {
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/t/thread-router");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const message = (await screen.findByRole("combobox", { name: "Message" })) as HTMLTextAreaElement;
+  const message = (await screen.findByRole("combobox", { name: "Message" })) as HTMLDivElement;
   return { app, feed, message, storage };
 }
 
@@ -51,7 +51,7 @@ function delivered(app: ReturnType<typeof harness>) {
 }
 
 /** Attach an image the daemon is slow to take, and send with it before it's up. */
-async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTMLTextAreaElement) {
+async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTMLDivElement) {
   app.daemon.holdRequests("context.request");
   await userEvent.upload(screen.getByLabelText("Files to attach"), png());
   await userEvent.type(message, "Why is this banner orange?{Enter}");
@@ -69,7 +69,7 @@ test("an upload that fails after Enter leaves the message as a failed bubble, an
   const alert = await within(feed).findByRole("alert");
   expect(within(alert).getByText(/screen\.png didn't upload/)).toBeTruthy();
   expect(within(feed).getByText("Why is this banner orange?")).toBeTruthy();
-  expect(message.value).toBe("And the footer colour");
+  expect(message.textContent).toBe("And the footer colour");
 
   app.daemon.restoreRequests();
   await waitFor(() => expect(app.client.state).toBe("ready"));
@@ -92,7 +92,7 @@ test("Edit on a failed held message gives back its text, beside what the compose
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
-    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement).value).toBe(
+    expect((screen.getByRole("combobox", { name: "Message" }) as HTMLDivElement).textContent).toBe(
       "And the footer colour\n\nWhy is this banner orange?",
     ),
   );

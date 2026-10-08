@@ -1,22 +1,12 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import {
-  ArrowCounterClockwiseIcon,
-  AtIcon,
-  CheckIcon,
-  CommandIcon,
-  ImageIcon,
-  InfoIcon,
-  PaperclipIcon,
-} from "@phosphor-icons/react";
+import { ArrowCounterClockwiseIcon, CheckIcon, InfoIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { MenuGroup, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { ThreadRef } from "../sources/index.ts";
 import { riskIcons } from "./permission-icons.ts";
 import type { PermissionMenuView } from "./permission-view.ts";
-import { ThreadContextRows } from "./thread-context-rows.tsx";
 
 function Note(props: { children: string; pending?: boolean }) {
   return (
@@ -106,74 +96,6 @@ export function PermissionMenu(props: {
           >
             Use the default · {view.reset.label}
           </MenuItem>
-        </>
-      )}
-    </>
-  );
-}
-
-/** One way of adding to the message, or why it isn't available now. */
-export interface AddAction {
-  reason?: string | undefined;
-}
-
-/**
- * The + menu, one line a row: attach files or images, mention a file (recent ones come first in
- * the list it opens), start a command, then (in a thread) plan first or point the agent at a page
- * open in the workspace. A row that can't be used says why beneath it. Drop and paste still
- * attach files.
- */
-export function AddMenu(props: {
-  files: AddAction;
-  images: AddAction;
-  mention: AddAction;
-  command: AddAction;
-  /** The thread the composer writes in, for its own rows; none on New thread. */
-  thread?: ThreadRef | undefined;
-  onFiles(): void;
-  onImages(): void;
-  onMention(): void;
-  onCommand(): void;
-  onInsert(text: string): void;
-}) {
-  const row = (action: AddAction) => ({ reason: action.reason, disabled: !!action.reason });
-  return (
-    <>
-      <MenuGroup aria-label="Attach">
-        <MenuItem
-          icon={<Icon icon={PaperclipIcon} />}
-          {...row(props.files)}
-          onClick={props.onFiles}
-        >
-          Files
-        </MenuItem>
-        <MenuItem icon={<Icon icon={ImageIcon} />} {...row(props.images)} onClick={props.onImages}>
-          Images
-        </MenuItem>
-      </MenuGroup>
-      <MenuSeparator />
-      <MenuGroup aria-label="Insert">
-        <MenuItem
-          icon={<Icon icon={AtIcon} />}
-          keys="@"
-          {...row(props.mention)}
-          onClick={props.onMention}
-        >
-          Mention a file
-        </MenuItem>
-        <MenuItem
-          icon={<Icon icon={CommandIcon} />}
-          keys="/"
-          {...row(props.command)}
-          onClick={props.onCommand}
-        >
-          Command
-        </MenuItem>
-      </MenuGroup>
-      {props.thread && (
-        <>
-          <MenuSeparator />
-          <ThreadContextRows thread={props.thread} onInsert={props.onInsert} />
         </>
       )}
     </>

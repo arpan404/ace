@@ -10,7 +10,8 @@ import type { PendingSend } from "@ace/client";
 import { useSyncExternalStore } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import type { Block } from "../transcript/blocks.ts";
-import type { TurnOptions } from "@ace/protocol";
+import { tokensFromInput, type ComposerToken } from "@ace/ui-core";
+import type { ContentPart, MessageContext, TurnOptions } from "@ace/protocol";
 
 /**
  * A message held back until its files upload (`staged-sends.ts` keeps them): its files with this
@@ -21,6 +22,8 @@ export interface StagedSend {
   threadId: string;
   text: string;
   mentions: string[];
+  input?: ContentPart[] | undefined;
+  context?: MessageContext | undefined;
   attachments: (LocalAttachment & { sha256?: string | undefined })[];
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
@@ -97,6 +100,7 @@ export function localAttachment(sha256: string): LocalAttachment | undefined {
 export interface ReturnedDraft {
   text: string;
   mentions: readonly string[];
+  tokens?: readonly ComposerToken[] | undefined;
   attachments: readonly { sha256: string; name: string }[];
   options?: import("@ace/protocol").TurnOptions | undefined;
 }
@@ -123,8 +127,8 @@ export function returnDraft(key: string, draft: ReturnedDraft): boolean {
 }
 
 /** The text a message carries, as written. */
-export function inputText(input: readonly { type: string; text?: string }[]): string {
-  return input.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join("");
+export function inputText(input: readonly ContentPart[]): string {
+  return tokensFromInput(input).text;
 }
 
 /*

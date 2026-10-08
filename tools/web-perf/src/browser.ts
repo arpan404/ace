@@ -29,7 +29,7 @@ async function measureBrowser(): Promise<void> {
       if (typeof firstPaint !== "number")
         throw new Error("First contentful paint was not recorded");
       process.stdout.write(`  first contentful paint (ms) ${firstPaint.toFixed(2)}\n`);
-      const composer = page.locator("textarea").first();
+      const composer = page.getByRole("combobox", { name: "Message" });
       await composer.waitFor();
       // Warm up: the stream starts a second after attach; let it reach speed.
       await page.waitForTimeout(3_000);

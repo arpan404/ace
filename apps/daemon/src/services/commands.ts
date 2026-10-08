@@ -7,9 +7,9 @@ import { AccountProvider } from "@ace/protocol/accounts";
 import { pickInstance } from "@ace/accounts";
 import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
 import { connectDaemonCommandEvents, type CommandEventSource } from "../command-events.ts";
-import type { ProviderInstance } from "@ace/commands";
+import { PromptFiles, type ProviderInstance } from "@ace/commands";
 import { join } from "node:path";
-import type { Thread } from "@ace/protocol";
+import { WorkspaceId, type Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export interface DaemonCommandIntegration {
@@ -33,7 +33,15 @@ async function initializeCommands({
   services,
   now,
   signal,
+  id,
 }: ServiceContext) {
+  const promptFiles = new PromptFiles({
+    globalRoot: config.dataDir,
+    projectRoot: (workspaceId) => store.getWorkspacePath(WorkspaceId.parse(workspaceId)),
+    id,
+  });
+  services.promptFiles = promptFiles;
+  resources.own(() => promptFiles.close());
   const integration = options.commands ?? {};
   const registered = () => services.accountRegistry?.list() ?? [];
   const defaults = defaultCommandInstances(process.env);

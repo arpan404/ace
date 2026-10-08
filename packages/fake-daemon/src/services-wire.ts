@@ -1,3 +1,4 @@
+import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
@@ -26,6 +27,7 @@ export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
+  promptFiles?: readonly PromptSeed[];
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
   >;
@@ -55,7 +57,8 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  * `FakeServices`; this reads settings through the same store.
  */
 export class FakeServicesWire {
-  private readonly catalog = new FakeCatalogWire();
+  readonly prompts = new FakePromptFiles();
+  private readonly catalog = new FakeCatalogWire(this.prompts);
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
@@ -83,6 +86,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
     if (seed.history) this.history.seed(seed.history);
     this.notificationPublicKey = seed.notificationPublicKey ?? null;
@@ -147,6 +151,14 @@ export class FakeServicesWire {
       handle: async (message, device) => {
         if (this.history.handle(message, emit)) return;
         try {
+          if (message.type === "prompts.request") {
+            emit({
+              type: "prompts.result",
+              requestId: message.requestId,
+              result: this.prompts.request(message.operation),
+            });
+            return;
+          }
           if (message.type === "catalog.list" || message.type === "catalog.unsubscribe") {
             await catalog.handle(message, device);
             return;

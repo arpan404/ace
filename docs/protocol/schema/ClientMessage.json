@@ -750,6 +750,9 @@
       "$ref": "https://ace.local/protocol/v1/CommandsResolve.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PromptFilesRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CatalogList.json"
     },
     {

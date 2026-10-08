@@ -25,7 +25,10 @@ export function matchesChord(
 
 function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || !!target.closest("input, textarea, select");
+  return (
+    target.isContentEditable ||
+    !!target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]')
+  );
 }
 
 const sequenceWindowMs = 1000;

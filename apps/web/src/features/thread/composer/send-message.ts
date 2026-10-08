@@ -40,6 +40,8 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
         threadId,
         text: draft.text,
         mentions: draft.mentions.map((mention) => mention.path),
+        input: draft.input,
+        context: { mentions: draft.mentions, attachments: [], items: draft.threadRefs },
         attachments: files.local,
         ...(request.options ? { options: request.options } : {}),
         ...(request.delivery ? { delivery: request.delivery } : {}),
@@ -55,8 +57,9 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
       {
         type: "thread.send",
         threadId: ThreadId.parse(threadId),
-        input: [{ type: "text", text: draft.text || "See the attached files." }],
+        input: draft.input ?? [{ type: "text", text: draft.text || "See the attached files." }],
         context: {
+          items: draft.threadRefs,
           mentions: draft.mentions,
           attachments: ready.map((file) => ({ sha256: file.sha256 })),
         },

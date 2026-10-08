@@ -1,9 +1,18 @@
+import type { FakePromptFiles } from "./prompt-files.ts";
 import type { CatalogEntry, ClientMessage, ProviderKind, ServerMessage } from "@ace/protocol";
 import { extensionCatalog } from "./catalog/extensions.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeContextWire } from "./context-wire.ts";
 import type { FakeWireSession } from "./service-context.ts";
 export class FakeCatalogWire {
+  constructor(privatePrompts: FakePromptFiles) {
+    this.prompts = privatePrompts;
+    privatePrompts.onChanged = () => this.changed();
+  }
+  private readonly prompts: FakePromptFiles;
+  private changed(): void {
+    for (const listener of this.listeners) listener();
+  }
   private readonly overrides = new Map<ProviderKind, CatalogEntry[]>();
   private readonly listeners = new Set<() => void>();
   seed(overrides: Partial<Record<ProviderKind, CatalogEntry[]>>): void {
@@ -38,10 +47,11 @@ export class FakeCatalogWire {
       if (!provider || !project) throw new Error("catalog_context_unavailable");
       const query = message.query.toLowerCase().replace(/^\//, "");
       return {
-        entries: (
-          this.overrides.get(provider) ??
-          extensionCatalog(provider, project, draft?.instanceId ?? provider)
-        )
+        entries: [
+          ...(this.overrides.get(provider) ??
+            extensionCatalog(provider, project, draft?.instanceId ?? provider)),
+          ...this.prompts.catalog(project, provider),
+        ]
           .filter((e) => `${e.name} ${e.description}`.toLowerCase().includes(query))
           .slice(0, message.limit),
         stale: false,

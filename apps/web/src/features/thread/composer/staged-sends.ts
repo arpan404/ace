@@ -1,5 +1,11 @@
 import type { ClientApi } from "@ace/client";
-import { ThreadId, TurnOptions, type CommandPayload } from "@ace/protocol";
+import {
+  ContentPart,
+  MessageContext,
+  ThreadId,
+  TurnOptions,
+  type CommandPayload,
+} from "@ace/protocol";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 import { Observable, rememberAttachments, type StagedSend } from "./send-store.ts";
@@ -29,6 +35,8 @@ const Stored = z.object({
   threadId: z.string(),
   text: z.string(),
   mentions: z.array(z.string()),
+  input: z.array(ContentPart).optional(),
+  context: MessageContext.optional(),
   attachments: z.array(StoredFile),
   options: TurnOptions.optional(),
   delivery: z.enum(["steer", "queue"]).optional(),
@@ -200,9 +208,10 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
   const payload: CommandPayload = {
     type: "thread.send",
     threadId: ThreadId.parse(send.threadId),
-    input: [{ type: "text", text: send.text || "See the attached files." }],
+    input: send.input ?? [{ type: "text", text: send.text || "See the attached files." }],
     context: {
-      mentions: send.mentions.map((path) => ({ path })),
+      ...send.context,
+      mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),
       attachments: send.attachments.flatMap((file) =>
         file.sha256 ? [{ sha256: file.sha256 }] : [],
       ),

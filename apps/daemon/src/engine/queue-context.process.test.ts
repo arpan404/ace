@@ -305,3 +305,35 @@ test("restart auto-continuation retries after capacity becomes available instead
   expect(h.store.getThread(first)?.status.state).toBe("done");
   expect(h.store.getThread(second)?.status.state).toBe("done");
 });
+
+test("a context limit produces a plain-language transcript notice with a useful next action", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    prepareInput: async (command) => ({
+      input:
+        command.payload.type === "thread.send" || command.payload.type === "thread.create"
+          ? command.payload.input
+          : [],
+      diagnostics: [{ code: "truncated", path: "src/router.ts", message: "budgetBytes=1024" }],
+      release: () => {},
+    }),
+  });
+  const id = await h.create();
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: text("Explain the selected source"),
+    context: { mentions: [{ path: "src/router.ts" }], attachments: [] },
+  });
+  await h.engine.flush();
+  expect(
+    h.store
+      .readItemPage(id, h.store.headSeq() + 1, 50)
+      .items.some(
+        (item) =>
+          item.type === "notice" &&
+          item.text ===
+            "Only part of src/router.ts fit in this message. Mention a smaller line range to include the part you need.",
+      ),
+  ).toBe(true);
+});

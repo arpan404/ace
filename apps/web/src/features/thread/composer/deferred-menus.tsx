@@ -9,10 +9,9 @@ const menus = () => import("./composer-menus.tsx");
 export const DeferredPermissionMenu = deferredComponent(() =>
   menus().then((module) => module.PermissionMenu),
 );
-export const DeferredAddMenu = deferredComponent(() => menus().then((module) => module.AddMenu));
 
 export function preloadComposerMenus(): Promise<unknown> {
-  return Promise.all([DeferredPermissionMenu.preload(), DeferredAddMenu.preload()]);
+  return DeferredPermissionMenu.preload();
 }
 
 /** A menu whose code is still on its way: one quiet row, the menu's own size. */

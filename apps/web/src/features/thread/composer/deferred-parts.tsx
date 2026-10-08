@@ -54,3 +54,11 @@ export function ControlsPending() {
 export const DeferredCursorContinuation = deferredComponent(() =>
   import("./cursor-continuation.tsx").then((module) => module.CursorContinuation),
 );
+
+export const DeferredCommandArguments = deferredComponent(() =>
+  import("./command-arguments.tsx").then((module) => module.CommandArguments),
+);
+
+export const DeferredThreadAttachments = deferredComponent(() =>
+  import("./thread-attachments.tsx").then((module) => module.ThreadAttachments),
+);

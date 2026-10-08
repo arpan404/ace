@@ -14,3 +14,4 @@ export type { Definition, ParsedSource, ParseContext, Target } from "./types.ts"
 export { CommandLibrary } from "./library.ts";
 export type { LibraryContext } from "./types.ts";
 export { claudePluginCatalog } from "./claude-plugins.ts";
+export { PromptFiles, type PromptFilesOptions } from "./prompt-files.ts";

@@ -31,3 +31,4 @@ export { deliverContext, type ContextDelivery, type ContextConsumer } from "./de
 
 export { summarizeThreadReference } from "./thread-reference.ts";
 export { canonicalContext } from "./canonical.ts";
+export { contextNotice } from "./notice.ts";

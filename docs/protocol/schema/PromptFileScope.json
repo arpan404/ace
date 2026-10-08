@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFileScope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "global",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "project",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "kind",
+        "workspaceId"
+      ],
+      "type": "object"
+    }
+  ]
+}

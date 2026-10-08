@@ -113,14 +113,14 @@ test("a two-line message with a file attached starts a thread under the chosen a
   await page.keyboard.type("Log every restart with its backoff delay");
   await page.keyboard.press("Shift+Enter");
   await page.keyboard.type("and keep the last ten in memory");
-  await expect(message).toHaveValue(
+  await expect(message).toHaveText(
     "Log every restart with its backoff delay\nand keep the last ten in memory",
   );
 
   // + › Files attaches through the file chooser.
   await page.getByRole("button", { name: "Add files and context" }).click();
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("menuitem", { name: /^Files/ }).click();
+  await page.getByRole("option", { name: /^Attach files/ }).click();
   await (
     await chooser
   ).setFiles({
@@ -151,7 +151,7 @@ test("a two-line message with a file attached starts a thread under the chosen a
   await composer.press("Enter");
   await expect(page.getByText("Queued", { exact: true })).toBeVisible();
   await expect(page.getByText("Also cap the delay at 30 seconds")).toBeVisible();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveText("");
 });
 
 test("an address typed in a new tab opens the browser for a thread that had no page yet", async ({

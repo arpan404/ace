@@ -109,7 +109,7 @@ function definition(ctx: ParseContext, body: string, raw: Record<string, unknown
   };
 }
 export function parseMarkdown(text: string, ctx: ParseContext): ParsedSource {
-  if (Buffer.byteLength(text) > 65536) return diagnostic(ctx.source);
+  if (new TextEncoder().encode(text).byteLength > 65536) return diagnostic(ctx.source);
   try {
     let body = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
     let raw: Record<string, unknown> = {};
@@ -127,7 +127,7 @@ export function parseMarkdown(text: string, ctx: ParseContext): ParsedSource {
   }
 }
 export function parseOpenCodeConfig(text: string, ctx: Omit<ParseContext, "format">): ParsedSource {
-  if (Buffer.byteLength(text) > 65536) return diagnostic(ctx.source);
+  if (new TextEncoder().encode(text).byteLength > 65536) return diagnostic(ctx.source);
   try {
     const errors: ParseError[] = [];
     const raw: unknown = parseJsonc(text, errors, { allowTrailingComma: true });
@@ -166,7 +166,7 @@ export function parseOpenCodeConfig(text: string, ctx: Omit<ParseContext, "forma
 }
 
 export function parseCodexAgent(text: string, ctx: Omit<ParseContext, "format">): ParsedSource {
-  if (Buffer.byteLength(text) > 65536) return diagnostic(ctx.source);
+  if (new TextEncoder().encode(text).byteLength > 65536) return diagnostic(ctx.source);
   try {
     const raw = z.record(z.string(), z.unknown()).parse(parseToml(text));
     return {

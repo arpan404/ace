@@ -1,3 +1,4 @@
+import { PromptFilesRequest, PromptFilesResponse } from "./prompt-files.ts";
 import { ProviderAccountsRequest, ProviderAccountsResult } from "./provider-accounts.ts";
 import {
   ProviderInstallRequest,
@@ -206,6 +207,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...FilesClientMessage.options,
   CommandsList,
   CommandsResolve,
+  PromptFilesRequest,
   CatalogList,
   CatalogUnsubscribe,
   ...AccountsRequest.options,
@@ -280,6 +282,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,
+  PromptFilesResponse,
   CatalogListResult,
   CatalogChanged,
   ...AccountsResponse.options,

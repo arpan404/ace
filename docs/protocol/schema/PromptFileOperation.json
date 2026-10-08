@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptFileOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "list",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PromptFileName.json"
+        },
+        "op": {
+          "const": "read",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "https://ace.local/protocol/v1/PromptFileScope.json"
+        }
+      },
+      "required": [
+        "op",
+        "scope",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PromptFileName.json"
+        },
+        "op": {
+          "const": "write",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "https://ace.local/protocol/v1/PromptFileScope.json"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "scope",
+        "name",
+        "text",
+        "expectedRevision"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -160,16 +160,19 @@ export function NewThreadPage(props: {
       effort: resolved.effort,
       serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
+      input: draft.input,
       text: draft.text.trim() || "See the attached files.",
       context: {
         ...(draftId ? { draftId } : {}),
+        items: draft.threadRefs,
         mentions: draft.mentions,
         attachments: draft.attachments,
       },
     });
   };
 
-  const toMessage = () => page.current?.querySelector("textarea")?.focus();
+  const toMessage = () =>
+    page.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
   const providerName = provider ? providerNames[provider] : "This provider";
 
   // The first run: nothing to start a thread in until a project is added.
@@ -190,6 +193,9 @@ export function NewThreadPage(props: {
             What should we work on?
           </h2>
           <Composer
+            onPlan={() => {
+              if (provider) setPermissionChoice({ provider, id: "plan" });
+            }}
             thread={draftThread}
             draftKey={
               project ? `new:${project}${props.skill ? `:skill:${props.skill}` : ""}` : undefined

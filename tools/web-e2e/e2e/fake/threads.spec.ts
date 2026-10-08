@@ -25,7 +25,7 @@ test("a message sent while the agent works is queued above the composer", async 
 
   await expect(page.getByText("Also check the iOS cold-start path")).toBeVisible();
   await expect(page.getByText("Queued", { exact: true })).toBeVisible();
-  await expect(message).toHaveValue("");
+  await expect(message).toHaveText("");
 });
 
 test("a new thread starts from ⌘N and its first message streams into the transcript", async ({

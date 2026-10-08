@@ -1,3 +1,4 @@
+import { contextNotice } from "@ace/context";
 import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import { Command, ContextDiagnostic } from "@ace/protocol";
@@ -149,7 +150,7 @@ export async function executeIntent(
               type: "notice",
               level: "warning",
               complete: true,
-              text: `Context ${parsed.code}: ${parsed.message.slice(0, 4096)}${parsed.path ? ` (${parsed.path.slice(0, 1024)})` : ""}`,
+              text: contextNotice(parsed),
             },
           },
         ]);

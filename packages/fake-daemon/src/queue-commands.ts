@@ -18,6 +18,7 @@ type QueueCommand = Extract<
   CommandPayload,
   {
     type:
+      | "queue.resend"
       | "queue.edit"
       | "queue.move"
       | "queue.remove"
@@ -29,6 +30,7 @@ type QueueCommand = Extract<
 >;
 
 export const queueCommandTypes: readonly QueueCommand["type"][] = [
+  "queue.resend",
   "queue.edit",
   "queue.move",
   "queue.remove",
@@ -73,6 +75,7 @@ export function queueCommand(
   host: ThreadHost,
   payload: QueueCommand,
   now: number,
+  commandId: string,
 ): ThreadCommandOutcome {
   if (payload.expectedRevision !== host.queue.revision) return fail("queue_conflict");
   const index =
@@ -80,6 +83,17 @@ export function queueCommand(
   const message = index >= 0 ? host.queued[index] : undefined;
   if ("messageId" in payload && !message) return fail("message_already_claimed");
   switch (payload.type) {
+    case "queue.resend": {
+      if (!message || message.state !== "uncertain") return fail("message_not_uncertain");
+      host.queued.splice(index, 1);
+      host.queued.push({ ...message, key: commandId, state: "queued" });
+      if (host.queue.reason === "uncertain" && !host.queued.some((m) => m.state === "uncertain")) {
+        host.queue.paused = false;
+        host.queue.reason = null;
+      }
+      host.queueDirty = true;
+      return { ok: true, facts: [] };
+    }
     case "queue.edit": {
       if (!message) return fail("message_already_claimed");
       if (message.state === "uncertain") return fail("uncertain_delivery");

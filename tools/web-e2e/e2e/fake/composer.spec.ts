@@ -32,7 +32,7 @@ async function geometry(page: Page): Promise<Geometry> {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
     const shell = document.querySelector('[data-slot="composer"]');
-    const input = shell?.querySelector("textarea");
+    const input = shell?.querySelector('[role="combobox"][contenteditable]');
     const footer = shell?.querySelector('[data-slot="composer-footer"]');
     if (!shell || !input || !footer) throw new Error("no composer");
     const inputBox = box(input);
@@ -159,7 +159,7 @@ test("an unsent draft survives a reload", async ({ page }) => {
   const message = await openThread(page);
   await message.fill("Check the cold-start path before merging");
   await page.reload();
-  await expect(page.getByRole("combobox", { name: "Message" })).toHaveValue(
+  await expect(page.getByRole("combobox", { name: "Message" })).toHaveText(
     "Check the cold-start path before merging",
   );
 });
