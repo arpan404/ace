@@ -127,3 +127,20 @@ test("a limited current account remains selected and its notice opens the shared
   await userEvent.click(screen.getByRole("button", { name: "Add another account" }));
   expect(await screen.findByRole("form", { name: "Add account" })).toBeTruthy();
 });
+
+test("the API service picker names its known marks and connects the selected OpenRouter service", async () => {
+  const app = harness();
+  await app.open("/settings/providers/opencode");
+  const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  const form = await screen.findByRole("form", { name: "Add account" });
+  await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "API key" }));
+  await userEvent.click(await within(form).findByRole("combobox", { name: "API service" }));
+  const service = await screen.findByRole("option", { name: "OpenRouter" });
+  expect(within(service).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
+  await userEvent.click(service);
+  await userEvent.type(within(form).getByRole("textbox"), "Router work");
+  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
+});
