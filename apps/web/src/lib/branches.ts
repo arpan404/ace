@@ -65,7 +65,7 @@ export function useBaseRefs(project: string | undefined): BaseRefs {
         { signal },
       );
       const result = reply.result;
-      if (result.kind !== "branches") throw new Error("The daemon didn't list the branches.");
+      if (result.kind !== "branches") throw new Error("ace didn't list the branches.");
       return {
         refs: result.refs ?? result.branches.map((name) => ({ name })),
         defaultBranch: result.defaultBranch,

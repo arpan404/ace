@@ -1,7 +1,7 @@
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { SafeRoot } from "@ace/workspace";
+import { SafeRoot, GitIgnore, listWorkspace } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
 import { archiveDownload, previewArchive, type Preview } from "./archive.ts";
@@ -120,6 +120,7 @@ export class FilesService {
     guard();
     const operation = FileOperation.parse(input);
     const reading = [
+      "list",
       "stat",
       "archive.preview",
       "artifacts.list",
@@ -129,6 +130,20 @@ export class FilesService {
       "artifact.support",
     ].includes(operation.op);
     this.authorize(device, reading ? "files.read" : "files.write");
+    if (operation.op === "list") {
+      const page = await listWorkspace(this.safe, await GitIgnore.create(this.safe), {
+        dir: operation.path,
+        depth: 100,
+        limit: operation.limit,
+      });
+      guard();
+      return {
+        paths: page.entries
+          .filter((entry) => entry.type === "file" || entry.type === "directory")
+          .map((entry) => entry.path + (entry.type === "directory" ? "/" : "")),
+        truncated: page.truncated,
+      };
+    }
     if (operation.op === "stat") {
       const current = await observed(this.safe, operation.path);
       if (current === null) return { path: operation.path, version: null };
@@ -138,7 +153,9 @@ export class FilesService {
     if (operation.op === "artifact.support") {
       if (!this.options.exportSupport)
         throw new FileError("UNSUPPORTED", "Support producer unavailable");
-      return { artifactId: await this.options.exportSupport(device, guard) };
+      return {
+        artifactId: await this.options.exportSupport(device, guard, operation.includeThreads),
+      };
     }
     if (operation.op === "artifact.raw") {
       if (!this.options.exportRaw)

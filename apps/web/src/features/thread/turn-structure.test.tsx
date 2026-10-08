@@ -27,7 +27,7 @@ test("a question keeps its line in the transcript where the agent asked it, and 
   const line = await within(feed).findByRole("group", {
     name: "Question: How should the sheet recover after rotate?",
   });
-  const finding = within(feed).getByText(/three ways to fix it/);
+  const finding = await within(feed).findByText(/three ways to fix it/);
   expect(finding.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   // The card to answer it is on the composer, once, and nowhere in the transcript.
   const deck = await screen.findByRole("region", { name: "Waiting for you" });

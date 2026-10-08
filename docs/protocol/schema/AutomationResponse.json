@@ -35,6 +35,9 @@
             "minLength": 1,
             "type": "string"
           },
+          "lastPollError": {
+            "$ref": "https://ace.local/protocol/v1/AutomationPollError.json"
+          },
           "nextRunAt": {
             "anyOf": [
               {

@@ -93,3 +93,21 @@ A non-gating benchmark source covers frame translation and LF framing. Measureme
 behaviour tests and at least eight documented mutation cases need execution at merge,
 per the owner's rule. Recorder scenarios are written for approval; no fixtures are
 recorded and no prompts are sent during implementation.
+
+## Amendment: rewind from a completed answer
+
+The web client uses `pi.control` rollback with a confirmed native entry ID. The
+ace extension publishes a bounded `ace_turn_boundary` notification at `turn_end`,
+using the public `ctx.sessionManager.getLeafId()` API. The translator attaches
+that inclusive boundary to the last assistant text item through its existing
+`nativeId` field. Tool results do not erase the answer binding. A new turn clears
+the candidate before another boundary can be accepted.
+
+The rewind control is available only for Pi answers with a known boundary and a
+settled whole tree. Older answers without a proven boundary have no rewind
+control. The confirmation explains that files are not reverted and later turns
+remain visible in ace while Pi continues from the chosen context. No protocol
+schema or file-restore operation is added.
+
+Primary contracts: [Pi 0.85.1 extension context](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/docs/extensions.md#ctxsessionmanager)
+and [turn persistence order](https://github.com/earendil-works/pi/blob/v0.85.1/packages/coding-agent/src/core/agent-session.ts).

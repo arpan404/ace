@@ -39,11 +39,11 @@ export function parseThemeFile(text: string): ThemeFile {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error("That file isn't JSON.");
+    throw new Error("That file couldn't be read. Choose an exported ace theme file.");
   }
   const file = ThemeFile.safeParse(json);
   if (!file.success || file.data.tokens["--background"] === undefined)
-    throw new Error("That file isn't an ace theme: it needs a tokens object with --background.");
+    throw new Error("That file isn't an ace theme. Choose a file exported from the theme editor.");
   return file.data;
 }
 

@@ -6,8 +6,7 @@ import { imageType, isCheckoutPath, isText } from "@ace/ui-core";
  * A thread's checkout as the Files tool reads it: search through `context.request`
  * `mention.complete` (the daemon's path index), and file bytes through the files channel
  * (`files.request` stat, download and upload, ADR 0037 and 0058), scoped to the thread so the
- * daemon resolves its worktree. There is no directory listing on the wire yet, so nothing here
- * pretends to list a folder.
+ * daemon resolves its worktree. Management requests use the same thread scope and version checks.
  */
 
 /** The most the viewer reads to show a file; bigger files offer Download instead. */
@@ -36,22 +35,26 @@ export class CheckoutError extends Error {
 
 const sentences: Record<string, string> = {
   NOT_FOUND: "This file isn't in the checkout any more.",
-  FORBIDDEN: "This device may not read the thread's files.",
+  FORBIDDEN: "This device doesn't have access to these files.",
   OUTSIDE_WORKSPACE: "That path is outside the thread's checkout.",
   BUSY: "The thread's worktree is busy (being prepared or moved). Try again in a moment.",
-  CONFLICT: "The file changed while it was being read. Try again.",
-  QUOTA: "The daemon's file transfer limit was reached. Try again later.",
-  UNSUPPORTED: "This daemon can't serve files for the thread.",
-  offline: "The daemon is offline. Files load again once it reconnects.",
-  timeout: "The daemon didn't answer in time.",
+  CONFLICT: "This path changed or already exists. Refresh and try again.",
+  INVALID_PATH: "Use a path inside the checkout, without parent folders (..).",
+  EXPIRED: "This recovery item expired. Restore from Git or a backup.",
+  IO_ERROR: "Couldn't change the file. Check the path and folder permissions, then try again.",
+  LIMIT_EXCEEDED: "This folder has too many entries. Choose a smaller folder.",
+  QUOTA: "The file transfer or recovery limit was reached. Try again later.",
+  UNSUPPORTED: "ace on this machine can't serve files for the thread.",
+  offline: "ace is offline. Files load again once it reconnects.",
+  timeout: "ace didn't answer in time.",
   forbidden: "This device may not search the thread's checkout.",
   not_found: "The thread's checkout wasn't found.",
-  unsupported: "This daemon can't search the thread's checkout.",
+  unsupported: "ace on this machine can't search the thread's checkout.",
 };
 
 /** A daemon error code as a `CheckoutError`. */
 export function fromCode(code: string): CheckoutError {
-  return new CheckoutError(code, sentences[code] ?? "The daemon couldn't read the checkout.");
+  return new CheckoutError(code, sentences[code] ?? "ace couldn't read the checkout.");
 }
 
 /** Turn whatever a request threw into a `CheckoutError` a view can show. */
@@ -90,13 +93,6 @@ export interface CheckoutSource {
   stat(threadId: string, path: string, signal?: AbortSignal): Promise<Stat>;
   /** A file to show: text, an image, or why it can't be shown. */
   read(threadId: string, path: string, signal?: AbortSignal): Promise<FileContent>;
-  /** Every byte of a file, for saving it on this device. */
-  download(
-    threadId: string,
-    path: string,
-    progress: (received: number) => void,
-    signal?: AbortSignal,
-  ): Promise<Blob>;
   /**
    * Put `file` at `path`. `expected` is the version it replaces (null: nothing is there); a
    * file that appeared or changed meanwhile fails with CONFLICT instead of being overwritten.
@@ -200,17 +196,6 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       if (image) return { kind: "image", blob: new Blob([bytes], { type: image }), size, version };
       if (!isText(bytes)) return { kind: "binary", size, version };
       return { kind: "text", text: new TextDecoder().decode(bytes), size, version };
-    },
-    async download(threadId, path, progress, signal) {
-      guard(path);
-      const parts: Uint8Array<ArrayBuffer>[] = [];
-      let received = 0;
-      for await (const chunk of bytesOf(threadId, path, signal)) {
-        parts.push(new Uint8Array(chunk));
-        received += chunk.length;
-        progress(received);
-      }
-      return new Blob(parts, { type: imageType(path) ?? "application/octet-stream" });
     },
     async upload(threadId, path, file, expected, progress, signal) {
       guard(path);

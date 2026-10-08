@@ -22,6 +22,7 @@ export interface RelayServices {
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   accountManagement?: import("../account-management.ts").AccountManagement;
   files?: FilesService;
+  supportFiles?: FilesService;
   context?: import("../server-options.ts").ServerOptions["context"];
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   appDevices?: DevicesService;
@@ -162,29 +163,36 @@ export function attachRelayService(
         authorize(scope === "files.read" ? "read" : "operate"),
       )
     : undefined;
-  const chunks = options.threadFiles
-    ? chunkFilesChannel({
-        device,
-        send: (message) => {
-          if (channel.bufferedBytes > 1024 * 1024) {
-            channel.close();
-            return;
-          }
-          void channel.send(message).catch(() => channel.close());
-        },
-        async resolve(threadId) {
-          const files = options.threadFiles;
-          if (!files || !threadAccess(threadId)) throw new Error("File thread unavailable");
-          const root = files.root(threadId);
-          const service = await files.get(threadId);
-          return {
-            service,
-            allowed: (access) =>
-              authorize(access) && threadAccess(threadId) && files.matches(threadId, root),
-          };
-        },
-      })
-    : undefined;
+  const chunks =
+    options.threadFiles || options.supportFiles
+      ? chunkFilesChannel({
+          device,
+          send: (message) => {
+            if (channel.bufferedBytes > 1024 * 1024) {
+              channel.close();
+              return;
+            }
+            void channel.send(message).catch(() => channel.close());
+          },
+          async resolve(threadId, scope) {
+            if (scope === "support" && options.supportFiles)
+              return {
+                service: options.supportFiles,
+                allowed: (access) => authorize(access),
+              };
+            const files = options.threadFiles;
+            if (!threadId || !files || !threadAccess(threadId))
+              throw new Error("File thread unavailable");
+            const root = files.root(threadId);
+            const service = await files.get(threadId);
+            return {
+              service,
+              allowed: (access) =>
+                authorize(access) && threadAccess(threadId) && files.matches(threadId, root),
+            };
+          },
+        })
+      : undefined;
   return {
     async accept(message: ClientMessage) {
       if (message.type === "context.request") {
@@ -213,11 +221,20 @@ export function attachRelayService(
         await channel.send(await options.context.handle(device, message, access));
         return;
       }
+      if (message.type === "files.request" && message.scope === "support") {
+        const op = message.operation;
+        if (
+          (op.op !== "artifact.support" && op.op !== "artifact.download") ||
+          (op.op === "artifact.support" && op.includeThreads) ||
+          (op.op === "artifact.download" && op.artifactId.startsWith("local-support-"))
+        )
+          throw new Error("Conversation export requires local access");
+      }
       if (
         message.type === "files.abort" ||
         message.type === "files.pull" ||
         message.type === "files.chunk" ||
-        (message.type === "files.request" && message.threadId) ||
+        (message.type === "files.request" && (message.threadId || message.scope === "support")) ||
         (message.type === "files.cancel" && message.channel > 0x80000000)
       ) {
         if (!chunks) throw new Error("Scoped files unavailable");

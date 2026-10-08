@@ -8,7 +8,7 @@ import { harness } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
-const offline = /^Offline · messages, answers and Stop will send when the daemon is back/;
+const offline = /^Offline · messages, answers and Stop will send when the connection returns/;
 
 async function openHome() {
   const app = harness();
@@ -37,7 +37,7 @@ test("offline, the notice says what will send, counts what waits and lists it", 
   const notice = await screen.findByRole("button", { name: /· 2 waiting$/ });
   expect(notice.textContent).toMatch(offline);
   await userEvent.click(notice);
-  const waiting = screen.getByRole("list", { name: "Waiting for the daemon" });
+  const waiting = screen.getByRole("list", { name: "Waiting for ace" });
   expect(
     within(waiting)
       .getAllByRole("listitem")
@@ -53,24 +53,19 @@ test("offline, the notice says what will send, counts what waits and lists it", 
   });
 }, 15_000);
 
-test("offline, Add project is off and says it needs the daemon", async () => {
+test("offline, the project's Add action explains why it is unavailable and works after reconnect", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
   await screen.findByText(offline);
-  const add = screen.getByRole("button", { name: "Add project" });
+  await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
+  const add = await screen.findByRole("menuitem", { name: /^Add project/ });
   expect(add.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.hover(add);
-  expect((await screen.findByRole("tooltip")).textContent).toBe("Needs the daemon");
+  expect(within(add).getByText("Connect to this computer to add a project.")).toBeTruthy();
   await userEvent.click(add);
   expect(screen.queryByRole("dialog")).toBeNull();
 
-  // Back online it opens the dialog again.
   app.client.networkOnline(true);
-  await waitFor(() =>
-    expect(
-      screen.getByRole("button", { name: "Add project" }).getAttribute("aria-disabled"),
-    ).not.toBe("true"),
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Add project" }));
-  expect(await screen.findByRole("dialog")).toBeTruthy();
+  await waitFor(() => expect(add.getAttribute("aria-disabled")).not.toBe("true"));
+  await userEvent.click(add);
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 }, 15_000);

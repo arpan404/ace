@@ -120,14 +120,14 @@ test("Cancel stops trying and gives the fields back, token kept", async () => {
 
 test("a remembered daemon that answers opens straight into the app", async () => {
   boot({ remembered: true });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
 });
 
 test("a remembered daemon that is down says so instead of a shell stuck reconnecting", async () => {
   const { runOutFirstAttempt } = boot({ remembered: true, createClient: silentClient });
-  expect(screen.queryByRole("heading", { name: "Connect to your daemon" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   expect(shell()).toBeNull();
@@ -138,7 +138,7 @@ test("inside the desktop app the form never tells the person to start a daemon b
   daemon.refuseConnections(true);
   await connect();
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/Couldn't reach the daemon/);
+  expect(alert.textContent).toMatch(/Couldn't reach ace/);
   expect(document.body.textContent).not.toMatch(/ace start/);
 });
 
@@ -157,7 +157,7 @@ function SwitchTo(props: { target: DaemonTarget }) {
   const connection = useDaemonConnection();
   return (
     <button type="button" onClick={() => connection.connect(props.target, false)}>
-      Switch daemon
+      Switch ace
     </button>
   );
 }
@@ -194,13 +194,13 @@ test("switching daemons never shows the old daemon's app while the new client is
   await connect();
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
 
-  await userEvent.click(screen.getByRole("button", { name: "Switch daemon" }));
+  await userEvent.click(screen.getByRole("button", { name: "Switch ace" }));
   // A's app is gone at once and nothing acts for B before B has welcomed the window.
   expect(shell()).toBeNull();
-  expect(screen.queryByRole("button", { name: "Switch daemon" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Switch ace" })).toBeNull();
   expect(await screen.findByRole("button", { name: "Connecting…" })).toBeTruthy();
 
   act(() => arrive?.(fakeClient(second, token)));
-  await screen.findByRole("button", { name: "Switch daemon" });
+  await screen.findByRole("button", { name: "Switch ace" });
   expect(shell()).toBeNull();
 });

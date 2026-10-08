@@ -138,7 +138,15 @@ const actions = new Map(
     { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
   >),
 );
-export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImageRuntime): Toolkit {
+export function devicesToolkit(
+  service: DevicesService,
+  imageRuntime?: ModelImageRuntime,
+  requestAccess?: (
+    deviceId: string,
+    caller: { threadId: string; agentId: string },
+    signal: AbortSignal,
+  ) => Promise<void>,
+): Toolkit {
   return {
     register(registry) {
       for (const [name, input] of Object.entries(schemas)) {
@@ -155,7 +163,7 @@ export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImag
                 ? 250000
                 : name === "device_install"
                   ? 120000
-                  : 30000,
+                  : 120000,
           description: action.description,
           riskClass: action.riskClass,
           async run(args, { caller, signal }) {
@@ -170,6 +178,13 @@ export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImag
             const abort = () => service.disconnect(owner);
             signal.addEventListener("abort", abort, { once: true });
             try {
+              if (
+                (name === "device_boot" || name === "device_start") &&
+                "deviceId" in args &&
+                typeof args.deviceId === "string" &&
+                requestAccess
+              )
+                await requestAccess(args.deviceId, caller, signal);
               if (name === "device_screenshot") {
                 const { deviceId } = target.parse(args);
                 const frame = await service.screenshot(deviceId, actor);

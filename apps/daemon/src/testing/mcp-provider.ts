@@ -52,6 +52,7 @@ const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}
 if (provider === "opencode") {
   let config: z.infer<typeof HttpServer> | undefined;
   let mcpProof: string | undefined;
+  const userServers = new Map<string, string>();
   const operations = [
     "server.info",
     "event.subscribe",
@@ -98,9 +99,12 @@ if (provider === "opencode") {
     let result: unknown;
     if (path === "/api/mcp") {
       result = {
-        data: config
-          ? [{ name: "ace", status: { status: mcpProof ? "connected" : "pending" } }]
-          : [],
+        data: [
+          ...(config
+            ? [{ name: "ace", status: { status: mcpProof ? "connected" : "pending" } }]
+            : []),
+          ...[...userServers].map(([name, status]) => ({ name, status: { status } })),
+        ],
         ...(mcpProof && config
           ? {
               mcpProof,
@@ -138,6 +142,27 @@ if (provider === "opencode") {
           })),
         },
       };
+    } else if (path.startsWith("/api/experimental/mcp/")) {
+      const name = decodeURIComponent(path.split("/")[4] ?? "");
+      if (req.method === "PUT") {
+        let body = "";
+        for await (const chunk of req) {
+          body += String(chunk);
+          if (Buffer.byteLength(body) > 65536) throw new Error("Fake request exceeds bound");
+        }
+        z.object({
+          config: z.union([
+            z.object({ type: z.literal("local"), command: z.array(z.string()).min(1) }),
+            z.object({ type: z.literal("remote"), url: z.url() }),
+          ]),
+        }).parse(JSON.parse(body));
+        userServers.set(name, "disabled");
+      } else {
+        if (!userServers.has(name)) throw new Error("MCP server was not registered");
+        userServers.set(name, path.endsWith("/disconnect") ? "disabled" : "connected");
+      }
+      res.writeHead(204).end();
+      return;
     } else if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
     else if (path === "/openapi.json")
       result = {

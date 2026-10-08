@@ -31,6 +31,7 @@ import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
+  notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;
@@ -42,7 +43,8 @@ export interface ServerOptions {
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
-  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers"> &
+    Partial<Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "groups">>;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   devices?: DevicesService;
@@ -53,7 +55,7 @@ export interface ServerOptions {
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
-  relay?: { url: string; keys: KeyPair };
+  relay?: { url: string; keys: KeyPair } | undefined;
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
@@ -67,6 +69,10 @@ export interface ServerOptions {
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;
   remote?: RemoteListener;
+  remoteConfig?: import("./config.ts").Config;
+  network?: import("./network.ts").NetworkRuntime;
+  webRoot?: string;
+  applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;
   now?: () => number;
   runtime?: Partial<DeliveryRuntime>;
   entropy?: EntropySource;
@@ -90,6 +96,9 @@ export interface ServerOptions {
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
+  doctor?: () => Promise<import("@ace/protocol").DiagnosticReport>;
+  toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
+  supportFiles?: FilesService;
   context?: {
     readAttachment?(
       device: string,
@@ -113,6 +122,6 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }

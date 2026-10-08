@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpServerInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "default": [],
+          "items": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "command": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "transport": {
+          "const": "command",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "const": "http",
+          "type": "string"
+        },
+        "url": {
+          "examples": [
+            "https://example.invalid/mcp"
+          ],
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "HTTP or HTTPS URL without credentials, query parameters or a fragment."
+        }
+      },
+      "required": [
+        "transport",
+        "url"
+      ],
+      "type": "object"
+    }
+  ]
+}

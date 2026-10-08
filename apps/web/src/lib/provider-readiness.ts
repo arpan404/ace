@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
+import { accountView, type AccountView } from "@ace/ui-core";
 import type { OnboardingResult, ProviderStatus } from "@ace/protocol";
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -24,6 +25,7 @@ export const onboardingKey = ["onboarding"] as const;
 const dependentKeys: readonly QueryKey[] = [
   ["providers", "statuses"],
   ["settings", "providers"],
+  ["accounts"],
   onboardingKey,
 ];
 
@@ -38,7 +40,7 @@ async function readReadiness(client: ClientApi, signal?: AbortSignal): Promise<P
 
 async function readOnboarding(client: ClientApi, signal?: AbortSignal): Promise<Onboarding> {
   const reply = await client.request({ type: "onboarding.query" }, signal ? { signal } : {});
-  if (!reply.result.ok) throw new Error("Setup is unavailable on this daemon");
+  if (!reply.result.ok) throw new Error("Setup is unavailable on ace on this machine");
   return reply.result;
 }
 
@@ -62,6 +64,24 @@ function watchProviders(client: ClientApi, queryClient: QueryClient): () => void
     let ready = connection.getSnapshot() === "ready";
     const stops = [
       client.onMessage((message) => {
+        if (message.type === "usage.limits_changed") {
+          const account = accountView(message.account);
+          // Stop an older in-flight read from overwriting the committed limit push.
+          if (queryClient.getQueryData(["accounts", "list"]))
+            void queryClient.cancelQueries({ queryKey: ["accounts", "list"] });
+          else void queryClient.invalidateQueries({ queryKey: ["accounts", "list"] });
+          queryClient.setQueryData<AccountView[]>(["accounts", "list"], (known) => {
+            if (!known) return known;
+            const before = known.find((entry) => entry.id === account.id);
+            if (before && before.quota.observedAt > account.quota.observedAt) return known;
+            return before
+              ? known.map((entry) => (entry.id === account.id ? account : entry))
+              : [...known, account];
+          });
+          void queryClient.invalidateQueries({ queryKey: ["usage"] });
+          void queryClient.invalidateQueries({ queryKey: ["providers", "statuses"] });
+          return;
+        }
         if (message.type !== "providers.changed") return;
         queryClient.setQueryData(readinessKey, message.providers);
         for (const queryKey of dependentKeys) void queryClient.invalidateQueries({ queryKey });

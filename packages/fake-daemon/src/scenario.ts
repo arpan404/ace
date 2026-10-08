@@ -52,7 +52,7 @@ export class ScenarioPlayer {
     this.agoMs = options.agoMs ?? 0;
     const first = scenario.steps[0];
     daemon.createThread(
-      withCardDetails(scenario.thread),
+      withCardDetails(scenario.thread, { host: daemon.hostId, name: daemon.displayName }),
       this.agoMs + (first?.kind === "facts" ? (first.agoMs ?? 0) : 0),
     );
   }

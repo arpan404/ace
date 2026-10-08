@@ -2,6 +2,38 @@
   "$id": "https://ace.local/protocol/v1/HistorySession.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "continuation": {
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "supported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "const": "unsupported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "countAccuracy": {
       "enum": [
         "exact",

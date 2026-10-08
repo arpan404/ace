@@ -112,7 +112,7 @@ export function DaemonForm(props: {
   };
   return (
     <form
-      aria-label="Daemon connection"
+      aria-label="ace connection"
       noValidate
       className="flex flex-col gap-4"
       onSubmit={(event) => {
@@ -124,7 +124,7 @@ export function DaemonForm(props: {
         {(field) => {
           const error = firstError(field.state.meta.errors);
           return (
-            <FieldRow id={`${ids}-url`} label="Daemon address" error={error}>
+            <FieldRow id={`${ids}-url`} label="ace address" error={error}>
               <Input
                 id={`${ids}-url`}
                 value={field.state.value}
@@ -150,7 +150,7 @@ export function DaemonForm(props: {
               label="Token"
               hint={
                 <>
-                  On the daemon's machine, run <CopyCommand command="ace token" /> and paste the
+                  On the machine running ace, run <CopyCommand command="ace token" /> and paste the
                   result.
                 </>
               }
@@ -220,10 +220,7 @@ export function DaemonForm(props: {
         )}
       </form.Field>
       {props.alert && (
-        <div
-          role="alert"
-          className="rounded-md bg-destructive/10 px-3 py-2.5 text-ui leading-normal text-foreground"
-        >
+        <div role="alert" className="text-ui leading-normal text-destructive">
           {props.alert}
         </div>
       )}

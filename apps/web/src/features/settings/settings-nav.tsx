@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { pageTitle, searchSettings } from "./settings-index.ts";
-import { settingsPages, type SettingsPath } from "./settings-pages.ts";
+import { visibleSettingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /** Pages that live under another page in the nav (the Theme editor sits under Appearance). */
 const parents: Record<string, SettingsPath> = { "/settings/theme-editor": "/settings/appearance" };
@@ -27,8 +27,8 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
   const current = navPage(pathname);
   const listKeys = useViewListKeys<HTMLUListElement>();
   const pages = props.pages
-    ? settingsPages.filter((page) => props.pages?.includes(page.to))
-    : settingsPages;
+    ? visibleSettingsPages().filter((page) => props.pages?.includes(page.to))
+    : visibleSettingsPages();
   return (
     <ul className="flex flex-col gap-px" {...listKeys}>
       {pages.map((page) => {
@@ -56,7 +56,7 @@ export function SettingsNav() {
   const [query, setQuery] = useState("");
   const text = query.trim().toLowerCase();
   const found = searchSettings(query);
-  const pages = settingsPages
+  const pages = visibleSettingsPages()
     .filter(
       (page) =>
         page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),

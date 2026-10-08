@@ -1,15 +1,14 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { countChanges, type FileDiff } from "@ace/ui-core";
+import { type FileDiff } from "@ace/ui-core";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { useFileDiffs } from "@/lib/diffs/use-file-diffs.ts";
 import { cn } from "@/lib/cn.ts";
 import { useElementWidth } from "@/lib/use-element-width.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
-import { ChangesToolbar, type Scope } from "./changes-toolbar.tsx";
+import { ChangesToolbar } from "./changes-toolbar.tsx";
 import {
   discardDraft,
   isPending,
@@ -34,7 +33,7 @@ import { FileTree } from "./file-tree.tsx";
 import { CommentComposer, DraftCard, linesLabel } from "./line-comment.tsx";
 import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
-import { useTurns } from "@/lib/diffs/use-turns.ts";
+import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
 import { WorkingTreeDiff } from "./working-tree-diff.tsx";
 import { WorkingTree } from "./working-tree.tsx";
 
@@ -72,9 +71,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();
-  const turns = useTurns(threadId);
-  const edited = useMemo(() => turns.filter((turn) => turn.edits.length), [turns]);
-  const [scope, setScope] = useState<Scope>("last");
+  const { scope, setScope, edited, files, pending, stat } = useScopedDiff(threadId);
   const prefs = useLocal(services.diffPrefs, identity);
   const allDrafts = useLocal(services.drafts, identity);
   const drafts = useMemo(
@@ -91,19 +88,6 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const anchor = useId();
   const [measure, width] = useElementWidth();
 
-  // A turn picked before it left the loaded history falls back to the last turn.
-  const effective: Scope =
-    scope === "all" || edited.some((candidate) => candidate.id === scope) ? scope : "last";
-  const turn =
-    effective === "all"
-      ? undefined
-      : (edited.find((candidate) => candidate.id === effective) ?? edited.at(-1));
-  const shown = useMemo(
-    () => (turn ? turn.edits : edited.flatMap((each) => each.edits)),
-    [turn, edited],
-  );
-  const { files, pending } = useFileDiffs(shown);
-  const stat = useMemo(() => countChanges(files.flatMap((file) => file.rows)), [files]);
   const rows = files.reduce((sum, file) => sum + file.rows.length, 0);
   const viewed = useMemo(
     () =>
@@ -292,7 +276,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   return (
     <div ref={measure} className="flex h-full min-h-0 flex-col">
       <ChangesToolbar
-        scope={effective}
+        scope={scope}
         turns={edited}
         onScope={setScope}
         stat={stat}

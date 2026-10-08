@@ -80,7 +80,7 @@ export function EditAutomationScreen(props: { id: string }) {
             title={error ? "Couldn't load this automation" : "Automation not found"}
             description={
               error
-                ? "The daemon didn't answer. It will be read again once the connection is back."
+                ? "ace didn't answer. It will be read again once the connection is back."
                 : "It may have been deleted on another device."
             }
             action={

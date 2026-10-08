@@ -3,167 +3,220 @@ import {
   BrowserIcon,
   CursorClickIcon,
   DeviceMobileIcon,
-  FilesIcon,
-  GitPullRequestIcon,
   GlobeSimpleIcon,
   PlusIcon,
-  TerminalWindowIcon,
   TreeStructureIcon,
-  type Icon as PhosphorIcon,
+  ArrowsClockwiseIcon,
+  PowerIcon,
 } from "@phosphor-icons/react";
+import { useClient } from "@ace/client-react";
+import type { McpSources } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
+import { mcpSource } from "../sources/mcp-source.ts";
 import { Fade, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
 
-/**
- * A group of tools ace gives this thread's agents (the ace MCP server's capability groups), and
- * where a person sees or changes it: a tab of the side panel, or a Settings page.
- */
-interface ToolSource {
-  id: string;
-  label: string;
-  detail: string;
-  icon: PhosphorIcon;
-  /** The side panel tool showing what the agents do with it. */
-  kind?: string;
-  /** The page that turns it on or off. */
-  page?: "/settings/computer-use" | "/settings/notifications";
-}
-
-const toolSources: readonly ToolSource[] = [
-  {
-    id: "browser",
-    label: "Browser",
-    detail: "Open and drive web pages",
-    icon: GlobeSimpleIcon,
-    kind: "browser",
-  },
-  {
-    id: "files",
-    label: "Files",
-    detail: "Read and edit the checkout",
-    icon: FilesIcon,
-    kind: "files",
-  },
-  {
-    id: "terminal",
-    label: "Terminal",
-    detail: "Run commands and dev servers",
-    icon: TerminalWindowIcon,
-    kind: "terminal",
-  },
+const AddMcpServer = lazy(() => import("./add-mcp-server.tsx"));
+const groups = [
+  { id: "thread", label: "Thread", icon: TreeStructureIcon },
+  { id: "files", label: "Files", icon: TreeStructureIcon },
+  { id: "thread_control", label: "Thread controls", icon: TreeStructureIcon },
+  { id: "terminal", label: "Terminal", icon: TreeStructureIcon },
+  { id: "forge", label: "Pull requests", icon: TreeStructureIcon },
+  { id: "agents", label: "Subagents", icon: TreeStructureIcon, kind: "agents" },
+  { id: "browser", label: "Browser", icon: GlobeSimpleIcon, kind: "browser" },
   {
     id: "screen",
     label: "Computer use",
-    detail: "Other apps, in the background",
     icon: CursorClickIcon,
-    page: "/settings/computer-use",
+    page: "/settings/computer-use" as const,
   },
-  {
-    id: "devices",
-    label: "Devices",
-    detail: "Simulators and emulators",
-    icon: DeviceMobileIcon,
-    kind: "devices",
-  },
-  {
-    id: "preview",
-    label: "Preview",
-    detail: "The project's dev server",
-    icon: BrowserIcon,
-    kind: "preview",
-  },
-  {
-    id: "agents",
-    label: "Subagents",
-    detail: "Start and steer other agents",
-    icon: TreeStructureIcon,
-    kind: "agents",
-  },
-  {
-    id: "forge",
-    label: "GitHub and GitLab",
-    detail: "Pull requests for this branch",
-    icon: GitPullRequestIcon,
-  },
+  { id: "devices", label: "Devices", icon: DeviceMobileIcon, kind: "devices" },
+  { id: "preview", label: "Preview", icon: BrowserIcon, kind: "preview" },
   {
     id: "notify",
     label: "Notifications",
-    detail: "Tell you when something needs you",
     icon: BellSimpleIcon,
-    page: "/settings/notifications",
+    page: "/settings/notifications" as const,
   },
+  { id: "projects", label: "Projects", icon: TreeStructureIcon },
+  { id: "automations", label: "Automations", icon: ArrowsClockwiseIcon },
 ];
+const statuses = {
+  connected: { tone: "done", label: "Connected" },
+  connecting: { tone: "working", label: "Connecting" },
+  disabled: { tone: "idle", label: "Disabled" },
+  failed: { tone: "failed", label: "Failed" },
+  unknown: { tone: "idle", label: "Unknown" },
+} as const;
 
-/** Rows before View all. */
-const firstFew = 4;
-
-/**
- * Sources: the tools ace gives this thread's agents, each opening where it is seen or turned on
- * (Computer use and Notifications in Settings, the rest as side panel tabs). + adds a plugin or
- * MCP server in Skills. The providers' own MCP servers aren't listed: the daemon doesn't report
- * them to clients yet.
- */
+/** Sources reads the same enabled groups as ace MCP discovery, plus native provider status. */
 export function SourcesSection(props: { thread: ThreadRef; onClose(): void }) {
+  const client = useClient();
+  const source = useMemo(() => mcpSource(client, props.thread.id), [client, props.thread.id]);
   const workspace = useWorkspaceActions(props.thread.id);
   const navigate = useNavigate();
+  const [data, setData] = useState<McpSources>();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [all, setAll] = useState(false);
-  const shown = all ? toolSources : toolSources.slice(0, firstFew);
-  const open = (source: ToolSource) => {
-    if (source.kind) workspace.open({ kind: source.kind });
-    else if (source.page) void navigate({ to: source.page });
-    props.onClose();
+  useEffect(() => {
+    const lifetime = new AbortController();
+    let reading = false;
+    const read = () => {
+      if (reading || lifetime.signal.aborted) return;
+      reading = true;
+      void source
+        .read(lifetime.signal)
+        .then(
+          (value) => {
+            if (!lifetime.signal.aborted) {
+              setData(value);
+              setError("");
+            }
+          },
+          () => {
+            if (!lifetime.signal.aborted)
+              setError("Could not load sources. Reopen this list to try again.");
+          },
+        )
+        .finally(() => {
+          reading = false;
+        });
+    };
+    read();
+    const stop = client.connectionState().subscribe(read);
+    const timer = setInterval(read, 5_000);
+    return () => {
+      clearInterval(timer);
+      lifetime.abort();
+      stop();
+    };
+  }, [client, source]);
+  const control = async (type: "mcp.reconnect" | "mcp.enable" | "mcp.disable", name: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await source.control(type, name);
+      setData(await source.read());
+    } catch {
+      setError(`Could not change ${name}. Check the server in your coding agent and try again.`);
+    } finally {
+      setBusy(false);
+    }
   };
+  const enabled = groups.filter((group) => data?.groups.includes(group.id));
+  const shown = all ? enabled : enabled.slice(0, 4);
   return (
     <section aria-labelledby="work-card-sources">
       <SectionHead id="work-card-sources" title="Sources">
-        <IconButton
-          icon={PlusIcon}
-          label="Add a plugin or MCP server"
-          size="sm"
-          className="size-7"
-          onClick={() => {
-            void navigate({ to: "/skills" });
-            props.onClose();
-          }}
-        />
+        {data?.canAdd && (
+          <IconButton
+            icon={PlusIcon}
+            label="Add MCP server"
+            size="sm"
+            className="size-7"
+            onClick={() => setAdding(true)}
+          />
+        )}
       </SectionHead>
+      {error && (
+        <p role="alert" className="px-2.5 text-ui text-destructive">
+          {error}
+        </p>
+      )}
+      {!data && !error && <RowNote>Loading sources…</RowNote>}
+      {data && !data.live && (
+        <p className="px-2.5 text-ui text-muted-foreground">
+          Send a message to see your coding agent’s MCP servers.
+        </p>
+      )}
       <ul aria-label="Tool sources" className="flex flex-col">
-        {shown.map((source) => (
-          <li key={source.id}>
-            {source.kind || source.page ? (
-              <RowButton
-                aria-label={`${source.label}: ${source.detail}`}
-                onClick={() => open(source)}
-              >
-                <SourceBody source={source} />
-              </RowButton>
-            ) : (
-              <RowNote className="text-foreground">
-                <SourceBody source={source} />
-              </RowNote>
-            )}
+        {shown.map((group) => {
+          const Icon = group.icon;
+          const body = (
+            <>
+              <Icon aria-hidden size={16} className={rowIcon} />
+              <span>{group.label}</span>
+              <Fade className="text-subtle-foreground">ace</Fade>
+            </>
+          );
+          return (
+            <li key={group.id}>
+              {group.kind || group.page ? (
+                <RowButton
+                  aria-label={group.label}
+                  onClick={() => {
+                    if (group.kind) workspace.open({ kind: group.kind });
+                    else if (group.page) void navigate({ to: group.page });
+                    props.onClose();
+                  }}
+                >
+                  {body}
+                </RowButton>
+              ) : (
+                <RowNote className="text-foreground">{body}</RowNote>
+              )}
+            </li>
+          );
+        })}
+        {data?.servers.map((server) => (
+          <li key={server.name} className="flex h-8 items-center gap-2.5 px-2.5 text-ui">
+            <span className="min-w-0 flex-1 truncate">{server.name}</span>
+            <StatusLabel {...statuses[server.status]} />
+            <IconButton
+              icon={ArrowsClockwiseIcon}
+              label={`Reconnect ${server.name}`}
+              size="sm"
+              className="size-7"
+              disabled={busy}
+              onClick={() => void control("mcp.reconnect", server.name)}
+            />
+            <IconButton
+              icon={PowerIcon}
+              label={`${server.status === "disabled" ? "Enable" : "Disable"} ${server.name}`}
+              size="sm"
+              className="size-7"
+              disabled={busy}
+              onClick={() =>
+                void control(
+                  server.status === "disabled" ? "mcp.enable" : "mcp.disable",
+                  server.name,
+                )
+              }
+            />
           </li>
         ))}
       </ul>
-      <RowButton aria-expanded={all} className="text-muted-foreground" onClick={() => setAll(!all)}>
-        <span aria-hidden className="size-4 shrink-0" />
-        {all ? "Show fewer" : "View all"}
-      </RowButton>
+      {enabled.length > 4 && (
+        <RowButton
+          aria-expanded={all}
+          className="text-muted-foreground"
+          onClick={() => setAll(!all)}
+        >
+          {all ? "Show fewer" : "View all ace tools"}
+        </RowButton>
+      )}
+      {data?.appliesNextTurn && (
+        <p className="px-2.5 text-ui text-muted-foreground">Changes apply on the next turn.</p>
+      )}
+      {adding && (
+        <Suspense fallback={null}>
+          <AddMcpServer
+            source={source}
+            provider={props.thread.provider}
+            onClose={() => setAdding(false)}
+            onAdded={async () => {
+              setData(await source.read());
+            }}
+          />
+        </Suspense>
+      )}
     </section>
-  );
-}
-
-function SourceBody(props: { source: ToolSource }) {
-  const Glyph = props.source.icon;
-  return (
-    <>
-      <Glyph aria-hidden size={16} className={rowIcon} />
-      <span className="shrink-0">{props.source.label}</span>
-      <Fade className="text-subtle-foreground">{props.source.detail}</Fade>
-    </>
   );
 }

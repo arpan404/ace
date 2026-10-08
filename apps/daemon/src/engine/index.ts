@@ -1,3 +1,4 @@
+import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
@@ -666,6 +667,64 @@ export class Engine {
   }
   prepareDeletion(id: ThreadId, commandId: string): void {
     this.deletionPolicy?.(id, commandId);
+  }
+  async continueImported(
+    request: Extract<import("@ace/protocol").ClientMessage, { type: "history.continue" }>,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ServerMessage> {
+    await this.ready();
+    signal.throwIfAborted();
+    const thread = this.repo.store.getThread(request.threadId);
+    if (!thread?.imported) throw new Error("Imported thread unavailable");
+    const entry = this.registry.has(thread.provider)
+      ? this.registry.get(thread.provider)
+      : undefined;
+    if (!entry?.capabilities.resume || request.mode !== "resume")
+      return {
+        type: "history.continue",
+        status: "unsupported",
+        reason: "Import this session to read it. This provider cannot continue it in ace.",
+      };
+    await this.repo.store.writable();
+    adoptImportedThread(this.repo, thread.id, this.clock.now());
+    if (!this.repo.reserve(thread.id)) throw new Error("Too many active threads");
+    const actor = this.actor(thread.id);
+    try {
+      await this.sessions.open(actor);
+      signal.throwIfAborted();
+      await actor.flush();
+      if (!actor.session) throw new Error("Provider stopped while opening the session");
+      if (request.input.length) {
+        const command = CommandSchema.parse({
+          id: this.repo.nextCommandId(),
+          deviceId: "ace-history",
+          threadId: thread.id,
+          payload: {
+            type: "thread.send",
+            threadId: thread.id,
+            input: request.input,
+            delivery: request.delivery,
+          },
+        });
+        const result = this.handler.handle(command, commandContext(this.repo.store));
+        if (!result.ok) throw new Error(result.error ?? "Message could not be sent");
+        await this.flush();
+      }
+      return {
+        type: "history.continue",
+        status: "continued",
+        threadId: thread.id,
+        instanceId: thread.imported.instanceId,
+        nativeSessionId:
+          actor.session?.nativeSessionId ??
+          this.repo.session(thread.id).nativeSessionId ??
+          thread.imported.native.nativeId ??
+          "",
+      };
+    } catch (error) {
+      if (!actor.session) this.repo.release(thread.id);
+      throw error;
+    }
   }
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);

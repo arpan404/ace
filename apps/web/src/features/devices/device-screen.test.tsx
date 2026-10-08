@@ -16,6 +16,7 @@ async function liveIphone(webCodecs: Parameters<typeof deviceBrowser>[0]) {
   app.daemon.appDevices.videoEncoding = true;
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { app, panel, iphone, screenImage, browser };
 }

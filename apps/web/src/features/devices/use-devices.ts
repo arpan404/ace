@@ -1,8 +1,9 @@
 import { DeviceClientError } from "@ace/client/devices";
-import type { DeviceInput, DeviceOperation, DevicePermission } from "@ace/protocol";
-import { AgentId, ThreadId } from "@ace/protocol";
+import type { DeviceInput, DeviceOperation, DevicePermission, DeviceSettings } from "@ace/protocol";
+import { AgentId, ThreadId, ScreenFrameHeader } from "@ace/protocol";
 import {
   deviceControls,
+  deviceProblem,
   deviceRows,
   type DeviceControls,
   type DeviceProblem,
@@ -19,7 +20,12 @@ export type { DeviceProblem } from "@ace/ui-core";
 
 function problem(error: unknown): DeviceProblem {
   if (error instanceof DeviceClientError)
-    return { message: error.message, hint: error.hint, permission: error.permission };
+    return deviceProblem({
+      code: error.code,
+      message: error.message,
+      hint: error.hint,
+      permission: error.permission,
+    });
   return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
 }
 
@@ -104,6 +110,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     connected &&
     enabled &&
     selected?.running === true &&
+    (selected.platform !== "ios" || state?.threadId === threadId) &&
     (state === undefined || state.lifecycle === "idle")
       ? selected.id
       : undefined;
@@ -214,6 +221,49 @@ export function useDevices(threadId: string, deviceId?: string) {
           agentId: AgentId.parse(agentId),
         }),
       ),
+    action: (operation: DeviceOperation) => act(() => withControl(operation)),
+    install: (path: string) =>
+      target && act(() => withControl({ op: "install", deviceId: target, path })),
+    openUrl: (url: string) =>
+      target && act(() => withControl({ op: "open_url", deviceId: target, url })),
+    openApp: (appId: string) =>
+      target && act(() => withControl({ op: "open_app", deviceId: target, appId })),
+    configure: (settings: DeviceSettings) =>
+      target && act(() => withControl({ op: "configure", deviceId: target, settings })),
+    recording: state?.recording === true,
+    record: () =>
+      target &&
+      act(async () => {
+        await run({ op: state?.recording ? "record.stop" : "record.start", deviceId: target });
+      }),
+    screenshot: () =>
+      target &&
+      act(async () => {
+        if (!session) return;
+        let image: Uint8Array | undefined;
+        const candidates = new Map<string, Uint8Array>();
+        const release = session.client.watchFrames(target, async (frame) => {
+          candidates.set(JSON.stringify(frame.header), frame.payload);
+          if (candidates.size > 4) {
+            const oldest = candidates.keys().next().value;
+            if (oldest !== undefined) candidates.delete(oldest);
+          }
+        });
+        try {
+          const reply = ScreenFrameHeader.parse(await run({ op: "screenshot", deviceId: target }));
+          image = candidates.get(JSON.stringify(reply));
+          if (!image) throw new Error("Couldn't save the screenshot. Try again.");
+        } finally {
+          release();
+        }
+        if (!image) return;
+        const url = URL.createObjectURL(new Blob([image.slice()], { type: "image/jpeg" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${selected.name}.jpg`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }),
     /**
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the
      * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.

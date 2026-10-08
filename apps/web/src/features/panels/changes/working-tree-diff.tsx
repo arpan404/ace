@@ -1,5 +1,6 @@
-import { ThreadId, type ThreadDetails } from "@ace/protocol";
+import { type ThreadDetails } from "@ace/protocol";
 import type { Turn } from "@ace/ui-core";
+import { readGitDiff } from "@/lib/git-diff.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -19,17 +20,7 @@ export function WorkingTreeDiff(props: {
     queryKey: ["working-tree-diff", props.threadId, props.state, props.details?.head],
     staleTime: 0,
     retry: false,
-    read: async (client, signal) => {
-      const reply = await client.request(
-        {
-          type: "workspace.request",
-          operation: { op: "git.diff", threadId: ThreadId.parse(props.threadId) },
-        },
-        { signal },
-      );
-      if (reply.result.kind !== "gitDiff") throw new Error("Couldn't read the working-tree diff.");
-      return reply.result;
-    },
+    read: (client, signal) => readGitDiff(client, props.threadId, signal),
   });
   return (
     <div className="flex h-full min-h-0 flex-col">

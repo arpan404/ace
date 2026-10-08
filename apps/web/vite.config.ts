@@ -11,6 +11,7 @@ import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
 import { droppedWorkerZodMethods, zodWithoutUnusedMethods } from "./zod-methods.ts";
 import { workerBundle } from "./worker-bundle.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
+import { notificationWorker } from "./notification-worker.ts";
 import { workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
@@ -28,6 +29,7 @@ export default defineConfig({
     zodWithoutUnusedMethods(),
     preloads.plugin,
     initialBundle(),
+    notificationWorker(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {

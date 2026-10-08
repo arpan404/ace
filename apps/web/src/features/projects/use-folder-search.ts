@@ -223,6 +223,7 @@ export function useFolderSearch(options: {
   return {
     /** The machine these folders are on. */
     machineId: machine.id,
+    client: machine.client,
     query,
     home,
     sections: visible,

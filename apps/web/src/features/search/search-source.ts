@@ -6,9 +6,10 @@
  */
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ThreadId, type ProviderKind } from "@ace/protocol";
+import { ThreadId, type ProviderKind, type SearchQuery } from "@ace/protocol";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
 export type SearchKind = "thread" | "message" | "tool_call" | "artifact";
 export interface SearchHit {
@@ -23,7 +24,8 @@ export interface SearchHit {
   snippet: { text: string; highlights: readonly { start: number; end: number }[] };
 }
 
-const kinds = new Set<string>(["thread", "message", "tool_call", "artifact"]);
+const shownKinds: SearchKind[] = ["thread", "message", "tool_call", "artifact"];
+const kinds = new Set<string>(shownKinds);
 const shown = (hit: { kind: string }): hit is { kind: SearchKind } => kinds.has(hit.kind);
 
 /** A search the daemon refused, in words; other failures go through `describeDaemonError`. */
@@ -37,7 +39,7 @@ export class SearchError extends Error {
 const errors: Record<string, string> = {
   search_invalid_query: "That search can't be run. Try fewer or simpler words.",
   search_cursor_stale: "The index changed while you were reading. Search again.",
-  search_failed: "The daemon couldn't search right now.",
+  search_failed: "Search couldn't finish. Try again.",
 };
 
 /** Results per page; "Show more" reads the next. */
@@ -52,6 +54,7 @@ async function readPage(
   client: ClientApi,
   query: string,
   kind: SearchKind | undefined,
+  filters: SearchQuery["filters"],
   cursor: string | undefined,
   signal: AbortSignal,
 ): Promise<Page> {
@@ -60,7 +63,7 @@ async function readPage(
       type: "search.query",
       text: query,
       limit: pageSize,
-      filters: kind ? { kind } : {},
+      filters: { ...filters, ...(kind ? { kind } : { kinds: shownKinds }) },
       ...(cursor ? { cursor } : {}),
     },
     { signal },
@@ -79,7 +82,7 @@ async function readPage(
               provider: hit.provider,
               kind: hit.kind,
               createdAt: hit.createdAt,
-              snippet: hit.snippet,
+              snippet: hit.kind === "thread" ? hit.title : hit.snippet,
             },
           ]
         : [],
@@ -91,21 +94,35 @@ async function readPage(
  * The hits for `text`, a page at a time. While a new query loads the last results stay, marked
  * `updating`, so the list never blanks between keystrokes.
  */
-export function useSearch(text: string, kind: SearchKind | undefined) {
+export function useSearch(
+  text: string,
+  kind: SearchKind | undefined,
+  filters: SearchQuery["filters"] = {},
+) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const query = text.trim();
+  const progress = useDaemonQuery({
+    queryKey: ["search-status"],
+    read: async (api, signal) => {
+      const reply = await api.request({ type: "search.status" }, { signal });
+      if (reply.type === "search.error") throw new SearchError("Couldn't check search progress.");
+      return reply;
+    },
+    refetchInterval: (state) => (state.state.data?.ready ? 30_000 : 1_000),
+  });
   const result = useInfiniteQuery({
-    queryKey: ["search", query, kind ?? "all"],
+    queryKey: ["search", query, kind ?? "all", filters, progress.data?.generation],
     enabled: ready && query.length > 0,
     placeholderData: keepPreviousData,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: Page) => last.cursor ?? undefined,
-    queryFn: ({ pageParam, signal }) => readPage(client, query, kind, pageParam, signal),
+    queryFn: ({ pageParam, signal }) => readPage(client, query, kind, filters, pageParam, signal),
   });
   const hits = useMemo(() => result.data?.pages.flatMap((page) => page.hits), [result.data]);
   return {
     hits,
+    progress: progress.data,
     error: result.error,
     isError: result.isError,
     refetch: result.refetch,

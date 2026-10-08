@@ -13,12 +13,27 @@ export const DaemonUrl = z.string().check(
 /** The local token (`~/.ace-next/daemon-token`) or a paired device token: 64 hex characters. */
 export const DaemonToken = z
   .string()
-  .check(z.trim(), z.regex(/^[0-9a-f]{64}$/i, "A daemon token is 64 hexadecimal characters"));
-export const DaemonTargetShape = { url: DaemonUrl, token: DaemonToken };
+  .check(
+    z.trim(),
+    z.regex(
+      /^[0-9a-f]{64}$/i,
+      "Paste the access token copied from ace on the machine you want to connect to",
+    ),
+  );
+export const DaemonTargetShape = {
+  url: DaemonUrl,
+  token: DaemonToken,
+  pairedDeviceId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
+};
+
 export const DaemonTarget = z.object(DaemonTargetShape);
 export type DaemonTarget = z.infer<typeof DaemonTarget>;
 
-const keys = { url: "ace.daemon.url", token: "ace.daemon.token" } as const;
+const keys = {
+  url: "ace.daemon.url",
+  token: "ace.daemon.token",
+  device: "ace.daemon.pairedDevice",
+} as const;
 
 /**
  * Where the token lives: in session storage by default (gone when the window closes), in
@@ -32,7 +47,12 @@ export interface ConnectionStores {
 export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemonUrl) {
   const url = safeGet(stores.local, keys.url) ?? fallbackUrl;
   const token = safeGet(stores.session, keys.token) ?? safeGet(stores.local, keys.token);
-  const parsed = DaemonTarget.safeParse({ url, token });
+  const device = safeGet(stores.session, keys.device) ?? safeGet(stores.local, keys.device);
+  const parsed = DaemonTarget.safeParse({
+    url,
+    token,
+    ...(device ? { pairedDeviceId: device } : {}),
+  });
   return {
     url: DaemonUrl.safeParse(url).success ? url : fallbackUrl,
     target: parsed.success ? parsed.data : undefined,
@@ -45,9 +65,15 @@ export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remem
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
   safeSet(remember ? stores.local : stores.session, keys.token, target.token);
+  safeRemove(stores.local, keys.device);
+  safeRemove(stores.session, keys.device);
+  if (target.pairedDeviceId)
+    safeSet(remember ? stores.local : stores.session, keys.device, target.pairedDeviceId);
 }
 
 export function forgetToken(stores: ConnectionStores) {
+  safeRemove(stores.local, keys.device);
+  safeRemove(stores.session, keys.device);
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
 }

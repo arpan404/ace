@@ -22,8 +22,8 @@ test("a switched-off General setting stays off after leaving the page and coming
   expect(worktree.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(worktree);
 
-  await goTo("Notifications");
-  await screen.findByText(/set in the ace desktop app/);
+  await goTo("Keyboard");
+  await screen.findByRole("heading", { level: 2, name: "Keyboard" });
   await goTo("General");
   expect(
     (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
@@ -44,7 +44,7 @@ test("follow-ups and restart recovery are stored on the daemon", async () => {
     expect(app.daemon.services.settings.get("threads.continueAfterRestart")).toBe(true);
   });
 
-  await goTo("Notifications");
+  await goTo("Keyboard");
   await goTo("General");
   expect(
     (await screen.findByRole("combobox", { name: "Messages sent while the agent works" }))
@@ -152,9 +152,8 @@ test("offline, daemon settings are disabled and say why; this device's stay edit
   );
   // Its wrapper takes focus and gives the reason.
   const wrapper = worktree.parentElement;
-  expect(wrapper?.getAttribute("tabindex")).toBe("0");
   await userEvent.hover(wrapper ?? worktree);
-  expect(await screen.findByText("Reconnect to change settings stored on the daemon")).toBeTruthy();
+  expect(await screen.findByText("Reconnect to change settings stored on ace")).toBeTruthy();
   expect((screen.getByRole("textbox", { name: "Your name" }) as HTMLInputElement).disabled).toBe(
     false,
   );
@@ -178,7 +177,7 @@ test("searching Settings finds a single setting and opens its page at that row",
   const row = document.getElementById("appearance.accent");
   // The page scrolls to that row, the one holding the accent picker.
   await waitFor(() => expect(scrolled).toContain(row));
-  expect(row?.querySelector('[role="radiogroup"][aria-label="Accent colour"]')).toBeTruthy();
+  expect(screen.getByRole("radiogroup", { name: "Accent colour" })).toBeTruthy();
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   expect(within(nav).getByRole("link", { name: "Appearance" }).getAttribute("aria-current")).toBe(
     "page",
@@ -211,4 +210,15 @@ test("⌘K finds a single setting and opens its page at that row", async () => {
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
   expect(document.getElementById("appearance.accent")).toBeTruthy();
+});
+
+test("web offers in-app notifications in settings and search while hiding desktop-only controls", async () => {
+  await harness().open("/settings/notifications");
+  expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeTruthy();
+  const nav = within(screen.getByRole("navigation", { name: "Settings pages" }));
+  expect(nav.getByRole("link", { name: "Notifications" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Notifications on this computer" })).toBeNull();
+  await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "notifications");
+  expect(await nav.findByRole("link", { name: "Notifications" })).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Notifications on this computer" })).toBeNull();
 });

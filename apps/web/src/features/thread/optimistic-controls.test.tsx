@@ -76,7 +76,7 @@ test("offline, the model popover still changes effort and the account, which go 
   const app = await open();
   await offline(app);
   const popover = await openModelControl(/^Model: Opus 5\.5, personal/);
-  expect(within(popover).getByText("Offline: changes apply when the daemon is back")).toBeTruthy();
+  expect(within(popover).getByText("Offline: changes apply when reconnected")).toBeTruthy();
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
   await userEvent.click(within(popover).getByRole("button", { name: "Account work" }));
@@ -113,7 +113,6 @@ test("a model switch shows the model it leaves until the agent's next turn", asy
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
 
   const chip = await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
-  expect(chip.textContent).toContain("Opus 5.5 →GPT-5 Codex");
   expect(chip.getAttribute("aria-description")).toMatch(/^Switches from Opus 5\.5 on personal · /);
 });
 

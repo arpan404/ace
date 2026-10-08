@@ -6,6 +6,7 @@ export interface FakeWireSession {
 }
 export interface FakeServiceContext {
   now(): number;
+  projectRoots?(): readonly string[];
   canManageProjects?(device: string): boolean;
   scheduleProject?(callback: () => void): void;
   createThread?(input: {
@@ -13,6 +14,7 @@ export interface FakeServiceContext {
     workspaceId: string;
     title: string;
     provider: Thread["provider"];
+    imported?: Thread["imported"];
   }): void;
   apply?(id: string, facts: readonly import("@ace/core").Fact[]): void;
   thread(id: string): ThreadView | undefined;

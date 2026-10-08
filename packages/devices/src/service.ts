@@ -23,7 +23,6 @@ import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
 
-const simulatorBundle = "com.apple.iphonesimulator";
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
 const routine = new Set(["lease_required", "permission_denied", "busy", "not_booted"]);
 
@@ -130,6 +129,7 @@ export class DevicesService {
       approved: session.threadId !== undefined,
       threadId: session.threadId,
       lifecycle: session.lifecycle,
+      recording: session.recording !== undefined,
       streamId: session.streamId,
       ...session.lease.status(),
       error: session.error,
@@ -273,7 +273,7 @@ export class DevicesService {
       if (!this.enabled) {
         this.disabling = true;
         try {
-          await disableDeviceSessions(this.sessions.values(), this.lifecycleOwner());
+          await disableDeviceSessions(this.sessions.values(), this.lifecycleOwner(), this.options);
           this.sessions.clear();
         } finally {
           this.disabling = false;
@@ -366,9 +366,6 @@ export class DevicesService {
         await session.capture?.keyframe?.();
         return { completed: true };
       case "start":
-        // A person watching a simulator needs no thread approval: they approve its window.
-        if (actor.kind === "human" && session.device.platform === "ios")
-          await this.options.screen?.allow(simulatorBundle);
         await this.start(session, operation.fps);
         return this.state(session);
       case "stop":
@@ -432,10 +429,12 @@ export class DevicesService {
         return session.logs.tail(operation.limit);
       case "record.start":
         await this.record(session);
+        this.emit(session);
         return { started: true };
       case "record.stop": {
         const result = await stopDeviceRecording(session, actor, this.lifecycleOwner());
         await session.streamControl?.refresh();
+        this.emit(session);
         return result;
       }
       default: {
@@ -591,7 +590,9 @@ export class DevicesService {
     });
   }
   private record(session: DeviceSession): Promise<void> {
-    return recordDevice(session, this.options, this.streamControlFor(session));
+    return recordDevice(session, this.options, this.streamControlFor(session), () =>
+      this.emit(session),
+    );
   }
   disconnect(owner: string): void {
     this.streamOwners.disconnect(owner);

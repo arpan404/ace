@@ -74,7 +74,7 @@ function SavingPill(props: { message: PendingQueued }) {
       <span className="min-w-0 truncate font-medium text-foreground">
         {text || "Attached files"}
       </span>
-      <Spinner label="Sending to the daemon" />
+      <Spinner label="Sending to ace" />
     </li>
   );
 }

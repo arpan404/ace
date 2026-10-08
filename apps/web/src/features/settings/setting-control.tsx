@@ -2,10 +2,10 @@ import { useConnectionState } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { useSettingsLoaded, type SettingControl } from "./data/use-settings.ts";
 
-export const offlineReason = "Reconnect to change settings stored on the daemon";
+export const offlineReason = "Reconnect to change settings stored on ace";
 
 /**
  * The slot a daemon setting's control sits in: a skeleton until the daemon has answered (never
@@ -35,31 +35,7 @@ export function DaemonSlot(props: {
 export function useNotConnectedNote(): string | undefined {
   const loaded = useSettingsLoaded();
   const offline = useConnectionState() !== "ready";
-  return !loaded && offline
-    ? "Not connected; showing nothing until the daemon answers."
-    : undefined;
+  return !loaded && offline ? "Not connected; showing nothing until ace answers." : undefined;
 }
 
-/**
- * A control that can be disabled and still say why: it sits in a wrapper whose tooltip gives
- * the reason, focusable only while there is one (a disabled button gets no pointer or focus
- * events itself). The wrapper is always there, so the control never remounts when the reason
- * comes or goes.
- */
-export function DisabledReason(props: { reason: string | undefined; children: ReactNode }) {
-  return (
-    <Tooltip disabled={!props.reason}>
-      <TooltipTrigger
-        render={
-          <span
-            tabIndex={props.reason ? 0 : undefined}
-            className="inline-flex rounded-md focus-ring *:flex-1"
-          />
-        }
-      >
-        {props.children}
-      </TooltipTrigger>
-      <TooltipContent>{props.reason}</TooltipContent>
-    </Tooltip>
-  );
-}
+export { DisabledReason } from "@/components/ui/disabled-reason.tsx";

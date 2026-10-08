@@ -38,33 +38,38 @@ export const SettingsValues = z.object({
   "permissions.providerModes": z.partialRecord(ProviderKind, PermissionMode),
   /** Deprecated. Explicit values migrate to permissions.providerModes. */
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
-  "notifications.enabled": z.boolean(),
-  "notifications.sound": z.boolean(),
-  "notifications.onCompletion": z.boolean(),
-  "notifications.onApproval": z.boolean(),
-  "notifications.suppressWhenActive": z.boolean(),
-  "notifications.onFailure": z.boolean(),
-  "notifications.onMention": z.boolean(),
-  "notifications.quietHours": z
-    .object({
-      start: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-      end: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-    })
-    .nullable(),
   "threads.useWorktree": z.boolean(),
   "threads.autoSettleAfter": z.enum(["1d", "2d", "1w", "never"]),
   "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
   "threads.settleOnMerge": z.boolean(),
   "threads.settleOnClose": z.boolean(),
-  "app.openAtLogin": z.boolean(),
-  "logs.retention": z.enum(["7d", "30d", "forever"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
+  "remote.relayUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      if (!value) return true;
+      try {
+        const url = new URL(value);
+        return (
+          ["wss:", "ws:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          (url.protocol === "wss:" || url.hostname === "127.0.0.1")
+        );
+      } catch {
+        return false;
+      }
+    }, "Use a secure relay address without credentials")
+    .meta({
+      "x-ace-constraint":
+        "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.",
+      examples: ["", "wss://relay.example.invalid/"],
+    }),
   "automations.enabled": z.boolean(),
-  "automations.timezone": name,
-  "automations.maxConcurrent": z.number().int().min(1).max(32),
-  "plugins.enabled": z.array(name).max(256),
-  "plugins.preferences": z.record(z.string().max(256), z.json()),
   "clients.theme": z.json(),
   "clients.keybindings": z.json(),
 });
@@ -95,6 +100,8 @@ export const SettingsEntry = z.object({
   key: SettingsKey,
   value: z.json(),
   provenance: SettingsProvenance,
+  /** Permission overrides stored on the requested layer, before provider-wise inheritance. */
+  localValue: z.json().optional(),
 });
 export type SettingsEntry = z.infer<typeof SettingsEntry>;
 export const SettingsDiagnostic = z.object({

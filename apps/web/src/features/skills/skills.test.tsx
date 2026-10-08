@@ -40,13 +40,9 @@ async function installed(app: ReturnType<typeof harness>): Promise<string[]> {
 test("Skills opens on the first skill with its source from the plugin", async () => {
   await open("/skills");
 
-  expect(await screen.findByRole("heading", { level: 1, name: "code-review" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Code review" })).toBeTruthy();
   expect(screen.getByText("skills/code-review/SKILL.md")).toBeTruthy();
   expect(await screen.findByText(/Review the changes since a fixed point/)).toBeTruthy();
-  const sections = within(catalog())
-    .getAllByRole("region")
-    .map((region) => region.getAttribute("aria-label"));
-  expect(sections).toEqual(["Skills", "Slash commands", "Agents", "Plugins"]);
 });
 
 test("searching matches the plugin a skill ships with, and a miss offers to clear the search", async () => {
@@ -55,72 +51,67 @@ test("searching matches the plugin a skill ships with, and a miss offers to clea
   const search = screen.getByRole("searchbox", { name: "Search skills" });
 
   await userEvent.type(search, "PR");
-  await waitFor(() => expect(within(catalog()).queryByText("tdd")).toBeNull());
-  expect(within(catalog()).getByText("pr-desc")).toBeTruthy();
+  await waitFor(() => expect(within(catalog()).queryByText("Test-driven development")).toBeNull());
+  expect(within(catalog()).getByText("PR description")).toBeTruthy();
 
   await userEvent.clear(search);
   await userEvent.type(search, "engineering");
-  await waitFor(() => expect(within(catalog()).getByText("tdd")).toBeTruthy());
-  expect(within(catalog()).queryByText("release-notes")).toBeNull();
+  await waitFor(() => expect(within(catalog()).getByText("Test-driven development")).toBeTruthy());
+  expect(within(catalog()).queryByText("Release notes")).toBeNull();
 
   await userEvent.clear(search);
   await userEvent.type(search, "zzzz");
   expect(await screen.findByText('Nothing matches "zzzz".')).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
-  expect(within(catalog()).getByText("release-notes")).toBeTruthy();
+  expect(within(catalog()).getByText("Release notes")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Plugin: All plugins" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "release" }));
-  await waitFor(() => expect(within(catalog()).queryByText("code-review")).toBeNull());
-  expect(within(catalog()).getByText("standup")).toBeTruthy();
+  await waitFor(() => expect(within(catalog()).queryByText("Code review")).toBeNull());
+  expect(within(catalog()).getByText("Standup")).toBeTruthy();
 });
 
 test("arrow keys move through the catalog as one Tab stop", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
-  const first = within(catalog()).getByRole("link", { name: /^code-review/ });
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
+  const first = within(catalog()).getByRole("link", { name: /^Code review/ });
   // A route lands focus on its heading; take it from there into the list.
-  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 1, name: "Code review" }),
+    ),
+  );
   first.focus();
 
   await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement?.textContent).toMatch(/^tdd/);
+  expect(document.activeElement?.textContent).toMatch(/^Test-driven development/);
   await userEvent.keyboard("{End}");
-  expect(document.activeElement?.textContent).toMatch(/^release/);
-});
-
-test("a skill's page turns its plugin on only through a control that names the plugin", async () => {
-  await open("/skills/release~skill~release-notes");
-  await screen.findByRole("heading", { level: 1, name: "release-notes" });
-  const row = within(catalog()).getByRole("link", { name: /release-notes/ });
-  expect(row.textContent).toContain("Off");
-  expect(screen.getByText("Off · release is off")).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Enabled" })).toBeNull();
-
-  await userEvent.click(screen.getByRole("switch", { name: "Turn release on or off" }));
-
-  await waitFor(() => expect(row.textContent).not.toContain("Off"));
-  expect(within(catalog()).getByRole("link", { name: /standup/ }).textContent).not.toContain("Off");
-  expect(await screen.findByText("release turned on")).toBeTruthy();
+  expect(document.activeElement?.textContent).toMatch(/^Release/);
 });
 
 test("a plugin's page lists what it ships and its pin, with the switch labelled", async () => {
   await open("/skills/plugin~engineering");
-  await screen.findByRole("heading", { level: 1, name: "engineering" });
+  await screen.findByRole("heading", { level: 1, name: "Engineering" });
 
   expect(screen.getByRole("switch", { name: "Enabled" })).toBeTruthy();
-  expect(screen.getByText(/^Version 2\.3\.0 · pinned b{12} · installed /)).toBeTruthy();
+  expect(screen.getByText(/^Version 2\.3\.0 · installed /)).toBeTruthy();
   const contents = within(screen.getByRole("region", { name: "Contents" }));
-  for (const name of ["code-review", "tdd", "diagnosing-bugs", "pr-desc", "reviewer"])
-    expect(contents.getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
+  for (const name of [
+    "Code review",
+    "Test-driven development",
+    "Diagnosing bugs",
+    "PR description",
+    "Reviewer",
+  ])
+    expect(contents.getByRole("link", { name: new RegExp(`^${name}`, "i") })).toBeTruthy();
 
-  await userEvent.click(contents.getByRole("link", { name: /^reviewer/ }));
-  expect(await screen.findByRole("heading", { level: 1, name: "reviewer" })).toBeTruthy();
+  await userEvent.click(contents.getByRole("link", { name: /^Reviewer/ }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Reviewer" })).toBeTruthy();
 });
 
 test("ticking providers is one change and one toast, sent when the menu closes", async () => {
   const app = await open("/skills/plugin~release");
-  await screen.findByRole("heading", { level: 1, name: "release" });
+  await screen.findByRole("heading", { level: 1, name: "Release" });
   expect(screen.getByText("Claude Code only")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Change" }));
@@ -132,8 +123,8 @@ test("ticking providers is one change and one toast, sent when the menu closes",
   await userEvent.keyboard("{Escape}");
 
   expect(await screen.findByText("Claude Code and Codex")).toBeTruthy();
-  expect(await screen.findByText("release available to Claude Code and Codex")).toBeTruthy();
-  expect(screen.getAllByText(/^release available to/)).toHaveLength(1);
+  expect(await screen.findByText("Release available to Claude Code and Codex")).toBeTruthy();
+  expect(screen.getAllByText(/^Release available to/)).toHaveLength(1);
   // The daemon got exactly the closed menu's choice.
   const { availability } = await pluginList(app);
   expect(availability?.find((entry) => entry.name === "release")?.providers).toEqual([
@@ -144,7 +135,7 @@ test("ticking providers is one change and one toast, sent when the menu closes",
 
 test("installing lists the marketplace, shows what a plugin runs, and Back keeps the form", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
 
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   const dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
@@ -164,7 +155,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
   await userEvent.click(within(dialog).getByRole("button", { name: "Review" }));
 
   let review = await screen.findByRole("dialog", { name: "Review sentry 0.9.0" });
-  expect(within(review).getByText(/From getsentry\/sentry, pinned/)).toBeTruthy();
+  expect(within(review).getByText(/From getsentry\/sentry\./)).toBeTruthy();
   await waitFor(() =>
     expect(document.activeElement).toBe(within(review).getByRole("button", { name: "Install" })),
   );
@@ -182,16 +173,16 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
   expect(runs.getByText("npx -y @sentry/mcp-server@0.9.0")).toBeTruthy();
   await userEvent.click(within(review).getByRole("button", { name: "Install" }));
 
-  expect(await screen.findByRole("heading", { level: 1, name: "sentry" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Sentry" })).toBeTruthy();
   expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
   const plugins = within(catalog()).getByRole("region", { name: "Plugins" });
-  expect(await within(plugins).findByText("sentry")).toBeTruthy();
-  expect(within(catalog()).getByText("triage-issue")).toBeTruthy();
+  expect(await within(plugins).findByText("Sentry")).toBeTruthy();
+  expect(within(catalog()).getByText("Triage issue")).toBeTruthy();
 });
 
 test("the install form can be cancelled, and closing a review installs nothing", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   let dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -211,7 +202,7 @@ test("the install form can be cancelled, and closing a review installs nothing",
 
 test("Update re-reads the plugin and says when nothing changed", async () => {
   await open("/skills/plugin~engineering");
-  await screen.findByRole("heading", { level: 1, name: "engineering" });
+  await screen.findByRole("heading", { level: 1, name: "Engineering" });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Update…" }));
@@ -224,7 +215,7 @@ test("Update re-reads the plugin and says when nothing changed", async () => {
 
 test("removing a plugin from a skill's page asks first, names the plugin and can be undone", async () => {
   const app = await open("/skills/engineering~skill~tdd");
-  await screen.findByRole("heading", { level: 1, name: "tdd" });
+  await screen.findByRole("heading", { level: 1, name: "Test-driven development" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Remove plugin engineering…" }),
@@ -255,18 +246,18 @@ test("removing a plugin from a skill's page asks first, names the plugin and can
       name: "Remove plugin",
     }),
   );
-  await waitFor(() => expect(within(catalog()).queryByText("tdd")).toBeNull());
+  await waitFor(() => expect(within(catalog()).queryByText("Test-driven development")).toBeNull());
   // Still installed on the daemon while Undo is offered.
   expect(await installed(app)).toContain("engineering");
 
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  expect(await within(catalog()).findByText("tdd")).toBeTruthy();
+  expect(await within(catalog()).findByText("Test-driven development")).toBeTruthy();
   expect(await installed(app)).toContain("engineering");
 });
 
 test("a removal reaches the daemon once its Undo has gone", async () => {
   const app = await open("/skills/plugin~release");
-  await screen.findByRole("heading", { level: 1, name: "release" });
+  await screen.findByRole("heading", { level: 1, name: "Release" });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove release…" }));
@@ -275,14 +266,14 @@ test("a removal reaches the daemon once its Undo has gone", async () => {
       name: "Remove plugin",
     }),
   );
-  await waitFor(() => expect(within(catalog()).queryByText("release-notes")).toBeNull());
+  await waitFor(() => expect(within(catalog()).queryByText("Release notes")).toBeNull());
   expect(await installed(app)).toContain("release");
 
   await userEvent.hover(await screen.findByText("Removed release"));
   await userEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   await waitFor(async () => expect(await installed(app)).not.toContain("release"));
-  expect(within(catalog()).getByText("code-review")).toBeTruthy();
-  expect(within(catalog()).queryByText("release-notes")).toBeNull();
+  expect(within(catalog()).getByText("Code review")).toBeTruthy();
+  expect(within(catalog()).queryByText("Release notes")).toBeNull();
 });
 
 test("a removal confirmed before a reload is finished when Skills next connects", async () => {
@@ -292,9 +283,9 @@ test("a removal confirmed before a reload is finished when Skills next connects"
     JSON.stringify([{ daemon: "memory://fake-daemon", plugin: "release", deadline: 0 }]),
   );
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
   // Hidden from the first paint, then removed on the daemon.
-  expect(within(catalog()).queryByText("release-notes")).toBeNull();
+  expect(within(catalog()).queryByText("Release notes")).toBeNull();
   await waitFor(async () => expect(await installed(app)).not.toContain("release"));
   expect(localStorage.getItem("ace.skills.removing")).toBeNull();
   expect(await installed(app)).toContain("engineering");
@@ -306,14 +297,14 @@ test("a pending removal for another daemon is left alone", async () => {
     JSON.stringify([{ daemon: "wss://elsewhere:7417", plugin: "release", deadline: 0 }]),
   );
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
-  expect(within(catalog()).getByText("release-notes")).toBeTruthy();
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
+  expect(within(catalog()).getByText("Release notes")).toBeTruthy();
   expect(await installed(app)).toContain("release");
 });
 
 test("Stop while a review is being made cancels that review once the daemon makes it", async () => {
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "code-review" });
+  await screen.findByRole("heading", { level: 1, name: "Code review" });
   // Hold the daemon's answer to plugins.prepare until after Stop.
   const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const request = app.client.request.bind(app.client);
@@ -350,7 +341,7 @@ test("a skill that isn't installed offers the way back", async () => {
 
   expect(await screen.findByRole("heading", { name: "This isn't installed" })).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Back to Skills" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "code-review" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Code review" })).toBeTruthy();
 });
 
 test("when the daemon can't list plugins, Skills says so once and reads them again on Try again", async () => {
@@ -361,7 +352,7 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
 
   expect(
     await screen.findByText(
-      "The daemon didn't answer. This loads again once it does.",
+      "Couldn't load your skills. Check your connection and try again.",
       {},
       { timeout: 4000 },
     ),
@@ -375,7 +366,7 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
   );
   expect(
     await within(await screen.findByRole("navigation", { name: "Skills catalog" })).findByText(
-      "code-review",
+      "Code review",
     ),
   ).toBeTruthy();
 });

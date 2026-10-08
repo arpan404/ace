@@ -24,17 +24,17 @@ test("a global alias cannot migrate or read workspace settings through a replace
     scheduler: f.edges.scheduler,
   });
   cleanups.push(() => service.close());
-  await service.set("notifications.sound", true, { kind: "global" });
+  await service.set("threads.settleOnClose", true, { kind: "global" });
   const outside = join(f.root, "outside");
   await mkdir(outside);
   const path = join(outside, "settings.json");
-  const source = '{"version":1,"values":{"notifications.sound":false}}';
+  const source = '{"version":1,"values":{"threads.settleOnClose":false}}';
   await writeFile(path, source);
   await rename(ace, join(f.workspace, "old-ace"));
   await symlink(outside, ace, "dir");
   await service.refresh({ kind: "workspace", workspace: f.workspace });
   const result = await service.read({
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: { workspace: f.workspace },
   });
   expect(result.diagnostics).toContainEqual(
@@ -48,21 +48,24 @@ test.each([1, 2])(
   "reloading a protected workspace cannot read or migrate an outside v%i file",
   async (version) => {
     const f = await setup();
-    await f.service.set("notifications.sound", true, { kind: "workspace", workspace: f.workspace });
+    await f.service.set("threads.settleOnClose", true, {
+      kind: "workspace",
+      workspace: f.workspace,
+    });
     const ace = join(f.workspace, ".ace");
     const outside = join(f.root, "outside");
     await mkdir(outside);
     const path = join(outside, "settings.json");
     const source = JSON.stringify({
       version,
-      [version === 1 ? "values" : "settings"]: { "notifications.sound": false },
+      [version === 1 ? "values" : "settings"]: { "threads.settleOnClose": false },
     });
     await writeFile(path, source);
     await rename(ace, join(f.workspace, "old-ace"));
     await symlink(outside, ace, "dir");
     await f.service.refresh({ kind: "workspace", workspace: f.workspace });
     const result = await f.service.read({
-      keys: ["notifications.sound"],
+      keys: ["threads.settleOnClose"],
       scope: { workspace: f.workspace },
     });
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
@@ -80,26 +83,33 @@ test.each([0, 80])(
     await mkdir(dataDir, { recursive: true });
     const service = new SettingsService({ dataDir, io: f.edges.io, scheduler: f.edges.scheduler });
     cleanups.push(() => service.close());
-    await service.set("notifications.sound", true, { kind: "global" });
-    await service.get("notifications.sound", { workspace: f.workspace });
+    await service.set("threads.followUpBehavior", "queue", { kind: "global" });
+    await service.get("threads.settleOnClose", { workspace: f.workspace });
     for (let index = 0; index < count; index++)
-      await service.get("notifications.sound", { thread: `inactive-${index}` });
+      await service.get("threads.settleOnClose", { thread: `inactive-${index}` });
     const source = await readFile(join(dataDir, "settings.json"), "utf8");
     await rename(f.workspace, join(f.root, "old-repo"));
     await symlink(target, f.workspace, "dir");
     // Refresh must retain the original identity even when the physical cache was reclaimed.
     await service.refresh({ kind: "workspace", workspace: f.workspace });
     expect(
-      (await service.read({ keys: ["notifications.sound"], scope: { workspace: f.workspace } }))
-        .diagnostics,
+      (
+        await service.read({
+          keys: ["threads.followUpBehavior"],
+          scope: { workspace: f.workspace },
+        })
+      ).diagnostics,
     ).toContainEqual(expect.objectContaining({ code: "validation" }));
     await expect(
-      service.set("notifications.sound", false, { kind: "workspace", workspace: f.workspace }),
+      service.set("threads.followUpBehavior", "steer", {
+        kind: "workspace",
+        workspace: f.workspace,
+      }),
     ).rejects.toMatchObject({ code: "validation" });
     expect(await readFile(join(dataDir, "settings.json"), "utf8")).toBe(source);
     await service.refresh({ kind: "global" });
-    expect(await service.get("notifications.sound")).toMatchObject({
-      value: true,
+    expect(await service.get("threads.followUpBehavior")).toMatchObject({
+      value: "queue",
       provenance: "global",
     });
   },
@@ -111,29 +121,29 @@ test("workspace identity capacity applies backpressure while pinned identities r
   for (let index = 0; index < 64; index++) {
     const workspace = join(f.root, `workspace-${index}`);
     await mkdir(workspace);
-    await f.service.get("notifications.sound", { workspace });
+    await f.service.get("threads.settleOnClose", { workspace });
   }
   const overflow = join(f.root, "workspace-overflow");
   await mkdir(overflow);
-  await expect(f.service.get("notifications.sound", { workspace: overflow })).rejects.toMatchObject(
-    { code: "limit" },
-  );
-  await f.service.set("notifications.sound", true, { kind: "workspace", workspace: first });
-  expect(await f.service.get("notifications.sound", { workspace: first })).toMatchObject({
+  await expect(
+    f.service.get("threads.settleOnClose", { workspace: overflow }),
+  ).rejects.toMatchObject({ code: "limit" });
+  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: first });
+  expect(await f.service.get("threads.settleOnClose", { workspace: first })).toMatchObject({
     value: true,
   });
 });
 
 test("a root replaced by an empty directory retains its original workspace settings and diagnostic", async () => {
   const f = await setup();
-  await f.service.set("notifications.sound", true, { kind: "workspace", workspace: f.workspace });
+  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: f.workspace });
   const target = join(f.root, "empty-target");
   await mkdir(target);
   await rename(f.workspace, join(f.root, "old-repo"));
   await symlink(target, f.workspace, "dir");
   await f.service.refresh({ kind: "workspace", workspace: f.workspace });
   const result = await f.service.read({
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: { workspace: f.workspace },
   });
   expect(result.entries[0]).toMatchObject({ value: true });
@@ -147,17 +157,17 @@ test("a root replaced by an empty directory retains its original workspace setti
 
 test("unchanged containment failures notify subscribers once across repeated reads", async () => {
   const f = await setup();
-  await f.service.set("notifications.sound", true, { kind: "workspace", workspace: f.workspace });
+  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: f.workspace });
   const notices: unknown[] = [];
   await f.service.subscribe(
-    { keys: ["notifications.sound"], scope: { workspace: f.workspace } },
+    { keys: ["threads.settleOnClose"], scope: { workspace: f.workspace } },
     (n) => notices.push(n),
   );
   const ace = join(f.workspace, ".ace");
   await rename(ace, join(f.workspace, "old-ace"));
   await symlink(f.dataDir, ace, "dir");
   for (let count = 0; count < 2; count++)
-    await f.service.read({ keys: ["notifications.sound"], scope: { workspace: f.workspace } });
+    await f.service.read({ keys: ["threads.settleOnClose"], scope: { workspace: f.workspace } });
   expect(notices).toEqual([
     {
       type: "diagnostic",
@@ -171,7 +181,7 @@ test("a cold workspace read cannot migrate an aliased global file outside the wo
   const outside = join(f.root, "outside");
   await mkdir(outside);
   const path = join(outside, "settings.json");
-  const source = '{"version":1,"values":{"notifications.sound":true}}';
+  const source = '{"version":1,"values":{"threads.settleOnClose":true}}';
   await writeFile(path, source);
   const ace = join(f.workspace, ".ace");
   await symlink(outside, ace, "dir");
@@ -182,7 +192,7 @@ test("a cold workspace read cannot migrate an aliased global file outside the wo
   });
   cleanups.push(() => service.close());
   const result = await service.read({
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: { workspace: f.workspace },
   });
   expect(result.entries[0]).toMatchObject({ value: false, provenance: "defaults" });
@@ -202,28 +212,28 @@ test("global aliases retain workspace containment after physical file eviction",
     scheduler: f.edges.scheduler,
   });
   cleanups.push(() => service.close());
-  await service.get("notifications.sound", { workspace: f.workspace });
+  await service.get("threads.settleOnClose", { workspace: f.workspace });
   // Thread-only assignments do not acquire the global file, allowing its inactive lease to evict.
   for (let index = 0; index < 80; index++)
-    await service.set("notifications.sound", false, {
+    await service.set("threads.settleOnClose", false, {
       kind: "thread",
       thread: `inactive-${index}`,
     });
   const outside = join(f.root, "outside");
   await mkdir(outside);
   const path = join(outside, "settings.json");
-  const source = '{"version":1,"values":{"notifications.sound":true}}';
+  const source = '{"version":1,"values":{"threads.settleOnClose":true}}';
   await writeFile(path, source);
   await rename(ace, join(f.workspace, "old-ace"));
   await symlink(outside, ace, "dir");
   await service.refresh({ kind: "global" });
-  const result = await service.read({ keys: ["notifications.sound"], scope: {} });
+  const result = await service.read({ keys: ["threads.settleOnClose"], scope: {} });
   expect(result.entries[0]).toMatchObject({ value: false, provenance: "defaults" });
   expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
-  await expect(service.set("notifications.sound", false, { kind: "global" })).rejects.toMatchObject(
-    {
-      code: "validation",
-    },
-  );
+  await expect(
+    service.set("threads.followUpBehavior", "steer", { kind: "global" }),
+  ).rejects.toMatchObject({
+    code: "validation",
+  });
   expect(await readFile(path, "utf8")).toBe(source);
 });

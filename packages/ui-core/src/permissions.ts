@@ -4,7 +4,7 @@ export function permissionLabel(
   capabilities?: PermissionCapabilities,
 ): string {
   return mode
-    ? (capabilities?.permissionModes?.find((entry) => entry.id === mode)?.label ?? mode)
+    ? (capabilities?.permissionModes?.find((entry) => entry.id === mode)?.label ?? "Saved mode")
     : "Provider default";
 }
 export const permissionShortLabel = permissionLabel;

@@ -7,6 +7,7 @@ const id = z.string().min(1).max(128);
 export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 export const FileOperation = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
   z.object({ op: z.literal("stat"), path }),
   z.object({
     op: z.literal("download"),
@@ -58,7 +59,7 @@ export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("delete"), path, expected }),
   z.object({ op: z.literal("restore"), trashId: id, path, expected }),
   z.object({ op: z.literal("artifacts.list") }),
-  z.object({ op: z.literal("artifact.support") }),
+  z.object({ op: z.literal("artifact.support"), includeThreads: z.boolean().optional() }),
   z.object({ op: z.literal("artifact.output"), streamId: id }),
   z.object({ op: z.literal("artifact.raw"), blobRef: id }),
   z.object({
@@ -90,6 +91,7 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     type: z.literal("files.request"),
     requestId: id,
     threadId: ThreadId.optional(),
+    scope: z.literal("support").optional(),
     operation: FileOperation,
   }),
   z.object({

@@ -87,6 +87,20 @@ it("OpenCode v2 sessions in one account call their own scoped MCP tools and reda
     expect(
       frames.filter((frame) => frame.channel === "commands.runtime").map((frame) => frame.data),
     ).toEqual([{ sessionUpdate: "available_commands_update", availableCommands: [] }]);
+  const controls = mcp.providers.require(a.thread.id);
+  if (!controls.add) throw new Error("OpenCode MCP additions unavailable");
+  await controls.add("documentation", { transport: "command", command: "local-docs", args: [] });
+  expect(await controls.status()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: "ace", status: "connected" }),
+      { name: "documentation", status: "connected" },
+    ]),
+  );
+  await controls.disable("documentation");
+  expect(await controls.status()).toContainEqual({ name: "documentation", status: "disabled" });
+  await controls.enable("documentation");
+  await controls.reconnect("documentation");
+  expect(await controls.status()).toContainEqual({ name: "documentation", status: "connected" });
   await a.session.close("shutdown");
   // Closing A must not revoke B's credentials or stop B's native transport.
   await b.session.interrupt({ agent: "root", cascade: false });

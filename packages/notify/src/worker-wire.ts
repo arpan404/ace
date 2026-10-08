@@ -13,6 +13,8 @@ import { MetadataEvent } from "./metadata.ts";
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("cursor") }),
+  z.object({ method: z.literal("getPreferences"), device: DeviceId.and(z.string().max(200)) }),
+  z.object({ method: z.literal("notify"), notification: Notification }),
   z.object({ method: z.literal("drain") }),
   z.object({ method: z.literal("close") }),
   z.object({
@@ -53,7 +55,12 @@ export const ToWorker = z.discriminatedUnion("type", [
 ]);
 export const FromWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
-  z.object({ type: z.literal("result"), id: seq, ok: z.boolean(), value: seq.optional() }),
+  z.object({
+    type: z.literal("result"),
+    id: seq,
+    ok: z.boolean(),
+    value: z.union([seq, NotificationPreferences]).optional(),
+  }),
   z.object({
     type: z.literal("delivery"),
     id: seq,

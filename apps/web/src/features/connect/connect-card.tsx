@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * The frame every pre-app screen shares (connect, hand-off, boot failure, desktop failure): the
- * wallpaper, a 50px strip the desktop window drags by, and one 420px glass card with the mark.
+ * The frame every pre-app screen shares (connect, hand-off, boot failure, desktop failure):
+ * a 50px strip the desktop window drags by and a compact form with the app mark.
  */
 export function ConnectCard(props: {
   children: ReactNode;
@@ -13,16 +13,12 @@ export function ConnectCard(props: {
   labelledBy?: string;
 }) {
   return (
-    <div className="relative grid h-full min-h-0 place-items-center overflow-auto p-6">
-      <div className="wallpaper" />
+    <div className="relative grid h-full min-h-0 place-items-center overflow-auto bg-background p-6">
       {/* The desktop window has no title bar; this strip moves it, as the shell's header does. */}
       <div aria-hidden className="fixed inset-x-0 top-0 z-[1] h-[50px] [-webkit-app-region:drag]" />
       <main
         {...(props.labelledBy ? { "aria-labelledby": props.labelledBy } : {})}
-        className={cn(
-          "relative z-[2] w-full rounded-xl border border-border bg-reading p-7 shadow-glass",
-          props.wide ? "max-w-[560px]" : "max-w-[420px]",
-        )}
+        className={cn("relative z-[2] w-full p-4", props.wide ? "max-w-[560px]" : "max-w-[420px]")}
       >
         <AceMark />
         {props.children}

@@ -15,7 +15,9 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { Select } from "@/components/ui/select.tsx";
+import { WorkspaceId } from "@ace/protocol";
+import { useProjectChoices } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useRecentSearches } from "./search-recent.ts";
 import {
@@ -62,7 +64,7 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
   if (at < props.snippet.text.length)
     parts.push({ text: props.snippet.text.slice(at), hit: false, at });
   return (
-    <p className="mt-1 line-clamp-2 text-ui leading-normal text-muted-foreground">
+    <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
       {parts.map((part) =>
         part.hit ? (
           <mark key={part.at} className="rounded-[2px] bg-ring/22 font-medium text-foreground">
@@ -111,9 +113,21 @@ function SearchBody(props: { initial: string; onClose(): void }) {
   const router = useRouter();
   const client = useClient();
   const now = useNow();
-  const projectName = useProjectName();
+  const projects = useProjectChoices();
+  const projectName = projects.name;
+  const [project, setProject] = useState("");
+  const [date, setDate] = useState("all");
+  const [after, setAfter] = useState<number>();
   const recent = useRecentSearches();
-  const results = useSearch(query, kind === "all" ? undefined : kind);
+  const results = useSearch(query, kind === "all" ? undefined : kind, {
+    ...(project ? { workspaceId: WorkspaceId.parse(project) } : {}),
+    ...(after === undefined ? {} : { after }),
+  });
+  const progress = results.progress;
+  const indexing = progress && !progress.ready;
+  const left = progress
+    ? Math.max(0, progress.headSeq - progress.indexedSeq) + progress.pending
+    : 0;
   const hits = query ? (results.hits ?? []) : [];
 
   // The active result stays in view as the arrows move it.
@@ -177,7 +191,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         />
         {results.updating && query && <Spinner label="Updating results" />}
       </CommandSearchRow>
-      <div className="flex shrink-0 items-center gap-3 border-b px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
         <SegmentedControl
           label="Kind"
           size="sm"
@@ -188,15 +202,43 @@ function SearchBody(props: { initial: string; onClose(): void }) {
             setKind(next);
           }}
         />
-        {query && hits.length > 0 && !results.isError && (
-          <span
-            role="status"
-            className="ml-auto text-sm text-muted-foreground tabular-nums max-sm:sr-only"
-          >
-            {resultCountLabel(hits.length, results.hasMore, false)}
-          </span>
-        )}
+        <Select
+          label="Project"
+          value={project}
+          options={[
+            { value: "", label: "All projects" },
+            ...projects.ids.map((value) => ({ value, label: projectName(value) })),
+          ]}
+          className="min-w-0 flex-1"
+          onValueChange={(value) => {
+            setProject(value);
+            setActive(0);
+          }}
+        />
+        <Select
+          label="Date"
+          value={date}
+          options={[
+            { value: "all", label: "Any time" },
+            { value: "1", label: "Past day" },
+            { value: "7", label: "Past week" },
+            { value: "30", label: "Past month" },
+          ]}
+          className="min-w-0 flex-1"
+          onValueChange={(value) => {
+            setDate(value);
+            setAfter(value === "all" ? undefined : Math.max(0, now - Number(value) * 86_400_000));
+            setActive(0);
+          }}
+        />
       </div>
+      {(indexing || (query && hits.length > 0 && !results.isError)) && (
+        <p role="status" className="px-3 pt-2 text-sm text-muted-foreground tabular-nums">
+          {indexing
+            ? `Indexing… ${left.toLocaleString()} left`
+            : resultCountLabel(hits.length, results.hasMore, false)}
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {!query ? (
           recent.recent.length ? (
@@ -225,14 +267,20 @@ function SearchBody(props: { initial: string; onClose(): void }) {
             }
             className="h-auto py-10"
           />
-        ) : !results.hits ? (
+        ) : !results.hits || (results.updating && !hits.length) ? (
           <ListSkeleton label="results" shape="row" rows={4} />
         ) : !hits.length ? (
           <EmptyState
-            icon={MagnifyingGlassIcon}
-            title="No results"
-            description="Every word has to appear. Try fewer or different words."
-            className="h-auto py-10"
+            variant="inline"
+            title={results.hasMore ? "More results to check" : "No matches yet"}
+            description={
+              indexing
+                ? "Some threads are still being indexed. Results will update as they become available."
+                : results.hasMore
+                  ? "Keep looking through the remaining results."
+                  : "Try fewer words or broaden the project and date filters."
+            }
+            className="py-6"
           />
         ) : (
           <>
@@ -255,32 +303,38 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   onClick={(event) => onHitClick(event, hit)}
                   onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
                   className={cn(
-                    "cursor-pointer rounded-md px-2.5 py-2 transition-colors duration-(--dur-1)",
+                    "flex h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 transition-colors duration-(--dur-1)",
                     index === active && "bg-accent",
                   )}
                 >
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <ProviderIconTip provider={hit.provider} />
-                    {projectName(hit.workspaceId)} · {kindLabel[hit.kind]}
-                    <span className="ml-auto tabular-nums">{formatAge(hit.createdAt, now)}</span>
-                  </span>
-                  <span className="mt-0.5 block text-base font-medium">{hit.threadTitle}</span>
+                  <ProviderIconTip provider={hit.provider} />
+                  {hit.kind !== "thread" && (
+                    <span
+                      className="max-w-48 truncate text-ui max-sm:sr-only"
+                      title={`${hit.threadTitle} · ${projectName(hit.workspaceId)} · ${kindLabel[hit.kind]}`}
+                    >
+                      {hit.threadTitle}
+                    </span>
+                  )}
                   <Snippet snippet={hit.snippet} />
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {formatAge(hit.createdAt, now)}
+                  </span>
                 </li>
               ))}
             </ul>
-            {results.hasMore && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-1"
-                disabled={results.loadingMore}
-                onClick={results.loadMore}
-              >
-                {results.loadingMore ? "Loading…" : "Show more results"}
-              </Button>
-            )}
           </>
+        )}
+        {results.hasMore && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-1"
+            disabled={results.loadingMore}
+            onClick={results.loadMore}
+          >
+            {results.loadingMore ? "Loading…" : "Show more results"}
+          </Button>
         )}
       </div>
     </>
@@ -315,7 +369,6 @@ function RecentSearches(props: {
               icon={XIcon}
               size="sm"
               label={`Forget "${query}"`}
-              tooltip={false}
               className="mr-1.5"
               onClick={() => props.onForget(query)}
             />

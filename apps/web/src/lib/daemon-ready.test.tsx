@@ -35,9 +35,9 @@ test("a request-backed control says why it can't work while the daemon is away, 
   expect(fired).toEqual(["refresh"]);
 
   act(() => daemon.refuseConnections(true));
-  expect(await screen.findByTitle("Reconnect to the daemon to do this")).toBe(button);
+  expect(await screen.findByTitle("Reconnect to ace to do this")).toBe(button);
   expect(button.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(button);
   expect(fired).toEqual(["refresh"]);
-  expect(await screen.findByText("Reconnect to the daemon to do this")).toBeTruthy();
+  expect(await screen.findByText("Reconnect to ace to do this")).toBeTruthy();
 });

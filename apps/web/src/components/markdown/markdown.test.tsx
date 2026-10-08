@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { longAnswer, markdownSamples } from "./markdown-samples.fixture.ts";
 import { Markdown } from "./markdown.tsx";
+import { Prose } from "./prose.tsx";
 
 test("agent text never injects markup: raw HTML shows as text", () => {
   const { container } = render(
@@ -26,15 +28,18 @@ test("only web and mail links are live; other schemes render as plain text", () 
   expect(screen.getByText(/run/)).toBeTruthy();
 });
 
-test("code spans and fences keep their text exactly", () => {
+test("code spans stay readable and copying a fence preserves its text exactly", async () => {
+  const user = userEvent.setup();
   const { container } = render(
     <Markdown text={'Use `a < b && c` here.\n\n```ts\nif (a < b) return "x";\n```'} />,
   );
-  expect(screen.getByText("a < b && c").tagName).toBe("CODE");
-  expect(container.querySelector("pre code")?.textContent).toBe('if (a < b) return "x";');
+  expect(screen.getByText("a < b && c").textContent).toBe("a < b && c");
+  expect(container.textContent).toContain('if (a < b) return "x";');
+  await user.click(screen.getByRole("button", { name: /^(Copy code|Copied)$/ }));
+  expect(await navigator.clipboard.readText()).toBe('if (a < b) return "x";');
 });
 
-test("lists, tables and task items render as their elements", () => {
+test("task checkboxes show completion and table cells stay readable", () => {
   render(
     <Markdown
       text={"- [x] tests pass\n- [ ] docs\n\n| file | lines |\n| --- | --- |\n| replay.ts | +29 |"}
@@ -64,52 +69,62 @@ test("images draw only bytes already on the page; web images become links, local
   expect(container.textContent).not.toContain("/Users/");
 });
 
-test("a streaming answer keeps its finished blocks' elements and patches the open one in place", async () => {
+test("selected finished text stays selected while the rest of an answer streams", async () => {
   const stream = "thread/answer-1";
   const { rerender } = render(
     <Markdown stream={stream} streaming text={"Para one.\n\nPara two\n"} />,
   );
   const first = await screen.findByText("Para one.");
-  const open = screen.getByText("Para two");
+  const selection = window.getSelection();
+  if (!selection) throw new Error("Text selection is unavailable");
+  const range = document.createRange();
+  range.selectNodeContents(first);
+  selection.removeAllRanges();
+  selection.addRange(range);
   rerender(
     <Markdown stream={stream} streaming text={"Para one.\n\nPara two\nkeeps going.\n\n- item"} />,
   );
   await screen.findByRole("listitem");
-  expect(screen.getByText("Para one.")).toBe(first);
-  // The block that was open settled where it was: the same element, with its new text.
-  expect(open.isConnected).toBe(true);
-  expect(open.textContent).toBe("Para two\nkeeps going.");
+  expect(selection.toString()).toBe("Para one.");
+  expect(screen.getByText(/Para two/).textContent).toBe("Para two\nkeeps going.");
   rerender(<Markdown stream={stream} text={"Para one.\n\nPara two\nkeeps going.\n\n- item one"} />);
   await screen.findByText("item one");
-  expect(screen.getByText("Para one.")).toBe(first);
-  expect(open.isConnected).toBe(true);
+  expect(selection.toString()).toBe("Para one.");
+  selection.removeAllRanges();
 });
 
-test("a code block still being written shows plain, and is highlighted in place once it closes", async () => {
+test("copying code preserves what has arrived before and after its fence closes", async () => {
+  const user = userEvent.setup();
   const stream = "thread/answer-2";
-  const { container, rerender } = render(
-    <Markdown stream={stream} streaming text={"```ts\nconst a = 1"} />,
-  );
-  await waitFor(() => expect(container.querySelector("pre code")?.textContent).toBe("const a = 1"));
-  const figure = container.querySelector("figure");
-  expect(screen.queryByText("const")).toBeNull();
-  rerender(<Markdown stream={stream} streaming text={"```ts\nconst a = 1;\n```\n\nDone.\n"} />);
-  // The keyword is its own highlighted span once the fence has closed and settled.
-  await screen.findByText("const");
-  expect(container.querySelector("figure")).toBe(figure);
+  const { rerender } = render(<Markdown stream={stream} streaming text={"```ts\nconst a = 1"} />);
+  await user.click(await screen.findByRole("button", { name: "Copy code" }));
+  expect(await navigator.clipboard.readText()).toBe("const a = 1");
+  rerender(<Markdown stream={stream} text={"```ts\nconst a = 1;\n```\n\nDone.\n"} />);
+  await screen.findByText("Done.");
+  await user.click(screen.getByRole("button", { name: /^(Copy code|Copied)$/ }));
+  expect(await navigator.clipboard.readText()).toBe("const a = 1;");
 });
 
-test("a streamed answer, once finished, renders exactly as its whole text does", async () => {
+test("a streamed answer, once finished, has the same readable content as its whole text", async () => {
   for (const [name, text] of Object.entries({ ...markdownSamples, long: longAnswer })) {
     const whole = render(<Markdown text={text} />);
-    const expected = whole.container.innerHTML;
+    const expected = whole.container.textContent;
+    const links = screen.queryAllByRole("link").map((link) => link.getAttribute("href"));
     whole.unmount();
     const stream = `thread/${name}`;
     const streamed = render(<Markdown stream={stream} streaming text="" />);
     for (let at = 0; at < text.length; at += 97)
       streamed.rerender(<Markdown stream={stream} streaming text={text.slice(0, at + 97)} />);
     streamed.rerender(<Markdown stream={stream} text={text} />);
-    await waitFor(() => expect(streamed.container.innerHTML, name).toBe(expected));
+    await waitFor(() => expect(streamed.container.textContent, name).toBe(expected));
+    expect(screen.queryAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(links);
     streamed.unmount();
   }
+});
+
+test("a message waits for the lazy renderer without showing its markdown source", async () => {
+  const view = render(<Prose text="**New thread message**" />);
+  expect(screen.getByRole("status", { name: "Loading message" })).toBeTruthy();
+  expect(view.container.textContent).not.toContain("**New thread message**");
+  expect(await screen.findByText("New thread message")).toBeTruthy();
 });

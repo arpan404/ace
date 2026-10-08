@@ -39,6 +39,7 @@ import { ErrorRow, noticeError } from "./error-row.tsx";
 import { ModelFacing } from "./model-facing.tsx";
 import { ReviewNote } from "./review-note.tsx";
 import { TaskCard } from "./task-card.tsx";
+import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
 
 const icons: Record<EventIcon, PhosphorIcon> = {
@@ -140,6 +141,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));
   const echoed = useEchoedCode(props.threadId, item);
   if (!item || repeated || echoed) return null;
+  if (item.type === "message" && item.mergedContext)
+    return <MergedForkNotice context={item.mergedContext} />;
   // A candidate the exact check rejects is the person's own message.
   if (!input && item.type === "message" && item.role === "user" && !item.synthetic)
     return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
@@ -196,7 +199,16 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         </Marker>
       );
     case "artifact":
-      return <ArtifactLine threadId={props.threadId} path={item.path} mimeType={item.mimeType} />;
+      return (
+        <ArtifactLine
+          threadId={props.threadId}
+          path={item.path}
+          mimeType={item.mimeType}
+          artifactId={item.artifactId}
+          bytes={item.bytes}
+          filename={item.filename}
+        />
+      );
     case "message":
       return (
         <QuietText

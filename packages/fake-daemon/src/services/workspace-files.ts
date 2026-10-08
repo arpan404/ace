@@ -1,10 +1,16 @@
 import { checkoutFiles } from "./checkout-contents.ts";
 
 /** Subsequence match on the path, preferring hits in the file name, best first. */
-export function completePaths(workspaceId: string, query: string, limit: number): string[] {
+export function completePaths(
+  workspaceId: string,
+  query: string,
+  limit: number,
+  paths: readonly string[] = Object.keys(checkoutFiles(workspaceId)),
+): string[] {
   const q = query.toLowerCase();
   const scored: { path: string; score: number }[] = [];
-  for (const path of Object.keys(checkoutFiles(workspaceId))) {
+  for (const path of paths) {
+    if (path.endsWith("/")) continue;
     const lower = path.toLowerCase();
     let at = 0;
     for (const char of q) {

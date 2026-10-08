@@ -14,6 +14,7 @@ import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
+import { ThreadLink } from "./transitions/thread-link.tsx";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
@@ -22,8 +23,14 @@ import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 const PendingThreadView = lazy(() =>
   import("./pending-thread.tsx").then((m) => ({ default: m.PendingThreadView })),
 );
+const AttachmentsSheet = lazy(() =>
+  import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
+);
 const RenameDialog = lazy(() =>
   import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
+);
+const MergeDialog = lazy(() =>
+  import("./transitions/merge-dialog.tsx").then((m) => ({ default: m.MergeDialog })),
 );
 const ForkDialog = lazy(() =>
   import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
@@ -114,6 +121,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
   const error = useThreadError(props.threadId);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
@@ -138,12 +147,23 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const drop = useFileDrop(composer);
   const card = useWorkCard(id);
   const thread = useMemo<ThreadRef | undefined>(
-    () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
+    () =>
+      meta && title !== undefined
+        ? { id, workspaceId: meta.workspaceId, title, provider: meta.provider }
+        : undefined,
     [id, meta, title],
   );
   return (
     <ThreadPartsProvider value={parts}>
       <Screen
+        breadcrumb={
+          meta?.lineage && (
+            <>
+              Forked from{" "}
+              <ThreadLink threadId={meta.lineage.parentThreadId} fallback="parent thread" />
+            </>
+          )
+        }
         title={title ?? "Loading thread…"}
         subtitle={
           meta?.status.state === "limited" ? (
@@ -159,9 +179,11 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           thread && (
             <Suspense fallback={null}>
               <DeferredThreadMenu.Component
+                onAttachments={() => setAttachmentsOpen(true)}
                 thread={thread}
                 onRename={() => setRenaming(true)}
                 onFork={setForking}
+                onMerge={() => setMerging(true)}
               />
             </Suspense>
           )
@@ -226,6 +248,10 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           </Suspense>
         )}
         <Suspense fallback={null}>
+          {attachmentsOpen && thread && (
+            <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
+          )}
+          {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
           {renaming && thread && (
             <RenameDialog thread={thread} onClose={() => setRenaming(false)} />
           )}

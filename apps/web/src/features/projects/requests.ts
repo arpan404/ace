@@ -5,6 +5,7 @@ export type AddTab = "open" | "create" | "clone";
 export interface FolderAttempt {
   path: string;
   problem: string;
+  canAllow?: boolean | undefined;
 }
 
 /** What the project dialogs are asked to do. */
@@ -18,5 +19,6 @@ export type ProjectRequest =
   | { kind: "folder"; path: string }
   /** A folder dropped on the window: its path is read in the desktop app, else it's picked. */
   | { kind: "dropped"; file: File }
+  | { kind: "permissions"; projectId: string }
   | { kind: "rename"; projectId: string }
   | { kind: "remove"; projectId: string };

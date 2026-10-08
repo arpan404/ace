@@ -30,3 +30,8 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/advanced", title: "Advanced", icon: CodeIcon },
 ];
+
+/** Browser toasts and desktop notifications share this page. */
+export function visibleSettingsPages() {
+  return settingsPages;
+}

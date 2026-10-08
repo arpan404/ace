@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpSourceServer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "connected",
+        "connecting",
+        "disabled",
+        "failed",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "status"
+  ],
+  "type": "object"
+}

@@ -11,13 +11,13 @@ test.each([
   async ({ encoded, headroom }) => {
     const f = await fixture();
     try {
-      const prefix = `{"version":2,"settings":{"providers.coder.model":"${encoded}","notifications.sound":true,"future.payload":"`;
+      const prefix = `{"version":2,"settings":{"providers.coder.model":"${encoded}","threads.settleOnClose":true,"future.payload":"`;
       const suffix = '"}}';
       const payload = "x".repeat(MAX_DOCUMENT_BYTES - Buffer.byteLength(prefix + suffix));
       await writeFile(f.globalPath, prefix + payload + suffix);
-      await f.service.get("notifications.sound");
+      await f.service.get("threads.settleOnClose");
       await f.service.set("providers.coder.model", "x", { kind: "global" });
-      await f.service.set("notifications.sound", false, { kind: "global" });
+      await f.service.set("threads.settleOnClose", false, { kind: "global" });
       await f.service.set("providers.coder.model", "x".repeat(headroom + 1), { kind: "global" });
       const full = await readFile(f.globalPath, "utf8");
       expect(Buffer.byteLength(full)).toBe(MAX_DOCUMENT_BYTES);
@@ -28,7 +28,7 @@ test.each([
       expect(await f.service.get("providers.coder.model")).toMatchObject({
         value: "x".repeat(headroom + 1),
       });
-      expect(await f.service.get("notifications.sound")).toMatchObject({ value: false });
+      expect(await f.service.get("threads.settleOnClose")).toMatchObject({ value: false });
       expect(JSON.parse(full)).toMatchObject({ settings: { "future.payload": payload } });
     } finally {
       await f.close();
@@ -47,17 +47,21 @@ test("scalar writes preserve many unknown settings and envelope fields across ca
       JSON.stringify({
         version: 2,
         futureEnvelope: "retained",
-        settings: { ...unknown, "notifications.sound": false },
+        settings: { ...unknown, "threads.settleOnClose": false },
       }),
     );
-    await f.service.get("notifications.sound");
-    await f.service.set("notifications.sound", true, { kind: "global" });
+    await f.service.get("threads.settleOnClose");
+    await f.service.set("threads.settleOnClose", true, { kind: "global" });
     await f.service.set("providers.coder.model", "new-model", { kind: "global" });
-    await f.service.set("notifications.sound", false, { kind: "global" });
+    await f.service.set("threads.settleOnClose", false, { kind: "global" });
     expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
       version: 2,
       futureEnvelope: "retained",
-      settings: { ...unknown, "notifications.sound": false, "providers.coder.model": "new-model" },
+      settings: {
+        ...unknown,
+        "threads.settleOnClose": false,
+        "providers.coder.model": "new-model",
+      },
     });
   } finally {
     await f.close();

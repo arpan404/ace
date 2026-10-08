@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
+import { ProjectPermissionsDialog } from "./project-permissions.tsx";
 import { RemoveProjectDialog, RenameProjectDialog } from "./manage-dialogs.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import type { AddTab, FolderAttempt, ProjectRequest } from "./requests.ts";
@@ -72,7 +73,11 @@ export default function ProjectDialogs(props: {
           latest.current.onRequest({
             kind: "add",
             tab: "open",
-            attempt: { path: request.path, problem: projectFailure(error).message },
+            attempt: {
+              path: request.path,
+              problem: projectFailure(error).message,
+              canAllow: projectFailure(error).canAllow,
+            },
           });
       },
     );
@@ -81,6 +86,14 @@ export default function ProjectDialogs(props: {
     };
   }, [request]);
 
+  if (request.kind === "permissions")
+    return (
+      <ProjectPermissionsDialog
+        projectId={request.projectId}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    );
   if (request.kind === "rename")
     return (
       <RenameProjectDialog projectId={request.projectId} open={open} onOpenChange={onOpenChange} />

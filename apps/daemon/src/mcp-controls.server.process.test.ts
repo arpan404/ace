@@ -7,12 +7,13 @@ test("native MCP controls require thread authority and stop working after the pr
   const f = await setup({ mcp: { providers } });
   const lifetime = new AbortController();
   let dynamic: Record<string, unknown> = {};
+  let projectStatus = "failed";
   providers.bind(
     f.thread.id,
     {
       async status() {
         return [
-          { name: "project", source: "project", extension: 42 },
+          { name: "project", status: projectStatus, source: "project", extension: 42 },
           ...Object.keys(dynamic).map((name) => ({ name, source: "dynamic" })),
         ];
       },
@@ -21,9 +22,15 @@ test("native MCP controls require thread authority and stop working after the pr
         dynamic = servers;
         return { added: Object.keys(servers), removed: [], errors: {} };
       },
-      async reconnect() {},
-      async enable() {},
-      async disable() {},
+      async reconnect() {
+        projectStatus = "connected";
+      },
+      async enable() {
+        projectStatus = "connected";
+      },
+      async disable() {
+        projectStatus = "disabled";
+      },
     },
     lifetime.signal,
   );
@@ -57,6 +64,24 @@ test("native MCP controls require thread authority and stop working after the pr
     type: "mcp.result",
     result: [{ source: "project" }, { name: "tools" }],
   });
+  for (const [type, status] of [
+    ["mcp.reconnect", "connected"],
+    ["mcp.disable", "disabled"],
+    ["mcp.enable", "connected"],
+  ] as const) {
+    host.send({ type, threadId: f.thread.id, requestId: type, name: "project" });
+    expect(await host.next()).toMatchObject({ type: "mcp.result", requestId: type });
+    host.send({ type: "mcp.sources", threadId: f.thread.id, requestId: "sources" });
+    expect(await host.next()).toMatchObject({
+      type: "mcp.result",
+      result: {
+        servers: [
+          { name: "project", status },
+          { name: "tools", status: "unknown" },
+        ],
+      },
+    });
+  }
   host.send({
     type: "mcp.replace",
     threadId: f.thread.id,

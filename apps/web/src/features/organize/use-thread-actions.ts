@@ -298,7 +298,7 @@ export function useThreadActions(): ThreadActions {
         void reversible(
           entry,
           snooze(entry, until),
-          `Snoozed until ${describeWake(until, now)}`,
+          `Snoozed — no notifications until ${describeWake(until, now)}`,
           snooze(entry, entry.snoozedUntil ?? null),
         ),
       wake: (entry) => void act(entry, snooze(entry, null)),

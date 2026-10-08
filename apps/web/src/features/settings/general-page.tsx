@@ -1,19 +1,17 @@
 import type { ProviderKind } from "@ace/protocol";
 import { providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
-import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";
-import { useDesktopPreferences } from "./data/desktop-preferences.ts";
+import { DesktopAppPreferences } from "./desktop-app.tsx";
+import { ProjectFolders } from "./project-folders.tsx";
+import { PermissionDefaults } from "@/components/permission-defaults.tsx";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
-import { DaemonSettings } from "./daemon-settings.tsx";
 import { RecoverySettings } from "./recovery-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
@@ -35,11 +33,10 @@ export function GeneralSettings() {
     settingKeys.autoSettle,
     settingRow("threads.autoSettleAfter").title,
   );
-  const fake = useDaemonConnection().mode === "fake";
   const note = useNotConnectedNote();
   return (
     <>
-      <OpenAtLogin />
+      <DesktopAppPreferences />
       <SettingSection label="You" card scope="device">
         <ProfileNameRow />
       </SettingSection>
@@ -65,35 +62,21 @@ export function GeneralSettings() {
           </DaemonSlot>
         </SettingRow>
         <SettingSwitch setting={settingKeys.settleOnMerge} entry="threads.settleOnMerge" />
+        <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
+      <SettingSection label="Default permissions" anchor="permissions.providerModes" scope="daemon">
+        <PermissionDefaults />
+      </SettingSection>
+      <ProjectFolders />
       <RecoverySettings />
       <SettingSection label="Automations" card scope="daemon">
         <SettingSwitch
           setting={settingKeys.automations}
           entry="automations.enabled"
-          description="Scheduled and repository-event automations run on this daemon. Off, none start, not even by hand."
+          description="Turn off to stop new automation runs, including manual runs."
         />
       </SettingSection>
-      {!fake && <DaemonSettings />}
     </>
-  );
-}
-
-/** The desktop app's login item, which it registers itself. A browser has none to offer. */
-function OpenAtLogin() {
-  const id = useId();
-  const { value, update } = useDesktopPreferences();
-  if (!value) return null;
-  return (
-    <SettingSection label="App" card scope="computer">
-      <SettingRow {...settingRow("app.openAtLogin")} htmlFor={id} inline>
-        <Switch
-          id={id}
-          checked={value.openAtLogin}
-          onCheckedChange={(on) => void update({ openAtLogin: on })}
-        />
-      </SettingRow>
-    </SettingSection>
   );
 }
 

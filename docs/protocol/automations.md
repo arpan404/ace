@@ -30,20 +30,18 @@ Example:
 
 ```json
 {
-  "concurrency": 2,
+  "concurrency": 7,
   "enabled": false,
   "id": "example",
-  "jitterMs": 3,
-  "missedRun": "skip",
+  "jitterMs": 5,
+  "missedRun": "run_once",
+  "model": "example",
+  "permissionMode": "example",
   "prompt": "example",
   "provider": "claude",
   "title": "example",
   "trigger": {
-    "event": "issue_labelled",
-    "kind": "github",
-    "pollIntervalMs": 60009,
-    "pullRequest": 4,
-    "repository": "0aAUYpggCf/OB"
+    "kind": "manual"
   },
   "workspace": "example",
   "worktree": false
@@ -81,8 +79,26 @@ Example:
 
 ```json
 {
-  "before": 1,
+  "before": null,
   "runs": []
+}
+```
+
+## AutomationPollError
+
+[JSON Schema](schema/AutomationPollError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| message | yes | string | {"maxLength":8192} |
+| at | yes | integer | {"minimum":0,"maximum":8640000000000000} |
+
+Example:
+
+```json
+{
+  "at": 9,
+  "message": "example"
 }
 ```
 
@@ -103,15 +119,14 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
+    "concurrency": 9,
     "enabled": true,
     "id": "example",
-    "jitterMs": 1,
-    "missedRun": "skip",
+    "jitterMs": 5,
+    "missedRun": "run_once",
     "model": "example",
-    "permissionMode": "example",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -120,7 +135,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -188,13 +203,14 @@ Example:
 | type | yes | `"automation.inbox"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
 
 Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 7,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -211,7 +227,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
-| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]}},"required":["id","nextRunAt"]}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
 
@@ -222,6 +238,17 @@ Example:
   "error": "example",
   "ok": true,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "finishedAt": 4,
+    "id": "example",
+    "startedAt": 2,
+    "status": "skipped",
+    "title": "example",
+    "trigger": "github"
+  },
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -249,12 +276,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 2,
   "id": "example",
-  "startedAt": 2,
-  "status": "succeeded",
+  "result": "example",
+  "startedAt": 3,
+  "status": "failed",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "manual"
 }
 ```
 
@@ -274,7 +301,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "cron",
+  "kind": "rrule",
   "startAt": 0,
   "timezone": "example"
 }
@@ -312,7 +339,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -334,11 +361,10 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "issue_labelled",
   "kind": "github",
-  "label": "example",
   "pollIntervalMs": 60009,
-  "repository": "58_Fk/zC_"
+  "repository": "tLD/cTzD9."
 }
 ```
 

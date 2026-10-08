@@ -57,6 +57,7 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;
+  supportFiles?: FilesService;
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
@@ -82,7 +83,9 @@ export interface Services {
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationWorker;
+  notificationPublicKey?: string;
   review: ReturnType<typeof createDaemonReview>;
+  historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;
   history?: DaemonHistory;
   usage: ReturnType<typeof createDaemonUsage>;
 }

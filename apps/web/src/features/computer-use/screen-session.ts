@@ -181,7 +181,7 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
         readPermissions(
           parsed.success
             ? { value: parsed.data }
-            : { error: new Error("The daemon answered something unexpected.") },
+            : { error: new Error("ace answered something unexpected.") },
         );
       }
       return result;

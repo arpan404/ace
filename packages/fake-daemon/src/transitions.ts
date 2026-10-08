@@ -1,4 +1,4 @@
-import type { EventPayload, ForkPoint } from "@ace/protocol";
+import type { CommandPayload, EventPayload, ForkPoint } from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -45,4 +45,23 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
       },
     },
   ];
+}
+
+/** The fake publishes the same synthetic context message as a completed real merge. */
+export function mergeForkError(
+  fork: ThreadHost,
+  parent: ThreadHost | undefined,
+  payload: Extract<CommandPayload, { type: "thread.merge" }>,
+): string | undefined {
+  if (!fork.view.thread.lineage) return "thread_is_not_a_fork";
+  if (!parent || parent.view.thread.deletedAt !== undefined) return "source_thread_not_found";
+  if (busy(fork) || fork.queued.length) return "fork_tree_is_live";
+  if (payload.patch && (busy(parent) || parent.queued.length)) return "source_tree_is_live";
+  if (
+    !payload.citations.every(
+      (citation) => citation.threadId === fork.id && fork.view.items[citation.itemId],
+    )
+  )
+    return "invalid_citation_thread";
+  return undefined;
 }

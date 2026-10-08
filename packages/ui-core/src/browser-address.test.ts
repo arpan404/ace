@@ -114,5 +114,7 @@ test("browser failures read as what happened and what to do", () => {
   expect(describeBrowserFailure("Browser origin requires approval", "https://x.dev/a").detail).toBe(
     "ace's browser opens x.dev only once it's approved for this thread.",
   );
-  expect(describeBrowserFailure("Something odd", "https://x.dev/").detail).toBe("Something odd");
+  expect(describeBrowserFailure("Something odd", "https://x.dev/").detail).toBe(
+    "Check the address and connection, then reload the page.",
+  );
 });

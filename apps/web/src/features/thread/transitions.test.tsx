@@ -23,10 +23,9 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
 
 test("forking from an answer opens a new thread that starts with the person's message", async () => {
   const { app, feed } = await openRouter();
-  const answer = await within(feed).findByText(/Answer 1: route 1/);
-  const forkHere = within(answer.closest(".group\\/answer") ?? feed).getByRole("button", {
-    name: "Fork from here",
-  });
+  await within(feed).findByText(/Answer 1: route 1/);
+  const forkHere = within(feed).getAllByRole("button", { name: "Fork from here" })[0];
+  if (!forkHere) throw new Error("No finished answer to fork");
   await userEvent.click(forkHere);
   const dialog = await screen.findByRole("dialog", { name: "Fork from here" });
   await userEvent.type(

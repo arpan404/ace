@@ -70,13 +70,16 @@ test("a folder the daemon may not open says why and offers another, inside the a
   const made = host();
   await made.open(`/new?folder=${encodeURIComponent("/etc/ssh")}`);
   await screen.findByRole("heading", { name: "Couldn't open ssh" });
-  expect(screen.getByText(/outside the places this daemon may open/)).toBeTruthy();
+  expect(screen.getByText(/ace isn't allowed to open this folder yet/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Choose another folder…" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Add project" });
   // The browser shows that folder's parent, which is just as closed off, and the way home.
-  expect(await within(dialog).findByText(/outside the places this daemon may open/)).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Go to the home folder" }));
+  expect(await within(dialog).findByText(/ace isn't allowed to open this folder yet/)).toBeTruthy();
+
+  await userEvent.click(
+    await within(dialog).findByRole("button", { name: "Go to the home folder" }),
+  );
   expect(await within(dialog).findByRole("option", { name: /^code/ })).toBeTruthy();
   expect(registered(made)).toEqual([]);
 });
@@ -109,7 +112,7 @@ test("the desktop app's folder picker adds the chosen folder", async () => {
   desktopBridge({ chosen: `${home}/code/weather` });
   const made = host();
   await made.open("/new");
-  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);

@@ -16,7 +16,7 @@ const Minute = z
 export const DesktopQuietHours = z.object({ start: Minute, end: Minute });
 export type DesktopQuietHours = z.infer<typeof DesktopQuietHours>;
 /** The desktop's notification categories this app edits; others round-trip untouched. */
-export type DesktopCategory = "needsYou" | "finished" | "failed";
+export type DesktopCategory = "needsYou" | "finished" | "failed" | "agentSays";
 const Notifications = z.looseObject({
   enabled: z.boolean(),
   categories: z.record(z.string(), z.boolean()),
@@ -24,11 +24,19 @@ const Notifications = z.looseObject({
 });
 export const DesktopPreferences = z.looseObject({
   openAtLogin: z.boolean(),
+  background: z.boolean().default(true),
+  preventSleep: z.boolean().default(false),
+  attention: z.boolean().default(true),
+  globalShortcut: z.string().max(64).nullable().default(null),
   notifications: Notifications,
 });
 export type DesktopPreferences = z.infer<typeof DesktopPreferences>;
 export interface DesktopPreferencesPatch {
   openAtLogin?: boolean;
+  background?: boolean;
+  preventSleep?: boolean;
+  attention?: boolean;
+  globalShortcut?: string | null;
   notifications?: DesktopPreferences["notifications"];
 }
 
@@ -55,6 +63,11 @@ function bridgeOf(scope: object): Bridge | undefined {
   if (!("onChange" in settings) || typeof settings.onChange !== "function") return undefined;
   // Each member was checked to be a function; results are parsed before use.
   return settings as Bridge;
+}
+
+/** Whether this window can edit the desktop's preferences. */
+export function hasDesktopPreferences(scope: object = globalThis): boolean {
+  return bridgeOf(scope) !== undefined;
 }
 
 const stores = new WeakMap<object, DesktopPreferencesStore>();

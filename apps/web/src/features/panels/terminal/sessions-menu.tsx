@@ -148,7 +148,7 @@ export function SessionsMenu(props: { scope: string }) {
           icon={<TerminalWindowIcon aria-hidden size={16} />}
           keys={keymap.newTerminal.keys}
           disabled={link !== "connected"}
-          reason={link === "connected" ? undefined : "Waiting for the daemon to reconnect"}
+          reason={link === "connected" ? undefined : "Waiting for ace to reconnect"}
           onClick={() => openNewTerminal(actions, workspace)}
         >
           New terminal

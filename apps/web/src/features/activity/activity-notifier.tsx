@@ -1,3 +1,4 @@
+import { useNow } from "@/lib/time.ts";
 import type { SidebarReader } from "@ace/client";
 import {
   arrayEqual,
@@ -13,7 +14,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { notifyInBrowser, useTitleCount } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
-import { interactionKey } from "./item-keys.ts";
+import { interactionKey } from "@/lib/activity-item-keys.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { requestTitle } from "./request-title.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
@@ -66,7 +67,7 @@ function ThreadNotifier() {
   const show = (cause: ToastCause) => {
     if (cause.kind === "automation") return;
     const thread = sidebar?.thread(cause.threadId);
-    if (!thread) return;
+    if (!thread || (thread.snoozedUntil ?? 0) > Date.now()) return;
     const needsYou = cause.kind === "needs_you";
     const visible = documentVisibility.visible();
     const description = `${projectName(thread.workspaceId)} · ${thread.title}`;
@@ -148,6 +149,7 @@ function NeedsYouToast(props: { threadId: string }) {
     latest.current = { toast, navigate };
   });
   const thread = useSidebarThread(threadId);
+  const now = useNow();
   const first = useInteractions(threadId)?.[0];
   const interaction = useInteraction(threadId, first ?? "");
   const id = needsToastId(threadId);
@@ -155,7 +157,8 @@ function NeedsYouToast(props: { threadId: string }) {
     thread !== undefined &&
     (thread.status.state !== "needs_you" ||
       thread.archivedAt !== undefined ||
-      thread.deletedAt !== undefined);
+      thread.deletedAt !== undefined ||
+      (thread.snoozedUntil ?? 0) > now);
   useEffect(() => {
     if (left) latest.current.toast.close(id);
   }, [left, id]);

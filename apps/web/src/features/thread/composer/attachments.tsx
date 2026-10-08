@@ -2,6 +2,7 @@ import { ClientError } from "@ace/client";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 
@@ -63,6 +64,9 @@ export function useAttachments(
   restored: readonly { sha256: string; name: string }[] = [],
 ) {
   const sources = useThreadSources();
+  const toast = useToast();
+  const removed = useRef(new Set<number>());
+  const inFlight = useRef(new Set<number>());
   const [items, setItems] = useState<PendingAttachment[]>(() =>
     restored.map((file, index) => ({
       key: -1 - index,
@@ -108,16 +112,41 @@ export function useAttachments(
       return list.filter((item) => item.key !== key);
     });
   }, []);
+  useEffect(
+    () =>
+      sources.context.onReleased((owner, hash) => {
+        if (owner.id !== thread.id || owner.draft !== thread.draft) return;
+        for (const [key, held] of known.current) if (held.id?.startsWith(`${hash}\0`)) drop(key);
+      }),
+    [sources, thread.id, thread.draft, drop],
+  );
   const upload = useCallback(
     (key: number, file: File) => {
+      inFlight.current.add(key);
       const patch = (change: Partial<PendingAttachment>) =>
         setItems((list) => list.map((item) => (item.key === key ? { ...item, ...change } : item)));
       const outcome = sources.context
         .upload(thread, file, (progress) => patch({ progress }))
         .then(
           (attachment) => {
+            inFlight.current.delete(key);
             files.current.delete(key);
             const ready = { sha256: attachment.sha256, name: file.name };
+            if (removed.current.delete(key)) {
+              if (
+                ![...known.current.values()].some((held) =>
+                  held.id?.startsWith(`${attachment.sha256}\0`),
+                )
+              ) {
+                void sources.context.release(thread, attachment.sha256).catch(() =>
+                  toast.error({
+                    title: "Couldn't remove the attachment",
+                    description: "Open Attachments from the thread menu and try removing it again.",
+                  }),
+                );
+              }
+              return lost;
+            }
             // The same bytes under the same name are already attached: one chip is enough.
             const id = `${attachment.sha256}\0${file.name}`;
             const twin = [...known.current].some(
@@ -140,6 +169,8 @@ export function useAttachments(
             return ready;
           },
           (error: unknown): Outcome => {
+            inFlight.current.delete(key);
+            removed.current.delete(key);
             const reason = uploadError(error);
             patch({ state: "failed", error: reason, retryable: true });
             return { error: reason };
@@ -147,7 +178,7 @@ export function useAttachments(
         );
       outcomes.current.set(key, outcome);
     },
-    [sources, thread, drop],
+    [sources, thread, drop, toast],
   );
   /**
    * Attach files: each gets its chip and starts uploading. A file already attached (same name,
@@ -231,7 +262,28 @@ export function useAttachments(
       known.current.delete(key);
     }
   };
-  const remove = drop;
+  const remove = (key: number) => {
+    const hash = known.current.get(key)?.id?.split("\0")[0];
+    if (!hash) {
+      if (inFlight.current.has(key)) removed.current.add(key);
+      drop(key);
+      return;
+    }
+    if (
+      [...known.current].some(([other, held]) => other !== key && held.id?.startsWith(`${hash}\0`))
+    ) {
+      drop(key);
+      return;
+    }
+    void sources.context.release(thread, hash).then(
+      () => drop(key),
+      () =>
+        toast.error({
+          title: "Couldn't remove the attachment",
+          description: "Check the connection and try again.",
+        }),
+    );
+  };
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);
     previews.current.clear();

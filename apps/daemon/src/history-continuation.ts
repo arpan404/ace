@@ -13,6 +13,11 @@ const FrameSchema = z.object({
 });
 /** The account owner resolves a home-bound adapter; the engine consumes its live frames. */
 export interface HistoryAdapterPort {
+  continueOwned?(
+    request: Extract<ClientMessage, { type: "history.continue" }>,
+    signal: AbortSignal,
+  ): Promise<ServerMessage>;
+  support?(instanceId: string): { status: "supported" } | { status: "unsupported"; reason: string };
   resolve(instanceId: string): ProviderAdapter | undefined;
   onFrame(threadId: ThreadId, instanceId: string, frame: Frame): void;
   onExit(
@@ -53,6 +58,14 @@ export class HistoryContinuation {
     const source = await this.history.get(thread.imported.sourceId);
     if (!source || source.instanceId !== thread.imported.instanceId)
       throw new Error("History instance is no longer registered");
+    const workspace = this.store.getWorkspace(thread.workspaceId);
+    if (!workspace || workspace.path !== source.cwd || source.provider !== thread.provider)
+      throw new Error("History project or provider no longer matches this thread");
+    if (this.port?.continueOwned) {
+      await this.history.continuation(source.id, "resume");
+      report("opening");
+      return this.port.continueOwned(request, signal);
+    }
     const port = this.port,
       adapter = port?.resolve(source.instanceId);
     if (!port || !adapter)
@@ -97,6 +110,7 @@ export class HistoryContinuation {
       let exited = false;
       report("opening");
       const session = await adapter.openSession({
+        instanceId: source.instanceId,
         threadId: thread.id,
         cwd: ctx.cwd,
         ...(ctx.model ? { model: ctx.model } : {}),
@@ -141,7 +155,7 @@ export class HistoryContinuation {
       this.sessions.set(thread.id, active);
     }
     report("sending");
-    await active.session.send(request.input, request.delivery);
+    if (request.input.length) await active.session.send(request.input, request.delivery);
     return {
       type: "history.continue",
       status: "continued",
@@ -149,6 +163,18 @@ export class HistoryContinuation {
       instanceId: active.instanceId,
       nativeSessionId: active.session.nativeSessionId,
     };
+  }
+  support(instanceId: string) {
+    return (
+      this.port?.support?.(instanceId) ??
+      (this.port?.resolve(instanceId)
+        ? { status: "supported" as const }
+        : {
+            status: "unsupported" as const,
+            reason:
+              "Install a supported version of this provider to continue. You can still import its history.",
+          })
+    );
   }
   async pausePersistence(signal: AbortSignal): Promise<() => Promise<void>> {
     signal.throwIfAborted();

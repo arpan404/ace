@@ -99,7 +99,7 @@ test("the sidebar's title is the daemon's menu, and the profile at its foot the 
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Appearance", "Keyboard shortcuts", "Usage & accounts"]);
+  ).toEqual(["Appearance", "Keyboard shortcuts", "Usage & accounts", "Archived threads"]);
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage & accounts" }));
   await title("Usage & accounts");
   expect(list("Threads")).toBeTruthy();

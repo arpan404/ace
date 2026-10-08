@@ -1,3 +1,4 @@
+import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
   ChatsCircleIcon,
@@ -66,6 +67,17 @@ export const changesKind = defineTabKind({
 export const filesKind = defineTabKind({
   kind: "files",
   label: "Files",
+  closeWarning: (_scope, tabs) =>
+    tabs.some(({ tab }) => {
+      const data = fileTabData(tab);
+      return data.draft && data.draft.text !== data.draft.original;
+    })
+      ? {
+          title: "Discard file edits?",
+          description: "These tabs have unsaved file changes.",
+          confirm: "Discard",
+        }
+      : undefined,
   icon: FilesIcon,
   launcher: 30,
   title: (tab) => {
@@ -84,7 +96,6 @@ export const sideChatKind = defineTabKind({
   label: "Side chat",
   icon: ChatsCircleIcon,
   singleton: true,
-  launcher: 40,
   // No daemon can run one yet: the protocol has no ephemeral, thread-scoped session.
   unavailable: "Not available yet",
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),

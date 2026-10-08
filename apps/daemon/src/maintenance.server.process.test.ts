@@ -39,6 +39,7 @@ test("maintenance closes websocket command admission until the local host releas
   expect(await c.next()).toMatchObject({
     type: "error",
     code: "maintenance",
+    message: "New work is paused. Resume new work in ace to continue.",
     commandId: "maintenance-test",
     retryable: true,
   });

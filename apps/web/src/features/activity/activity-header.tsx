@@ -1,10 +1,4 @@
-import {
-  BellSimpleIcon,
-  ChecksIcon,
-  FolderSimpleIcon,
-  FunnelSimpleIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { ChecksIcon, FolderSimpleIcon, FunnelSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -15,7 +9,6 @@ import {
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
-  MenuSeparator,
   MenuSub,
   MenuSubTrigger,
   MenuTrigger,
@@ -103,7 +96,7 @@ function useProjects() {
  * The ⋯ menu beside the title: everything the header holds, so a narrow window that folds the
  * header actions into it loses nothing.
  */
-export function ActivityMenu(props: { onNotificationSettings(): void }) {
+export function ActivityMenu() {
   const { unread, markAll } = useMarkAllRead();
   return (
     <>
@@ -116,10 +109,6 @@ export function ActivityMenu(props: { onNotificationSettings(): void }) {
           <ProjectRadios />
         </MenuContent>
       </MenuSub>
-      <MenuSeparator />
-      <MenuItem icon={<Icon icon={BellSimpleIcon} />} onClick={props.onNotificationSettings}>
-        Notification settings…
-      </MenuItem>
     </>
   );
 }

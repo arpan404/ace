@@ -46,6 +46,8 @@ export class NotificationDatabase {
       CREATE INDEX IF NOT EXISTS pending_due ON pending(due);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS agent_notices_expiry ON agent_notices(expires);
       CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, device TEXT NOT NULL, thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
       CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
@@ -59,13 +61,13 @@ export class NotificationDatabase {
       .number()
       .int()
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
-    if (version === 0) {
-      // Older projections lack owner eligibility. Rebuild from the event log, preserving device policy.
+    if (version === 0 || version === 1) {
+      // Rebuild older projections with owner eligibility and thread snoozes, preserving device policy.
       this.db.exec(`BEGIN IMMEDIATE; DELETE FROM threads; DELETE FROM interactions;
         DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
         DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;
-        PRAGMA user_version=1; COMMIT;`);
-    } else if (version !== 1) throw new Error("Unsupported notification database version");
+        PRAGMA user_version=2; COMMIT;`);
+    } else if (version !== 2) throw new Error("Unsupported notification database version");
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -107,6 +109,10 @@ export class NotificationDatabase {
         if (!coverage && event.seq !== cursor + 1) throw new Error("Notification replay gap");
         cursor = event.seq;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
+        if (event.payload.type === "thread.client.updated") {
+          this.snooze(event.threadId, event.payload.snoozedUntil ?? 0);
+          continue;
+        }
         if (event.payload.type === "thread.created") {
           const state = CompactThread.parse({
             archived: event.payload.thread.archivedAt !== undefined,
@@ -117,6 +123,8 @@ export class NotificationDatabase {
             event.threadId,
             JSON.stringify(state),
           );
+          if (event.payload.thread.snoozedUntil !== undefined)
+            this.snooze(event.threadId, event.payload.thread.snoozedUntil);
           continue;
         }
         const row = this.statement("SELECT body FROM threads WHERE id=?").get(event.threadId);
@@ -210,6 +218,34 @@ export class NotificationDatabase {
       "INSERT INTO snoozes VALUES(?,?) ON CONFLICT(thread) DO UPDATE SET until=excluded.until",
     ).run(thread, until);
   }
+  /** Acceptance and fan-out commit together; retried MCP intents keep their stable id. */
+  notify(notification: Notification, now: number): void {
+    this.transaction(() => {
+      this.statement("DELETE FROM agent_notices WHERE expires<=?").run(now);
+      if (this.statement("SELECT id FROM agent_notices WHERE id=?").get(notification.id)) return;
+      const state = this.thread(notification.threadId);
+      const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
+      if (
+        this.count("jobs") + devices.length > 10_000 ||
+        Number(this.statement("SELECT count(*) AS n FROM agent_notices").get()?.n) >= 10_000
+      )
+        throw new Error("Notification queue full");
+      const expires = now + 86_400_000;
+      this.statement("INSERT INTO agent_notices VALUES(?,?)").run(notification.id, expires);
+      if (state.archived || this.snoozed(notification.threadId, now)) return;
+      for (const device of devices)
+        this.statement(
+          "INSERT INTO jobs(device,thread,body,due,expires,generation) VALUES(?,?,?,?,?,?)",
+        ).run(
+          String(device.id),
+          notification.threadId,
+          JSON.stringify(notification),
+          now,
+          expires,
+          state.generation,
+        );
+    });
+  }
   snoozed(thread: ThreadId, now: number): boolean {
     return (
       Number(this.statement("SELECT until FROM snoozes WHERE thread=?").get(thread)?.until ?? 0) >
@@ -262,7 +298,8 @@ export class NotificationDatabase {
   current(notification: Notification, generation: number): boolean {
     const state = this.thread(notification.threadId);
     if (state.archived) return false;
-    if (notification.status === "background_done") return true;
+    if (notification.status === "background_done" || notification.status === "agent_says")
+      return true;
     return (
       state.generation === generation &&
       state.status.state === notification.status &&

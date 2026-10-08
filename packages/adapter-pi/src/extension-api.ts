@@ -54,6 +54,7 @@ export interface PiExtensionApi {
       event: unknown,
       ctx: {
         getContextUsage(): unknown;
+        sessionManager?: { getLeafId(): string | null };
         model?: { provider: string; id: string };
         ui: { notify(message: string, type: "info" | "error"): void };
       },

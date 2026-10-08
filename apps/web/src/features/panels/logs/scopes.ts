@@ -25,7 +25,7 @@ export function logScopeId(scope: LogScope): string | undefined {
 /** A Logs tab's title: "Logs", "Daemon log", or the agent's name the view last reported. */
 export function logScopeTitle(id: string, reported: string | undefined): string {
   const scope = parseLogScope(id);
-  if (scope.kind === "daemon") return "Daemon log";
+  if (scope.kind === "daemon") return "App log";
   if (scope.kind === "agent") return reported ?? "Agent log";
   return "Logs";
 }

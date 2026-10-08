@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import { DeviceClient } from "@ace/client/devices";
 import { ScreenStreamClient, type PortableFrame } from "@ace/client/screen-stream";
 import { expect, it, onTestFinished } from "vitest";
@@ -66,6 +67,12 @@ it("two views of one app share its stream: closing one leaves the other live, cl
 
 it("two views of one device share its stream: closing one leaves the other live, closing both ends it", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "stream-thread",
+    workspaceId: "stream-project",
+    title: "Device stream",
+    provider: "codex",
+  });
   let id = 0;
   const devices = new DeviceClient({ id: () => `device-${++id}`, schedule: () => () => {} });
   onTestFinished(() => devices.disconnect());
@@ -73,6 +80,12 @@ it("two views of one device share its stream: closing one leaves the other live,
   await settle();
   const deviceId = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
   await devices.request({ op: "enable", enabled: true });
+  await devices.request({
+    op: "approve",
+    deviceId,
+    threadId: ThreadId.parse("stream-thread"),
+    allowed: true,
+  });
   await devices.request({ op: "start", deviceId, fps: 10 });
   const paint = async () => {
     await devices.request({ op: "stream.keyframe", deviceId });

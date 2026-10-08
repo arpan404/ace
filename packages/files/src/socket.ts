@@ -31,6 +31,7 @@ interface Incoming {
   ): Promise<{ uploadId: string; offset: number; size: number }>;
 }
 const readOperations = new Set([
+  "list",
   "stat",
   "download",
   "artifact.download",

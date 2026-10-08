@@ -12,28 +12,31 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** Rows inside a card: the card draws the hairlines between them. */
+/** Rows inside a grouped section: the group draws the hairlines between them. */
 const InCard = createContext(false);
 
 /**
- * Settings-style row: title and description on the left, the control on the right. Inside a
- * `SettingSection card` the card draws hairlines between rows; elsewhere rows rule off from
- * each other. Narrow (below 30rem of row width) the control drops under the text and wide
+ * Settings-style row: title and description on the left, the control on the right. Hairlines
+ * separate rows. Below 30rem of row width the control drops under the text and wide
  * controls take the full width, unless `inline` (switches, small buttons). `id` makes the row
  * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
  */
 export function SettingRow(props: {
   title: ReactNode;
+  compact?: boolean;
   description?: ReactNode;
   children?: ReactNode;
   /** Associates the title with a control for assistive tech. */
   htmlFor?: string;
   /** Keep the control beside the text at every width (a switch, a short button). */
   inline?: boolean;
+  /** A single 36px row; its description is shown on hover or focus. */
+  density?: "default" | "compact";
   /** The row's anchor, from the settings index (`settingsIndex`). */
   id?: string;
 }) {
   const inCard = use(InCard);
+  const compact = props.compact || props.density === "compact";
   const Title = props.htmlFor ? "label" : "div";
   const row = useRef<HTMLDivElement>(null);
   const flashing = useHashFlash(props.id, row);
@@ -43,26 +46,37 @@ export function SettingRow(props: {
       ref={row}
       className={cn(
         "@container transition-colors duration-(--dur-4)",
-        inCard ? "px-4" : "border-t first:border-t-0",
+        !inCard && "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
       <div
         className={cn(
-          "flex gap-4 py-3.5 compact:py-2.5",
-          props.inline
+          compact ? "flex min-h-9 items-center gap-4 py-1" : "flex gap-4 py-3.5 compact:py-2.5",
+          props.inline || compact
             ? "items-center"
             : "flex-col items-stretch gap-2.5 @[30rem]:flex-row @[30rem]:items-center @[30rem]:gap-4",
         )}
       >
         <div className="min-w-0 flex-1">
-          <Title
-            {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-            className="block text-ui font-medium"
-          >
-            {props.title}
-          </Title>
-          {props.description && (
+          {compact && props.description ? (
+            <Tip label={props.description}>
+              <Title
+                {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
+                className="block text-ui font-medium"
+              >
+                {props.title}
+              </Title>
+            </Tip>
+          ) : (
+            <Title
+              {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
+              className="block text-ui font-medium"
+            >
+              {props.title}
+            </Title>
+          )}
+          {props.description && !compact && (
             <p className="mt-0.5 text-sm leading-[1.4] text-muted-foreground">
               {props.description}
             </p>
@@ -72,13 +86,33 @@ export function SettingRow(props: {
           <div
             className={cn(
               "flex shrink-0 items-center gap-2",
-              props.inline ? "ml-auto" : "*:flex-1 @[30rem]:ml-auto @[30rem]:*:flex-none",
+              props.inline || compact
+                ? "ml-auto"
+                : "*:flex-1 @[30rem]:ml-auto @[30rem]:*:flex-none",
             )}
           >
             {props.children}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One-line device or machine row; hover or focus its name to read the details. */
+export function SettingSummaryRow(props: {
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex h-9 items-center gap-3 text-ui">
+      <Tip label={props.description}>
+        <span tabIndex={0} className="min-w-0 flex-1 truncate rounded-xs focus-ring">
+          {props.title}
+        </span>
+      </Tip>
+      {props.children}
     </div>
   );
 }
@@ -107,18 +141,18 @@ export type SettingScope = "daemon" | "device" | "computer";
 const scopes: Record<SettingScope, { label: string; tip: string }> = {
   daemon: {
     label: "All devices",
-    tip: "Stored on the daemon; every paired device follows it",
+    tip: "Every paired device follows these settings",
   },
   device: { label: "This device", tip: "Kept in this browser or app only" },
   computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
 };
 
 /**
- * A labelled group of rows. `card` groups them on one surface with hairlines between rows
- * (Settings); without it, rows sit on the page. `scope` says where its settings live.
+ * A labelled group of rows. `scope` says where its settings live.
  */
 export function SettingSection(props: {
   label: string;
+  anchor?: string;
   children: ReactNode;
   card?: boolean;
   scope?: SettingScope | undefined;
@@ -130,7 +164,7 @@ export function SettingSection(props: {
   const id = useId();
   const scope = props.scope ? scopes[props.scope] : undefined;
   return (
-    <section className="mt-7" aria-labelledby={id}>
+    <section id={props.anchor} className="mt-7" aria-labelledby={id}>
       <div className="mb-2 flex items-center gap-2">
         <h3 id={id} className="text-sm font-medium text-muted-foreground">
           {props.label}
@@ -147,7 +181,7 @@ export function SettingSection(props: {
       {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
       {props.card ? (
         <InCard value>
-          <div className="divide-y rounded-card border bg-card">{props.children}</div>
+          <div className="divide-y">{props.children}</div>
         </InCard>
       ) : (
         props.children

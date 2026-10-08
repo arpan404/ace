@@ -90,7 +90,7 @@ export function AddProjectDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="w-[min(640px,calc(100vw-2rem))] gap-3" onKeyDown={onKeyDown}>
+      <DialogContent size="lg" className="gap-3" onKeyDown={onKeyDown}>
         <DialogHeader>
           <DialogTitle>Add project</DialogTitle>
           <DialogDescription>
@@ -107,14 +107,19 @@ export function AddProjectDialog(props: {
             const tab = tabs.find((each) => each.value === value);
             if (tab) props.onTab(tab.value);
           }}
-          className="grid gap-3"
+          className="grid min-w-0 gap-3"
         >
           <TabsList aria-label="How to add a project">
             {tabs.map((tab, index) => (
-              <TabsTab key={tab.value} value={tab.value}>
+              <TabsTab key={tab.value} value={tab.value} className="px-2 sm:px-2.5">
                 <Icon icon={tab.icon} size={14} />
                 {tab.label}
-                <Kbd aria-hidden keys={`mod+${index + 1}`} variant="bare" />
+                <Kbd
+                  aria-hidden
+                  keys={`mod+${index + 1}`}
+                  variant="bare"
+                  className="hidden sm:inline-flex"
+                />
               </TabsTab>
             ))}
           </TabsList>
@@ -123,13 +128,13 @@ export function AddProjectDialog(props: {
               {removed
                 ? `${machine.name} was removed from your machines. Choose a machine to carry on.`
                 : machine.primary
-                  ? "Reconnecting to the daemon… Folders and actions come back once it answers."
+                  ? "Reconnecting… Folders and actions come back once connected."
                   : `${machine.name} isn't connected. Folders and actions come back once it is.`}
             </p>
           )}
           {machine && (
             <>
-              <TabsPanel value="open">
+              <TabsPanel className="min-w-0" value="open">
                 <OpenFolderTab
                   machine={machine}
                   machines={machines}
@@ -139,7 +144,7 @@ export function AddProjectDialog(props: {
                   }
                 />
               </TabsPanel>
-              <TabsPanel value="create">
+              <TabsPanel className="min-w-0" value="create">
                 <CreateProjectTab
                   machine={machine}
                   machines={machines}
@@ -148,7 +153,7 @@ export function AddProjectDialog(props: {
                   }
                 />
               </TabsPanel>
-              <TabsPanel value="clone">
+              <TabsPanel className="min-w-0" value="clone">
                 <CloneProjectTab machine={machine} machines={machines} clone={props.clone} />
               </TabsPanel>
             </>

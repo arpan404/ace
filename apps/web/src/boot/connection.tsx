@@ -38,6 +38,7 @@ export interface DaemonConnection {
   status: ConnectionStatus;
   /** Inside the desktop app: its daemon is managed for the person, never started by hand. */
   desktop?: boolean | undefined;
+  pairingLink?: string | undefined;
   /** Switch to another daemon or token; the client is replaced. */
   connect(target: DaemonTarget, remember: boolean): void;
   /** Try the same target again with a fresh client, skipping any backoff. */

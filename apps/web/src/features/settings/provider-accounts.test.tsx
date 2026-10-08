@@ -46,7 +46,7 @@ test("an account's menu renames it, makes it the default and removes it after as
   await userEvent.type(field, "Client work{Enter}");
   expect(await account("Client work")).toBeTruthy();
   const renamed = app.daemon.services.accounts.find((entry) => entry.label === "Client work");
-  if (!renamed) throw new Error("Not renamed on the daemon");
+  if (!renamed) throw new Error("Not renamed on ace");
 
   await userEvent.click(
     within(await account("Client work")).getByRole("button", { name: "Manage Client work" }),
@@ -70,7 +70,7 @@ test("an account's menu renames it, makes it the default and removes it after as
 test("the CLI's own sign-in can't be renamed or removed, only signed in again", async () => {
   await harness().open("/settings/providers/claude");
   const own = await account("ada@example.com");
-  expect(within(own).getByText("Claude Code's own sign-in")).toBeTruthy();
+  expect(within(own).getByText("Signed in")).toBeTruthy();
   await userEvent.click(within(own).getByRole("button", { name: "Manage ada@example.com" }));
   const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
   expect(items).toEqual(["Sign in again"]);

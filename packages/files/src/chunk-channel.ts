@@ -11,7 +11,12 @@ const Upload = z.object({
   size: z.number().int().nonnegative(),
 });
 type Binding = { service: FilesService; allowed(access: "read" | "operate"): boolean };
-type Channel = { binding: Binding; threadId: ThreadId; busy: boolean; requestId: string } & (
+type Channel = {
+  binding: Binding;
+  threadId: ThreadId | undefined;
+  busy: boolean;
+  requestId: string;
+} & (
   | { kind: "download"; value: Download; hash: Hash; offset: number }
   | {
       kind: "upload";
@@ -25,7 +30,7 @@ type Channel = { binding: Binding; threadId: ThreadId; busy: boolean; requestId:
 /** Pull/ACK frames bound memory to one 64 KiB chunk per channel, even through a shared worker. */
 export function chunkFilesChannel(options: {
   device: string;
-  resolve(threadId: ThreadId): Promise<Binding>;
+  resolve(threadId: ThreadId | undefined, scope?: "support"): Promise<Binding>;
   send(message: FilesServerMessage): void;
 }) {
   const channels = new Map<number, Channel>();
@@ -150,14 +155,17 @@ export function chunkFilesChannel(options: {
       return;
     }
     const threadId = message.threadId;
-    if (!threadId) throw new FileError("INVALID_MESSAGE", "Thread scope required");
-    const binding = await options.resolve(threadId);
+    if (!threadId && message.scope !== "support")
+      throw new FileError("INVALID_MESSAGE", "Thread scope required");
+    const binding = await options.resolve(threadId, message.scope);
     assertOpening();
     const op = message.operation;
     const access = [
+      "list",
       "stat",
       "download",
       "artifact.download",
+      "artifact.support",
       "archive.download",
       "archive.preview",
       "artifacts.list",

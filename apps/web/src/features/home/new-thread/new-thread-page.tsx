@@ -1,3 +1,4 @@
+import { PastSessions } from "@/features/history/index.ts";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
@@ -57,7 +58,11 @@ function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
  * (and its worktree). Mentions, files and slash commands work before then, in a draft scope on
  * the daemon.
  */
-export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
+export function NewThreadPage(props: {
+  project?: string | undefined;
+  base?: string | undefined;
+  skill?: string | undefined;
+}) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
   const { ids: projects, name, loaded } = useRegisteredProjects();
@@ -186,7 +191,10 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           </h2>
           <Composer
             thread={draftThread}
-            draftKey={project ? `new:${project}` : undefined}
+            draftKey={
+              project ? `new:${project}${props.skill ? `:skill:${props.skill}` : ""}` : undefined
+            }
+            initialText={props.skill ? `/${props.skill} ` : undefined}
             busy={false}
             onSubmit={send}
             autoFocus
@@ -250,7 +258,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   value: admitted.mode,
                   loading: !!provider && (permissions.loading || defaultMode === undefined),
                   unavailable: permissions.failed
-                    ? "The daemon couldn't say what this provider can gate"
+                    ? "Couldn't load permission modes. Reconnect and try again."
                     : undefined,
                   coverage: permissionCoverageNote(
                     permissions.capabilities,
@@ -264,6 +272,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             }
           />
           <SignInNotice provider={provider} />
+          <PastSessions projectId={project} />
           {error && (
             <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
               {error}

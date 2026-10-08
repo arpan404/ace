@@ -26,7 +26,7 @@ const Pending = z.object({
   thread_id: ThreadId,
   key: z.string(),
   bundle_id: z.string(),
-  kind: z.enum(["app", "foreground"]),
+  kind: z.enum(["app", "foreground", "device"]),
   turn_id: z.string(),
 });
 /** Blocking engine interactions. Human choices remain separate from provider approval options. */
@@ -79,6 +79,16 @@ export class ScreenApprovals {
     if (!sensitiveApp(bundleId) && this.options.grants.allows(bundleId, caller)) return;
     await this.ask("app", bundleId, reason, caller, signal);
   }
+  async device(deviceId: string, name: string, caller: ScreenAgentScope, signal: AbortSignal) {
+    await this.ask(
+      "device",
+      deviceId,
+      `Allow this agent to use ${name} for this thread. This enables devices; iOS also enables computer use and shares Simulator with this thread. Revoke removes the grant.`,
+      caller,
+      signal,
+      name,
+    );
+  }
   async foreground(
     state: ScreenState,
     signal: AbortSignal,
@@ -95,11 +105,12 @@ export class ScreenApprovals {
     );
   }
   private async ask(
-    kind: "app" | "foreground",
+    kind: "app" | "foreground" | "device",
     bundleId: string,
     reason: string,
     caller: ScreenAgentScope,
     signal: AbortSignal,
+    deviceName?: string,
   ) {
     signal.throwIfAborted();
     if (this.closing || this.waiters.size >= 32) throw new Error("Screen approval unavailable");
@@ -113,17 +124,29 @@ export class ScreenApprovals {
       throw new ScreenApprovalError("read_only", "Read-only mode refuses computer use");
     const request: Interaction["request"] = {
       kind: "approval",
-      title: kind === "app" ? `Use ${bundleId}` : `Foreground computer use: ${bundleId}`,
+      title:
+        kind === "device"
+          ? `Use ${deviceName}`
+          : kind === "app"
+            ? `Use ${bundleId}`
+            : `Foreground computer use: ${bundleId}`,
       description: reason,
       target: {
-        tool: kind === "app" ? "screen_request_app" : "screen_request_foreground",
+        tool:
+          kind === "device"
+            ? "device_request"
+            : kind === "app"
+              ? "screen_request_app"
+              : "screen_request_foreground",
         access: "execute",
         origin: "ace",
         riskClass: "external-effect",
-        input: { bundleId, kind },
+        input: kind === "device" ? { device: deviceName } : { bundleId, kind },
       },
       options: [
-        { id: "allow_once", kind: "allow_once", label: "Allow once" },
+        ...(kind === "device"
+          ? [{ id: "allow_thread", kind: "allow_session" as const, label: "Allow for this thread" }]
+          : [{ id: "allow_once", kind: "allow_once" as const, label: "Allow once" }]),
         ...(kind === "app"
           ? [
               {

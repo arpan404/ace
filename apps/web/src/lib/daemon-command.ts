@@ -41,13 +41,28 @@ const refusals: Record<string, string> = {
   worktree_base_unreachable:
     "The remote couldn't be reached and that branch was never fetched. Check the connection, or start from a local branch.",
   workspace_changed: "That project just changed; try again.",
-  thread_move_failed: "The daemon couldn't move it. Try again.",
+  thread_move_failed: "ace couldn't move it. Try again.",
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",
+  fork_tree_is_live: "Wait for all agents in the fork to finish, then try again.",
+  source_tree_is_live: "Wait for all agents in the parent to finish before including code changes.",
+  source_thread_not_found: "The parent thread is gone. Keep the summary in this thread.",
+  thread_is_not_a_fork: "This thread has no parent to bring results back to.",
+  invalid_citation_thread: "The answer could not be linked. Reopen the fork and try again.",
+  merge_queue_capacity_exceeded:
+    "The parent has several results waiting. Try again after its next turn.",
+  merge_patch_too_large:
+    "The code changes are too large to bring back here. Bring back the summary and apply the changes in git.",
+  merge_patch_unavailable:
+    "Couldn't read code changes. Check that this thread has a git checkout, then try again.",
+  merge_patch_empty:
+    "There are no uncommitted code changes to include. Turn off Include code changes and try again.",
+  pi_rewind_failed:
+    "Couldn't rewind this conversation. Wait for all agents to finish. If the session has closed, send a message to resume it, then try again.",
   fork_point_unavailable: "That turn can't be forked.",
   provider_unavailable: "That provider isn't installed or signed in.",
-  not_implemented: "This daemon can't do that yet.",
+  not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",
 };
 
@@ -71,7 +86,7 @@ function aliveMessage(alive: NonNullable<CommandResult["alive"]>): string {
 }
 
 export function refusalMessage(code: string): string {
-  return refusals[code] ?? `The daemon refused (${code}).`;
+  return refusals[code] ?? "ace couldn't complete that action. Try again.";
 }
 
 /*
@@ -117,16 +132,16 @@ export function failureMessage(error: unknown): string {
  */
 export function waitingNote(waiting: { online: boolean; slow: boolean }): string | undefined {
   if (!waiting.online) return "Will apply when reconnected";
-  if (waiting.slow) return "Still waiting for the daemon…";
+  if (waiting.slow) return "Still waiting for ace…";
   return undefined;
 }
 
 const loadFailures: Record<string, string> = {
-  unavailable: "The daemon didn't answer. This loads again once it does.",
-  timeout: "The daemon took too long to answer. Try again in a moment.",
-  offline: "This device lost the connection to the daemon. This loads again once it's back.",
+  unavailable: "ace didn't answer. This loads again once it does.",
+  timeout: "ace took too long to answer. Try again in a moment.",
+  offline: "This device lost the connection to ace. This loads again once it's back.",
   forbidden: "This device isn't allowed to read this.",
-  not_implemented: "This daemon can't show this yet. Update ace on that machine.",
+  not_implemented: "ace on this machine can't show this yet. Update ace on that machine.",
 };
 
 /**
@@ -143,11 +158,11 @@ export function daemonErrorCode(error: unknown): string {
 
 /** Why a read failed, as a sentence for an error state: never the raw code. */
 export function describeDaemonError(code: string): string {
-  return loadFailures[code] ?? "Something went wrong reading this from the daemon. Try again.";
+  return loadFailures[code] ?? "Something went wrong reading this from ace. Try again.";
 }
 
 /** What a control that needs the daemon right now says while the connection is away. */
-export const needsDaemonMessage = "Reconnect to the daemon to do this";
+export const needsDaemonMessage = "Reconnect to ace to do this";
 
 /**
  * One rule for controls backed by a one-off request (`Client.request`, `runCommand`), which is

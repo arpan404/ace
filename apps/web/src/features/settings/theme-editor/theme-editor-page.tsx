@@ -9,7 +9,7 @@ export function ThemeEditorPage() {
   return (
     <SettingsBody
       page="Theme editor"
-      lede="Edit the live theme. Presets are read-only: the first change forks a copy you own. Accent is set under Appearance and never changes status colours."
+      lede="Changes appear as you edit. Editing a preset creates your own copy. Choose the accent colour in Appearance."
       back={
         <Link
           to="/settings/appearance"

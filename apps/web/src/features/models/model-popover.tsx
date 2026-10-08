@@ -5,7 +5,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
-import { cn } from "@/lib/cn.ts";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import type { AccountRow, ModelControlActions, ModelControlView } from "./control-view.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 
@@ -17,8 +17,8 @@ const defaultStep = "";
 const stepLabel = (step: string) => (step === defaultStep ? "Default" : effortLabel(step));
 
 /**
- * The model chip's popover. First effort and speed for the chosen model ("Medium", the model's
- * name, the slider), then, from the name, the model picker; choosing a model comes back here.
+ * The model chip's popover. The model name opens the picker; account, effort and speed stay below it.
+ * Choosing a model comes back here.
  */
 export function ModelPopover(props: {
   view: ModelControlView;
@@ -35,9 +35,9 @@ export function ModelPopover(props: {
       {view.offline}
     </p>
   );
-  // Each pane fades in on its own as the popover resizes to it, as quick as a hover.
+  // Each pane uses the shared view transition as the popover resizes to it.
   return (
-    <div key={pane} className="fx-view-in [animation-duration:var(--dur-1)]">
+    <div key={pane} className="fx-view-in">
       {offline}
       {pane === "picker" ? (
         <ModelPickerPanel
@@ -69,7 +69,7 @@ function EffortPanel(props: {
   const efforts = view.efforts;
   const steps = view.defaultStop && efforts.length ? [defaultStep, ...efforts] : efforts;
   const index = steps.indexOf(view.effort ?? defaultStep);
-  const title = view.effort ? effortLabel(view.effort) : "Default effort";
+
   return (
     <div className="flex w-70 flex-col gap-3 p-3">
       <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-start gap-1">
@@ -89,33 +89,32 @@ function EffortPanel(props: {
           </button>
         </Tip>
         <div className="flex min-w-0 flex-col items-center pt-1.5">
-          {/* The effort in effect, in the accent when one is set; it changes as the slider moves. */}
-          <span
-            aria-live="polite"
-            className={cn(
-              "text-md leading-5 font-semibold",
-              view.effort ? "text-link" : "text-foreground",
-            )}
-          >
-            {title}
-            {view.effort && view.effortDefault && (
-              <span className="font-normal text-subtle-foreground"> · default</span>
-            )}
+          <h3>
+            <button
+              type="button"
+              aria-label={`Change model: ${view.label ?? ""}`}
+              onClick={props.onModels}
+              className="inline-flex h-6 max-w-full items-center gap-1 rounded-sm px-2 text-md font-semibold outline-none hover:bg-accent focus-ring"
+            >
+              {view.provider && <ProviderIcon provider={view.provider} size={12} decorative />}
+              <span className="truncate" onPointerEnter={titleWhenClipped(view.label ?? "")}>
+                {view.label}
+              </span>
+              <CaretRightIcon aria-hidden size={10} weight="bold" className="shrink-0" />
+            </button>
+          </h3>
+          <span aria-live="polite" className="text-xs text-muted-foreground">
+            {view.effort
+              ? `${effortLabel(view.effort)} effort${view.effortDefault ? " · default" : ""}`
+              : "Default effort"}
           </span>
-          <button
-            type="button"
-            aria-label={`Change model: ${view.label ?? ""}`}
-            onClick={props.onModels}
-            className="inline-flex h-6 max-w-full items-center gap-1 rounded-full px-2 text-ui text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
-          >
-            {view.provider && <ProviderIcon provider={view.provider} size={12} decorative />}
-            <span className="truncate" onPointerEnter={titleWhenClipped(view.label ?? "")}>
-              {view.label}
-            </span>
-            <CaretRightIcon aria-hidden size={10} weight="bold" className="shrink-0" />
-          </button>
         </div>
-        <Tip label="Back to the model's defaults" side="top">
+        <Tip
+          label={
+            view.canReset ? "Back to the model's defaults" : "Already using the model's defaults"
+          }
+          side="top"
+        >
           <button
             type="button"
             aria-label="Reset effort and speed"
@@ -134,18 +133,20 @@ function EffortPanel(props: {
         <Accounts accounts={view.accounts} value={view.account} onChange={actions.onAccount} />
       )}
       {steps.length > 1 && (
-        <StepSlider
-          label="Effort"
-          steps={steps}
-          value={Math.max(0, index)}
-          stepLabel={stepLabel}
-          disabled={!!view.effortReason}
-          onValueChange={(next) => {
-            const effort = steps[next];
-            if (effort !== undefined && effort !== (view.effort ?? defaultStep))
-              actions.onEffort(effort === defaultStep ? undefined : effort);
-          }}
-        />
+        <DisabledReason reason={view.effortReason}>
+          <StepSlider
+            label="Effort"
+            steps={steps}
+            value={Math.max(0, index)}
+            stepLabel={stepLabel}
+            disabled={!!view.effortReason}
+            onValueChange={(next) => {
+              const effort = steps[next];
+              if (effort !== undefined && effort !== (view.effort ?? defaultStep))
+                actions.onEffort(effort === defaultStep ? undefined : effort);
+            }}
+          />
+        </DisabledReason>
       )}
       {(view.effortReason || steps.length < 2) && (
         <p className="text-center text-xs text-subtle-foreground">
@@ -156,14 +157,15 @@ function EffortPanel(props: {
   );
 }
 
-/** Which account runs the model: a row of small pills, each with its usage on hover. */
+/** Which account runs the model: a row of quiet chips, each with its usage on hover. */
 function Accounts(props: {
   accounts: readonly AccountRow[];
   value: string | undefined;
   onChange(id: string): void;
 }) {
   return (
-    <div role="group" aria-label="Account" className="flex flex-wrap justify-center gap-1">
+    <div role="group" aria-label="Account" className="flex flex-wrap items-center gap-1">
+      <span className="mr-1 text-xs text-muted-foreground">Account</span>
       {props.accounts.map((account) => (
         <Tip key={account.id} label={account.disabled ?? account.detail} side="bottom">
           <button
@@ -175,7 +177,7 @@ function Accounts(props: {
             onClick={() => {
               if (!account.disabled && account.id !== props.value) props.onChange(account.id);
             }}
-            className="h-6 max-w-32 truncate rounded-full px-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] hover:bg-accent aria-pressed:bg-secondary aria-pressed:text-foreground data-disabled:opacity-40"
+            className="h-6 max-w-32 truncate rounded-sm px-2.5 text-xs font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] hover:bg-accent aria-pressed:font-semibold aria-pressed:text-foreground data-disabled:opacity-40"
           >
             {account.label}
           </button>

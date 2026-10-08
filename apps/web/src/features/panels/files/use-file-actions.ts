@@ -3,6 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import { isCheckoutPath, pathParts } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { DownloadError, saveDownload } from "@/lib/save-download.ts";
 import { launchEditor } from "@/boot/editor-launch.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useEditors } from "@/lib/editors.ts";
@@ -15,12 +16,7 @@ export type UploadState =
   | { phase: "conflict"; name: string; path: string; file: File; version: string }
   | { phase: "failed"; name: string; path: string; error: CheckoutError };
 
-/** Bytes as people say them: 940 B, 12 KB, 3.4 MB. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1000) return `${bytes} B`;
-  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} KB`;
-  return `${(bytes / 1_000_000).toFixed(bytes < 10_000_000 ? 1 : 0)} MB`;
-}
+export { formatBytes } from "@/components/format-bytes.ts";
 
 /**
  * What a file tab does with files beyond showing them: save one to this device, send files up
@@ -41,17 +37,28 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
     if (saving) return;
     setSaving({ path, received: 0 });
     try {
-      const blob = await source.download(threadId, path, (received) =>
-        setSaving({ path, received }),
-      );
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = pathParts(path).name;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      let received = 0;
+      const chunks = client.downloadFile({
+        threadId: ThreadId.parse(threadId),
+        op: "download",
+        path,
+        offset: 0,
+      });
+      async function* progress() {
+        for await (const chunk of chunks) {
+          received += chunk.length;
+          setSaving({ path, received });
+          yield chunk;
+        }
+      }
+      await saveDownload(pathParts(path).name, progress());
     } catch (error) {
-      toast.add({ title: "Couldn't download the file", description: checkoutError(error).message });
+      const failure = checkoutError(error);
+      if (failure.code !== "aborted")
+        toast.add({
+          title: "Couldn't download the file",
+          description: error instanceof DownloadError ? error.message : failure.message,
+        });
     } finally {
       setSaving(undefined);
     }
@@ -130,10 +137,11 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
         line,
       });
       choose(result.editor.editor.id);
-    } catch (error) {
+    } catch {
       toast.add({
         title: "Couldn't open the editor",
-        description: error instanceof Error ? error.message : undefined,
+        description:
+          "Check that the editor is installed on the checkout's computer, then try again.",
       });
     }
   };

@@ -9,3 +9,6 @@ export { ModelPickerPanel } from "./model-picker-panel.tsx";
 export { LazyModelField as ModelField } from "./lazy-model-field.tsx";
 export type { ModelFieldProps } from "./model-field.tsx";
 export { useRefreshModels, type RefreshModels } from "./use-refresh-models.ts";
+
+export { useFavoriteModels } from "./favorites.ts";
+export { GroupProblem } from "./model-picker-rows.tsx";

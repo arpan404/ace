@@ -1,7 +1,7 @@
 import type { ClientApi, ConnectionState } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useHostIdentity } from "./host-name.ts";
 import { useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
 
@@ -39,25 +39,10 @@ const noIds: readonly string[] = [];
 export function useMachines(): readonly Machine[] {
   const own = usePrimaryMachine();
   const pool = useMachinePool();
-  const client = own.client;
-  // With a pool, this daemon's identity names it and keeps it from being listed twice.
-  const identity = useQuery({
-    queryKey: ["machines", "identity"],
-    queryFn: async ({ signal }) => {
-      if (!client) throw new Error("offline");
-      return (await client.request({ type: "host.identity" }, { signal })).identity;
-    },
-    enabled: pool !== undefined && client !== undefined,
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
-  }).data;
   const others = usePoolMachines(pool);
   return useMemo(() => {
-    const primary: Machine = identity
-      ? { ...own, id: identity.hostId, name: identity.displayName }
-      : own;
-    return [primary, ...others.filter((machine) => machine.id !== identity?.hostId)];
-  }, [own, identity, others]);
+    return [own, ...others.filter((machine) => machine.id !== own.id)];
+  }, [own, others]);
 }
 
 function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
@@ -102,14 +87,15 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
 export function usePrimaryMachine(): Machine {
   const client = useClient();
   const state = useConnectionState();
+  const identity = useHostIdentity();
   return useMemo(
     () => ({
-      id: primaryMachineId,
-      name: "This machine",
+      id: identity?.hostId ?? primaryMachineId,
+      name: identity?.displayName ?? "This machine",
       status: statusOf(state),
       client: state === "ready" ? client : undefined,
       primary: true,
     }),
-    [client, state],
+    [client, state, identity],
   );
 }

@@ -18,8 +18,8 @@ test("Settings offers an installed Codex CLI with unverified login as sign-in un
   if (codex) codex.auth = "unknown";
   await app.open("/settings/general");
 
-  expect(await offered()).toContain("Codex (sign-in unknown)");
-  await userEvent.click(screen.getByRole("option", { name: "Codex (sign-in unknown)" }));
+  expect(await offered()).toContain("Codex (sign-in not reported)");
+  await userEvent.click(screen.getByRole("option", { name: "Codex (sign-in not reported)" }));
   await waitFor(() => expect(services.settings.get("providers.default")).toBe("codex"));
 });
 
@@ -56,7 +56,7 @@ test("a CLI whose ace accounts are all signed out is offered as not signed in", 
   await app.open("/settings/general");
 
   expect(await offered()).toEqual([
-    "Claude Code (not signed in)",
+    "Claude Code (signed out)",
     "Codex",
     "OpenCode",
     "Cursor",

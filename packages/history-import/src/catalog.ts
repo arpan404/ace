@@ -259,7 +259,8 @@ export class Catalog {
       if (!changes) break;
     }
   }
-  async prune(instance: string, epoch: number, signal: AbortSignal): Promise<void> {
+  async prune(instance: string, epoch: number, signal: AbortSignal): Promise<boolean> {
+    let changed = false;
     for (const table of ["sources", "files"]) {
       for (;;) {
         signal.throwIfAborted();
@@ -267,9 +268,11 @@ export class Catalog {
           `DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE instance=? AND epoch<>? LIMIT 256)`,
         ).run(instance, epoch);
         if (!Number(result.changes)) break;
+        changed = true;
         await setImmediate();
       }
     }
+    return changed;
   }
   get(id: string): Source | undefined {
     const row = this.readStatement("SELECT * FROM visible_sources WHERE id=?").get(id);

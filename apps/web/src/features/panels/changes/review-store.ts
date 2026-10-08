@@ -54,7 +54,7 @@ const Viewed = z.array(z.tuple([z.string(), z.array(z.tuple([z.string(), z.strin
  */
 function settle(draft: ReviewDraft): ReviewDraft {
   if (draft.state === "sending")
-    return { ...draft, state: "failed", error: "the page closed before the daemon confirmed" };
+    return { ...draft, state: "failed", error: "the page closed before ace confirmed" };
   if (draft.state === "resolving") return { ...draft, state: "sent" };
   return draft;
 }

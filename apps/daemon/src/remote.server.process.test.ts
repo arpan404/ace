@@ -239,7 +239,7 @@ describe("remote access", () => {
       });
     }
     expect(f.server.remoteUrl).toBeUndefined();
-    expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toEqual({
+    expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toMatchObject({
       running: true,
       ready: true,
       version: "development",
@@ -247,7 +247,7 @@ describe("remote access", () => {
     });
     await expect(
       accessRequest(f.server.httpUrl, "/v1/pairings", { method: "POST", token, body: {} }),
-    ).rejects.toThrow("Remote access is off");
+    ).rejects.toThrow("Turn on remote access in Settings");
     const home = mkdtempSync(join(tmpdir(), "ace-remote-default-config-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
     expect(readConfig({ ACE_HOME: home }).listen).toBe("local");

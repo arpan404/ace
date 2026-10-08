@@ -16,7 +16,7 @@ export function useExportTheme(): (theme: Theme) => Promise<void> {
       } catch {
         copied = false;
       }
-      const how = [downloaded && "JSON downloaded", copied && "copied"]
+      const how = [downloaded && "File downloaded", copied && "copied"]
         .filter(Boolean)
         .join(" and ");
       toast.add({

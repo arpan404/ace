@@ -10,9 +10,6 @@
         "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
       },
       "properties": {
-        "app.openAtLogin": {
-          "type": "boolean"
-        },
         "approvals.policy": {
           "enum": [
             "ask",
@@ -23,16 +20,6 @@
         },
         "automations.enabled": {
           "type": "boolean"
-        },
-        "automations.maxConcurrent": {
-          "maximum": 32,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "automations.timezone": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
         },
         "browser.allowedOrigins": {
           "items": {
@@ -73,59 +60,6 @@
           "maxLength": 256,
           "type": "string"
         },
-        "logs.retention": {
-          "enum": [
-            "7d",
-            "30d",
-            "forever"
-          ],
-          "type": "string"
-        },
-        "notifications.enabled": {
-          "type": "boolean"
-        },
-        "notifications.onApproval": {
-          "type": "boolean"
-        },
-        "notifications.onCompletion": {
-          "type": "boolean"
-        },
-        "notifications.onFailure": {
-          "type": "boolean"
-        },
-        "notifications.onMention": {
-          "type": "boolean"
-        },
-        "notifications.quietHours": {
-          "anyOf": [
-            {
-              "properties": {
-                "end": {
-                  "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-                  "type": "string"
-                },
-                "start": {
-                  "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "start",
-                "end"
-              ],
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "notifications.sound": {
-          "type": "boolean"
-        },
-        "notifications.suppressWhenActive": {
-          "type": "boolean"
-        },
         "permissions.defaultMode": {
           "anyOf": [
             {
@@ -142,25 +76,6 @@
           },
           "propertyNames": {
             "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-          },
-          "type": "object"
-        },
-        "plugins.enabled": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "plugins.preferences": {
-          "additionalProperties": {
-            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
-          },
-          "propertyNames": {
-            "maxLength": 256,
-            "type": "string"
           },
           "type": "object"
         },
@@ -274,6 +189,15 @@
         },
         "remote.enabled": {
           "type": "boolean"
+        },
+        "remote.relayUrl": {
+          "examples": [
+            "",
+            "wss://relay.example.invalid/"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
         },
         "remote.transport": {
           "enum": [

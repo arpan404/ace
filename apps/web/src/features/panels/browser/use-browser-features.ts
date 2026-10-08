@@ -10,7 +10,7 @@ export const recordingThreads = new LocalStore<ReadonlySet<string>>(new Set());
 
 /** A daemon refusal as a sentence for a toast. */
 export const reason = (error: unknown) =>
-  error instanceof Error ? error.message : "The daemon refused it";
+  error instanceof Error ? error.message : "ace refused it";
 
 /**
  * The browser's parity controls for one thread: its agent tabs, dialogs, downloads, site grants,

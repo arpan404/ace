@@ -27,13 +27,13 @@ test.each(["pi", "cursor"] as const)(
         payload,
       };
     };
-    const hooks = new Map<string, unknown>();
+    const hooks = new Map<string, unknown[]>();
     const extension: PiExtensionApi = {
       appendEntry() {},
       registerCommand() {},
       registerTool() {},
       on(event, handler) {
-        hooks.set(event, handler);
+        hooks.set(event, [...(hooks.get(event) ?? []), handler]);
       },
     };
     if (provider === "pi") {
@@ -45,20 +45,23 @@ test.each(["pi", "cursor"] as const)(
       frame({ schemaVersion: 1, generation: "host", operationId: "op", segment: 0, kind, body });
     const pi = (tokens: number) => {
       let message = "";
-      const hook = hooks.get("turn_end");
-      if (typeof hook !== "function") throw new Error("Pi extension did not report context usage");
-      Reflect.apply(hook, undefined, [
-        {},
-        {
-          getContextUsage: () => ({ tokens, contextWindow: 128000 }),
-          model: { provider: "local", id: "model" },
-          ui: {
-            notify(value: string) {
-              message = value;
+      const handlers = hooks.get("turn_end") ?? [];
+      if (!handlers.length) throw new Error("Pi extension did not report context usage");
+      for (const hook of handlers) {
+        if (typeof hook !== "function") throw new Error("Invalid Pi event handler");
+        Reflect.apply(hook, undefined, [
+          {},
+          {
+            getContextUsage: () => ({ tokens, contextWindow: 128000 }),
+            model: { provider: "local", id: "model" },
+            ui: {
+              notify(value: string) {
+                message = value;
+              },
             },
           },
-        },
-      ]);
+        ]);
+      }
       return frame({
         type: "extension_ui_request",
         id: `context-${seq}`,

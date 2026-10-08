@@ -39,6 +39,29 @@
     },
     {
       "properties": {
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[\\w-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "draft.attachment.release",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+        }
+      },
+      "required": [
+        "op",
+        "draftId",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "bytes": {
           "maximum": 9007199254740991,
           "minimum": 0,

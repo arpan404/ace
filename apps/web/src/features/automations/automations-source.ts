@@ -4,12 +4,19 @@
  * `run` writes. Each is a correlated request; a refusal rejects with the daemon's reason.
  */
 import type { ClientApi } from "@ace/client";
-import { Automation, type AutomationResponse, type AutomationRun } from "@ace/protocol";
+import {
+  Automation,
+  type AutomationResponse,
+  type AutomationRun,
+  type AutomationInbox,
+  type AutomationPollError,
+} from "@ace/protocol";
 
 export interface AutomationEntry {
   automation: Automation;
   /** Next scheduled start; undefined when paused, not on a schedule or the service is off. */
   nextRunAt: number | undefined;
+  lastPollError: AutomationPollError | undefined;
 }
 
 export class AutomationError extends Error {
@@ -22,7 +29,7 @@ export class AutomationError extends Error {
 function automationErrorMessage(code: string | undefined): string {
   switch (code) {
     case "automation_unavailable":
-      return "This daemon's automation service isn't running.";
+      return "Automations aren't available on this machine. Restart ace and try again.";
     case "Automation service is stopped":
       return "Automations are turned off. Turn on Run automations in Settings › General to run one.";
     case "disabled_or_missing":
@@ -30,7 +37,7 @@ function automationErrorMessage(code: string | undefined): string {
     case "forbidden":
       return "This device isn't allowed to change automations.";
     default:
-      return code ? `The daemon refused that (${code}).` : "The daemon refused that.";
+      return "Couldn't save or run this automation. Check its project and agent, then try again.";
   }
 }
 
@@ -44,10 +51,11 @@ export async function listAutomations(
   signal: AbortSignal,
 ): Promise<AutomationEntry[]> {
   const reply = checked(await client.request({ type: "automation.list" }, { signal }));
-  const next = new Map(reply.schedules?.map((schedule) => [schedule.id, schedule.nextRunAt]));
+  const next = new Map(reply.schedules?.map((schedule) => [schedule.id, schedule]));
   return (reply.automations ?? []).map((automation) => ({
     automation,
-    nextRunAt: next.get(automation.id) ?? undefined,
+    nextRunAt: next.get(automation.id)?.nextRunAt ?? undefined,
+    lastPollError: next.get(automation.id)?.lastPollError,
   }));
 }
 
@@ -59,6 +67,27 @@ export async function automationInbox(
 ): Promise<AutomationRun[]> {
   const reply = checked(await client.request({ type: "automation.inbox", limit }, { signal }));
   return (reply.inbox?.runs ?? []).toSorted((a, b) => b.startedAt - a.startedAt);
+}
+
+/** One bounded history page, filtered before paging so busy automations cannot hide it. */
+export async function automationHistory(
+  client: ClientApi,
+  automationId: string,
+  before: number | undefined,
+  signal: AbortSignal,
+): Promise<AutomationInbox> {
+  const reply = checked(
+    await client.request(
+      {
+        type: "automation.inbox",
+        automationId,
+        limit: 50,
+        ...(before === undefined ? {} : { before }),
+      },
+      { signal },
+    ),
+  );
+  return reply.inbox ?? { runs: [], before: null };
 }
 
 /** Create or replace. Rejects definitions the protocol schema refuses before sending. */

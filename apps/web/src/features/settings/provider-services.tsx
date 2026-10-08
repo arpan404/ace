@@ -8,9 +8,9 @@ import { preloadSignIn, SignInButton, useSignIn } from "@/features/sign-in/index
 
 /**
  * The services OpenCode or Pi reaches models through (OpenCode Go and Zen, GitHub Copilot, the
- * person's API-key providers), as the model catalog last found them: one card each with where it
+ * person's API-key providers), as the model catalog last found them: one row each with where it
  * stands, Reconnect on one that fails and Disconnect on one that works, then Connect a service.
- * Local runtimes need no sign-in; they're named in a line under the cards.
+ * Local runtimes need no sign-in; they're named in a line under the rows.
  */
 export function ProviderServices(props: { provider: ProviderKind; name: string }) {
   const signIn = useSignIn();
@@ -32,21 +32,23 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
   const listed = [...sources.values()];
   return (
     <SettingSection label="Services">
-      <ul aria-label={`${props.name} services`} className="grid gap-2 sm:grid-cols-2">
+      <ul aria-label={`${props.name} services`} className="divide-y">
         {listed.map(({ source, error }) => (
-          <li
-            key={source.id}
-            className="flex min-h-16 items-center gap-3 rounded-card border bg-card px-3.5 py-3"
-          >
-            <ProviderTile provider={props.provider} service={source} size="sm" />
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <li key={source.id} className="flex min-h-9 flex-wrap items-center gap-2 py-1">
+            <ProviderTile
+              provider={props.provider}
+              service={source}
+              size="sm"
+              className="size-5 rounded-none bg-transparent shadow-none"
+            />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3">
               <span className="truncate font-medium">{source.label}</span>
               <span className="text-sm text-muted-foreground">
                 <StatusLine
                   tone={error ? "problem" : "ready"}
                   text={
                     error
-                      ? error.message
+                      ? "Connection needs attention"
                       : source.requiresAuth === false
                         ? "Free models available"
                         : ["Connected", serviceKind(source.kind)].filter(Boolean).join(" · ")
@@ -83,9 +85,9 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               type="button"
               onPointerEnter={() => void preloadSignIn()}
               onClick={() => signIn({ provider: props.provider })}
-              className="flex h-full min-h-16 w-full items-center gap-3 rounded-card border border-dashed px-3.5 py-3 text-left text-muted-foreground transition-colors duration-(--dur-1) focus-ring hover:border-solid hover:bg-accent hover:text-foreground"
+              className="flex min-h-9 w-full items-center gap-2 py-1 text-left text-muted-foreground focus-ring hover:text-foreground"
             >
-              <span className="grid size-8 place-items-center rounded-sm bg-secondary">
+              <span className="grid size-5 place-items-center">
                 <PlusIcon aria-hidden size={14} />
               </span>
               <span className="font-medium">

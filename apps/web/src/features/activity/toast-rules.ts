@@ -14,7 +14,7 @@ export type ToastCause =
 export function threadToasts(
   previous: ReadonlyMap<string, ThreadStatus["state"]>,
   next: ReadonlyMap<string, ThreadStatus["state"]>,
-  prefs: NotificationPrefs,
+  prefs: Pick<NotificationPrefs, "needsYou" | "failures" | "automations">,
   /** The thread on screen, whose changes the person is already watching. */
   viewing: string | undefined,
 ): ToastCause[] {
@@ -35,7 +35,7 @@ export function threadToasts(
  */
 export function runToasts(
   runs: readonly AutomationRun[],
-  prefs: NotificationPrefs,
+  prefs: Pick<NotificationPrefs, "needsYou" | "failures" | "automations">,
   since: number,
   toasted: ReadonlySet<string>,
 ): ToastCause[] {

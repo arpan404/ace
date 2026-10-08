@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { DeviceCredential, SocketTicket } from "@ace/protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,7 +82,7 @@ it("a request without an Origin, as the CLI sends, works and still needs the tok
   expect(anonymous.status).toBe(403);
 });
 
-it("an allowed origin still needs the token, and pairing redemption and tickets stay same-origin", async () => {
+it("an allowed origin still needs credentials for status and tickets, and a code for redemption", async () => {
   const f = await setup({ webOrigins: [page] });
 
   const anonymous = await fetch(`${f.server.httpUrl}/v1/devices`, { headers: { origin: page } });
@@ -93,8 +94,44 @@ it("an allowed origin still needs the token, and pairing redemption and tickets 
 
   for (const path of ["/v1/pair", "/v1/tickets"]) {
     const redeem = await preflight(`${f.server.httpUrl}${path}`, page, "POST");
-    expect(redeem.headers.get("access-control-allow-origin")).toBeNull();
-    expect(redeem.ok).toBe(false);
+    expect(redeem.headers.get("access-control-allow-origin")).toBe(page);
+    expect(redeem.status).toBe(204);
+  }
+});
+
+it("the desktop renderer can redeem a link, request a ticket and read remote status", async () => {
+  const f = await setup();
+  const origin = "app://ace";
+  const pairing = await f.pairing(["read", "operate"]);
+  const code = new URLSearchParams(new URL(pairing.url).hash.slice(1)).get("code");
+  const redeemed = await fetch(`${f.server.httpUrl}/v1/pair`, {
+    method: "POST",
+    headers: { origin, "content-type": "application/json" },
+    body: JSON.stringify({ code, name: "Other desktop" }),
+  });
+  expect(redeemed.status).toBe(200);
+  expect(redeemed.headers.get("access-control-allow-origin")).toBe(origin);
+  const issued = DeviceCredential.parse(await redeemed.json());
+  const ticket = await fetch(`${f.server.httpUrl}/v1/tickets`, {
+    method: "POST",
+    headers: { origin, authorization: `Bearer ${issued.token}` },
+  });
+  expect(ticket.status).toBe(200);
+  expect(ticket.headers.get("access-control-allow-origin")).toBe(origin);
+  const socket = await f.connectTicket(
+    issued.device.id,
+    SocketTicket.parse(await ticket.json()).ticket,
+  );
+  expect(await socket.next()).toMatchObject({ type: "welcome" });
+  const status = await fetch(`${f.server.httpUrl}/v1/status`, {
+    headers: { origin, ...bearer },
+  });
+  expect(status.status).toBe(200);
+  expect(status.headers.get("access-control-allow-origin")).toBe(origin);
+  for (const path of ["/v1/pair", "/v1/tickets", "/v1/status"]) {
+    const refused = await preflight(`${f.server.httpUrl}${path}`, foreign, "POST");
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("access-control-allow-origin")).toBeNull();
   }
 });
 

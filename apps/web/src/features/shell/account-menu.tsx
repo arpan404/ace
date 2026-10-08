@@ -30,7 +30,7 @@ export function AccountMenu() {
   const label =
     state === "ready"
       ? `${shown}, account`
-      : `${shown}, account, daemon ${connectionLabels[state].toLowerCase()}`;
+      : `${shown}, account, ace ${connectionLabels[state].toLowerCase()}`;
   return (
     <SidebarMenu
       trigger={
@@ -62,7 +62,7 @@ export function AccountMenu() {
             <span className="truncate text-ui font-medium text-foreground">{shown}</span>
             {state !== "ready" && (
               <span className="truncate text-xs text-muted-foreground">
-                Daemon {connectionLabels[state].toLowerCase()}
+                ace {connectionLabels[state].toLowerCase()}
               </span>
             )}
           </span>

@@ -136,19 +136,12 @@ test("usage shows a bar per day of the chosen range and totals by model", async 
   expect(models).toHaveLength(6);
 });
 
-test("Add account explains how to sign in a second account without giving ace credentials", async () => {
+test("accounts are managed from their provider page", async () => {
   await harness().open("/accounts");
-  await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
-  const dialog = await screen.findByRole("dialog", { name: "Add an account" });
-  expect(within(dialog).getByLabelText("Sign-in command").textContent).toContain(
-    "CLAUDE_CONFIG_DIR=",
-  );
-
-  await userEvent.click(within(dialog).getByRole("button", { name: "Codex" }));
-
-  expect(within(dialog).getByLabelText("Sign-in command").textContent).toBe(
-    "CODEX_HOME=~/.codex-team codex login",
-  );
+  await userEvent.click(await screen.findByRole("link", { name: "Codex" }));
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  expect(await screen.findByRole("form", { name: "Add account" })).toBeTruthy();
 });
 
 test("when the daemon can't list accounts, the page says so in words and reads them again on Try again", async () => {
@@ -158,7 +151,7 @@ test("when the daemon can't list accounts, the page says so in words and reads t
 
   expect(
     await screen.findByText(
-      "The daemon didn't answer. This loads again once it does.",
+      "ace didn't answer. This loads again once it does.",
       {},
       { timeout: 4000 },
     ),

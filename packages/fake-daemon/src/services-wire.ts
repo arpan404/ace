@@ -1,4 +1,6 @@
 import { FakeCatalogWire } from "./catalog-wire.ts";
+import { FakeHistory } from "./history-wire.ts";
+import { FakeMcpWire } from "./mcp-wire.ts";
 import {
   BrowserClientMessage,
   ServerMessage,
@@ -27,7 +29,9 @@ export interface ServicesSeed extends AutomationSeed {
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
   >;
+  history?: import("@ace/protocol").HistorySession[];
   /** Seed the small PNG fixture for scoped client attachment reads. */
+  notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
@@ -52,6 +56,9 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  */
 export class FakeServicesWire {
   private readonly catalog = new FakeCatalogWire();
+  readonly history: FakeHistory;
+  private notificationPublicKey: string | null = null;
+  readonly mcp = new FakeMcpWire();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -63,10 +70,11 @@ export class FakeServicesWire {
   private settings: FakeSettings;
   constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
+    this.history = new FakeHistory(context);
     bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
     this.settings = settings;
-    this.context = new FakeContextWire(context);
+    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,
@@ -76,6 +84,8 @@ export class FakeServicesWire {
   }
   seed(seed: ServicesSeed): void {
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
+    if (seed.history) this.history.seed(seed.history);
+    this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
     if (seed.settings) this.settings.seed(seed.settings);
@@ -135,11 +145,28 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (this.history.handle(message, emit)) return;
         try {
           if (message.type === "catalog.list" || message.type === "catalog.unsubscribe") {
             await catalog.handle(message, device);
             return;
           }
+          if (this.mcp.handle(message, emit)) return;
+          if (message.type === "notification.config") {
+            emit({
+              type: "notification.config.result",
+              requestId: message.requestId,
+              publicKey: this.notificationPublicKey,
+              preferences: { includePreview: false, quietHours: null },
+            });
+            return;
+          }
+          if (message.type === "notification.register") {
+            if (message.requestId)
+              emit({ type: "notification.register.result", requestId: message.requestId });
+            return;
+          }
+          if (message.type === "notification.preferences") return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;
@@ -163,23 +190,6 @@ export class FakeServicesWire {
           }
           if (message.type === "context.request") {
             emit(await this.context.handle(message, device));
-            return;
-          }
-          if (message.type === "history.import" || message.type === "history.continue") {
-            if (message.requestId)
-              for (const phase of ["preparing", "unsupported"] as const)
-                emit({
-                  type: "history.operation.progress",
-                  requestId: message.requestId,
-                  operation: message.type,
-                  phase,
-                });
-            emit({
-              type: message.type,
-              requestId: message.requestId,
-              status: "unsupported",
-              reason: "No native history sessions in this fixture",
-            });
             return;
           }
           if (message.type === "projects.request") {
@@ -211,6 +221,62 @@ export class FakeServicesWire {
           }
           if (message.type === "workspace.request") {
             emit(this.workspace.read(message));
+            return;
+          }
+          if (message.type === "diagnostics.request") {
+            emit({
+              type: "diagnostics.result",
+              requestId: message.requestId,
+              ...(message.operation === "doctor"
+                ? {
+                    report: {
+                      at: this.host.now(),
+                      checks: [
+                        { id: "node", status: "ok", message: "Node v24.0.0", fix: "Update ace." },
+                        {
+                          id: "git",
+                          status: "ok",
+                          message: "git version 2.50.0",
+                          fix: "Install Git.",
+                        },
+                        {
+                          id: "provider.claude",
+                          status: "warn",
+                          message: "Sign-in needed",
+                          fix: "Sign in.",
+                        },
+                        {
+                          id: "sqlite",
+                          status: "ok",
+                          message: "SQLite integrity: ok",
+                          fix: "Restore a backup.",
+                        },
+                      ],
+                    },
+                  }
+                : {
+                    toolchains: [
+                      {
+                        id: "git",
+                        available: true,
+                        detail: "git version 2.50.0",
+                        hint: "Install Git.",
+                      },
+                      {
+                        id: "xcode",
+                        available: false,
+                        detail: "Simulator tools not found",
+                        hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
+                      },
+                      {
+                        id: "android",
+                        available: false,
+                        detail: "Android SDK not found",
+                        hint: "Install Android Studio, then set ANDROID_HOME to its SDK directory.",
+                      },
+                    ],
+                  }),
+            });
             return;
           }
           if (message.type === "diagnostics.health") {

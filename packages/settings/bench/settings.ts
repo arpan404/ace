@@ -52,21 +52,21 @@ async function measure(name: string, count: number, operation: (index: number) =
   );
 }
 try {
-  await service.get("notifications.sound");
+  await service.get("threads.settleOnClose");
   await measure("cached get", 100_000, async () => {
-    await service.get("notifications.sound");
+    await service.get("threads.settleOnClose");
   });
   await measure("assignment, zero subscribers", 3000, async (index) => {
-    await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+    await service.set("threads.settleOnClose", index % 2 === 0, { kind: "global" });
   });
   for (let index = 0; index < 1023; index++)
     await service.subscribe({ keys: ["remote.enabled"], scope: {} }, () => {});
   let deliveries = 0;
-  await service.subscribe({ keys: ["notifications.sound"], scope: {} }, () => {
+  await service.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, () => {
     deliveries++;
   });
   await measure("assignment, 1023 unrelated and one affected subscriber", 3000, async (index) => {
-    await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+    await service.set("threads.settleOnClose", index % 2 === 0, { kind: "global" });
   });
   await measure("watcher burst scheduling", 100_000, async () => {
     changed();
@@ -84,14 +84,14 @@ try {
   for (const kib of [0, 16, 256, 879]) {
     document = JSON.stringify({
       version: 2,
-      settings: { "notifications.sound": false, "future.payload": "x".repeat(kib * 1024) },
+      settings: { "threads.settleOnClose": false, "future.payload": "x".repeat(kib * 1024) },
     });
     await service.refresh({ kind: "global" });
     await measure(
       `existing scalar assignment, ${kib} KiB unrelated payload`,
       1000,
       async (index) => {
-        await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+        await service.set("threads.settleOnClose", index % 2 === 0, { kind: "global" });
       },
     );
   }
@@ -101,12 +101,12 @@ try {
       ...Object.fromEntries(
         Array.from({ length: 10000 }, (_, index) => [`future.${index}`, index]),
       ),
-      "notifications.sound": false,
+      "threads.settleOnClose": false,
     },
   });
   await service.refresh({ kind: "global" });
   await measure("existing scalar assignment, 10000 unrelated keys", 1000, async (index) => {
-    await service.set("notifications.sound", index % 2 === 0, { kind: "global" });
+    await service.set("threads.settleOnClose", index % 2 === 0, { kind: "global" });
   });
   console.log(JSON.stringify({ deliveries, peakRssKiB: process.resourceUsage().maxRSS }));
 } finally {
@@ -138,19 +138,19 @@ const native = new SettingsService({
   },
 });
 try {
-  await native.set("notifications.sound", false, { kind: "global" });
-  await native.set("notifications.sound", false, { kind: "workspace", workspace });
+  await native.set("threads.settleOnClose", false, { kind: "global" });
+  await native.set("threads.settleOnClose", false, { kind: "workspace", workspace });
   await measure("native cached workspace read with containment", 1000, async () => {
-    await native.get("notifications.sound", { workspace });
+    await native.get("threads.settleOnClose", { workspace });
   });
   await measure("native workspace scalar assignment and fsync", 100, async (index) => {
-    await native.set("notifications.sound", index % 2 === 0, { kind: "workspace", workspace });
+    await native.set("threads.settleOnClose", index % 2 === 0, { kind: "workspace", workspace });
   });
   swap = true;
   await measure("native rejected directory swap and owned-temp recovery", 32, async () => {
     let rejected = false;
     try {
-      await native.set("notifications.sound", true, { kind: "workspace", workspace });
+      await native.set("threads.settleOnClose", true, { kind: "workspace", workspace });
     } catch (error) {
       if (!(error instanceof SettingsError && error.code === "validation")) throw error;
       rejected = true;

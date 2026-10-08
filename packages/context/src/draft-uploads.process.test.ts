@@ -127,3 +127,72 @@ test("a draft cannot move its attachments to a different workspace or before upl
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("removing a ready draft attachment frees its slot without releasing another device's draft", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-draft-release-"));
+  let sequence = 0;
+  const service = await ContextService.open({
+    root: join(root, "context"),
+    now: () => 1000,
+    id: () => `id-${++sequence}`,
+    authorize: () => true,
+    workspaceRoot: () => root,
+    workspace: () => root,
+    limits: { threadEntries: 1 },
+  });
+  const request = async (device: string, operation: ContextOperation) =>
+    (
+      await service.handle(device, {
+        type: "context.request",
+        requestId: `r-${++sequence}`,
+        operation,
+      })
+    ).result;
+  try {
+    const draft = await request("phone", {
+      op: "draft.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+    });
+    if (draft.kind !== "draft") throw new Error("No draft");
+    const bytes = Buffer.from("draft text"),
+      sha256 = hash(bytes);
+    const begun = await request("phone", {
+      op: "draft.upload.begin",
+      draftId: draft.draftId,
+      sha256,
+      bytes: bytes.length,
+      name: "notes.txt",
+    });
+    if (begun.kind !== "upload") throw new Error("No upload");
+    await request("phone", {
+      op: "upload.chunk",
+      uploadId: begun.uploadId,
+      offset: 0,
+      data: bytes.toString("base64"),
+    });
+    await request("phone", { op: "upload.commit", uploadId: begun.uploadId });
+    const next = {
+      op: "draft.upload.begin",
+      draftId: draft.draftId,
+      sha256: hash(Buffer.from("other")),
+      bytes: 5,
+      name: "other.txt",
+    } satisfies ContextOperation;
+    expect(await request("phone", next)).toMatchObject({ kind: "error", code: "quota" });
+    expect(
+      await request("other-phone", {
+        op: "draft.attachment.release",
+        draftId: draft.draftId,
+        sha256,
+      }),
+    ).toMatchObject({ kind: "error", code: "not_found" });
+    expect(await request("phone", next)).toMatchObject({ kind: "error", code: "quota" });
+    expect(
+      await request("phone", { op: "draft.attachment.release", draftId: draft.draftId, sha256 }),
+    ).toMatchObject({ kind: "ok" });
+    expect(await request("phone", next)).toMatchObject({ kind: "upload", offset: 0 });
+  } finally {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

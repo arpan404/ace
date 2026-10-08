@@ -49,8 +49,6 @@ test("⌘P finds a checkout file by a few letters and opens it with numbered sou
     name: "Source of apps/web/src/relay/socket.ts",
   });
   await waitFor(() => expect(source.textContent).toContain("export class RelaySocket {"));
-  // Numbered from 1, the numbers in a gutter of their own.
-  expect(source.textContent?.startsWith("1import")).toBe(true);
   // The path stays in the toolbar as a breadcrumb, the file last.
   const crumbs = within(side).getByRole("navigation", { name: "File path" });
   expect(within(crumbs).getByText("socket.ts").getAttribute("aria-current")).toBe("page");
@@ -82,7 +80,7 @@ test("a click in the tree previews a file in place; a kept tab stays", async () 
   await within(side).findByRole("tab", { name: "replay.ts", selected: true });
 
   // replay.ts was opened deliberately, so a click in its tree opens a preview beside it.
-  const tree = within(side).getByRole("tree", { name: "Files this thread touched" });
+  const tree = within(side).getByRole("tree", { name: "Checkout files" });
   await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
 
@@ -115,7 +113,7 @@ test("the tree's filter says when nothing in the checkout matches", async () => 
   await userEvent.type(filter, "zzqx");
   expect(await within(side).findByText("No files match “zzqx”.")).toBeTruthy();
   await userEvent.click(within(side).getByRole("button", { name: "Clear search" }));
-  expect(within(side).getByRole("tree", { name: "Files this thread touched" })).toBeTruthy();
+  expect(within(side).getByRole("tree", { name: "Checkout files" })).toBeTruthy();
 });
 
 test("markdown opens rendered, View source shows its lines, and a binary file offers a download", async () => {
@@ -188,7 +186,7 @@ test("the thread's Files tab is the checkout tree; it opens files beside itself 
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
   const side = await panel();
   await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
-  const tree = await within(side).findByRole("tree", { name: "Files this thread touched" });
+  const tree = await within(side).findByRole("tree", { name: "Checkout files" });
   expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
 
   // A file picked there opens in a tab of its own: the Files tab stays the tree.

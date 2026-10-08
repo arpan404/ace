@@ -1,3 +1,4 @@
+import { AgentNotifier } from "./agent-notifier.tsx";
 import LimitNotifier from "./limit-notifier.tsx";
 import RunNotifier from "./run-notifier.tsx";
 
@@ -5,6 +6,7 @@ import RunNotifier from "./run-notifier.tsx";
 export default function LaterNotifiers() {
   return (
     <>
+      <AgentNotifier />
       <RunNotifier />
       <LimitNotifier />
     </>

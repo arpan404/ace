@@ -26,6 +26,7 @@ export class McpData {
     db.exec(`BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS mcp_agents (thread_id TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id, id));
       CREATE TABLE IF NOT EXISTS mcp_intents (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), payload TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS mcp_intents_type ON mcp_intents(json_extract(payload, '$.type'));
       CREATE TABLE IF NOT EXISTS mcp_meta (id INTEGER PRIMARY KEY CHECK(id = 1), indexed INTEGER NOT NULL, pending INTEGER NOT NULL);
       INSERT OR IGNORE INTO mcp_meta VALUES (1, 0, 0);`);
     this.agent = db.prepare("SELECT payload FROM mcp_agents WHERE thread_id = ? AND id = ?");
@@ -116,14 +117,18 @@ export class McpData {
     this.insert.run(parsed.id, parsed.intent.threadId, JSON.stringify(parsed.intent));
     this.increment.run();
   }
-  read(limit: number): PendingMcpIntent[] {
+  read(limit: number, type?: "mcp.notify"): PendingMcpIntent[] {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new Error("Invalid intent limit");
-    return this.pending
-      .all(limit)
-      .map((row) =>
-        PendingMcpIntent.parse({ id: row.id, intent: JSON.parse(String(row.payload)) }),
-      );
+    return (
+      type
+        ? this.db
+            .prepare(
+              "SELECT id, payload FROM mcp_intents WHERE json_extract(payload, '$.type')=? ORDER BY rowid LIMIT ?",
+            )
+            .all(type, limit)
+        : this.pending.all(limit)
+    ).map((row) => PendingMcpIntent.parse({ id: row.id, intent: JSON.parse(String(row.payload)) }));
   }
   acknowledge(id: string): boolean {
     if (this.remove.run(id).changes === 0) return false;

@@ -94,6 +94,7 @@ export type ResolvedMention = z.infer<typeof ResolvedMention>;
 export const ContextOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("draft.create"), workspaceId: WorkspaceId }),
   z.object({ op: z.literal("draft.release"), draftId: key }),
+  z.object({ op: z.literal("draft.attachment.release"), draftId: key, sha256: BlobHash }),
   z.object({
     op: z.literal("draft.upload.begin"),
     draftId: key,

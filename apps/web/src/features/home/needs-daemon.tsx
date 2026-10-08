@@ -14,5 +14,5 @@ export function useDaemonReachable(): boolean {
 
 /** Says why `children` is off while the daemon can't be reached; otherwise just `children`. */
 export function NeedsDaemon(props: { reachable: boolean; children: ReactElement }) {
-  return props.reachable ? props.children : <Tip label="Needs the daemon">{props.children}</Tip>;
+  return props.reachable ? props.children : <Tip label="Needs ace">{props.children}</Tip>;
 }

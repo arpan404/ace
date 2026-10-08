@@ -21,9 +21,16 @@ export function createSettingsSession(context: SocketContext): SocketService {
     store: options.store,
     subscriptions,
     send,
+    set: async (key, value, commit) => {
+      if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
+      else await commit();
+    },
     authorize: (request) =>
       request.type === "settings.set" &&
-      (request.key === "projects.roots" || request.key === "providers.configuration")
+      (request.key === "projects.roots" ||
+        request.key === "providers.configuration" ||
+        request.key === "host.displayName" ||
+        request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&
           authorize("admin") &&
           (request.key !== "projects.roots" || authorize("projects"))

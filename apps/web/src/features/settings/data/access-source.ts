@@ -12,6 +12,7 @@ import type { Pairing } from "./backend.ts";
 export type { AcpAgentInstall } from "./access-gaps.ts";
 
 export interface AccessSource extends AccessGaps {
+  remoteStatus(): Promise<import("@ace/protocol").RemoteAccessStatus>;
   devices(): Promise<Device[]>;
   pair(scopes: DeviceScope[]): Promise<Pairing>;
   revoke(deviceId: string): Promise<void>;
@@ -39,20 +40,23 @@ function paired(device: Device): boolean {
 }
 
 /** A failed access call, in words a person can act on. */
-function explain(error: unknown, origin: string): Error {
+function explain(error: unknown): Error {
   if (error instanceof ClientError && error.code === "daemon") {
     if (error.message === "HTTP 409")
-      return new Error(
-        "Remote access is off. Restart the daemon with ACE_LISTEN=lan or ACE_LISTEN=tailscale.",
-      );
+      return new Error("Turn on remote access above and choose LAN or Tailscale, then pair again.");
     if (error.message === "HTTP 401" || error.message === "HTTP 403")
-      return new Error("Only the daemon's own token can manage paired devices.");
+      return new Error(
+        "This device cannot manage pairing. Use the host computer or a device with administrator access.",
+      );
     if (error.message === "HTTP 404") return new Error("That device is no longer paired.");
   }
   if (error instanceof ClientError && error.code === "auth")
     return new Error("Paired devices need a wss:// address or one on 127.0.0.1.");
-  if (error instanceof TypeError) return new Error(`Couldn't reach the daemon at ${origin}.`);
-  return error instanceof Error ? error : new Error("The daemon refused that.");
+  if (error instanceof TypeError)
+    return new Error(`Couldn't reach this machine. Check its address and network, then try again.`);
+  return error instanceof Error
+    ? error
+    : new Error("This machine refused the request. Reconnect and try again.");
 }
 
 function options(endpoint: DaemonEndpoint): AccessOptions {
@@ -68,19 +72,19 @@ function options(endpoint: DaemonEndpoint): AccessOptions {
 /** Access for this connection; `gaps` serves what the daemon has no route for yet. */
 export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessGaps): AccessSource {
   const settings = endpoint && options(endpoint);
-  const origin = settings?.origin ?? "";
   let client: AccessClient | undefined;
   const run = async <T>(call: (client: AccessClient) => Promise<T>): Promise<T> => {
     try {
-      if (!settings) throw new Error("Connect to a daemon first.");
+      if (!settings) throw new Error("Connect to your computer first.");
       client ??= new AccessClient(settings);
       return await call(client);
     } catch (error) {
-      throw explain(error, origin);
+      throw explain(error);
     }
   };
   return {
     ...gaps,
+    remoteStatus: () => run((access) => access.remoteStatus()),
     devices: () => run((access) => access.devices()).then((all) => all.filter(paired)),
     pair: (scopes) =>
       run((access) => access.pairing(scopes.filter((scope) => scope !== "desktop"))).then(pairing),

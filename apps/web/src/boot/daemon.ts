@@ -10,7 +10,7 @@ import { outboxKey } from "./worker-target.ts";
  * socket's hello.
  */
 export function createDaemonClient(target: DaemonTarget): ClientApi | Promise<ClientApi> {
-  const device = deviceId();
+  const device = target.pairedDeviceId ?? deviceId();
   const worker = createWorkerClient(target, device);
   if (worker) return worker;
   const key = outboxKey({ url: target.url, deviceId: device });

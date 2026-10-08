@@ -483,6 +483,11 @@
     },
     {
       "properties": {
+        "automationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "before": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -542,6 +547,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticsRequest.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/PermissionCapabilitiesRequest.json"
@@ -672,6 +680,10 @@
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "const": "support",
           "type": "string"
         },
         "threadId": {
@@ -1915,6 +1927,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/NotificationRegister.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationConfigRequest.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/NotificationSettings.json"

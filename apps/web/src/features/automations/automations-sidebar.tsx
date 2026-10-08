@@ -6,7 +6,6 @@ import {
   FileIcon,
   GitPullRequestIcon,
   HandPointingIcon,
-  PauseIcon,
   PlusIcon,
   WarningIcon,
   type Icon as PhosphorIcon,
@@ -14,17 +13,13 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { cn } from "@/lib/cn.ts";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import {
-  ViewRowBody,
-  ViewSidebarError,
-  useViewListKeys,
-  viewRowClass,
-} from "@/components/ui/view-row.tsx";
+import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { describeTrigger } from "./schedule.ts";
 import { useAutomationRuns, useAutomations } from "./use-automations.ts";
@@ -61,11 +56,7 @@ function useLastFailed(): ReadonlySet<string> {
   }, [runs]);
 }
 
-/**
- * Automations' list in the sidebar: every automation, how it fires and where. A paused one
- * reads muted with a pause mark; one whose last run failed carries a warning. Runs themselves
- * are Activity's (its Runs tab).
- */
+/** The trigger and project live in the row's tooltip; pauses and failures stay visible. */
 export function AutomationsSidebar() {
   const list = useAutomations();
   const automations = list.data;
@@ -96,30 +87,32 @@ export function AutomationsSidebar() {
         <EmptyState variant="inline" title="No automations yet" />
       ) : (
         <ul {...keys} aria-label="Automations" className="flex flex-col gap-px">
-          {automations.map(({ automation }) => (
+          {automations.map(({ automation, lastPollError }) => (
             <li key={automation.id}>
-              <Link
-                to="/automations/$automationId"
-                params={{ automationId: automation.id }}
-                aria-current={selected === automation.id ? "page" : undefined}
-                className={viewRowClass}
+              <Tip
+                label={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
               >
-                <ViewRowBody
-                  icon={triggerIcon(automation.trigger)}
-                  title={
-                    automation.enabled ? (
-                      automation.title
-                    ) : (
-                      <span className="text-muted-foreground">{automation.title}</span>
-                    )
-                  }
-                  description={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
-                  metaInline
-                  meta={
-                    <RowMarks paused={!automation.enabled} failed={failed.has(automation.id)} />
-                  }
-                />
-              </Link>
+                <Link
+                  to="/automations/$automationId"
+                  params={{ automationId: automation.id }}
+                  aria-current={selected === automation.id ? "page" : undefined}
+                  data-view-row=""
+                  className="flex h-9 items-center gap-2 rounded-md px-2.5 text-ui hover:bg-sidebar-accent focus-ring-inset aria-[current=page]:bg-foreground/8"
+                >
+                  <Icon
+                    icon={triggerIcon(automation.trigger)}
+                    size={14}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  <span data-view-row-title="" className="min-w-0 flex-1 truncate">
+                    {automation.title}
+                  </span>
+                  <RowMarks
+                    paused={!automation.enabled}
+                    failed={failed.has(automation.id) || lastPollError !== undefined}
+                  />
+                </Link>
+              </Tip>
             </li>
           ))}
         </ul>
@@ -133,9 +126,9 @@ function RowMarks(props: { paused: boolean; failed: boolean }) {
   return (
     <span className="inline-flex items-center gap-1">
       {props.failed && (
-        <Icon icon={WarningIcon} size={12} label="Last run failed" className="text-status-failed" />
+        <Icon icon={WarningIcon} size={12} label="Needs attention" className="text-status-failed" />
       )}
-      {props.paused && <Icon icon={PauseIcon} size={12} label="Paused" />}
+      {props.paused && <StatusLabel tone="idle" label="Paused" />}
     </span>
   );
 }

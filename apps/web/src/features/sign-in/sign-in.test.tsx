@@ -4,18 +4,26 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
-import { openModelControl, openModelPicker } from "@/test/model-control.ts";
+import { chooseModel, openModelControl, openModelPicker } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => Reflect.deleteProperty(globalThis, "ace"));
 
 type Harness = ReturnType<typeof harness>;
+const targets = new WeakMap<Harness, ProviderKind>();
 
 /** Stage what discovery reports for a provider's own CLI login. */
 function stage(app: Harness, provider: ProviderKind, row: Partial<ProviderStatus>) {
   const found = app.daemon.services.providerStatuses.find((entry) => entry.provider === provider);
   if (!found) throw new Error(`No ${provider} discovery`);
   Object.assign(found, row);
+  targets.set(app, provider);
+  if (row.auth === "logged_out")
+    for (const account of app.daemon.services.accounts)
+      if (account.provider === provider && !account.implicit) {
+        account.quota.auth = "logged_out";
+        account.availability = "logged_out";
+      }
 }
 
 /** No upstream of OpenCode or Pi lists models: nothing is connected through it. */
@@ -29,8 +37,9 @@ function disconnect(app: Harness, provider: ProviderKind) {
 const session = (n: number) => `fake-login-${n}`;
 
 async function providersList(app: Harness) {
-  await app.open("/settings/providers");
-  return screen.findByRole("region", { name: "On this computer" }, { timeout: 10_000 });
+  await app.open(`/settings/providers/${targets.get(app) ?? "codex"}`);
+  await screen.findByRole("region", { name: "Accounts" });
+  return screen.getByRole("main");
 }
 
 test("a device sign-in shows its code to copy and its page, and finishing in the browser signs in everywhere", async () => {
@@ -67,7 +76,9 @@ test("in the desktop app a browser sign-in opens its page by itself, once", asyn
   const app = harness();
   stage(app, "claude", { auth: "logged_out" });
   const list = await providersList(app);
-  await userEvent.click(within(list).getByRole("button", { name: "Sign in to Claude Code" }));
+  await userEvent.click(
+    await within(list).findByRole("button", { name: "Sign in to Claude Code" }),
+  );
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   const again = await within(dialog).findByRole("link", { name: /open sign-in page again/i });
   expect(opened).toHaveLength(1);
@@ -173,7 +184,7 @@ test("a sign-in that needs a key typed runs the CLI in an ace terminal, in three
   );
 }, 30_000);
 
-test("Sign out on a provider's page runs the CLI's logout, and the provider reads signed out", async () => {
+test("signing out of the default profile keeps a provider usable through its other accounts", async () => {
   const app = harness();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   await app.open("/settings/providers/codex");
@@ -186,8 +197,10 @@ test("Sign out on a provider's page runs the CLI's logout, and the provider read
   const dialog = await screen.findByRole("dialog", { name: "Sign out of Codex" });
   expect(await within(dialog).findByText("Signed out of Codex")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
-  // The page now leads with what to do about it.
-  expect(await screen.findByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
+  // The Personal account still works after the default CLI profile signs out.
+  expect(screen.queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  expect(within(accounts).getByText("Signed in")).toBeTruthy();
   expect(screen.queryByText("Signed in as grace@example.com")).toBeNull();
 }, 30_000);
 
@@ -235,21 +248,15 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await waitFor(() => expect(within(again).queryByText("Cursor sign-in has expired.")).toBeNull());
 }, 30_000);
 
-test("New thread on a signed-out provider says so, with Sign in right there", async () => {
+test("a new thread stays usable when a signed-out CLI has a signed-in sibling", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  stage(app, "codex", { auth: "logged_out" });
   app.daemon.services.settings.seed({ "providers.default": "codex" });
   await app.open("/new?project=relay");
-  const notice = await screen.findByText(
-    "Codex isn't signed in. Sign in to start this thread.",
-    {},
-    { timeout: 10_000 },
-  );
-  await userEvent.click(
-    within(notice.parentElement ?? notice).getByRole("button", { name: "Sign in" }),
-  );
-  expect(await screen.findByRole("dialog", { name: "Sign in to Codex" })).toBeTruthy();
+  await screen.findByRole("combobox", { name: "Message" });
+  await chooseModel("GPT-5 Codex", "Codex");
+  await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ });
+  expect(screen.queryByText("Codex isn't signed in. Sign in to start this thread.")).toBeNull();
 }, 30_000);
 
 test("a sign-in the daemon refuses as busy says so and offers to try again", async () => {
@@ -261,7 +268,7 @@ test("a sign-in the daemon refuses as busy says so and offers to try again", asy
   await waitFor(() => expect(other.state).toBe("ready"));
   await other.request({ type: "provider.login.start", provider: "codex" });
   const list = await providersList(app);
-  await userEvent.click(within(list).getByRole("button", { name: "Sign in to Codex" }));
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to Codex" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
   expect(await within(dialog).findByText("Codex is already signing in")).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();

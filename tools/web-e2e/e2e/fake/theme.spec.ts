@@ -11,10 +11,10 @@ test("switching to Light and editing a token restyles the app", async ({ page })
   await expect.poll(() => background(page)).not.toBe("#0F0F0F");
   const light = await background(page);
 
-  await page.getByRole("link", { name: "Advanced › Theme editor" }).click();
+  await page.getByRole("link", { name: "Open theme editor" }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Theme editor" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Theme to edit" })).toContainText("Light");
-  const field = page.getByRole("textbox", { name: "--background", exact: true });
+  const field = page.getByRole("textbox", { name: "Window background", exact: true });
   await expect(field).toHaveValue(new RegExp(light, "i"));
 
   await field.fill("#FAF7F0");

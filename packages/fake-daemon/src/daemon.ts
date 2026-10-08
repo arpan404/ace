@@ -6,6 +6,7 @@ import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations } from "@ace/protocol";
 import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
+import { ItemId } from "@ace/protocol";
 import { PermissionMode } from "@ace/protocol";
 import {
   fakeReviewEvents,
@@ -23,6 +24,8 @@ import {
   createThreadListView,
 } from "@ace/projection";
 import {
+  NotificationMessage,
+  type Notification,
   AgentId,
   CommandId,
   DeviceId,
@@ -63,6 +66,7 @@ import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
+  busy,
   drainQueue,
   interruptFacts,
   sendFacts,
@@ -70,7 +74,7 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, switchEvents } from "./transitions.ts";
+import { forkPointError, mergeForkError, switchEvents } from "./transitions.ts";
 import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export interface FakeDaemonOptions {
@@ -93,6 +97,7 @@ export interface FakeDaemonOptions {
   snapshotItems?: number;
 }
 export interface ThreadInit {
+  imported?: Thread["imported"];
   id: string;
   workspaceId: string;
   title: string;
@@ -102,6 +107,7 @@ export interface ThreadInit {
   details?: Thread["details"];
   live?: Thread["live"];
   lineage?: Thread["lineage"];
+  execution?: Thread["execution"];
   permissionMode?: PermissionMode;
   parentThreadId?: string;
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
@@ -210,6 +216,35 @@ export class FakeDaemon implements Host {
         onResolved: (listener) => this.onResolved(listener),
       },
     });
+    this.appDevices.screenHost = this.screen;
+    this.appDevices.onRecording = (threadId, artifactId) => {
+      this.servicesWire.files.registerArtifact(
+        threadId,
+        artifactId,
+        new Uint8Array([0, 0, 0, 8, 102, 116, 121, 112]),
+      );
+      this.append(
+        this.thread(threadId),
+        [
+          {
+            type: "item.created",
+            item: {
+              type: "artifact",
+              source: "device",
+              artifactId,
+              id: ItemId.parse(artifactId),
+              createdAt: options.clock(),
+              complete: true,
+              path: `${artifactId}.mp4`,
+              filename: "Device recording.mp4",
+              mimeType: "video/mp4",
+              bytes: 8,
+            },
+          },
+        ],
+        options.clock(),
+      );
+    };
     this.services = new FakeServices({
       clock: options.clock,
       broadcast: (message) => {
@@ -227,6 +262,10 @@ export class FakeDaemon implements Host {
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
+        projectRoots: () =>
+          SettingsValues.shape["projects.roots"].parse(
+            this.services.settings.get("projects.roots"),
+          ),
         canManageProjects: (device) => this.canManageProjects(device),
         scheduleProject:
           options.projectScheduler ??
@@ -277,6 +316,12 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
+  /** Push an accepted notification over the same service channel as the production server. */
+  notify(notification: Notification): void {
+    const message = NotificationMessage.parse({ type: "notification", notification });
+    for (const connection of this.connections)
+      if (connection.authenticated) connection.push(message);
+  }
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -347,6 +392,7 @@ export class FakeDaemon implements Host {
         : init.provider === "cursor"
           ? { backend: "cursor-sdk" as const }
           : {}),
+      ...(init.imported ? { imported: init.imported } : {}),
       ...(init.continuation ? { continuation: init.continuation } : {}),
       capabilities: {
         ...structuredClone(fakePermissionCapabilities),
@@ -357,6 +403,7 @@ export class FakeDaemon implements Host {
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
+      ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: migratePermissionMode(init.provider, init.permissionMode),
         effective: migratePermissionMode(
@@ -624,6 +671,24 @@ export class FakeDaemon implements Host {
     this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "pi.control") {
+      const host = this.threads.get(message.threadId);
+      const valid =
+        host?.view.thread.provider === "pi" &&
+        !busy(host) &&
+        message.operation.kind === "rollback" &&
+        Object.values(host.view.items).some(
+          (item) =>
+            item.nativeId ===
+            (message.operation.kind === "rollback" ? message.operation.entryId : undefined),
+        );
+      connection.push({
+        type: "pi.result",
+        requestId: message.requestId,
+        result: valid ? { ok: true } : { ok: false, error: "Pi history point unavailable" },
+      });
+      return true;
+    }
     if (message.type === "terminal.request" && "terminalId" in message.operation) {
       const op = message.operation;
       const flow = this.services.authTerminals.get(op.terminalId);
@@ -1063,6 +1128,7 @@ export class FakeDaemon implements Host {
         this.createThread({
           ...started.thread,
           ...(from.details ? { details: from.details } : {}),
+          execution: payload.selection ?? { provider, options: {} },
           lineage: {
             parentThreadId: from.id,
             parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
@@ -1073,6 +1139,35 @@ export class FakeDaemon implements Host {
         });
         this.apply(id, started.facts);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
+      }
+      case "thread.merge": {
+        const fork = this.threads.get(payload.threadId);
+        if (!fork) return { commandId, ok: false, error: "thread_not_found" };
+        const parent = this.threads.get(fork.view.thread.lineage?.parentThreadId ?? "");
+        const error = mergeForkError(fork, parent, payload);
+        if (error || !parent)
+          return { commandId, ok: false, error: error ?? "source_thread_not_found" };
+        this.apply(parent.id, [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: `merge:${commandId}`,
+            draft: {
+              type: "message",
+              role: "user",
+              synthetic: true,
+              complete: true,
+              mergedContext: {
+                sourceThreadId: payload.threadId,
+                summary: payload.summary,
+                citations: payload.citations,
+                patchApplied: payload.patch !== undefined,
+              },
+              parts: [{ type: "text", text: payload.summary }],
+            },
+          },
+        ]);
+        return { commandId, ok: true };
       }
       case "thread.switch": {
         const host = this.threads.get(payload.threadId);

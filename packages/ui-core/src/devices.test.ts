@@ -1,6 +1,13 @@
 import { AppDevice, DeviceState, ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { deviceControls, deviceGesture, devicePoint, deviceRows, leaseLeft } from "./devices.ts";
+import {
+  deviceProblem,
+  deviceControls,
+  deviceGesture,
+  devicePoint,
+  deviceRows,
+  leaseLeft,
+} from "./devices.ts";
 
 const iphone = AppDevice.parse({
   id: "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b",
@@ -105,4 +112,29 @@ test("a device booted since the list was read shows as running", () => {
   const rows = deviceRows([pixel], [state({ device: booted })]);
 
   expect(rows.map((row) => [row.name, row.running])).toEqual([["Pixel 9", true]]);
+});
+
+test("device tool failures offer a fix without exposing internal errors", () => {
+  expect(
+    deviceProblem({
+      code: "command_failed",
+      message: "raw_id: internal JSON failure",
+      hint: "ACE_WORKSPACE_ROOT",
+    }),
+  ).toEqual({
+    message: "The device action didn't finish.",
+    hint: "Check that the device is running, then try again.",
+  });
+  expect(
+    deviceProblem({
+      code: "permission_denied",
+      permission: "screenRecording",
+      message: "Screen Recording is needed",
+      hint: "Open macOS privacy settings",
+    }),
+  ).toEqual({
+    permission: "screenRecording",
+    message: "Screen Recording is needed",
+    hint: "Open macOS privacy settings",
+  });
 });

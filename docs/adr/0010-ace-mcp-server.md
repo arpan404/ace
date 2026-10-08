@@ -141,3 +141,17 @@ Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only 
 Deliver guidance through each provider's native instruction mechanism. Codex opts out of MCP discovery instructions with `X-Ace-Instructions: native` because it otherwise prefixes every tool description. Cursor loads an always-applied rule from a private temporary additional workspace rather than replacing its system prompt. ACP has no portable system-instruction field, so its native prompt carries labeled guidance context.
 
 Advertise `tools.listChanged`. Current clients subscribe through the SDK notification API. Native legacy clients opt in with `X-Ace-Notifications: stream`, retaining at most 128 temporary HTTP transport sessions, tied to the authenticated lease identity and closed on revocation/shutdown. Other legacy traffic remains stateless. This extends the original no-permanent-session-map contract with a bounded in-memory stream lifetime; there is still no replay buffer or persisted transport state. The ACP stdio bridge forwards notifications and Pi refreshes its active extension catalogue while preserving native tools.
+
+## Native Sources and user controls
+
+Thread Sources reads enabled ace groups through the same discovery filter as the MCP endpoint.
+Provider inventories expose names and normalized connection states only. Claude Code controls
+use its live SDK handle; Codex uses MCP status, native config writes and reload; OpenCode uses
+location-scoped MCP registrations and connect/disconnect. Ending a provider session removes its
+control handle. Controls require thread read or operate authority as appropriate.
+
+Explicit Add server accepts a name and command/arguments or a non-secret HTTP URL. Claude and
+Codex persist through their own config mechanisms; OpenCode's current API registers for the
+session. Environment variables and authentication headers must be configured in the provider.
+ace neither reads that config nor stores it. The service-owned ace connection cannot be replaced
+or disabled by these controls. Codex reload changes apply on its next turn.

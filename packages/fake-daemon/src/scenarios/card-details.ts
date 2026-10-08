@@ -7,7 +7,6 @@ import type { ThreadInit } from "../daemon.ts";
  * another one.
  */
 
-const here = { host: "studio.local", name: "studio" };
 const buildBox = { host: "build-box.local", name: "build-box" };
 
 interface Seed {
@@ -51,7 +50,11 @@ const seeds: Record<string, Seed> = {
   "thread-router": { branch: "docs/router" },
 };
 
-function details(seed: Seed, workspaceId: string): NonNullable<Thread["details"]> {
+function details(
+  seed: Seed,
+  workspaceId: string,
+  here: { host: string; name: string },
+): NonNullable<Thread["details"]> {
   return {
     branch: seed.branch,
     mode: seed.worktree ? "worktree" : "local",
@@ -75,9 +78,16 @@ function details(seed: Seed, workspaceId: string): NonNullable<Thread["details"]
 }
 
 /** A seeded thread with its card details, unless the scenario gave its own. */
-export function withCardDetails(thread: ThreadInit): ThreadInit {
+export function withCardDetails(
+  thread: ThreadInit,
+  machine: { host: string; name: string },
+): ThreadInit {
+  // Checkouts use fake-host as their local placeholder; stamp the actual fake host at this edge.
+  if (thread.details) {
+    return thread.details.machine?.host === "fake-host"
+      ? { ...thread, details: { ...thread.details, machine } }
+      : thread;
+  }
   const seed = Object.hasOwn(seeds, thread.id) ? seeds[thread.id] : undefined;
-  return thread.details || !seed
-    ? thread
-    : { ...thread, details: details(seed, thread.workspaceId) };
+  return seed ? { ...thread, details: details(seed, thread.workspaceId, machine) } : thread;
 }

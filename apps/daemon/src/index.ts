@@ -1,3 +1,5 @@
+import { connectedDoctorReport } from "./diagnostics-report.ts";
+import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
@@ -8,8 +10,8 @@ import { assertModelTestIsolation } from "./models.ts";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createRedactor } from "@ace/redaction";
 import {
   logError,
@@ -20,7 +22,7 @@ import {
 } from "@ace/diagnostics";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
-import { remoteListener } from "./network.ts";
+
 import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
@@ -64,6 +66,23 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
+  const diagnostics = options.diagnostics ?? {
+    doctor: () => connectedDoctorReport(config, process.env, now),
+    toolchains: () => detectToolchains(process.env),
+  };
+  let reportPending: ReturnType<typeof diagnostics.doctor> | undefined;
+  let toolsPending: ReturnType<typeof diagnostics.toolchains> | undefined;
+  const sharedDiagnostics = {
+    doctor: () =>
+      (reportPending ??= diagnostics.doctor().finally(() => {
+        reportPending = undefined;
+      })),
+    toolchains: () =>
+      (toolsPending ??= diagnostics.toolchains().finally(() => {
+        toolsPending = undefined;
+      })),
+  };
+  options = { ...options, diagnostics: sharedDiagnostics };
   assertCompatibleHome(config.dataDir);
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
@@ -176,7 +195,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const handler = services.handler;
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
-    const remote = await remoteListener(config);
+
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
@@ -187,7 +206,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
       handler,
       serviceStatus: startup.status,
       ready: socketReady.promise,
-      ...(remote ? { remote } : {}),
+      remoteConfig: config,
+      webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
+        ? resolve(import.meta.dirname, "web")
+        : resolve(import.meta.dirname, "../../web/dist"),
       maintenance: process.env.ACE_MAINTENANCE === "1",
       version: process.env.ACE_VERSION ?? "development",
       port: config.port,
@@ -197,6 +219,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
       store,
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
+      doctor: sharedDiagnostics.doctor,
+      toolchains: sharedDiagnostics.toolchains,
       log: (error) => log.log("error", "WebSocket failure", logError(error)),
     };
     // Feature services publish only after initialization. Socket handlers read the
@@ -209,6 +233,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "providerActivation",
       "commands",
       "files",
+      "supportFiles",
       "threadFiles",
       "relay",
       "handler",
@@ -223,6 +248,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "onboarding",
       "mcp",
       "notifications",
+      "notificationPublicKey",
       "review",
       "history",
       "usage",
@@ -304,6 +330,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       get models() {
         return requireService(services.models, "models");
+      },
+      get notificationPublicKey() {
+        return services.notificationPublicKey;
       },
       get notifications() {
         return requireService(services.notifications, "notifications");

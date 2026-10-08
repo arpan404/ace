@@ -13,6 +13,7 @@ import { useScopedRecent, useScopedRecentStore, type ScopedRecent } from "../rec
 /** A file tab's data: the file it shows, and whether it is a preview a click may replace. */
 export const FileTabData = z.object({
   path: z.optional(z.string()),
+  draft: z.optional(z.object({ text: z.string(), original: z.string(), version: z.string() })),
   /** Opened by a single click: the next file picked in its tree takes its place. */
   preview: z.optional(z.boolean()),
   /** Markdown shows rendered unless the person asked for its source. */

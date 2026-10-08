@@ -2,6 +2,7 @@ import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   NotificationAddress,
   NotificationPreferences,
+  type Notification,
   type DeviceId,
   type Event,
   type PresenceUpdate,
@@ -20,7 +21,7 @@ export class NotificationWorker {
   private pending = new Map<
     number,
     {
-      resolve(value: number | undefined): void;
+      resolve(value: number | import("@ace/protocol").NotificationPreferences | undefined): void;
       reject(error: Error): void;
       bytes: number;
       disconnect: boolean;
@@ -119,7 +120,10 @@ export class NotificationWorker {
     for (const flight of this.flights.values()) flight.abort();
     this.flights.clear();
   }
-  private call(call: WorkerCall, signal?: AbortSignal): Promise<number | undefined> {
+  private call(
+    call: WorkerCall,
+    signal?: AbortSignal,
+  ): Promise<number | import("@ace/protocol").NotificationPreferences | undefined> {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Notification operation aborted", "AbortError"));
     if (this.failed) return Promise.reject(this.failed);
@@ -182,7 +186,8 @@ export class NotificationWorker {
     });
   }
   async cursor(signal?: AbortSignal): Promise<number> {
-    return (await this.call({ method: "cursor" }, signal)) ?? 0;
+    const value = await this.call({ method: "cursor" }, signal);
+    return typeof value === "number" ? value : 0;
   }
   ingest(events: readonly Event[]): Promise<void> {
     if (events.length > 256)
@@ -222,12 +227,20 @@ export class NotificationWorker {
   async register(device: DeviceId, address: unknown): Promise<void> {
     await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
   }
+  async getPreferences(device: DeviceId) {
+    return NotificationPreferences.parse(
+      (await this.call({ method: "getPreferences", device })) ?? {},
+    );
+  }
   async preferences(device: DeviceId, input: unknown): Promise<void> {
     await this.call({
       method: "preferences",
       device,
       preferences: NotificationPreferences.parse(input),
     });
+  }
+  async notify(notification: Notification): Promise<void> {
+    await this.call({ method: "notify", notification });
   }
   async snooze(thread: ThreadId, until: number): Promise<void> {
     await this.call({ method: "snooze", thread, until });

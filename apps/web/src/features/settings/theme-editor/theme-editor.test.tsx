@@ -29,10 +29,12 @@ async function setToken(name: string, value: string) {
 test("editing a preset forks a custom copy, applies it live and lists it under Appearance", async () => {
   const storage = memoryKeyValue();
   await harness({ storage }).open("/settings/theme-editor");
-  await screen.findByRole("textbox", { name: "--background" });
-  expect(valueOf("--background")).toBe("#0F0F0F");
+  await screen.findByRole("textbox", { name: "Window background" });
+  expect(valueOf("Window background")).toBe("#0F0F0F");
+  expect(screen.getByText("--reading-rgb")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Main column background" })).toBeTruthy();
 
-  await setToken("--background", "#123456");
+  await setToken("Window background", "#123456");
   // A first visit follows the OS; editing pins the copy, and says so with Undo.
   expect(
     (await screen.findAllByText("Editing a copy of Dark · System theme turned off")).length,
@@ -56,20 +58,20 @@ test("editing a preset forks a custom copy, applies it live and lists it under A
 test("a value CSS would refuse is marked and never applied or stored", async () => {
   const storage = memoryKeyValue();
   await harness({ storage }).open("/settings/theme-editor");
-  await setToken("--background", "#1");
-  const field = screen.getByRole("textbox", { name: "--background" });
+  await setToken("Window background", "#1");
+  const field = screen.getByRole("textbox", { name: "Window background" });
   await userEvent.tab();
   expect(field.getAttribute("aria-invalid")).toBe("true");
   expect(screen.getByText("Not a colour")).toBeTruthy();
   expect(appliedTheme()).not.toMatch(/~/);
   expect(storage.getItem("ace.themes") ?? "").not.toContain('"#1"');
 
-  await setToken("--radius", "banana");
+  await setToken("Corner radius", "banana");
   await userEvent.tab();
   expect(screen.getByText("Use a length, like 10px")).toBeTruthy();
   expect(appliedCss()).not.toContain("banana");
 
-  await setToken("--radius", "12px");
+  await setToken("Corner radius", "12px");
   await userEvent.tab();
   await waitFor(() => expect(appliedCss()).toContain("--radius:12px"));
 });
@@ -77,28 +79,26 @@ test("a value CSS would refuse is marked and never applied or stored", async () 
 test("the colour picker edits hex tokens; non-colour tokens have none", async () => {
   await harness().open("/settings/theme-editor");
   // Native colour inputs report a full lowercase hex.
-  fireEvent.input(await screen.findByLabelText("Pick --popover"), {
+  fireEvent.input(await screen.findByLabelText("Pick Menu background"), {
     target: { value: "#334455" },
   });
-  await waitFor(() => expect(valueOf("--popover")).toBe("#334455"));
-  expect(screen.queryByLabelText("Pick --radius")).toBeNull();
-  expect(screen.queryByLabelText("Pick --reading-rgb")).toBeNull();
+  await waitFor(() => expect(valueOf("Menu background")).toBe("#334455"));
+  expect(screen.queryByLabelText("Pick Corner radius")).toBeNull();
+  expect(screen.queryByLabelText("Pick Main column background")).toBeNull();
 });
 
 test("low-contrast text is warned about, and Reset to the preset clears it", async () => {
   await harness().open("/settings/theme-editor");
   expect(await screen.findByText("Contrast looks good.")).toBeTruthy();
 
-  await setToken("--muted-foreground", "#222222");
+  await setToken("Secondary text", "#222222");
   expect(await screen.findByText("1 contrast warning")).toBeTruthy();
-  expect(
-    screen.getByText(/^Secondary text \(--muted-foreground\) is 1\.\d\d:1; needs 4\.5:1\.$/),
-  ).toBeTruthy();
+  expect(screen.getByText(/^Secondary text: 1\.\d\d:1; needs 4\.5:1\.$/)).toBeTruthy();
   expect(screen.getByRole("img", { name: "Low contrast" })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Reset to Dark" }));
   expect(await screen.findByText("Contrast looks good.")).toBeTruthy();
-  expect(valueOf("--muted-foreground")).toBe(basePreset("dark").tokens["--muted-foreground"]);
+  expect(valueOf("Secondary text")).toBe(basePreset("dark").tokens["--muted-foreground"]);
   // Reset keeps the custom theme; it does not switch back to the preset.
   expect(appliedTheme()).toMatch(/^dark~/);
 });
@@ -136,15 +136,16 @@ test("import accepts an ace theme file and refuses anything else", async () => {
   expect(await screen.findByText("Imported Sea")).toBeTruthy();
   expect(appliedTheme()).toMatch(/^light~/);
   expect(root.getAttribute("data-scheme")).toBe("light");
-  expect(valueOf("--background")).toBe("#E8F1F2");
+  expect(valueOf("Window background")).toBe("#E8F1F2");
   // Tokens the file left out come from the Light preset.
-  expect(valueOf("--popover")).toBe("#FFFFFF");
+  expect(valueOf("Menu background")).toBe("#FFFFFF");
 
   await userEvent.upload(input, new File(["{}"], "nope.json", { type: "application/json" }));
   expect((await screen.findAllByText("Couldn't import that theme")).length).toBeGreaterThan(0);
   expect(
-    screen.getAllByText("That file isn't an ace theme: it needs a tokens object with --background.")
-      .length,
+    screen.getAllByText(
+      "That file isn't an ace theme. Choose a file exported from the theme editor.",
+    ).length,
   ).toBeGreaterThan(0);
   expect(appliedTheme()).toMatch(/^light~/);
 });
@@ -153,7 +154,7 @@ test("export copies the theme on screen as an ace theme file", async () => {
   const user = userEvent.setup();
   await harness().open("/settings/theme-editor");
   await user.click(await screen.findByRole("button", { name: "Export" }));
-  expect(await screen.findByText(/^Exported Dark · (JSON downloaded and )?copied$/)).toBeTruthy();
+  expect(await screen.findByText(/^Exported Dark · (File downloaded and )?copied$/)).toBeTruthy();
   const file = JSON.parse(await navigator.clipboard.readText()) as {
     name: string;
     scheme: string;

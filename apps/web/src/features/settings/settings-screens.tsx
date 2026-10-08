@@ -1,24 +1,34 @@
+import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
-import { AdvancedSettings } from "./advanced-page.tsx";
+const AdvancedSettings = lazy(() =>
+  import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
+);
 import { AppearanceSettings } from "./appearance-page.tsx";
-import { GeneralSettings } from "./general-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
-import { Navigate } from "@tanstack/react-router";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { RemoteDevices } from "./remote-page.tsx";
+const RemoteDevices = lazy(() =>
+  import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
+);
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
 
+// Provider preferences belong to General; keep them off every other settings route.
+const GeneralSettings = lazy(() =>
+  import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
+);
+
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <GeneralSettings />
+      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={4} />}>
+        <GeneralSettings />
+      </Suspense>
     </SettingsBody>
   );
 }
@@ -74,9 +84,11 @@ export function RemoteSettingsScreen() {
   return (
     <SettingsBody
       page="Remote devices"
-      lede="Machines running the ace daemon that this app can see. Threads from every machine merge into one list."
+      lede="Connect your own devices to this computer. Provider sign-ins stay here."
     >
-      <RemoteDevices />
+      <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
+        <RemoteDevices />
+      </Suspense>
     </SettingsBody>
   );
 }
@@ -93,7 +105,7 @@ export function KeyboardSettingsScreen() {
   return (
     <SettingsBody
       page="Keyboard"
-      lede="Click a shortcut and press the new keys. Changes apply at once on every device using this daemon."
+      lede="Click a shortcut and press the new keys. Changes apply at once on every device using ace on this machine."
     >
       <KeyboardShortcuts />
     </SettingsBody>
@@ -103,7 +115,9 @@ export function KeyboardSettingsScreen() {
 export function AdvancedSettingsScreen() {
   return (
     <SettingsBody page="Advanced">
-      <AdvancedSettings />
+      <Suspense fallback={<ListSkeleton label="diagnostics" shape="row" rows={3} />}>
+        <AdvancedSettings />
+      </Suspense>
     </SettingsBody>
   );
 }

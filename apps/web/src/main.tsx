@@ -43,15 +43,24 @@ function DaemonApp(props: { client: ClientApi }) {
 const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
+const pairingLink = location.pathname === "/pair" ? location.href : undefined;
+
 function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } = {}) {
   return (
     <ConnectionGate
       stores={stores}
-      defaultUrl={options.handed?.url ?? import.meta.env.VITE_ACE_DAEMON_URL ?? defaultDaemonUrl}
+      defaultUrl={
+        options.handed?.url ??
+        import.meta.env.VITE_ACE_DAEMON_URL ??
+        (pairingLink
+          ? location.origin.replace(/^https:/, "wss:").replace(/^http:/, "ws:") + "/"
+          : defaultDaemonUrl)
+      }
       handed={options.handed}
       desktop={options.desktop ?? false}
       createClient={createDaemonClient}
       fragment={location.hash}
+      pairingLink={pairingLink}
       onFragmentRead={forgetFragment}
     >
       {daemonApp}

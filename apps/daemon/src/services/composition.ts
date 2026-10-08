@@ -134,7 +134,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },
-  { name: "history", phase: "listener", requires: [], after: [], start: startHistory },
+  { name: "history", phase: "listener", requires: [], after: ["engine"], start: startHistory },
   { name: "usage", phase: "listener", requires: [], after: [], start: startUsage },
   { name: "notifications", phase: "listener", requires: [], after: [], start: startNotifications },
   {

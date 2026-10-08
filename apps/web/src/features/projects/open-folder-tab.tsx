@@ -1,11 +1,12 @@
 import { AppWindowIcon } from "@phosphor-icons/react";
 import { folderName, parentFolder } from "@ace/ui-core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import type { Machine } from "@/lib/machines.ts";
+import { AllowFolder } from "./allow-folder.tsx";
 import { AllowedPlaces } from "./folder-notices.tsx";
 import { FolderSearchBox } from "./folder-search.tsx";
 import { Footer, Offer, Problem } from "./form-parts.tsx";
@@ -34,16 +35,18 @@ export function OpenFolderTab(props: {
   });
   const [highlighted, setHighlighted] = useState<FolderRow>();
   const [problem, setProblem] = useState<
-    { key: string; message: string; denied: boolean } | undefined
+    { key: string; message: string; denied: boolean; canAllow?: boolean | undefined } | undefined
   >(
     () =>
       props.attempt && {
         key: `${machine.id}\u0000${props.attempt.path}`,
         message: props.attempt.problem,
         denied: true,
+        canAllow: props.attempt.canAllow,
       },
   );
   const [adding, setAdding] = useState(false);
+  const pending = useRef(false);
   // What was typed carries over to another machine; a problem stays with its own.
   const [shownFor, setShownFor] = useState(machine.id);
   if (shownFor !== machine.id) {
@@ -60,16 +63,20 @@ export function OpenFolderTab(props: {
   const offline = machine.client === undefined;
 
   const add = async (path: string, mode: LandMode, where: Machine) => {
+    if (pending.current) return;
+    pending.current = true;
     setAdding(true);
     setProblem(undefined);
     try {
       props.onAdded(await commandsOn(where).add(path), mode, where);
     } catch (error) {
       const failure = projectFailure(error);
+      pending.current = false;
       setProblem({
         key: `${where.id}\u0000${path}`,
         message: failure.message,
         denied: failure.denied ?? false,
+        canAllow: failure.canAllow,
       });
     } finally {
       setAdding(false);
@@ -115,6 +122,13 @@ export function OpenFolderTab(props: {
       {shownProblem ? (
         <Problem>
           {shownProblem.message}
+          {shownProblem.canAllow && target && (
+            <AllowFolder
+              client={on.client}
+              path={target.path}
+              onAllowed={() => void add(target.path, "open", on)}
+            />
+          )}
           {shownProblem.denied && (
             <AllowedPlaces
               className="mt-1 justify-start"

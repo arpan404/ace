@@ -20,7 +20,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useRemovingPlugins } from "./plugin-removals.ts";
-import { skillCatalog, withAvailability, type Skill } from "./skills-model.ts";
+import { skillCatalog, type Skill } from "./skills-model.ts";
 
 type Request = z.input<typeof PluginRequest>;
 type Response<T extends PluginResponse["type"]> = Extract<PluginResponse, { type: T }>;
@@ -81,19 +81,57 @@ export function useSkills() {
   return useDaemonQuery({ queryKey: key, read: readCatalog, select });
 }
 
-/** The first page (64 KiB) of a component's source, as accepted at install. */
+/** Read bounded source pages against one accepted hash, without cutting off at 64 KiB. */
 export function useSkillSource(skill: Skill) {
   return useDaemonQuery({
     queryKey: [...key, "source", skill.plugin, skill.path ?? ""],
     enabled: skill.path !== undefined,
     read: async (client, signal) => {
-      const page = await plugins(
-        client,
-        { type: "plugins.source", name: skill.plugin, path: skill.path ?? "" },
-        "plugins.source",
-        signal,
-      );
-      return { text: page.text, truncated: page.nextOffset < page.bytes };
+      let offset = 0;
+      let hash: string | undefined;
+      const parts: string[] = [];
+      for (let count = 0; count < 66; count++) {
+        const page = await plugins(
+          client,
+          {
+            type: "plugins.source",
+            name: skill.plugin,
+            path: skill.path ?? "",
+            offset,
+          },
+          "plugins.source",
+          signal,
+        );
+        if (
+          (hash && hash !== page.hash) ||
+          page.offset !== offset ||
+          page.nextOffset > page.bytes ||
+          page.bytes > 4 * 1024 ** 2
+        )
+          throw new Error("The source changed while loading. Try again.");
+        hash = page.hash;
+        parts.push(page.text);
+        if (page.nextOffset >= page.bytes) return { text: parts.join(""), hash, bytes: page.bytes };
+        if (page.nextOffset <= offset) break;
+        offset = page.nextOffset;
+      }
+      throw new Error("This source is too large to open. Open it in your editor.");
+    },
+  });
+}
+
+export function useEditPlugin() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      path: string;
+      expectedHash: string;
+      text: string;
+      signal?: AbortSignal;
+    }) => {
+      const { signal, ...request } = input;
+      return ownReview(client, { type: "plugins.edit", ...request }, signal);
     },
   });
 }
@@ -103,41 +141,46 @@ function usePluginMutation<T, R>(run: (client: ClientApi, input: T) => Promise<R
   const queries = useQueryClient();
   return useMutation({
     mutationFn: (input: T) => run(client, input),
-    // Not awaited: the caller can move on (open the new plugin) while the catalog reloads.
-    onSuccess: () => void queries.invalidateQueries({ queryKey: key }),
+    // Keep controls pending until the catalog reflects the saved policy.
+    onSuccess: () => queries.invalidateQueries({ queryKey: key }),
   });
 }
 
-/**
- * Turn a plugin on or off, and choose which providers may load it. The catalog shows the change
- * at once and goes back if the daemon refuses it.
- */
+/** Save availability, then read the effective catalog with both policies applied. */
 export function useSetAvailability() {
-  const client = useClient();
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { plugin: string; enabled: boolean; providers: readonly ProviderKind[] }) =>
-      plugins(
-        client,
-        {
-          type: "plugins.availability",
-          name: input.plugin,
-          enabled: input.enabled,
-          providers: [...input.providers],
-        },
-        "plugins.availability",
-      ),
-    onMutate: async (input) => {
-      await queries.cancelQueries({ queryKey: key, exact: true });
-      const before = queries.getQueryData<Skill[]>(key);
-      if (before) queries.setQueryData(key, withAvailability(before, input.plugin, input));
-      return { before };
-    },
-    onError: (_error, _input, context) => {
-      if (context?.before) queries.setQueryData(key, context.before);
-    },
-    onSettled: () => void queries.invalidateQueries({ queryKey: key }),
-  });
+  return usePluginMutation(
+    async (
+      client,
+      input: {
+        plugin: string;
+        skill?: string | undefined;
+        enabled: boolean;
+        providers: readonly ProviderKind[];
+      },
+    ) =>
+      input.skill
+        ? plugins(
+            client,
+            {
+              type: "plugins.skillAvailability",
+              plugin: input.plugin,
+              name: input.skill,
+              enabled: input.enabled,
+              providers: [...input.providers],
+            },
+            "plugins.skillAvailability",
+          )
+        : plugins(
+            client,
+            {
+              type: "plugins.availability",
+              name: input.plugin,
+              enabled: input.enabled,
+              providers: [...input.providers],
+            },
+            "plugins.availability",
+          ),
+  );
 }
 
 /**

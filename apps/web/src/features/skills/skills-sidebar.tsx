@@ -9,14 +9,16 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import {
   useViewListKeys,
-  ViewRowBody,
+  CompactViewRowBody,
   ViewRowSection,
-  viewRowClass,
+  compactViewRowClass,
   ViewSidebarError,
 } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPluginButton } from "./install-plugin.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { skillTitle } from "./skills-model.ts";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
 
@@ -39,6 +41,7 @@ function matches(skill: Skill, query: string): boolean {
   return (
     !text ||
     skill.name.toLowerCase().includes(text) ||
+    skillTitle(skill).toLowerCase().includes(text) ||
     skill.description.toLowerCase().includes(text) ||
     skill.plugin.toLowerCase().includes(text)
   );
@@ -90,7 +93,7 @@ export function SkillsSidebar() {
       {skills.isError ? (
         <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
-        <ListSkeleton label="skills" shape="tile" rows={5} />
+        <ListSkeleton label="skills" shape="row" rows={5} />
       ) : !skills.data.length ? (
         <EmptyState variant="inline" title="No plugins installed" />
       ) : !shown.length ? (
@@ -116,14 +119,15 @@ export function SkillsSidebar() {
           {groups.map(({ group, members }) => {
             const rows = members.map((skill) => (
               <li key={skill.id}>
-                <Link to="/skills/$skillId" params={{ skillId: skill.id }} className={viewRowClass}>
-                  <ViewRowBody
+                <Link
+                  to="/skills/$skillId"
+                  params={{ skillId: skill.id }}
+                  className={compactViewRowClass}
+                >
+                  <CompactViewRowBody
                     icon={group.icon}
-                    title={skill.name}
-                    description={skill.description}
-                    mono={skill.kind === "skill" || skill.kind === "command"}
-                    meta={skill.enabled ? undefined : "Off"}
-                    metaInline
+                    title={skillTitle(skill)}
+                    status={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
                   />
                 </Link>
               </li>

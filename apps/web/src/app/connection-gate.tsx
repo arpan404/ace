@@ -78,6 +78,7 @@ export function ConnectionGate(props: {
   handed?: DaemonTarget | undefined;
   /** Inside the desktop app, whose daemon nobody starts by hand. */
   desktop?: boolean;
+  pairingLink?: string | undefined;
   /** When the first-attempt deadline runs; injected by tests. */
   schedule?: Schedule;
   onFragmentRead?(): void;
@@ -95,7 +96,7 @@ export function ConnectionGate(props: {
     if (handoff.kind === "accept") saveTarget(stores, handoff.target, false);
     const stored = loadTarget(stores, defaultUrl);
     return {
-      target: stored.target,
+      target: props.pairingLink === undefined ? stored.target : undefined,
       url: stored.url,
       remembered: stored.remembered,
       pending: handoff.kind === "confirm" ? handoff : undefined,
@@ -267,11 +268,16 @@ export function ConnectionGate(props: {
       token: state.target?.token,
       status,
       desktop: props.desktop,
+      pairingLink: props.pairingLink,
       connect,
       retry,
       edit,
       disconnect,
-      endpoint: active && { kind: "daemon", target: active, deviceId: deviceId() },
+      endpoint: active && {
+        kind: "daemon",
+        target: active,
+        deviceId: active.pairedDeviceId ?? deviceId(),
+      },
       handoff,
     }),
     [
@@ -280,6 +286,7 @@ export function ConnectionGate(props: {
       state.target,
       status,
       props.desktop,
+      props.pairingLink,
       active,
       connect,
       retry,

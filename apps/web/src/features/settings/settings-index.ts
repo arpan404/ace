@@ -1,4 +1,5 @@
-import { settingsPages, type SettingsPath } from "./settings-pages.ts";
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
+import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
  * Every setting a person might look for, by page: the palette's Settings group and the
@@ -78,10 +79,32 @@ const entries = [
   },
   {
     id: "daemon.connection",
-    page: "/settings/general",
-    title: "Connected daemon",
+    page: "/settings/advanced",
+    title: "Connection",
     keywords: ["server", "url", "disconnect"],
   },
+  {
+    id: "threads.settleOnClose",
+    page: "/settings/general",
+    title: "Settle when the PR closes",
+    keywords: ["pull request", "closed"],
+  },
+  {
+    id: "permissions.providerModes",
+    page: "/settings/general",
+    title: "Default permissions",
+    keywords: ["approval", "native", "project"],
+  },
+  {
+    id: "projects.roots",
+    page: "/settings/general",
+    title: "Project folders",
+    keywords: ["allow", "folder", "roots"],
+  },
+  { id: "app.background", page: "/settings/general", title: "Keep running in background" },
+  { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
+  { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
+  { id: "app.attention", page: "/settings/general", title: "Bounce dock icon for attention" },
   // Appearance
   {
     id: "appearance.theme",
@@ -147,6 +170,24 @@ const entries = [
   },
   // Remote devices
   {
+    id: "remote.enabled",
+    page: "/settings/remote",
+    title: "Remote access",
+    keywords: ["lan", "tailscale", "relay"],
+  },
+  {
+    id: "remote.transport",
+    page: "/settings/remote",
+    title: "Transport",
+    keywords: ["lan", "tailscale", "relay"],
+  },
+  {
+    id: "host.displayName",
+    page: "/settings/remote",
+    title: "Machine name",
+    keywords: ["host", "rename", "computer"],
+  },
+  {
     id: "remote.pair",
     page: "/settings/remote",
     title: "Pair a device",
@@ -156,8 +197,8 @@ const entries = [
   {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "Daemon diagnostics",
-    keywords: ["memory", "debug", "health"],
+    title: "App diagnostics",
+    keywords: ["memory", "debug", "health", "doctor", "checks", "support", "export"],
   },
   {
     id: "advanced.reset",
@@ -196,7 +237,22 @@ function matches(entry: SettingEntry, query: string): boolean {
 export function searchSettings(query: string): SettingEntry[] {
   const text = query.trim().toLowerCase();
   if (!text) return [];
-  const found = settingsIndex.filter((entry) => matches(entry, text));
+  const visible = visibleSettingsPages();
+  const found = settingsIndex.filter(
+    (entry) =>
+      visible.some((page) => page.to === entry.page) &&
+      (hasDesktopPreferences() ||
+        ![
+          "notifications.system",
+          "notifications.quietHours",
+          "app.openAtLogin",
+          "app.background",
+          "app.preventSleep",
+          "app.globalShortcut",
+          "app.attention",
+        ].includes(entry.id)) &&
+      matches(entry, text),
+  );
   return found.toSorted(
     (a, b) =>
       Number(!a.title.toLowerCase().startsWith(text)) -

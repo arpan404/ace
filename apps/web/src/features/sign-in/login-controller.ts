@@ -1,5 +1,11 @@
+import type { z } from "zod";
 import type { ClientApi } from "@ace/client";
-import type { ProviderKind, ProviderLoginInput, ProviderLoginProgress } from "@ace/protocol";
+import type {
+  ProviderKind,
+  ProviderLoginInput,
+  ProviderLoginProgress,
+  ApiKeyUpstream,
+} from "@ace/protocol";
 
 /*
  * One sign-in (or sign-out) with a provider's own CLI, as the daemon supervises it
@@ -17,6 +23,8 @@ export interface SignInTarget {
   /** That upstream's name ("OpenAI"), for the dialog's title: Connect OpenAI, Disconnect OpenAI. */
   service?: string | undefined;
   action?: "login" | "logout" | undefined;
+  method?: "login" | "api_key" | undefined;
+  upstream?: z.infer<typeof ApiKeyUpstream> | undefined;
 }
 
 /** Why the daemon wouldn't start or continue, or "offline" when it couldn't be asked. */
@@ -45,7 +53,8 @@ type SessionRequest =
       type: "provider.login.poll" | "provider.login.cancel" | "provider.login.terminal";
       session: string;
     }
-  | { type: "provider.login.input"; session: string; input: ProviderLoginInput };
+  | { type: "provider.login.input"; session: string; input: ProviderLoginInput }
+  | { type: "provider.login.apiKey"; session: string; apiKey: string };
 
 const finished = new Set<ProviderLoginProgress["state"]>(["succeeded", "failed", "cancelled"]);
 
@@ -107,6 +116,17 @@ export class LoginController {
     this.input({ value: "enter" });
   }
 
+  /** The dedicated ephemeral path; the request and field are cleared after hand-off. */
+  submitApiKey(apiKey: string): void {
+    if (
+      !this.session ||
+      this.current.kind !== "progress" ||
+      this.current.progress.state !== "awaiting_api_key"
+    )
+      return;
+    void this.ask({ type: "provider.login.apiKey", session: this.session, apiKey });
+  }
+
   /** True only the first time: a sign-in opens its page by itself at most once. */
   claimPageOpen(): boolean {
     if (this.openedPage) return false;
@@ -141,13 +161,18 @@ export class LoginController {
   }
 
   private async start(): Promise<void> {
-    const { provider, instance, action } = this.target;
+    const { provider, instance, action, method, upstream } = this.target;
     try {
-      const reply = await this.client.request({
-        type: action === "logout" ? "provider.logout" : "provider.login.start",
-        provider,
-        ...(instance ? { instance } : {}),
-      });
+      const target = { provider, ...(instance ? { instance } : {}) };
+      const reply =
+        action === "logout"
+          ? await this.client.request({ type: "provider.logout", ...target })
+          : await this.client.request({
+              type: "provider.login.start",
+              ...target,
+              ...(method ? { method } : {}),
+              ...(upstream ? { upstream } : {}),
+            });
       if (!reply.result.ok) return this.set({ kind: "refused", reason: reply.result.error });
       const { progress } = reply.result;
       this.session = progress.session;
@@ -187,6 +212,7 @@ export class LoginController {
       this.patch({ refused: "offline" });
       return undefined;
     } finally {
+      if (request.type === "provider.login.apiKey") request.apiKey = "";
       this.patch({ sending: false });
     }
   }

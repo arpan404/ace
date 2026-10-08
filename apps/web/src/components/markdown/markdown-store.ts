@@ -152,7 +152,7 @@ export class MarkdownStore {
       stream.wanted = undefined;
       return;
     }
-    // Nothing to show yet: the view shows the empty text itself.
+    // Nothing to show yet.
     if (!wanted.text && !sent) return;
     const now = this.options.now();
     // Until something shows, and once the text is final, no waiting.

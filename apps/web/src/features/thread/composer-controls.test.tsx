@@ -136,7 +136,9 @@ test("the model chip opens effort and speed for the thread's model", async () =>
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
   const popover = await openModelControl("Model: Opus 5.5, personal, provider default effort");
+  expect(within(popover).getByRole("heading", { name: "Opus 5.5" })).toBeTruthy();
   expect(within(popover).getByText("Default effort")).toBeTruthy();
+  expect(within(popover).getByText("Account")).toBeTruthy();
   expect(within(popover).getByRole("button", { name: "Change model: Opus 5.5" })).toBeTruthy();
   // Opus has no default ace knows of: the provider's own is the slider's first stop, and each
   // stop is named.
@@ -149,6 +151,17 @@ test("the model chip opens effort and speed for the thread's model", async () =>
   expect(
     within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
   ).toBe("true");
+  const fast = within(popover).getByRole("button", { name: "Fast mode" });
+  await userEvent.hover(fast);
+  expect(await screen.findByRole("tooltip", { name: "Opus 5.5 has no faster tier" })).toBeTruthy();
+  await userEvent.unhover(fast);
+  await userEvent.click(fast);
+  expect(fast.getAttribute("aria-pressed")).toBe("false");
+  const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
+  await userEvent.hover(reset);
+  expect(
+    await screen.findByRole("tooltip", { name: "Already using the model's defaults" }),
+  ).toBeTruthy();
 });
 
 test("effort from the slider goes with the next message and applies to its turn", async () => {
@@ -224,7 +237,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
-  expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
+  expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
 });
 
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {

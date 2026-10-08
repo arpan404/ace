@@ -1,3 +1,5 @@
+import { PastSessions } from "@/features/history/index.ts";
+import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { useClient } from "@ace/client-react";
 import { providerNames, readinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
@@ -10,7 +12,8 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
 import { useCatalogSignals } from "@/lib/provider-signals.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { MissingRow, ProviderCard } from "./provider-card.tsx";
+import { useProjectDialogs } from "@/features/projects/index.ts";
+import { MissingRow, ProviderRow } from "./provider-card.tsx";
 
 const names = new Intl.ListFormat("en", { type: "conjunction" });
 
@@ -25,9 +28,10 @@ export function SetupScreen() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const onboarding = useOnboarding();
+  const projects = useProjectDialogs();
   const signals = useCatalogSignals();
   const [checking, setChecking] = useState(false);
-  const leave = (to: "/" | "/new") => {
+  const leave = (to: "/") => {
     void dismissOnboarding(client, queryClient, true);
     void navigate({ to });
   };
@@ -70,7 +74,7 @@ export function SetupScreen() {
             </h2>
             <p className="max-w-[62ch] text-base leading-normal text-muted-foreground">
               {ready
-                ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready. Start a thread, or connect more agents first.`
+                ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready. Add a project to start, or connect more agents first.`
                 : "ace works with the coding agents on this computer, using your own accounts. Sign in to one to start."}
             </p>
           </div>
@@ -95,12 +99,9 @@ export function SetupScreen() {
                 </Button>
               </div>
               {installed.length > 0 && (
-                <ul
-                  aria-label="Providers on this computer"
-                  className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-                >
+                <ul aria-label="Providers on this computer" className="flex flex-col">
                   {installed.map(({ row, view }) => (
-                    <ProviderCard
+                    <ProviderRow
                       key={row.provider}
                       row={row}
                       view={view}
@@ -114,7 +115,7 @@ export function SetupScreen() {
                   <h3 className="text-sm font-medium text-muted-foreground">
                     {installed.length ? "More agents you can use" : "Install one to begin"}
                   </h3>
-                  <ul className="divide-y rounded-card border bg-card">
+                  <ul className="flex flex-col">
                     {missing.map(({ row, view }) => (
                       <MissingRow key={row.provider} row={row} view={view} />
                     ))}
@@ -123,13 +124,23 @@ export function SetupScreen() {
               )}
             </>
           )}
+          <PastSessions />
+          <ToolchainHints />
           <div className="flex items-center gap-3 border-t pt-5">
             <Button variant="ghost" onClick={() => leave("/")}>
               Skip for now
             </Button>
             {ready ? (
-              <Button variant="primary" size="lg" className="ml-auto" onClick={() => leave("/new")}>
-                Start a thread
+              <Button
+                variant="primary"
+                className="ml-auto"
+                onClick={() => {
+                  leave("/");
+                  projects.open({ kind: "add", tab: "open" });
+                }}
+                onPointerEnter={projects.preload}
+              >
+                Add a project
                 <ArrowRightIcon aria-hidden size={14} />
               </Button>
             ) : (

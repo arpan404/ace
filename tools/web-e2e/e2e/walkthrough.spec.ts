@@ -110,14 +110,11 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await transcript.waitFor();
   const card = await openWorkCard(page);
   await beat(900);
-  await card.getByRole("button", { name: "Git actions" }).click();
-  await beat(600);
-  await page.getByRole("menuitem", { name: /^Commit…/ }).click();
+  await card.getByRole("button", { name: "Commit & push" }).click();
   await beat(900);
-  await page
-    .getByRole("dialog", { name: "Commit changes" })
-    .getByRole("button", { name: "Commit", exact: true })
-    .click();
+  const commit = page.getByRole("dialog", { name: "Commit changes" });
+  await commit.getByRole("checkbox", { name: "Push after committing" }).uncheck();
+  await commit.getByRole("button", { name: "Commit", exact: true }).click();
   await beat(1200);
 
   // A thread stopped at its account's limit moves to another account.
