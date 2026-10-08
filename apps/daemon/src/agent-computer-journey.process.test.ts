@@ -167,9 +167,9 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
     return result;
   }
 
-  expect(data(await call("screen_ui_tree", {}, true))).toMatchObject({
-    message: "Screen delegation required",
-  });
+  expect((await call("screen_ui_tree", {}, true)).content).toMatchObject([
+    { text: "Tool unavailable or capability denied" },
+  ]);
   await screen.enable(true);
   await screen.approve("dev.ace.journey", true);
   const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });

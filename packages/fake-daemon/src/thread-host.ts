@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { apply, createThreadState, type Fact, type Key, type ThreadState } from "@ace/core";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import type {
@@ -73,6 +74,27 @@ export class ThreadHost {
         fact = {
           ...fact,
           draft: { ...fact.draft, origin: { ...fact.draft.origin, interactionId: interaction.id } },
+        };
+    }
+    if (fact.type === "item.upsert" && fact.draft.type === "notice" && fact.draft.toolCallId) {
+      const linked = this.state.items[fact.draft.toolCallId];
+      if (linked?.type === "tool_call")
+        fact = {
+          ...fact,
+          draft: {
+            ...fact.draft,
+            toolCallId: linked.id,
+            raw: (fact.draft.raw ?? []).map((raw) =>
+              raw.type === "ace.screen.step" && "data" in raw
+                ? Object.assign({}, raw, {
+                    data: {
+                      ...z.record(z.string(), z.unknown()).parse(raw.data),
+                      toolCallId: linked.id,
+                    },
+                  })
+                : raw,
+            ),
+          },
         };
     }
     const events = apply(this.state, fact, {

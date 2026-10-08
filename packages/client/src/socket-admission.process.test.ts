@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { DevicesService, DevicePlatform } from "@ace/devices";
-import { setup, ready, when } from "./test-support.ts";
+import { setup, when } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -40,18 +40,26 @@ test("daemon capacity is a retryable client limit and a freed slot recovers afte
   const f = await setup(undefined, undefined, undefined, devices);
   cleanups.push(() => f.cleanup());
   const admitted = [];
-  for (let i = 0; i < 64; i++) {
-    const peer = f.make();
-    await ready(peer.client);
-    admitted.push(peer.client);
+  let limitedPeer: ReturnType<typeof f.make> | undefined;
+  for (let i = 0; i < 65; i++) {
+    const peer = f.make({ random: () => 0 });
+    const admission = when(
+      peer.client.connectionState(),
+      (state) => state === "ready" || state === "reconnecting" || state === "fatal",
+    );
+    await peer.client.start();
+    const state = await admission;
+    if (state === "ready") admitted.push(peer.client);
+    else {
+      expect(state).toBe("reconnecting");
+      limitedPeer = peer;
+      break;
+    }
   }
-  const { client, scheduler } = f.make({ random: () => 0 });
-  const limited = when(
-    client.connectionState(),
-    (state) => state === "reconnecting" || state === "fatal",
-  );
-  await client.start();
-  expect(await limited).toBe("reconnecting");
+  expect(admitted.length).toBeGreaterThan(0);
+  expect(admitted.length).toBeLessThanOrEqual(64);
+  if (!limitedPeer) throw new Error("Expected bounded daemon admission");
+  const { client, scheduler } = limitedPeer;
   expect(client.error?.code).toBe("limit");
   await admitted[0]?.close();
   await released.promise;

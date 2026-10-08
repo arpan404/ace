@@ -1,10 +1,26 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { normalizeAceCall, redactAceApproval } from "@ace/core";
 import type { Fact } from "@ace/core";
-import type { RawPayload } from "@ace/protocol";
+import type { RawPayload, ToolCall } from "@ace/protocol";
 
 /** Snapshot facts use the same cap as Store events, including existing blob refs. */
-export function capFact(capRaw: (raw: RawPayload[]) => RawPayload[], fact: Fact): Fact {
+export function capFact(
+  capRaw: (raw: RawPayload[]) => RawPayload[],
+  fact: Fact,
+  previous?: ToolCall,
+): Fact {
+  if (fact.type === "interaction.opened") {
+    const request = redactAceApproval(fact.request);
+    if (request !== fact.request)
+      fact = { ...fact, request, raw: [{ type: "ace.private-input", data: { redacted: true } }] };
+  }
+  if (
+    (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+    fact.draft.type === "tool_call" &&
+    fact.draft.call
+  )
+    fact = { ...fact, draft: { ...fact.draft, call: normalizeAceCall(fact.draft.call, previous) } };
   if (
     (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
     fact.draft.type === "tool_call" &&

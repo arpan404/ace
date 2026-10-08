@@ -18,7 +18,9 @@ let sequence = 0;
 let permissionQueries = 0;
 let codec: "jpeg" | "h264" = "jpeg";
 function frame(imageCodec = codec) {
-  const payload = Buffer.from(`jpeg-${sequence}`);
+  const payload = process.env.MODEL_IMAGE_FILE
+    ? readFileSync(process.env.MODEL_IMAGE_FILE)
+    : Buffer.from(`jpeg-${sequence}`);
   const packet = framePacket(
     v2
       ? {
@@ -169,6 +171,20 @@ function processRequest(request: ScreenHelperRequest) {
       codec: "jpeg",
     });
   if (request.sessionId) selectSession(request.sessionId);
+  if (["input", "ui.act"].includes(request.op) && process.env.RESULT_ERROR_CODE) {
+    console.log(
+      JSON.stringify({
+        version: request.version,
+        id: request.id,
+        ok: false,
+        error: {
+          code: process.env.RESULT_ERROR_CODE,
+          message: process.env.RESULT_ERROR_MESSAGE ?? "Backend failed",
+        },
+      }),
+    );
+    return;
+  }
   if (
     process.env.SECURE_TEXT === "1" &&
     ((request.op === "input" &&
@@ -424,6 +440,21 @@ function processRequest(request: ScreenHelperRequest) {
     };
   if (request.op === "targets" && process.env.NO_WINDOWS === "1")
     data = { displays: [], windows: [] };
+  if (request.op === "windows.list") {
+    const windowId =
+      request.bundleId === "dev.ace.test"
+        ? 1
+        : Number(request.bundleId.replace("dev.ace.test", ""));
+    data =
+      process.env.NO_WINDOWS === "1"
+        ? { windows: [] }
+        : {
+            windows: [
+              { windowId, bundleId: request.bundleId, title: "Test", focused: true, usable: true },
+            ],
+            selectedWindowId: windowId,
+          };
+  }
   if (request.op === "open.app") {
     if (process.env.LAUNCH_LOG)
       appendFileSync(

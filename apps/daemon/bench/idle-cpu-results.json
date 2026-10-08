@@ -1,0 +1,43 @@
+{
+  "baseline": "88805977",
+  "runtime": "v24.13.0",
+  "hostLoadQualified": false,
+  "profilingEnabled": false,
+  "store": {
+    "threads": 19,
+    "events": 17383
+  },
+  "measurements": [
+    {
+      "case": "empty",
+      "idleSeconds": 180,
+      "beforeCpuPercent": 0.5874465678779813,
+      "afterCpuPercent": 0.3881030602181662,
+      "beforeRssMiB": 141,
+      "afterRssMiB": 159.171875
+    },
+    {
+      "case": "copied",
+      "idleSeconds": 180,
+      "beforeCpuPercent": 0.7092821063688023,
+      "afterCpuPercent": 0.476549564095721,
+      "beforeRssMiB": 150.40625,
+      "afterRssMiB": 183.765625
+    },
+    {
+      "case": "history",
+      "idleSeconds": 180,
+      "beforeCpuPercent": 4.632149658429038,
+      "afterCpuPercent": 2.566795683193724,
+      "beforeRssMiB": 240.453125,
+      "afterRssMiB": 190.984375
+    }
+  ],
+  "idleGuard": {
+    "cpuPercent": 0.5906457275512424,
+    "elapsedMs": 60004.666667,
+    "rss": 212320256,
+    "threads": 16,
+    "deltas": 16000
+  }
+}

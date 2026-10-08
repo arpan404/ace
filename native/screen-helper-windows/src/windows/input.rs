@@ -3,7 +3,7 @@ pub use crate::input::Action;
 use crate::{
     coordinates::Mapping,
     errors::{Code, Error, Result},
-    input::{plan, Event},
+    input::{Event, plan},
 };
 use windows::Win32::{
     Foundation::POINT,
@@ -28,7 +28,8 @@ fn send(inputs: &[INPUT]) -> Result<()> {
         return Err(Error::new(
             Code::Busy,
             "SendInput blocked, possibly UIPI or desktop changed",
-        ));
+        )
+        .phase("partial"));
     }
     Ok(())
 }

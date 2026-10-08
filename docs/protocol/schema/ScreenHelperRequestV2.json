@@ -67,6 +67,87 @@
     },
     {
       "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "open.url",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "bundleId",
+        "allowlist",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "menu.press",
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -502,19 +583,7 @@
           "type": "string"
         },
         "modifiers": {
-          "default": [],
-          "items": {
-            "enum": [
-              "control",
-              "shift",
-              "alt",
-              "meta",
-              "super"
-            ],
-            "type": "string"
-          },
-          "maxItems": 4,
-          "type": "array"
+          "$ref": "https://ace.local/protocol/v1/ScreenKeyModifiers.json"
         },
         "op": {
           "const": "key.press",

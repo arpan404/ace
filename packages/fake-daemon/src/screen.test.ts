@@ -89,6 +89,7 @@ it("fake screen enablement and permissions stay synchronized across main and ded
   expect(await f.stream.request({ op: "targets" })).toMatchObject({
     windows: [
       { bundleId: "com.apple.TextEdit" },
+      { bundleId: "com.apple.Safari" },
       { bundleId: "com.apple.calculator" },
       { bundleId: "com.apple.iphonesimulator" },
     ],
@@ -99,6 +100,25 @@ it("fake screen enablement and permissions stay synchronized across main and ded
   await f.screen.enable(false);
   expect(f.stream.getSnapshot().enabled).toBe(false);
   expect(enabled).toEqual([true, false]);
+});
+
+it("fake browsers require a UI thread grant and cannot request or retain an always grant", async () => {
+  const f = await fixture();
+  await f.screen.enable(true);
+  await expect(
+    f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder),
+  ).rejects.toMatchObject({ code: "approval_required" });
+  expect(Object.values(f.view().interactions)).toEqual([]);
+  await expect(f.screen.approve("com.apple.Safari", true)).rejects.toMatchObject({
+    errorCode: "approval_required",
+  });
+  await f.screen.approve("com.apple.Safari", true, "thread", "thread");
+  await f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder);
+  expect(Object.values(f.view().interactions)).toEqual([]);
+  await f.screen.approve("com.apple.Safari", false, "thread", "thread");
+  await expect(
+    f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder),
+  ).rejects.toMatchObject({ code: "approval_required" });
 });
 
 it("fake targets enforce eight sessions, holder identity, takeover and the global stop", async () => {

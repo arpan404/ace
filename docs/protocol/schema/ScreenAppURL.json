@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenAppURL.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "https://example.com",
+    "ace-fixture://identity"
+  ],
+  "maxLength": 8192,
+  "minLength": 1,
+  "type": "string",
+  "x-ace-constraint": "Absolute app URL without embedded credentials."
+}

@@ -2,7 +2,7 @@
 import PackageDescription
 import Foundation
 
-let helper = ["Responsibility.swift", "Protocol.swift", "Pipeline.swift", "PointerRelease.swift", "VideoEncoder.swift", "FrameChanges.swift", "MeasurementFrames.swift", "MeasurementStop.swift", "MeasurementFilmstrip.swift", "InteractionMeasurement.swift", "Metrics.swift", "AXAttributes.swift", "Accessibility.swift", "JPEGEncoder.swift", "FrameWriter.swift", "CaptureRecovery.swift", "Capture.swift", "BackgroundSafety.swift", "ClipboardPaste.swift", "TextInput.swift", "InputDelivery.swift", "ObservationWait.swift", "WindowFocus.swift", "TargetedAXInput.swift", "Input.swift", "InputV2.swift", "Main.swift"]
+let helper = ["Responsibility.swift", "Protocol.swift", "Pipeline.swift", "PointerRelease.swift", "VideoEncoder.swift", "FrameChanges.swift", "MeasurementFrames.swift", "MeasurementStop.swift", "MeasurementFilmstrip.swift", "InteractionMeasurement.swift", "Metrics.swift", "AXAttributes.swift", "Accessibility.swift", "JPEGEncoder.swift", "FrameWriter.swift", "CaptureRecovery.swift", "Capture.swift", "BackgroundSafety.swift", "ClipboardPaste.swift", "TextInput.swift", "InputDelivery.swift", "ObservationWait.swift", "WindowIdentity.swift", "KeyInput.swift", "AXKeyInput.swift", "AppOperations.swift", "CommandScheduler.swift", "WindowFocus.swift", "TargetedAXInput.swift", "Input.swift", "InputV2.swift", "Main.swift"]
 let fixture = ["TestWindow.swift"]
 let inspector = ["InspectJPEG.swift"]
 let buildDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("build").path
@@ -14,6 +14,6 @@ let package = Package(
         .executableTarget(name: "ScreenHelper", path: ".", exclude: excluded + fixture + inspector, sources: helper),
         .executableTarget(name: "ScreenTest", path: ".", exclude: excluded + helper + inspector, sources: fixture),
         .executableTarget(name: "InspectJPEG", path: ".", exclude: excluded + helper + fixture, sources: inspector),
-        .testTarget(name: "FrameChangesTests", dependencies: ["ScreenHelper"], path: "Tests")
+        .testTarget(name: "FrameChangesTests", dependencies: ["ScreenHelper"], path: "Tests", exclude: ["Fixture"])
     ]
 )

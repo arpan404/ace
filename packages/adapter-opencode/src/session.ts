@@ -1,5 +1,6 @@
 import { waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
+import { developerInstructions } from "@ace/mcp-server";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
@@ -171,6 +172,12 @@ export class OpenCodeSession implements ProviderSession {
           info.model = model;
         }
       }
+      if (ctx.aceMcp)
+        await s.client.session.instructions.entry.put({
+          sessionID: info.id,
+          key: "ace.tool-guidance",
+          value: developerInstructions("opencode"),
+        });
       s.ownership.establish(info);
       await s.ensureMcp(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });

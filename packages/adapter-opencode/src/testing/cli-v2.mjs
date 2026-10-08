@@ -504,7 +504,7 @@ const server = createServer(async (req, res) => {
     empty();
     return;
   }
-  const match = /^\/api\/session\/([^/]+)(.*)$/.exec(path);
+  const match = /^\/api\/(?:experimental\/)?session\/([^/]+)(.*)$/.exec(path);
   if (match) {
     const [, id, suffix] = match;
     if (suffix === "/command" && req.method === "POST") {
@@ -539,6 +539,16 @@ const server = createServer(async (req, res) => {
         return;
       }
       json({ data: info });
+      return;
+    }
+    if (suffix === "/instructions/entries/ace.tool-guidance" && req.method === "PUT") {
+      const info = sessions.get(id);
+      if (!info) {
+        res.writeHead(404).end();
+        return;
+      }
+      info.instructions = { ...info.instructions, "ace.tool-guidance": body.value };
+      empty();
       return;
     }
     if (suffix === "/prompt") {

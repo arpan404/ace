@@ -189,10 +189,12 @@ test("a failed step says why: the exit code for commands, the error otherwise", 
     1,
   );
   if (item.type === "tool_call") item.call.error = "Navigation blocked by the permission mode";
+  // ace's own tool: the reason is the row's sentence, flagged as a failure.
   expect(describeStep(item, { labels: stepLabels })).toMatchObject({
-    verb: "Opened",
-    target: "youtube.com",
-    note: "Navigation blocked by the permission mode",
+    verb: "Navigation blocked by the permission mode",
+    target: undefined,
+    note: "Failed",
+    failed: true,
   });
 });
 

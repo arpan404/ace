@@ -40,8 +40,34 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     if (bytes > 256 * 1024) throw new Error("MCP bridge response exceeds budget");
     await writer.send(line, bytes, writeSignal);
   };
+  // ACP stdio clients can receive unsolicited notifications even though the
+  // legacy request forwarding is stateless. Use the current subscription channel.
+  const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
+  const notifications = new Client(
+    { name: "ace-stdio", version: "1" },
+    {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+    },
+  );
+  let listening: Promise<void> | undefined;
+  const listen = () =>
+    (listening ??= (async () => {
+      await notifications.connect(
+        new StreamableHTTPClientTransport(new URL(connection.url), {
+          requestInit: { headers: { Authorization: `Bearer ${connection.bearer}` } },
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        }),
+      );
+      notifications.setNotificationHandler("notifications/tools/list_changed", () =>
+        write({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }),
+      );
+      if (notifications.getServerCapabilities()?.tools?.listChanged)
+        await notifications.listen({ toolsListChanged: true });
+    })());
   const forward = async (line: string): Promise<void> => {
     const message = Message.parse(JSON.parse(line));
+    if (message.method === "notifications/initialized" || message.method === "tools/list")
+      await listen().catch(() => {});
     if (message.method === "notifications/cancelled") {
       const cancelled = z
         .object({ params: z.object({ requestId: z.union([z.string(), z.number()]) }) })
@@ -156,6 +182,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     if (failure) throw failure;
   } finally {
     signal.removeEventListener("abort", abort);
+    await notifications.close();
     lines.close();
     gate.destroy();
     writer.close(new Error("MCP bridge closed"));

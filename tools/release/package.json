@@ -28,6 +28,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/browser": "workspace:*",
     "node-gyp": "11.5.0"
   }
 }

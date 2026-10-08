@@ -59,7 +59,10 @@ export class ToolRegistry {
   private scheduler: Scheduler;
   private maxTools: number;
   private maxCalls: number;
-  private observeCall: CallObserver | undefined;
+  private availability:
+    | ((caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean)
+    | undefined;
+  readonly observeCall: CallObserver | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -203,16 +206,29 @@ export class ToolRegistry {
       [...this.entries.values()].flatMap((entry) => (entry.capability ? [entry.capability] : [])),
     );
   }
+  setAvailability(
+    read: (caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean,
+  ): void {
+    this.availability = read;
+  }
+  private allowed(name: string, entry: Entry, principal: Principal): boolean {
+    return (
+      allowed(entry, principal) &&
+      (this.availability?.(principal.scope)(name, entry.capability) ?? true)
+    );
+  }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];
     const tools: Tool[] = [];
-    for (const entry of this.entries.values())
-      if (allowed(entry, principal)) tools.push(entry.descriptor());
+    const availability = this.availability?.(principal.scope);
+    for (const [name, entry] of this.entries)
+      if (allowed(entry, principal) && (availability?.(name, entry.capability) ?? true))
+        tools.push(entry.descriptor());
     return tools;
   }
   inputSchema(name: string, principal: Principal): Record<string, unknown> | undefined {
     const entry = this.entries.get(name);
-    return !principal.signal.aborted && entry && allowed(entry, principal)
+    return !principal.signal.aborted && entry && this.allowed(name, entry, principal)
       ? entry.descriptor().inputSchema
       : undefined;
   }
@@ -223,14 +239,35 @@ export class ToolRegistry {
     requestSignal: AbortSignal,
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("Session ended");
-    const entry = this.entries.get(name);
-    if (!entry || !allowed(entry, principal))
-      return failure("Tool unavailable or capability denied");
-    if (this.active >= this.maxCalls) return failure("Tool capacity reached");
+    const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
     const signal = AbortSignal.any([principal.signal, requestSignal, controller.signal]);
-    if (signal.aborted) return failure("Tool cancelled");
+    const context = {
+      caller: { sessionId, threadId, agentId },
+      capabilities: principal.scope.capabilities,
+      signal,
+    };
+    const observe = this.observeCall?.(name, input, context);
+    const finish = async (result: CallToolResult) => {
+      // Evidence storage must not change a completed action's public outcome.
+      try {
+        await observe?.(result);
+      } catch {
+        /* The host observer owns diagnostics. */
+      }
+      return result;
+    };
+    const entry = this.entries.get(name);
+    if (!entry || !this.allowed(name, entry, principal))
+      return finish(failure("Tool unavailable or capability denied"));
+    if (this.active >= this.maxCalls) return finish(failure("Tool capacity reached"));
+    if (signal.aborted) return finish(failure("Tool cancelled"));
     this.active++;
+    let executionSettled = false;
+    let observationSettled = false;
+    const release = () => {
+      if (executionSettled && observationSettled) this.active--;
+    };
     let reason = "Tool cancelled";
     let stopTimer: () => void = noop;
     let stopAbort: () => void = noop;
@@ -243,37 +280,25 @@ export class ToolRegistry {
         controller.abort();
       });
     });
-    const { sessionId, threadId, agentId } = principal.scope;
-    const context = {
-      caller: { sessionId, threadId, agentId },
-      capabilities: principal.scope.capabilities,
-      signal,
-    };
     const executing = Promise.resolve()
-      .then(async () => {
-        const observe = this.observeCall?.(name, input, context);
-        const result = await entry.execute(input, context);
-        return { observe, result };
-      })
-      .then(async ({ observe, result }): Promise<CallToolResult> => {
-        if (signal.aborted) return failure(reason);
-        await observe?.(result);
-        return result;
-      })
+      .then(() => entry.execute(input, { ...context, signal }))
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
           ? failure("Tool result too large")
           : toolFailure(error),
       )
       .finally(() => {
-        this.active--;
+        executionSettled = true;
+        release();
       });
     // An uncooperative backend retains its slot until it settles, bounding detached work.
     try {
-      return await Promise.race([executing, stopped]);
+      return await finish(await Promise.race([executing, stopped]));
     } finally {
       stopTimer();
       stopAbort();
+      observationSettled = true;
+      release();
     }
   }
 }

@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import AppKit
@@ -21,4 +22,25 @@ func inputDestination(mode: String, pid: pid_t) throws -> EventDestination {
 }
 func deliverInput(_ event: CGEvent, mode: String, pid: pid_t, permission: () -> Bool, post: (CGEvent, EventDestination) throws -> Void) throws {
     try NativeInputPost.perform(permission: permission) { try post(event, inputDestination(mode: mode, pid: pid)) }
+}
+
+struct DestinationState: Equatable {
+    let count: Int?
+    let selection: CFRange?
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.count == rhs.count && lhs.selection?.location == rhs.selection?.location && lhs.selection?.length == rhs.selection?.length
+    }
+}
+func destinationState(_ element: AXUIElement) -> DestinationState {
+    let count = (axAttribute(element, kAXNumberOfCharactersAttribute) as? NSNumber)?.intValue
+    var range: CFRange?
+    if let value = axAttribute(element, kAXSelectedTextRangeAttribute), CFGetTypeID(value) == AXValueGetTypeID() {
+        var decoded = CFRange()
+        if AXValueGetValue(value as! AXValue, .cfRange, &decoded) { range = decoded }
+    }
+    return DestinationState(count: count, selection: range)
+}
+
+func verifyKeyboardDestination(expectedPID: pid_t, expectedWindow: UInt32, actualPID: pid_t?, actualWindow: UInt32?) throws {
+    guard actualPID == expectedPID, actualWindow == expectedWindow else { throw HelperError("Actual keyboard app/window differs from the approved destination", code: "no_key_window") }
 }

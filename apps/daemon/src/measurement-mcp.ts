@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { privateAceInput } from "@ace/core";
+import { toolImage } from "./tool-result-content.ts";
 import { z } from "zod";
 import {
   InteractionMeasurement,
@@ -37,36 +38,7 @@ async function filmstrip(
 ) {
   const context = runtime.context();
   if (!context) throw new Error("Measurement attachment service unavailable");
-  const bytes = Buffer.from(image.data, "base64");
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const device = "daemon-measurement";
-  const begin = await context.uploads.handle(device, {
-    op: "upload.begin",
-    threadId: caller.threadId,
-    sha256,
-    bytes: bytes.length,
-    name: "interaction-filmstrip.jpg",
-    mimeType: image.mimeType,
-  });
-  if (begin.kind !== "upload") throw new Error("Filmstrip upload refused");
-  try {
-    for (let offset = 0; offset < bytes.length; offset += 64 * 1024)
-      await context.uploads.handle(device, {
-        op: "upload.chunk",
-        uploadId: begin.uploadId,
-        offset,
-        data: bytes.subarray(offset, offset + 64 * 1024).toString("base64"),
-      });
-    const committed = await context.uploads.handle(device, {
-      op: "upload.commit",
-      uploadId: begin.uploadId,
-    });
-    if (committed.kind !== "attachment") throw new Error("Filmstrip commit refused");
-    return committed.attachment;
-  } catch (error) {
-    await context.uploads.handle(device, { op: "upload.cancel", uploadId: begin.uploadId });
-    throw error;
-  }
+  return toolImage(context, caller, image);
 }
 
 /** A scoped call result is captured before any provider echo or inline raw cap. */
@@ -134,7 +106,7 @@ export function measurementObserver(runtime: Runtime) {
     }
   });
   const observeCall: CallObserver = (name, input, { caller }) => {
-    if (!measurementTool(name)) return;
+    if (!measurementTool(name) || privateAceInput(name, input)) return;
     const key = argumentKey(input);
     const started = runtime.now();
     const since = store.headSeq();

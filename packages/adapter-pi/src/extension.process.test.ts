@@ -64,6 +64,19 @@ test("Pi extension forwards scoped tools, structured results and MCP errors acro
   onTestFinished(configuration.remove);
   try {
     await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path });
+    const beforeStart = hooks.get("before_agent_start");
+    if (typeof beforeStart !== "function") throw new Error("Missing native system prompt hook");
+    const instructions: unknown = Reflect.apply(beforeStart, undefined, [
+      { systemPrompt: "Pi built-in instructions" },
+    ]);
+    expect(instructions).toMatchObject({
+      systemPrompt: expect.stringContaining(
+        "Pi built-in instructions\n\nace tools for this thread.",
+      ),
+    });
+    expect(instructions).toMatchObject({
+      systemPrompt: expect.stringContaining("Never drive Safari/Chrome/Arc/Firefox with screen_*"),
+    });
     const echo = tools.get("ace_echo"),
       failure = tools.get("ace_failure");
     if (!echo || !failure) throw new Error("Missing MCP tools");
@@ -162,4 +175,99 @@ test("Pi executes authorized browser, screen and device tools and projects their
     lease.end();
     await server.close();
   }
+});
+
+test("Pi adds newly enabled screen tools and withdraws them on revocation without hiding native tools", async () => {
+  let enabled = false,
+    approved = false;
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  for (const name of ["screen_request_app", "screen_open_app"])
+    registry.register({
+      name,
+      capability: "screen",
+      description: name,
+      input: z.object({}),
+      output: z.object({}),
+      timeoutMs: 1000,
+      async run() {
+        return {};
+      },
+    });
+  const credentials = new CredentialRegistry(() => "d".repeat(64));
+  const server = await startMcpServer({
+    registry,
+    credentials,
+    status: () => ({
+      permissionMode: "full-access",
+      disabled: enabled ? {} : { screen: "Computer use is disabled." },
+      screenApproved: approved,
+    }),
+  });
+  onTestFinished(() => server.close());
+  const lease = credentials.issue(
+    {
+      threadId: ThreadId.parse("thread"),
+      agentId: AgentId.parse("root"),
+      sessionId: "pi-refresh",
+      capabilities: ["screen"],
+    },
+    new AbortController().signal,
+  );
+  let active = ["read", "bash"];
+  const registered = new Set<string>();
+  const hooks = new Map<string, unknown>();
+  let changed: (() => void) | undefined;
+  const pi: PiExtensionApi = {
+    appendEntry() {},
+    registerCommand() {},
+    registerTool(tool) {
+      registered.add(tool.name);
+    },
+    getActiveTools: () => active,
+    setActiveTools(names) {
+      active = names;
+      changed?.();
+    },
+    on(event: string, handler: unknown) {
+      hooks.set(event, handler);
+    },
+  };
+  const config = privateMcpConfig(
+    JSON.stringify({
+      controlSecret: "a".repeat(64),
+      mcp: { url: server.url, bearer: lease.bearer },
+    }),
+  );
+  onTestFinished(config.remove);
+  onTestFinished(async () => {
+    const shutdown = hooks.get("session_shutdown");
+    if (typeof shutdown === "function") await Reflect.apply(shutdown, undefined, []);
+  });
+  await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path });
+  expect(active).toEqual(["read", "bash", "ace_status"]);
+  const refresh = async (mutate: () => void) => {
+    const next = Promise.withResolvers<void>();
+    changed = next.resolve;
+    mutate();
+    server.toolsChanged();
+    await next.promise;
+    changed = undefined;
+  };
+  await refresh(() => {
+    enabled = true;
+  });
+  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app"]);
+  await refresh(() => {
+    approved = true;
+  });
+  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app", "screen_open_app"]);
+  expect(registered.has("screen_open_app")).toBe(true);
+  await refresh(() => {
+    approved = false;
+  });
+  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app"]);
+  await refresh(() => {
+    enabled = false;
+  });
+  expect(active).toEqual(["read", "bash", "ace_status"]);
 });

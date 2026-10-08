@@ -133,6 +133,19 @@ export const ScreenInventory = z.object({
     )
     .max(2048),
 });
+export const ScreenAppWindows = z.object({
+  windows: z
+    .array(
+      ScreenInventory.shape.windows.element.extend({
+        focused: z.boolean().optional(),
+        main: z.boolean().optional(),
+        usable: z.boolean().optional(),
+      }),
+    )
+    .max(2048),
+  selectedWindowId: z.number().int().positive().optional(),
+});
+export type ScreenAppWindows = z.infer<typeof ScreenAppWindows>;
 export const ScreenStatus = z.object({
   enabled: z.boolean(),
   permissions: ScreenPermissions,

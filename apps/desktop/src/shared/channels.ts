@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   AbsolutePath,
   AppInfo,
+  AppIdentity,
+  AppIdentityRequest,
   BrowserControlRequest,
   BrowserController,
   BrowserPlacement,
@@ -51,6 +53,7 @@ export const requests = {
   "shell.openInEditor": { request: OpenInEditor, result: z.boolean() },
   "shell.reveal": { request: RevealPath, result: z.boolean() },
   /** An installed editor's icon from the OS, for "Open in" (never a bundled logo). */
+  "shell.appIdentity": { request: AppIdentityRequest, result: AppIdentity },
   "shell.editorIcon": { request: EditorIconRequest, result: EditorIconImage },
   "shell.openExternal": { request: ExternalUrl, result: z.boolean() },
   /**

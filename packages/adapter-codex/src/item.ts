@@ -48,7 +48,16 @@ export function toolDraft(
   return {
     type: "tool_call",
     complete: !["running", "pending", "awaiting_approval"].includes(status),
-    call: { kind: detail.kind, title, detail, status, raw: raw(type, data, name) },
+    call: {
+      kind: detail.kind,
+      title,
+      detail,
+      status,
+      raw: raw(type, data, name),
+      ...(type === "mcpToolCall" && typeof obj(obj(data).error).message === "string"
+        ? { error: str(obj(obj(data).error).message).slice(0, 4096) }
+        : {}),
+    },
   };
 }
 export function itemDraft(item: Obj, complete: boolean): ItemDraft {

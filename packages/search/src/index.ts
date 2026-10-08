@@ -20,6 +20,7 @@ export type { OutputReader } from "./output.ts";
 export { FIELD_CAP, GAP } from "./text.ts";
 
 const ItemKey = z.object({ item: z.string() });
+const PendingWrites = z.object({ pending: z.number().int().nonnegative() });
 
 export interface SearchSource {
   headSeq(): number;
@@ -98,6 +99,15 @@ export class SearchIndex {
   observeThread(thread: Thread, seq: number): void {
     if (thread.deletedAt !== undefined) this.deleteThread(thread.id);
     else this.atomic(() => this.writer.observeThread(thread, seq));
+  }
+  /** Constant-time persisted counters cover both preview and full-stream indexes. */
+  hasPendingWrites(): boolean {
+    const row = this.writer.sql
+      .get(
+        "SELECT (SELECT pending FROM search_meta WHERE id=1) + (SELECT pending FROM search_full_meta WHERE id=1) AS pending",
+      )
+      .get();
+    return PendingWrites.parse(row).pending > 0;
   }
   flush(limit = 128): number {
     if (!Number.isInteger(limit) || limit < 1 || limit > 256) throw new Error("Invalid batch size");

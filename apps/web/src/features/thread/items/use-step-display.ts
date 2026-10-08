@@ -1,6 +1,7 @@
 import { useAgent, useItem } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import { describeStep, type StepText } from "@ace/ui-core";
+import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { useChangesStat } from "@/lib/diffs/use-file-diffs.ts";
 import { usePendingAnswer } from "../interactions/pending-answers.ts";
 import { useStepLabels } from "./step-labels.ts";
@@ -14,6 +15,8 @@ import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 export function useStepDisplay(
   threadId: string,
   itemId: string,
+  /** What earlier steps of its log say about it, for ace's own tools. */
+  ace?: AceToolContext,
 ): { item: Item; step: StepText; awaiting: boolean } | undefined {
   const item = useItem(threadId, itemId);
   const agent = useAgent(threadId, item?.agentId ?? "");
@@ -28,6 +31,7 @@ export function useStepDisplay(
       interaction: interaction?.request.kind === "approval" ? interaction : undefined,
       answering,
       labels,
+      ace,
     });
   // A full-text edit's stat is a text diff, counted in the diff worker rather than here.
   const counted = useChangesStat(described?.diffFor);

@@ -9,11 +9,18 @@ pub enum Code {
     Busy,
     Timeout,
     Internal,
+    WindowAmbiguous,
+    KeyUnsupported,
+    ModifierUnsupported,
+    NoKeyWindow,
+    DeliveryUnconfirmed,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Error {
     pub code: Code,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<&'static str>,
 }
 pub type Result<T> = std::result::Result<T, Error>;
 impl Error {
@@ -27,7 +34,15 @@ impl Error {
                 units <= 1024
             })
             .collect();
-        Self { code, message }
+        Self {
+            code,
+            message,
+            phase: None,
+        }
+    }
+    pub fn phase(mut self, phase: &'static str) -> Self {
+        self.phase = Some(phase);
+        self
     }
     pub fn hresult(value: i32, message: impl Into<String>) -> Self {
         let code = match value as u32 {

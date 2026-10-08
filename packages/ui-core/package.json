@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./provider-icons": "./src/provider-icons.ts",
     "./step-labels": "./src/tool-labels.ts",
+    "./ace-tools": "./src/ace-tool-rows.ts",
     "./command-rank": "./src/command-rank.ts",
     "./acp-registry": "./src/acp-registry.ts",
     "./counts": "./src/counts.ts",

@@ -40,6 +40,8 @@ const Request = z.discriminatedUnion("op", [
     count: z.number().int().positive().max(64),
     fresh: z.boolean().default(false),
   }),
+  z.object({ id: z.number(), op: z.literal("idle-store") }),
+  z.object({ id: z.number(), op: z.literal("idle-sample") }),
   z.object({ id: z.number(), op: z.literal("close") }),
   z.object({ id: z.number(), op: z.literal("memory") }),
   z.object({ id: z.number(), op: z.literal("plans") }),
@@ -73,6 +75,52 @@ process.on("message", (input: unknown) => {
         await engine.close();
         await daemon.close();
         process.disconnect?.();
+        return;
+      }
+      if (request.op === "idle-store") {
+        for (let index = 0; index < 16; index++) {
+          const thread = await create();
+          const message = daemon.store
+            .readEvents({ threadId: ThreadId.parse(thread), afterSeq: 0, limit: 16 })
+            .find(
+              (event) =>
+                event.payload.type === "item.created" &&
+                event.payload.item.type === "message" &&
+                event.payload.item.role === "assistant",
+            );
+          if (!message || message.payload.type !== "item.created")
+            throw new Error("Missing seeded message");
+          const item = message.payload.item;
+          if (!item.agentId) throw new Error("Missing seeded agent");
+          const agentId = item.agentId;
+          await provider.finish(thread);
+          await engine.flush();
+          // Seed bounded batches through the public Store. Idle measures the persisted
+          // history, without spending minutes replaying a second artificial engine.
+          for (let delta = 0; delta < 1000; delta += 100) {
+            daemon.store.appendEvents(
+              ThreadId.parse(thread),
+              Array.from({ length: 100 }, (_, offset) => ({
+                type: "item.delta" as const,
+                itemId: item.id,
+                agentId,
+                field: "text" as const,
+                append: `Historical delta ${delta + offset} with enough text to exercise the stream index.\n`,
+              })),
+            );
+          }
+        }
+        if (errors.length) throw new Error(String(errors[0]));
+        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
+        return;
+      }
+      if (request.op === "idle-sample") {
+        process.send?.({
+          id: request.id,
+          at: performance.now(),
+          cpu: process.cpuUsage(),
+          memory: process.memoryUsage(),
+        });
         return;
       }
       if (request.op === "memory") {
@@ -150,3 +198,6 @@ process.on("message", (input: unknown) => {
       process.send?.({ error: String(error) });
     });
 });
+
+// Publish readiness only after the engine and IPC request handler can accept work.
+process.send?.({ id: 0, threads: [], memory: process.memoryUsage() });

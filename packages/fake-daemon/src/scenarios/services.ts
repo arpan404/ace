@@ -1,15 +1,17 @@
+import { aceToolThreadIds } from "./ace-tool-results.ts";
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";
 import type { ServicesSeed } from "../services-wire.ts";
 
 /**
- * What the design's daemon has accumulated beside its threads: decks, automations and their
+ * What the design's daemon has accumulated beside its threads: automations and their
  * recent runs, installed plugins, and pull requests linked to Home threads. Seed it with
  * `daemon.seedServices(workbenchServices(now))` after the threads it links to are played.
  */
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
+    attachmentImages: aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
     automations: automationList(Math.floor(now / 60_000) * 60_000, timeZone),
     runs: automationRuns(now),
     plugins: pluginCatalog(now),
