@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, DeviceId, TerminalRequest, Thread, type CommandPayload } from "@ace/protocol";
 import { Store } from "./store.ts";
-import { startServer } from "./server.ts";
+import { startServer, type ServerOptions } from "./server.ts";
 import { stubHandler } from "./commands.ts";
 import { Client, token } from "./socket-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
@@ -29,7 +29,7 @@ async function fixture() {
   });
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const runtime = new WorkspaceRuntime(store, root, () => 1000);
-  const server = await startServer({
+  const options: ServerOptions = {
     store,
     port: 0,
     token,
@@ -41,7 +41,8 @@ async function fixture() {
       const value = store.getThread(id);
       return value !== undefined && value.deletedAt === undefined;
     },
-  });
+  };
+  const server = await startServer(options);
   const clients: Client[] = [];
   async function connect(device = "desktop") {
     const client = new Client(server.url);
@@ -57,6 +58,7 @@ async function fixture() {
     store,
     thread,
     runtime,
+    lifecycle: options.threadLifecycle,
     connect,
     command,
     async close() {
@@ -69,7 +71,7 @@ async function fixture() {
   };
 }
 
-test("deletion refuses an owned shell and succeeds after terminal close releases that work", async () => {
+test("deletion refuses a live shell and succeeds when the shell exits without a client close", async () => {
   const f = await fixture();
   try {
     const client = await f.connect();
@@ -86,7 +88,11 @@ test("deletion refuses an owned shell and succeeds after terminal close releases
     const stream = f.runtime.terminal(terminalId, f.thread.id).attach({ fromOffset: 0 });
     expect(
       await f.command(client, { type: "thread.delete", threadId: f.thread.id }, "blocked"),
-    ).toMatchObject({ ok: false, error: "thread_busy" });
+    ).toMatchObject({
+      ok: false,
+      error: "thread_busy",
+      alive: { agentsRunning: 0, terminalsOpen: 1, operationsRunning: 0 },
+    });
     expect(f.store.getThread(f.thread.id)?.deletedAt).toBeUndefined();
     client.send(
       TerminalRequest.parse({
@@ -111,14 +117,6 @@ test("deletion refuses an owned shell and succeeds after terminal close releases
       stream.detach();
     }
     expect(await readFile(join(f.root, "alive.txt"), "utf8")).toBe("alive");
-    client.send(
-      TerminalRequest.parse({
-        type: "terminal.request",
-        requestId: "close",
-        operation: { op: "close", threadId: f.thread.id, terminalId },
-      }),
-    );
-    expect(await client.next()).toMatchObject({ type: "terminal.result", ok: true });
     expect(
       await f.command(client, { type: "thread.delete", threadId: f.thread.id }, "delete"),
     ).toMatchObject({ ok: true });
@@ -169,6 +167,47 @@ test("another device cannot claim a receipt while the thread remains readable", 
       error: "forbidden",
     });
     expect(f.store.headSeq()).toBe(head);
+  } finally {
+    await f.close();
+  }
+});
+
+test("force deletion closes a live terminal before reporting success", async () => {
+  const f = await fixture();
+  try {
+    const terminalId = await f.runtime.openTerminal(f.thread.id, "Live shell");
+    const terminal = f.runtime.terminal(terminalId, f.thread.id);
+    const pid = terminal.pid;
+    const client = await f.connect();
+    expect(
+      await f.command(
+        client,
+        { type: "thread.delete", threadId: f.thread.id, force: true },
+        "force-shell",
+      ),
+    ).toMatchObject({ ok: true });
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(f.runtime.listTerminals(f.thread.id)).toEqual([]);
+    expect(f.store.getThread(f.thread.id)?.deletedAt).toBeDefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a shell killed outside ace stays readable and no longer blocks plain deletion", async () => {
+  const f = await fixture();
+  try {
+    const terminalId = await f.runtime.openTerminal(f.thread.id, "Killed shell");
+    const terminal = f.runtime.terminal(terminalId, f.thread.id);
+    process.kill(terminal.pid, "SIGKILL");
+    await terminal.exited;
+    await f.lifecycle?.sweep();
+    expect(f.runtime.listTerminals(f.thread.id)).toHaveLength(1);
+    const client = await f.connect();
+    expect(
+      await f.command(client, { type: "thread.delete", threadId: f.thread.id }, "killed-shell"),
+    ).toMatchObject({ ok: true });
+    expect(f.runtime.listTerminals(f.thread.id)).toEqual([]);
   } finally {
     await f.close();
   }

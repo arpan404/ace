@@ -196,6 +196,14 @@ export function syntheticProvider() {
   return {
     adapter,
     frame,
+    async kill(): Promise<void> {
+      if (!processHandle?.pid) throw new Error("Synthetic process missing");
+      process.kill(processHandle.pid, "SIGKILL");
+      await processHandle.exited;
+    },
+    get pid() {
+      return processHandle?.pid;
+    },
     burst(): Promise<void> {
       if (!processHandle) throw new Error("Synthetic process missing");
       return new Promise((resolve) => {

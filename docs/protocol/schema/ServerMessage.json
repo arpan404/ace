@@ -1239,6 +1239,31 @@
     },
     {
       "properties": {
+        "alive": {
+          "properties": {
+            "agentsRunning": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "operationsRunning": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "terminalsOpen": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "agentsRunning",
+            "terminalsOpen",
+            "operationsRunning"
+          ],
+          "type": "object"
+        },
         "code": {
           "type": "string"
         },

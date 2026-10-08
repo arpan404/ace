@@ -42,6 +42,12 @@ export function engineHandler(
       if (
         "threadId" in payload &&
         payload.threadId &&
+        repo.cleaning(ThreadId.parse(payload.threadId))
+      )
+        return { commandId: command.id, ok: false, error: "thread_deleting" };
+      if (
+        "threadId" in payload &&
+        payload.threadId &&
         repo.store.getThread(ThreadId.parse(payload.threadId))?.continuation &&
         !["thread.archive", "thread.fork"].includes(payload.type)
       )
