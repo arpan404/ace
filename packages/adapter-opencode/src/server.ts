@@ -1,3 +1,4 @@
+import { mcpReadyEnvironment } from "./mcp-ready.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
@@ -28,6 +29,8 @@ export type ServerConsumer = {
   exited(deliberate: boolean, message?: string): void;
 };
 export type ServerOptions = {
+  /** Credential-free native catalog readiness plugin, installed only for owned MCP sessions. */
+  mcpReadyPlugin?: string;
   discovery?: DiscoveryOptions;
   /** Session-scoped credentials to remove before emitting provider evidence. */
   secrets?: readonly string[];
@@ -180,11 +183,19 @@ export class OpenCodeServer {
           this.authorization.slice(6),
         ];
         this.controller.signal.throwIfAborted();
+        const providerEnv = this.options.discovery?.env;
+        const env = this.options.mcpReadyPlugin
+          ? mcpReadyEnvironment(
+              providerEnv,
+              providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
+              this.options.mcpReadyPlugin,
+            )
+          : providerEnv;
         const proc = this.runtime.spawn({
           command: cli.path,
           args: ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"],
           env: {
-            ...this.options.discovery?.env,
+            ...env,
             OPENCODE_PASSWORD: password,
             OPENCODE_SERVER_PASSWORD: undefined,
             OPENCODE_SERVER_USERNAME: undefined,
