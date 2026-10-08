@@ -234,8 +234,13 @@ export class DaemonHistory {
       };
     }
     if (request.type === "history.list") {
+      const page = await this.service.list(request);
       return {
-        ...(await this.service.list(request)),
+        ...page,
+        sessions: page.sessions.map((session) => {
+          session.continuation = this.continuation.support(session.instanceId);
+          return session;
+        }),
         requestId: request.requestId,
         scan: this.scanStatus(),
       };

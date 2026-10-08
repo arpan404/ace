@@ -1,3 +1,4 @@
+import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
 import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled } from "@ace/core";
@@ -39,6 +40,13 @@ export function engineHandler(
   return {
     handle(command: Command, context): CommandResult {
       const payload = command.payload;
+      if (payload.type === "thread.send" && repo.store.getThread(payload.threadId)?.imported) {
+        try {
+          adoptImportedThread(repo, payload.threadId, now());
+        } catch {
+          return { commandId: command.id, ok: false, error: "history_unavailable" };
+        }
+      }
       if (
         "threadId" in payload &&
         payload.threadId &&

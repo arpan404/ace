@@ -21,6 +21,7 @@ export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
 type Destination =
   | View["to"]
+  | "/setup"
   | "/new"
   | "/accounts"
   | "/archived"
@@ -121,6 +122,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
             icon: "view",
             run: run(() => openSearch()),
           },
+          { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
           { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/accounts") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {

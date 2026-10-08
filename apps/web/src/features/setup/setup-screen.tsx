@@ -1,3 +1,4 @@
+import { PastSessions } from "@/features/history/index.ts";
 import { useClient } from "@ace/client-react";
 import { providerNames, readinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
@@ -95,10 +96,7 @@ export function SetupScreen() {
                 </Button>
               </div>
               {installed.length > 0 && (
-                <ul
-                  aria-label="Providers on this computer"
-                  className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-                >
+                <ul aria-label="Providers on this computer" className="min-w-0">
                   {installed.map(({ row, view }) => (
                     <ProviderCard
                       key={row.provider}
@@ -114,7 +112,7 @@ export function SetupScreen() {
                   <h3 className="text-sm font-medium text-muted-foreground">
                     {installed.length ? "More agents you can use" : "Install one to begin"}
                   </h3>
-                  <ul className="divide-y rounded-card border bg-card">
+                  <ul className="min-w-0">
                     {missing.map(({ row, view }) => (
                       <MissingRow key={row.provider} row={row} view={view} />
                     ))}
@@ -123,6 +121,7 @@ export function SetupScreen() {
               )}
             </>
           )}
+          <PastSessions />
           <div className="flex items-center gap-3 border-t pt-5">
             <Button variant="ghost" onClick={() => leave("/")}>
               Skip for now

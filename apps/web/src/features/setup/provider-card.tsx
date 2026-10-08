@@ -1,18 +1,13 @@
 import { providerNames, type ReadinessView } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { cn } from "@/lib/cn.ts";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { ReadinessAction } from "@/features/sign-in/index.ts";
 
-/**
- * One agent on the setup page: its mark, its name and status, and either a green check (ready)
- * or the one thing that makes it ready. `next` marks setup's suggested step: ringed, and its
- * button is the primary one.
- */
+/** Providers share the same compact list density as past sessions. */
 export function ProviderCard(props: {
   row: ProviderReadiness;
   view: ReadinessView;
@@ -21,40 +16,20 @@ export function ProviderCard(props: {
   const { row, view, next } = props;
   const name = providerNames[row.provider];
   return (
-    <li
-      aria-label={name}
-      data-next={next ? "" : undefined}
-      className={cn(
-        "fx-rise-in flex flex-col justify-between gap-6 rounded-lg border bg-card p-4 transition-shadow duration-(--dur-2)",
-        next && "shadow-[0_0_0_2px_var(--ring)]",
+    <li aria-label={name} className="flex h-9 min-w-0 items-center gap-3 text-sm">
+      <ProviderIconTip provider={row.provider} size={14} />
+      <span className="shrink-0 font-medium">{name}</span>
+      <span className="min-w-0 flex-1 truncate">
+        <StatusLine tone={view.tone} text={view.summary} />
+      </span>
+      {!view.ready && (
+        <ReadinessAction
+          provider={row.provider}
+          name={name}
+          view={view}
+          emphasis={next ? "primary" : "secondary"}
+        />
       )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <ProviderTile provider={row.provider} />
-        {view.ready ? (
-          <span
-            role="img"
-            aria-label="Ready"
-            data-tone="done"
-            className="fx-pop grid size-7 place-items-center rounded-full bg-(--tone)/12 text-(--tone)"
-          >
-            <CheckIcon aria-hidden size={14} weight="bold" />
-          </span>
-        ) : (
-          <ReadinessAction
-            provider={row.provider}
-            name={name}
-            view={view}
-            emphasis={next ? "primary" : "secondary"}
-          />
-        )}
-      </div>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="truncate text-base font-medium">{name}</p>
-        <span className="text-sm text-muted-foreground">
-          <StatusLine tone={view.tone} text={view.summary} />
-        </span>
-      </div>
     </li>
   );
 }
@@ -65,7 +40,7 @@ export function MissingRow(props: { row: ProviderReadiness; view: ReadinessView 
   const name = providerNames[row.provider];
   const [open, setOpen] = useState(false);
   return (
-    <li aria-label={name} className="flex flex-col gap-2 px-4 py-3">
+    <li aria-label={name} className="flex flex-col gap-2 py-1">
       <div className="flex items-center gap-3">
         <ProviderTile provider={row.provider} size="sm" muted />
         <div className="min-w-0 flex-1">

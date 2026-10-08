@@ -18,6 +18,12 @@ export const HistorySession = z.object({
   messageCount: z.number().int().nonnegative(),
   countAccuracy: z.enum(["exact", "sampled"]),
   parentNativeId: z.string().optional(),
+  continuation: z
+    .discriminatedUnion("status", [
+      z.object({ status: z.literal("supported") }),
+      z.object({ status: z.literal("unsupported"), reason: z.string() }),
+    ])
+    .optional(),
   support: z.discriminatedUnion("status", [
     z.object({ status: z.literal("supported") }),
     z.object({ status: z.literal("unsupported"), reason: z.string() }),

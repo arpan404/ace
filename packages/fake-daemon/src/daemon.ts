@@ -93,6 +93,7 @@ export interface FakeDaemonOptions {
   snapshotItems?: number;
 }
 export interface ThreadInit {
+  imported?: Thread["imported"];
   id: string;
   workspaceId: string;
   title: string;
@@ -347,6 +348,7 @@ export class FakeDaemon implements Host {
         : init.provider === "cursor"
           ? { backend: "cursor-sdk" as const }
           : {}),
+      ...(init.imported ? { imported: init.imported } : {}),
       ...(init.continuation ? { continuation: init.continuation } : {}),
       capabilities: {
         ...structuredClone(fakePermissionCapabilities),

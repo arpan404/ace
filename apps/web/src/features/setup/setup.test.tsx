@@ -49,14 +49,7 @@ test("a first launch opens setup; a sign-in fills progress live, and Start a thr
     },
   );
   expect((await progress()).getAttribute("aria-valuetext")).toBe("0 of 5 ready");
-  // The suggested first step is the one primary action on the page.
   const claude = within(cards).getByRole("listitem", { name: "Claude Code" });
-  expect(claude.hasAttribute("data-next")).toBe(true);
-  expect(
-    within(cards)
-      .getAllByRole("listitem")
-      .filter((card) => card.hasAttribute("data-next")),
-  ).toHaveLength(1);
   // Antigravity isn't installed: it shows apart, with how to get it.
   const missing = screen.getByRole("region", { name: "Not installed" });
   expect(within(missing).getByText("Antigravity")).toBeTruthy();
@@ -70,7 +63,7 @@ test("a first launch opens setup; a sign-in fills progress live, and Start a thr
   await waitFor(async () =>
     expect((await progress()).getAttribute("aria-valuetext")).toBe("1 of 5 ready"),
   );
-  expect(within(claude).getByRole("img", { name: "Ready" })).toBeTruthy();
+  expect(within(claude).queryByRole("button", { name: "Sign in to Claude Code" })).toBeNull();
   expect(screen.getByRole("heading", { level: 2, name: "You're ready to go" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Start a thread" }));
   expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
@@ -95,7 +88,7 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
   expect(screen.queryByRole("list", { name: "Providers on this computer" })).toBeNull();
 }, 30_000);
 
-test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; only a card needing action stands out", async () => {
+test("a CLI that doesn't report its sign-in counts as ready once its upstreams list models; providers needing action offer sign-in", async () => {
   // The fake's machine: Claude Code signed in, OpenCode and Pi connected through their
   // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out, Cursor expired.
   const app = harness({ onboarding: "pending" });
@@ -112,7 +105,6 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   );
   for (const name of ["Claude Code", "OpenCode", "Pi"]) {
     const card = within(cards).getByRole("listitem", { name });
-    expect(within(card).getByRole("img", { name: "Ready" })).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
   }
   // Pi doesn't report a sign-in; its connected upstreams say it works.
@@ -123,12 +115,6 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   expect(within(codex).getByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Reconnect Cursor" })).toBeTruthy();
-  // Something is ready: starting a thread is the next step, so no card is highlighted.
-  expect(
-    within(cards)
-      .getAllByRole("listitem")
-      .filter((card) => card.hasAttribute("data-next")),
-  ).toHaveLength(0);
   expect(screen.getByRole("button", { name: "Start a thread" })).toBeTruthy();
 }, 30_000);
 
