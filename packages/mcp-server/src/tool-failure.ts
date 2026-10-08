@@ -29,6 +29,31 @@ export function toolFailure(error: unknown): CallToolResult {
   const failure = trusted
     ? new PublicToolError(error.code, error.permission)
     : new PublicToolError(error instanceof z.ZodError ? "invalid_data" : "execution_failed");
+  const dispatch = trusted
+    ? z
+        .object({
+          phase: z.enum(["rejected-before-dispatch", "dispatched", "partial"]).optional(),
+          candidates: z
+            .array(
+              z.object({
+                windowId: z.number().int().positive(),
+                bundleId: z.string().max(256).optional(),
+                title: z.string().max(1024),
+                bounds: z
+                  .object({
+                    x: z.number().finite(),
+                    y: z.number().finite(),
+                    w: z.number().finite(),
+                    h: z.number().finite(),
+                  })
+                  .optional(),
+              }),
+            )
+            .max(2048)
+            .optional(),
+        })
+        .safeParse(error)
+    : undefined;
   const origin = trusted ? Origin.safeParse(error) : undefined;
   return {
     isError: true,
@@ -39,6 +64,7 @@ export function toolFailure(error: unknown): CallToolResult {
           code: failure.code,
           message: failure.message,
           hint: failure.hint,
+          ...(dispatch?.success ? dispatch.data : {}),
           ...(failure.permission ? { permission: failure.permission } : {}),
           ...(origin?.success
             ? {
