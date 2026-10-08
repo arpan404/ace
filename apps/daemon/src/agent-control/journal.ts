@@ -81,6 +81,17 @@ export class DelegationJournal {
     store.atomic((db) => {
       if (
         !db
+          .prepare("PRAGMA table_info(delegation_trees)")
+          .all()
+          .some((column) => column.name === "owner")
+      )
+        db.exec("ALTER TABLE delegation_trees ADD COLUMN owner TEXT NOT NULL DEFAULT 'delegate'");
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='conductor_execution_roots'").get())
+        db.exec(
+          "UPDATE delegation_trees SET owner='deck' WHERE root_id IN (SELECT json_extract(payload,'$.thread') FROM conductor_execution_roots)",
+        );
+      if (
+        !db
           .prepare("PRAGMA table_info(delegated_threads)")
           .all()
           .some((column) => column.name === "wake_suppressed")
@@ -138,6 +149,14 @@ export class DelegationJournal {
       usage: { tokens: row.tokens, cost: row.cost },
       cancelled: row.cancelled === 1,
     };
+  }
+  /** A host-only policy marker, separate from display metadata on threads. */
+  deckTree(root: ThreadId): boolean {
+    return !!this.sql("SELECT 1 FROM delegation_trees WHERE root_id=? AND owner='deck'").get(root);
+  }
+  assignDeckPolicy(root: ThreadId, now: number): void {
+    this.tree(root, now);
+    this.sql("UPDATE delegation_trees SET owner='deck' WHERE root_id=?").run(root);
   }
   concurrent(parent: ThreadId) {
     return Number(
@@ -321,7 +340,7 @@ export class DelegationJournal {
   }
   nextExpiry(durationMs = 0) {
     const row = this.sql(
-      "SELECT root_id,started_at,retry_at,failures,MAX(started_at+?,retry_at) AS due FROM delegation_trees WHERE cancelled=0 AND active>0 ORDER BY due,root_id LIMIT 1",
+      "SELECT root_id,started_at,retry_at,failures,MAX(started_at+?,retry_at) AS due FROM delegation_trees WHERE cancelled=0 AND active>0 AND owner='delegate' ORDER BY due,root_id LIMIT 1",
     ).get(durationMs);
     return row
       ? z

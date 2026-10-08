@@ -57,7 +57,9 @@ export function delegationCommandPolicy(deps: {
     const tree = deps.journal.tree(edge.parentId, deps.now());
     const rejection = tree.cancelled
       ? "cancelled"
-      : delegationBudget(tree, deps.policy, deps.now());
+      : deps.journal.deckTree(tree.root)
+        ? undefined
+        : delegationBudget(tree, deps.policy, deps.now());
     if (rejection) return fail(rejection);
     if (
       edge.phase === "settled" &&

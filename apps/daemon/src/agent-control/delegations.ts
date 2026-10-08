@@ -220,6 +220,11 @@ export class DelegationService {
     this.arm();
     return reservation;
   }
+  /** Only the native conductor installs its tree policy; no tool or wire field can select it. */
+  ownDeck(root: ThreadId): void {
+    this.deps.store.atomic(() => this.journal.assignDeckPolicy(root, this.deps.clock.now()));
+    this.arm();
+  }
   prepareReserved(
     caller: McpAttribution,
     reservation: DelegationReservation,
@@ -360,7 +365,10 @@ export class DelegationService {
       } else if (event.payload.type === "usage.updated" && edge) {
         this.deps.store.atomic(() => this.journal.usage(edge.rootId, event));
         const tree = this.journal.tree(edge.rootId, this.deps.clock.now());
-        if (delegationBudget(tree, this.policy, this.deps.clock.now()))
+        if (
+          !this.journal.deckTree(tree.root) &&
+          delegationBudget(tree, this.policy, this.deps.clock.now())
+        )
           this.cancelDescendants(edge.rootId);
       } else if (edge) this.reconcile(edge);
     }

@@ -85,7 +85,13 @@ export class DelegationAdmission {
       const now = this.deps.clock.now(),
         tree = this.journal.tree(caller.threadId, now);
       const rejection = admitDelegation(
-        { ...tree, concurrent: this.journal.concurrent(caller.threadId) },
+        {
+          ...tree,
+          ...(this.journal.deckTree(tree.root)
+            ? { startedAt: now, usage: { tokens: 0, cost: 0 }, children: 0 }
+            : {}),
+          concurrent: this.journal.concurrent(caller.threadId),
+        },
         this.policy,
         now,
       );
@@ -190,7 +196,9 @@ export class DelegationAdmission {
       const tree = this.journal.tree(caller.threadId, this.deps.clock.now());
       const rejection = tree.cancelled
         ? "cancelled"
-        : delegationBudget(tree, this.policy, this.deps.clock.now());
+        : this.journal.deckTree(tree.root)
+          ? undefined
+          : delegationBudget(tree, this.policy, this.deps.clock.now());
       if (rejection)
         throw new AgentControlError(
           rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
