@@ -1,6 +1,5 @@
-import type { SidebarReader } from "@ace/client";
-import { useConnectionState, useSidebarAll } from "@ace/client-react";
-import type { CatalogEntry } from "@ace/protocol";
+import { useConnectionState, useSidebarIndex } from "@ace/client-react";
+import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -30,16 +29,13 @@ const groups = {
   "mcp-tool": "Tools",
 };
 const groupOrder = ["Add", "Plugins", "Skills", "Commands", "Agents", "Workflows", "Tools"];
-const threadsOf = (reader: SidebarReader) =>
-  reader.ids.slice(0, 1000).flatMap((id) => {
-    const thread = reader.thread(id);
-    return thread ? [{ id, title: thread.title, workspaceId: thread.workspaceId }] : [];
-  });
-const sameThreads = (a: ReturnType<typeof threadsOf>, b: ReturnType<typeof threadsOf>) =>
-  a.length === b.length &&
-  a.every(
-    (t, i) => t.id === b[i]?.id && t.title === b[i]?.title && t.workspaceId === b[i]?.workspaceId,
-  );
+const threadReference = (thread: ThreadListEntry) => ({
+  id: thread.id,
+  title: thread.title,
+  workspaceId: thread.workspaceId,
+});
+const sameThread = (a: ReturnType<typeof threadReference>, b: ReturnType<typeof threadReference>) =>
+  a.id === b.id && a.title === b.title && a.workspaceId === b.workspaceId;
 export function useSuggestions(
   thread: ThreadRef,
   trigger: Trigger | undefined,
@@ -47,7 +43,7 @@ export function useSuggestions(
 ): Suggestions {
   const sources = useThreadSources();
   const ready = useConnectionState() === "ready";
-  const threads = useSidebarAll(threadsOf, sameThreads) ?? [];
+  const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, title, provider, instanceId, workspaceId, draft } = thread;
   const reference = useMemo(
     () => ({ id, title, provider, instanceId, workspaceId, draft }),

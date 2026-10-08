@@ -472,6 +472,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     if (!answer.takesText) return;
     saved.discard();
     setText("");
+    setTokens([]);
+    setPicked(new Set());
     setCaret(0);
   };
   const submit = (opposite: boolean) => {

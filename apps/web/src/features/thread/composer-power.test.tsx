@@ -207,3 +207,38 @@ test("removing an attachment releases it and the thread attachment list can be m
   expect(await screen.findByRole("dialog", { name: "Attachments" })).toBeTruthy();
   expect(await screen.findByText("No attachments in this thread.")).toBeTruthy();
 });
+
+test("answering a question with an inline reference clears it before the next message", async () => {
+  const { app, message, feed } = await open();
+  act(() =>
+    app.daemon.apply("thread-router", [
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "review-topic",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "topic",
+              text: "What should be reviewed?",
+              multiSelect: false,
+              allowOther: true,
+              options: [],
+            },
+          ],
+        },
+      },
+    ]),
+  );
+  await screen.findByRole("group", { name: "What should be reviewed?" });
+  await userEvent.type(message, "Use /writing");
+  await screen.findByRole("listbox", { name: "Add and commands" });
+  await userEvent.keyboard("{Tab}");
+  await userEvent.type(message, "first{Enter}");
+  await waitFor(() => expect(message.textContent).toBe(""));
+  await waitFor(() => expect(feed.textContent).toContain("Use writing first"));
+  await userEvent.type(message, "Now move on");
+  expect(message.textContent).toBe("Now move on");
+});
