@@ -8,6 +8,13 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 
+export const fakeLatestVersions: Partial<Record<ProviderKind, string>> = {
+  codex: "0.161.0",
+  claude: "2.1.5",
+  opencode: "1.4.3",
+  pi: "0.31.1",
+};
+
 type Scenario = "success" | "failure" | "needs_admin";
 interface Job {
   requestId: string;
@@ -54,7 +61,9 @@ export class FakeProviderInstalls {
     this.publish(job, {
       state: succeeded ? "succeeded" : "failed",
       exit: succeeded ? 0 : 1,
-      ...(succeeded && job.progress.action !== "uninstall" ? { version: "9.0.0" } : {}),
+      ...(succeeded && job.progress.action !== "uninstall"
+        ? { version: job.progress.plan?.latestVersion }
+        : {}),
       message: succeeded
         ? "CLI installation updated."
         : "The official installer failed. Try again.",
@@ -112,11 +121,11 @@ export class FakeProviderInstalls {
       ...(spec?.binary ? { verify: installCommand(spec.binary, ["--version"]) } : {}),
       sourceUrl: spec?.sourceUrl ?? "https://agentclientprotocol.com/get-started/agents",
       needsAdmin: this.scenarios[input.provider] === "needs_admin",
-      ...(row?.version
+      ...(row?.version ? { installedVersion: row.version } : {}),
+      ...(fakeLatestVersions[input.provider]
         ? {
-            installedVersion: row.version,
-            latestVersion: "9.0.0",
-            updateAvailable: row.version !== "9.0.0",
+            latestVersion: fakeLatestVersions[input.provider],
+            updateAvailable: row?.version !== fakeLatestVersions[input.provider],
           }
         : {}),
       ...(unsupported
@@ -124,7 +133,8 @@ export class FakeProviderInstalls {
             message:
               input.provider === "cursor"
                 ? "The SDK ships with ace. Sign in to Cursor."
-                : "Follow the provider's official runtime installation instructions.",
+                : (spec?.manual ??
+                  "Follow the provider's official runtime installation instructions."),
           }
         : {}),
     };

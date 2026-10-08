@@ -1,4 +1,10 @@
-import { Device, PairingRedemption, PairingRequest, type DeviceScope } from "@ace/protocol";
+import {
+  Device,
+  PairingRedemption,
+  PairingRequest,
+  type DeviceScope,
+  type RemoteAccessStatus,
+} from "@ace/protocol";
 import { settingsFixture } from "./scenarios/settings.ts";
 
 const pairingLifetimeMs = 5 * 60_000;
@@ -18,6 +24,7 @@ function reply(status: number, body: unknown): Response {
  */
 export class FakeAccess {
   private devices: Device[];
+  remoteStatus: () => RemoteAccessStatus;
   private clock: () => number;
   private pairings = 0;
   private pending: { code: string; expiresAt: number } | undefined;
@@ -25,8 +32,17 @@ export class FakeAccess {
   private offered: DeviceScope[] = ["read", "operate"];
   /** The administrator token these routes accept (a daemon token is 64 hex characters). */
   readonly token = "ace0".repeat(16);
-  constructor(clock: () => number) {
+  constructor(
+    clock: () => number,
+    remoteStatus: () => RemoteAccessStatus = () => ({
+      enabled: true,
+      transport: "tailscale",
+      listenOverride: null,
+      relayOverride: false,
+    }),
+  ) {
     this.clock = clock;
+    this.remoteStatus = remoteStatus;
     this.devices = settingsFixture(clock()).devices;
   }
   /** Paired devices that are still allowed in, as `GET /v1/devices` lists them. */
@@ -102,15 +118,13 @@ export class FakeAccess {
       return reply(401, { error: "Administrator token required" });
     if (path === "/v1/status")
       return reply(200, {
-        remoteAccess: {
-          enabled: true,
-          transport: "tailscale",
-          listenOverride: null,
-          relayOverride: false,
-        },
+        remoteAccess: this.remoteStatus(),
       });
     if (path === "/v1/devices" && method === "GET") return reply(200, this.list());
     if (path === "/v1/pairings" && method === "POST") {
+      const remote = this.remoteStatus();
+      if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
+        return reply(409, { error: "Remote access unavailable" });
       const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : {};
       const request = PairingRequest.safeParse(body);
       if (!request.success) return reply(400, { error: "Invalid scopes" });

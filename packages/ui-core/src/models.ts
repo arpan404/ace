@@ -168,7 +168,10 @@ export function choiceLine(choice: ModelChoice): string {
 function note(account: AccountView | undefined): string {
   if (!account) return "";
   if (!account.signedIn)
-    return account.quota.auth === "logged_out" ? "Signed out" : "Sign-in unknown";
+    return (
+      account.runtimeStatus?.text ??
+      (account.quota.auth === "logged_out" ? "Signed out" : "Sign-in not reported")
+    );
   const window = tightestWindow(account);
   return window ? `${window.usedPercent}% of ${window.label} window used` : "No usage reported";
 }
@@ -383,7 +386,7 @@ export function newThreadOptions(
       ...placement(model),
     });
   }
-  const signedIn = accounts.filter((account) => account.signedIn);
+  const signedIn = accounts.filter((account) => account.signedIn || account.runtimeStatus?.canRun);
   const defaults = new Map<ProviderKind, string>();
   for (const account of signedIn)
     if (account.availability !== "exhausted" && !defaults.has(account.provider))

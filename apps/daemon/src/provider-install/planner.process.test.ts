@@ -49,7 +49,7 @@ test("latest version checks cache registry replies, compare numeric versions, an
     });
     await f.installs.plan({ provider: "codex" }, "update");
     expect((await f.calls()).filter((call) => call[1] === "view")).toEqual([
-      ["npm", "view", "@openai/codex", "version"],
+      ["npm", "view", "@openai/codex", "version", "--registry=https://registry.npmjs.org"],
     ]);
     f.tick(3_600_001);
     await writeFile(join(f.home, "latest"), "offline");

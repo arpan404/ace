@@ -71,8 +71,14 @@ export class FakeServicesWire {
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
-  constructor(context: FakeServiceContext, settings: FakeSettings) {
+  private providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[];
+  constructor(
+    context: FakeServiceContext,
+    settings: FakeSettings,
+    providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
+  ) {
     this.host = context;
+    this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
     bindFakeBrowserOrigins(this.browser, context, settings);
     this.files = new FakeFilesWire(context);
@@ -251,12 +257,15 @@ export class FakeServicesWire {
                           message: "git version 2.50.0",
                           fix: "Install Git.",
                         },
-                        {
-                          id: "provider.claude",
-                          status: "warn",
-                          message: "Sign-in needed",
-                          fix: "Sign in.",
-                        },
+                        ...this.providerStatuses().map((row) => ({
+                          id: `provider.${row.provider}`,
+                          status:
+                            row.installed && row.auth === "logged_in"
+                              ? ("ok" as const)
+                              : ("warn" as const),
+                          message: row.installed ? "Check provider readiness." : "Not installed.",
+                          fix: "Open Settings > Providers.",
+                        })),
                         {
                           id: "sqlite",
                           status: "ok",

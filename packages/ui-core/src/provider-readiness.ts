@@ -76,8 +76,14 @@ export function catalogSignal(
   }[],
   instances: readonly ModelInstanceStatus[],
   provider: ProviderKind,
+  instance?: string,
 ): CatalogSignal {
-  const own = instances.filter((status) => status.provider === provider);
+  const own = instances.filter(
+    (status) => status.provider === provider && (!instance || status.instance === instance),
+  );
+  models = models.filter(
+    (model) => model.provider === provider && (!instance || model.instance === instance),
+  );
   const problem = own.find((status) => status.errorDetail?.code === "auth_expired")?.errorDetail
     ?.message;
   const failing = new Set(
@@ -151,17 +157,13 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
  */
 export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): ReadinessView {
   const name = providerNames[row.provider];
+  if (row.installed === false) return quiet("not_installed", "Not installed", row.installHint);
+  if (row.enabled === false) return quiet("off", "Turned off");
   const readiness =
-    row.readiness ??
-    (row.installed === false
-      ? "not_installed"
-      : row.auth === "logged_out"
-        ? "installed_signed_out"
-        : "signed_in");
+    row.readiness ?? (row.auth === "logged_out" ? "installed_signed_out" : "signed_in");
   if (
     row.provider === "opencode" &&
     row.installed === true &&
-    row.enabled !== false &&
     !row.error &&
     (row.modelsAvailable || catalog?.withoutAuth)
   )
@@ -199,9 +201,7 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
     case "not_installed":
       return quiet("not_installed", "Not installed", row.installHint);
     case "not_configured":
-      return row.enabled === false
-        ? quiet("off", "Turned off")
-        : signedOut(`Sign in to ${name} to use it.`);
+      return signedOut(`Sign in to ${name} to use it.`);
     case "installed_signed_out":
       return signedOut();
     case "needs_attention":

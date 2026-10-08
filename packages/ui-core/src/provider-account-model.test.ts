@@ -42,7 +42,7 @@ test("a signed-out default never asks for sign-in while another account can run"
     now: 10,
     accounts: [account("Personal", "logged_in"), account("normal", "unknown", 0, true)],
   });
-  expect(model.view?.summary).toBe("Signed in");
+  expect(model.view?.summary).toBe("Signed in · Personal");
   expect(model.view?.primary).toBeUndefined();
   expect(model.accounts.map((entry) => accountStatus(entry, 10).text)).toEqual([
     "Signed out",
