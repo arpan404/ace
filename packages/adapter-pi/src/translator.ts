@@ -244,6 +244,10 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           tool.length = suffix.length;
         }
         if (e.type === "tool_execution_end") {
+          const failed =
+            e.isError === true ||
+            obj(obj(obj(e.result).details).aceMcp).isError === true ||
+            obj(e.result).isError === true;
           facts.push({
             type: "item.upsert",
             agent,
@@ -252,7 +256,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
               type: "tool_call",
               complete: true,
               call: {
-                status: e.isError === true ? "failed" : "succeeded",
+                status: failed ? "failed" : "succeeded",
                 endedAt: now,
                 raw: raw(frame.data),
               },
@@ -262,7 +266,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
             facts.push({
               type: "background.ended",
               task: `${prefix}:tool:${id}`,
-              status: e.isError === true ? "failed" : "completed",
+              status: failed ? "failed" : "completed",
             });
           tools.delete(id);
         }
