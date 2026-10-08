@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { uncommittedPatch } from "./retour-copy-fixtures.ts";
 const out = "/tmp/ace-orch/shots/ui/retour-copy";
 const base = process.env.ACE_COPY_URL ?? "http://127.0.0.1:5249";
 await mkdir(out, { recursive: true });
@@ -15,6 +16,13 @@ try {
         (value) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: value })),
         theme,
       );
+      await context.addInitScript((patch) => {
+        Object.assign(globalThis, {
+          aceFakeSetup: (daemon: {
+            workspace: { setGitDiff(threadId: string, patch: string): void };
+          }) => daemon.workspace.setGitDiff("thread-cold-start", patch),
+        });
+      }, uncommittedPatch);
       const page = await context.newPage();
       const shot = async (name: string) => {
         await page.screenshot({
@@ -59,7 +67,7 @@ try {
           panel.getByRole("button", { name: `Scope: ${scope}`, exact: true }),
         ).toBeVisible();
         if (scope === "Uncommitted")
-          await expect(panel.getByText("No uncommitted changes", { exact: true })).toBeVisible();
+          await expect(panel.getByLabel("Uncommitted diff", { exact: true })).toBeVisible();
         await shot(scope === "Uncommitted" ? "diff-uncommitted" : "diff-thread");
       }
       await page.goto(`${base}/t/thread-bump-codex`);
