@@ -25,7 +25,7 @@ test.each(["file", "directory"] as const)(
   async (kind) => {
     const f = await fixture();
     cleanups.push(() => f.close());
-    await f.write(f.globalPath, { "notifications.sound": false });
+    await f.write(f.globalPath, { "threads.settleOnClose": false });
     const entered = gate();
     const release = gate();
     const opening: typeof open = async (...args) => {
@@ -42,7 +42,7 @@ test.each(["file", "directory"] as const)(
     };
     const writing = atomicWrite(
       f.globalPath,
-      '{"version":2,"settings":{"notifications.sound":true}}',
+      '{"version":2,"settings":{"threads.settleOnClose":true}}',
       undefined,
       opening,
     );
@@ -53,14 +53,14 @@ test.each(["file", "directory"] as const)(
       ]);
       expect(first).toBe("awaiting durability");
       expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-        settings: { "notifications.sound": kind === "directory" },
+        settings: { "threads.settleOnClose": kind === "directory" },
       });
     } finally {
       release.resolve();
       await writing;
     }
     expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-      settings: { "notifications.sound": true },
+      settings: { "threads.settleOnClose": true },
     });
   },
 );
@@ -80,7 +80,7 @@ test("shutdown stays pending while an accepted real file write awaits commit", a
     },
   });
   cleanups.push(() => f.close());
-  const writing = f.service.set("notifications.sound", true, { kind: "global" });
+  const writing = f.service.set("threads.settleOnClose", true, { kind: "global" });
   await entered.promise;
   let closed = false;
   const closing = f.service.close().then(() => {
@@ -89,7 +89,7 @@ test("shutdown stays pending while an accepted real file write awaits commit", a
   try {
     // Other public operations finish rejecting while the accepted write is blocked.
     for (let index = 0; index < 8; index++)
-      await expect(f.service.get("notifications.sound")).rejects.toThrow("closed");
+      await expect(f.service.get("threads.settleOnClose")).rejects.toThrow("closed");
     expect(closed).toBe(false);
   } finally {
     release.resolve();
@@ -97,7 +97,7 @@ test("shutdown stays pending while an accepted real file write awaits commit", a
     await closing;
   }
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "notifications.sound": true },
+    settings: { "threads.settleOnClose": true },
   });
 });
 

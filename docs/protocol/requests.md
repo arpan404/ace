@@ -723,7 +723,7 @@ Example:
 
 ```json
 {
-  "key": "browser.backend",
+  "key": "providers.reviewer.reasoningEffort",
   "requestId": "example",
   "scope": {
     "threadId": "example"
@@ -772,7 +772,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.coder.reasoningEffort"
+    "providers.coder.provider"
   ],
   "requestId": "example",
   "scope": {},

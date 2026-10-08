@@ -43,18 +43,18 @@ test("a pinned read-only device reads and subscribes to settings but cannot writ
     }),
   ).toMatchObject({ type: "welcome" });
   expect(
-    await ask({ type: "settings.get", requestId: "read", key: "notifications.sound", scope: {} }),
+    await ask({ type: "settings.get", requestId: "read", key: "threads.settleOnClose", scope: {} }),
   ).toMatchObject({ type: "settings.result", ok: true, entries: [{ value: false }] });
   expect(
     await ask({
       type: "settings.set",
       requestId: "denied",
-      key: "notifications.sound",
+      key: "threads.settleOnClose",
       value: true,
       layer: { kind: "global" },
     }),
   ).toMatchObject({ type: "error", code: "forbidden" });
-  expect(await f.settings.get("notifications.sound")).toMatchObject({
+  expect(await f.settings.get("threads.settleOnClose")).toMatchObject({
     value: false,
     provenance: "defaults",
   });
@@ -63,12 +63,12 @@ test("a pinned read-only device reads and subscribes to settings but cannot writ
       type: "settings.subscribe",
       requestId: "watch",
       subscriptionId: "watch",
-      keys: ["notifications.sound"],
+      keys: ["threads.settleOnClose"],
       scope: {},
     }),
   ).toMatchObject({ type: "settings.result", ok: true });
   const changed = once(socket, "message");
-  await f.settings.set("notifications.sound", true, { kind: "global" });
+  await f.settings.set("threads.settleOnClose", true, { kind: "global" });
   expect(ServerMessage.parse(JSON.parse(String((await changed)[0])))).toMatchObject({
     type: "settings.changed",
     entries: [{ value: true }],
@@ -85,22 +85,27 @@ test("an operate-only device writes settings but cannot read or subscribe", asyn
   client.send({
     type: "settings.set",
     requestId: "write",
-    key: "notifications.sound",
+    key: "threads.settleOnClose",
     value: true,
     layer: { kind: "global" },
   });
   expect(await client.next()).toMatchObject({ type: "settings.result", ok: true });
-  expect(await f.settings.get("notifications.sound")).toMatchObject({
+  expect(await f.settings.get("threads.settleOnClose")).toMatchObject({
     value: true,
     provenance: "global",
   });
-  client.send({ type: "settings.get", requestId: "denied", key: "notifications.sound", scope: {} });
+  client.send({
+    type: "settings.get",
+    requestId: "denied",
+    key: "threads.settleOnClose",
+    scope: {},
+  });
   expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
   client.send({
     type: "settings.subscribe",
     requestId: "deniedSub",
     subscriptionId: "denied",
-    keys: ["notifications.sound"],
+    keys: ["threads.settleOnClose"],
     scope: {},
   });
   expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });

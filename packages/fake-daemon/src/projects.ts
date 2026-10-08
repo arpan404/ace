@@ -159,6 +159,10 @@ export class FakeProjects {
       ...(projects.length > limit ? { next: projects[limit - 1]?.id } : {}),
     };
   }
+  private allowedRoots(): readonly string[] {
+    const configured = this.context.projectRoots?.();
+    return configured?.length ? configured : this.roots;
+  }
   private checked(path: string): string {
     if (!path.startsWith("/") || path.split("/").includes("..") || path.includes("\0"))
       throw new Error("invalid_path");
@@ -167,7 +171,7 @@ export class FakeProjects {
       link && (path === link || path.startsWith(`${link}/`))
         ? this.home + path.slice(link.length)
         : path;
-    if (!this.roots.some((root) => canonical === root || canonical.startsWith(`${root}/`)))
+    if (!this.allowedRoots().some((root) => canonical === root || canonical.startsWith(`${root}/`)))
       throw new Error("outside_project_roots");
     return canonical.replace(/\/+$/, "") || "/";
   }
@@ -470,7 +474,7 @@ export class FakeProjects {
           kind: "home",
           path: this.homeLink ?? this.home,
           canonicalPath: this.home,
-          roots: this.roots,
+          roots: [...this.allowedRoots()],
           initialBranch: "main",
         });
       if (op.op === "fs.recentFolders")

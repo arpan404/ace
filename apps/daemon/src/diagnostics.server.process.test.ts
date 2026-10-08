@@ -178,14 +178,14 @@ it("settings and pending health share a socket and release their capacity on shu
       type: "settings.subscribe",
       requestId: "prefs",
       subscriptionId: "prefs",
-      keys: ["notifications.sound"],
+      keys: ["threads.settleOnClose"],
       scope: {},
     });
     expect(await client.next()).toMatchObject({ type: "settings.result", ok: true });
     for (let index = 0; index < 1023; index++)
-      stops.push(await settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop));
+      stops.push(await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop));
     await expect(
-      settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop),
+      settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop),
     ).rejects.toMatchObject({ code: "limit" });
     client.send({
       type: "command",
@@ -196,7 +196,12 @@ it("settings and pending health share a socket and release their capacity on shu
       }),
     });
     await entered.promise;
-    client.send({ type: "settings.get", requestId: "read", key: "notifications.sound", scope: {} });
+    client.send({
+      type: "settings.get",
+      requestId: "read",
+      key: "threads.settleOnClose",
+      scope: {},
+    });
     expect(await client.next()).toMatchObject({
       type: "settings.result",
       requestId: "read",
@@ -206,7 +211,7 @@ it("settings and pending health share a socket and release their capacity on shu
     await f.server.close();
     expect(f.server.diagnosticsQueues().healthRequests).toBe(0);
     // The socket's subscription must release a real service admission slot.
-    stops.push(await settings.subscribe({ keys: ["notifications.sound"], scope: {} }, noop));
+    stops.push(await settings.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, noop));
   } finally {
     sample.resolve(health(1));
     for (const stop of stops) stop();

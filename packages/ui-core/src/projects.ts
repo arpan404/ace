@@ -201,6 +201,7 @@ export interface ProjectProblem {
   message: string;
   /** The folder can't be read here at all (outside the allowed places, or not allowed). */
   denied?: boolean;
+  canAllow?: boolean;
 }
 
 const problems: Record<string, ProjectProblem> = {
@@ -209,8 +210,9 @@ const problems: Record<string, ProjectProblem> = {
   directory_unavailable: { message: "That folder doesn't exist, or ace can't read it." },
   outside_project_roots: {
     message:
-      "That folder is outside the places this daemon may open. It opens folders in your home folder, or in the roots set by projects.roots.",
+      "ace isn't allowed to open this folder yet. Allow it here, or add it in Settings under Project folders.",
     denied: true,
+    canAllow: true,
   },
   system_directory: { message: "ace doesn't open system folders.", denied: true },
   forbidden: {

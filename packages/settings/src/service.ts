@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   SettingsKey,
+  SettingsValues as SettingsSchemas,
   type SettingsValues,
   type SettingsDiagnostic,
   type SettingsProvenance,
@@ -110,7 +111,30 @@ export class SettingsService {
   private resolve<K extends SettingsKey>(
     key: K,
     files: LayerFile[],
-  ): { key: K; value: SettingsValues[K]; provenance: SettingsProvenance } {
+  ): {
+    key: K;
+    value: SettingsValues[K];
+    provenance: SettingsProvenance;
+    localValue?: SettingsEntry["localValue"];
+  } {
+    if (key === "permissions.providerModes") {
+      let value: SettingsValues["permissions.providerModes"] = {};
+      let provenance: SettingsProvenance = "defaults";
+      for (const { file, layer } of files) {
+        const own = file.document.settings["permissions.providerModes"];
+        if (own !== undefined) {
+          Object.assign(value, own);
+          provenance = layer;
+        }
+      }
+      const localValue = files.at(-1)?.file.document.settings["permissions.providerModes"] ?? {};
+      return freeze({
+        key,
+        value: SettingsSchemas.shape[key].parse(value) as SettingsValues[K],
+        provenance,
+        localValue,
+      });
+    }
     for (let index = files.length - 1; index >= 0; index--) {
       const file = files[index];
       if (file && Object.hasOwn(file.file.document.settings, key)) {
@@ -156,6 +180,8 @@ export class SettingsService {
       throw new SettingsError("validation", "Browser allowlist is a global user setting");
     if (key === "providers.configuration" && layer.kind !== "global")
       throw new SettingsError("validation", "Provider configuration is a global user setting");
+    if (key === "projects.roots" && layer.kind !== "global")
+      throw new SettingsError("validation", "Project folders are a global user setting");
     const parsed = validateValue(key, value);
     const lease = await this.file(layer);
     try {

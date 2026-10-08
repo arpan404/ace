@@ -2,9 +2,6 @@
   "$id": "https://ace.local/protocol/v1/SettingsValues.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "app.openAtLogin": {
-      "type": "boolean"
-    },
     "approvals.policy": {
       "enum": [
         "ask",
@@ -15,16 +12,6 @@
     },
     "automations.enabled": {
       "type": "boolean"
-    },
-    "automations.maxConcurrent": {
-      "maximum": 32,
-      "minimum": 1,
-      "type": "integer"
-    },
-    "automations.timezone": {
-      "maxLength": 256,
-      "minLength": 1,
-      "type": "string"
     },
     "browser.allowedOrigins": {
       "items": {
@@ -65,59 +52,6 @@
       "maxLength": 256,
       "type": "string"
     },
-    "logs.retention": {
-      "enum": [
-        "7d",
-        "30d",
-        "forever"
-      ],
-      "type": "string"
-    },
-    "notifications.enabled": {
-      "type": "boolean"
-    },
-    "notifications.onApproval": {
-      "type": "boolean"
-    },
-    "notifications.onCompletion": {
-      "type": "boolean"
-    },
-    "notifications.onFailure": {
-      "type": "boolean"
-    },
-    "notifications.onMention": {
-      "type": "boolean"
-    },
-    "notifications.quietHours": {
-      "anyOf": [
-        {
-          "properties": {
-            "end": {
-              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-              "type": "string"
-            },
-            "start": {
-              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-              "type": "string"
-            }
-          },
-          "required": [
-            "start",
-            "end"
-          ],
-          "type": "object"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "notifications.sound": {
-      "type": "boolean"
-    },
-    "notifications.suppressWhenActive": {
-      "type": "boolean"
-    },
     "permissions.defaultMode": {
       "anyOf": [
         {
@@ -134,25 +68,6 @@
       },
       "propertyNames": {
         "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-      },
-      "type": "object"
-    },
-    "plugins.enabled": {
-      "items": {
-        "maxLength": 256,
-        "minLength": 1,
-        "type": "string"
-      },
-      "maxItems": 256,
-      "type": "array"
-    },
-    "plugins.preferences": {
-      "additionalProperties": {
-        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
-      },
-      "propertyNames": {
-        "maxLength": 256,
-        "type": "string"
       },
       "type": "object"
     },
@@ -349,28 +264,14 @@
     "permissions.defaultMode",
     "permissions.providerModes",
     "approvals.policy",
-    "notifications.enabled",
-    "notifications.sound",
-    "notifications.onCompletion",
-    "notifications.onApproval",
-    "notifications.suppressWhenActive",
-    "notifications.onFailure",
-    "notifications.onMention",
-    "notifications.quietHours",
     "threads.useWorktree",
     "threads.autoSettleAfter",
     "threads.unresponsiveAfter",
     "threads.settleOnMerge",
     "threads.settleOnClose",
-    "app.openAtLogin",
-    "logs.retention",
     "remote.enabled",
     "remote.transport",
     "automations.enabled",
-    "automations.timezone",
-    "automations.maxConcurrent",
-    "plugins.enabled",
-    "plugins.preferences",
     "clients.theme",
     "clients.keybindings"
   ],

@@ -46,20 +46,20 @@ test("ace rereads earlier external edits and the last rename wins without torn f
     },
   });
   cleanups.push(() => f.close());
-  await f.service.set("notifications.sound", true, { kind: "global" });
-  await f.write(f.globalPath, { "notifications.sound": true, "future.before": "retained" });
+  await f.service.set("threads.settleOnClose", true, { kind: "global" });
+  await f.write(f.globalPath, { "threads.settleOnClose": true, "future.before": "retained" });
   intercept = true;
-  const writing = f.service.set("notifications.sound", false, { kind: "global" });
+  const writing = f.service.set("threads.settleOnClose", false, { kind: "global" });
   try {
     await entered.promise;
     expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-      settings: { "notifications.sound": true, "future.before": "retained" },
+      settings: { "threads.settleOnClose": true, "future.before": "retained" },
     });
     await atomicWrite(
       f.globalPath,
       JSON.stringify({
         version: 2,
-        settings: { "notifications.sound": true, "future.during": "external" },
+        settings: { "threads.settleOnClose": true, "future.during": "external" },
       }),
     );
     expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
@@ -71,18 +71,18 @@ test("ace rereads earlier external edits and the last rename wins without torn f
   }
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toEqual({
     version: 2,
-    settings: { "notifications.sound": false, "future.before": "retained" },
+    settings: { "threads.settleOnClose": false, "future.before": "retained" },
   });
   expect(await readdir(f.dataDir)).toEqual(["settings.json"]);
   await atomicWrite(
     f.globalPath,
     JSON.stringify({
       version: 2,
-      settings: { "notifications.sound": true, "future.after": "wins" },
+      settings: { "threads.settleOnClose": true, "future.after": "wins" },
     }),
   );
   await f.service.refresh({ kind: "global" });
-  expect(await f.service.get("notifications.sound")).toMatchObject({ value: true });
+  expect(await f.service.get("threads.settleOnClose")).toMatchObject({ value: true });
 });
 
 test("real watchers follow atomic replacements and a newly created workspace directory", async () => {
@@ -91,21 +91,21 @@ test("real watchers follow atomic replacements and a newly created workspace dir
   const notices: Notification[] = [];
   let signal = gate();
   await f.service.subscribe(
-    { keys: ["notifications.sound"], scope: { workspace: f.workspace } },
+    { keys: ["threads.settleOnClose"], scope: { workspace: f.workspace } },
     (n) => {
       notices.push(n);
       signal.resolve();
     },
   );
   const workspacePath = join(f.workspace, ".ace", "settings.json");
-  await atomicWrite(workspacePath, '{"version":2,"settings":{"notifications.sound":true}}');
+  await atomicWrite(workspacePath, '{"version":2,"settings":{"threads.settleOnClose":true}}');
   await signal.promise;
   expect(notices.at(-1)).toMatchObject({
     type: "changed",
     entries: [{ value: true, provenance: "workspace" }],
   });
   signal = gate();
-  await atomicWrite(workspacePath, '{"version":2,"settings":{"notifications.sound":false}}');
+  await atomicWrite(workspacePath, '{"version":2,"settings":{"threads.settleOnClose":false}}');
   await signal.promise;
   expect(notices.at(-1)).toMatchObject({
     type: "changed",
@@ -141,12 +141,12 @@ test("a missing workspace directory is reconciled when native ancestor notificat
   cleanups.push(() => f.close());
   const notice = Promise.withResolvers<Notification>();
   await f.service.subscribe(
-    { keys: ["notifications.sound"], scope: { workspace: f.workspace } },
+    { keys: ["threads.settleOnClose"], scope: { workspace: f.workspace } },
     notice.resolve,
   );
   await atomicWrite(
     join(f.workspace, ".ace", "settings.json"),
-    '{"version":2,"settings":{"notifications.sound":true}}',
+    '{"version":2,"settings":{"threads.settleOnClose":true}}',
   );
   for (const poll of polls) poll();
   edges.flush();
@@ -159,17 +159,17 @@ test("a missing workspace directory is reconciled when native ancestor notificat
 test("oversized files, deep JSON, invalid known values and credentials preserve the last good document", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  await f.service.set("notifications.sound", true, { kind: "global" });
+  await f.service.set("threads.settleOnClose", true, { kind: "global" });
   for (const [text, code] of [
     [" ".repeat(MAX_DOCUMENT_BYTES + 1), "size"],
     ['{"version":2,"settings":{"future":' + "[".repeat(65) + "0" + "]".repeat(65) + "}}", "size"],
-    ['{"version":2,"settings":{"notifications.sound":"false"}}', "validation"],
+    ['{"version":2,"settings":{"threads.settleOnClose":"false"}}', "validation"],
     ['{"version":2,"settings":{"future":{"apiToken":"sensitive"}}}', "secret"],
   ]) {
     if (text === undefined) throw new Error("Missing text");
     await writeFile(f.globalPath, text);
     await f.service.refresh({ kind: "global" });
-    const result = await f.service.read({ keys: ["notifications.sound"], scope: {} });
+    const result = await f.service.read({ keys: ["threads.settleOnClose"], scope: {} });
     expect(result.entries[0]).toMatchObject({ value: true });
     expect(result.diagnostics[0]).toMatchObject({ code });
   }
@@ -179,42 +179,42 @@ test("serialized concurrent sets preserve both changes", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   await Promise.all([
-    f.service.set("notifications.sound", true, { kind: "global" }),
+    f.service.set("threads.settleOnClose", true, { kind: "global" }),
     f.service.set("remote.enabled", true, { kind: "global" }),
   ]);
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "notifications.sound": true, "remote.enabled": true },
+    settings: { "threads.settleOnClose": true, "remote.enabled": true },
   });
   await f.service.close();
-  await expect(f.service.get("notifications.sound")).rejects.toThrow("closed");
+  await expect(f.service.get("threads.settleOnClose")).rejects.toThrow("closed");
 });
 
 test("listener failures cannot prevent other subscribers from seeing a committed write", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   const notices: Notification[] = [];
-  await f.service.subscribe({ keys: ["notifications.sound"], scope: {} }, () => {
+  await f.service.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, () => {
     throw new Error("listener failure");
   });
-  await f.service.subscribe({ keys: ["notifications.sound"], scope: {} }, (n) => notices.push(n));
-  await f.service.set("notifications.sound", true, { kind: "global" });
+  await f.service.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, (n) => notices.push(n));
+  await f.service.set("threads.settleOnClose", true, { kind: "global" });
   expect(notices).toHaveLength(1);
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "notifications.sound": true },
+    settings: { "threads.settleOnClose": true },
   });
 });
 
 test("failed atomic writes retain the destination and remove temporary siblings", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  await f.write(f.globalPath, { "notifications.sound": true });
+  await f.write(f.globalPath, { "threads.settleOnClose": true });
   await expect(
     atomicWrite(f.globalPath, "new", async () => {
       throw new Error("injected rename failure");
     }),
   ).rejects.toThrow("injected");
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
-    settings: { "notifications.sound": true },
+    settings: { "threads.settleOnClose": true },
   });
   expect(await readdir(f.dataDir)).toEqual(["settings.json"]);
 });
@@ -222,30 +222,30 @@ test("failed atomic writes retain the destination and remove temporary siblings"
 test("file and subscription capacity refuse growth and released subscriptions can be replaced", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  await f.service.get("notifications.sound");
+  await f.service.get("threads.settleOnClose");
   const stops = await Promise.all(
     Array.from({ length: 1024 }, () =>
-      f.service.subscribe({ keys: ["notifications.sound"], scope: {} }, () => {}),
+      f.service.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, () => {}),
     ),
   );
   await expect(
-    f.service.subscribe({ keys: ["notifications.sound"], scope: {} }, () => {}),
+    f.service.subscribe({ keys: ["threads.settleOnClose"], scope: {} }, () => {}),
   ).rejects.toThrow("limit");
   for (const stop of stops) stop();
   const replacement = await f.service.subscribe(
-    { keys: ["notifications.sound"], scope: {} },
+    { keys: ["threads.settleOnClose"], scope: {} },
     () => {},
   );
   replacement();
   for (let count = 0; count < 63; count++)
     await f.service.subscribe(
-      { keys: ["notifications.sound"], scope: { thread: `thread-${count}` } },
+      { keys: ["threads.settleOnClose"], scope: { thread: `thread-${count}` } },
       () => {},
     );
-  await expect(f.service.get("notifications.sound", { thread: "overflow" })).rejects.toThrow(
+  await expect(f.service.get("threads.settleOnClose", { thread: "overflow" })).rejects.toThrow(
     "limit",
   );
-  await expect(f.service.get("notifications.sound", { thread: "../escape" })).rejects.toThrow(
+  await expect(f.service.get("threads.settleOnClose", { thread: "../escape" })).rejects.toThrow(
     "Invalid thread",
   );
   await mkdir(join(f.root, "unrelated"));
@@ -254,7 +254,7 @@ test("file and subscription capacity refuse growth and released subscriptions ca
 test("malformed UTF-8 edits produce a diagnostic without substituting replacement characters", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  await f.service.set("notifications.sound", true, { kind: "global" });
+  await f.service.set("threads.settleOnClose", true, { kind: "global" });
   await writeFile(
     f.globalPath,
     Buffer.concat([
@@ -264,7 +264,7 @@ test("malformed UTF-8 edits produce a diagnostic without substituting replacemen
     ]),
   );
   await f.service.refresh({ kind: "global" });
-  const result = await f.service.read({ keys: ["notifications.sound"], scope: {} });
+  const result = await f.service.read({ keys: ["threads.settleOnClose"], scope: {} });
   expect(result.entries[0]).toMatchObject({ value: true });
   expect(result.diagnostics[0]).toMatchObject({
     code: "parse",
@@ -299,7 +299,7 @@ test("missing settings parents cost only stat polls while idle and reconcile the
   cleanups.push(() => f.close());
   const notice = Promise.withResolvers<Notification>();
   await f.service.subscribe(
-    { keys: ["notifications.sound"], scope: { workspace: f.workspace, thread: "idle" } },
+    { keys: ["threads.settleOnClose"], scope: { workspace: f.workspace, thread: "idle" } },
     notice.resolve,
   );
   const initialReads = reads.slice();
@@ -310,7 +310,7 @@ test("missing settings parents cost only stat polls while idle and reconcile the
   expect(reads).toEqual(initialReads);
   await atomicWrite(
     join(f.workspace, ".ace", "settings.json"),
-    '{"version":2,"settings":{"notifications.sound":true}}',
+    '{"version":2,"settings":{"threads.settleOnClose":true}}',
   );
   await Promise.all([...ticks].map((tick) => tick()));
   edges.flush();

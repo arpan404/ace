@@ -5,6 +5,9 @@
     "key": {
       "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
     },
+    "localValue": {
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+    },
     "provenance": {
       "$ref": "https://ace.local/protocol/v1/SettingsProvenance.json"
     },

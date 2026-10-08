@@ -35,7 +35,7 @@ test.each([
         claude,
         codex,
       });
-      await f.service.set("logs.retention", "7d", { kind: "global" });
+      await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
       const text = await readFile(f.globalPath, "utf8");
       expect(text).toContain('"future.setting"');
       expect(text).not.toContain(`"permissions.defaultMode": "${old}"`);
@@ -59,6 +59,54 @@ test("a legacy client can replace a provider default without persisting the ace 
     expect(
       JSON.parse(await readFile(f.globalPath, "utf8")).settings["approvals.policy"],
     ).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a project overrides one provider and keeps following other global defaults after restart", async () => {
+  const f = await fixture();
+  const scope = { workspace: f.workspace };
+  try {
+    await f.service.set(
+      "permissions.providerModes",
+      { claude: "default", opencode: "deny" },
+      { kind: "global" },
+    );
+    await f.service.set(
+      "permissions.providerModes",
+      { claude: "acceptEdits" },
+      { kind: "workspace", workspace: f.workspace },
+    );
+    expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
+      claude: "acceptEdits",
+      opencode: "deny",
+    });
+    await f.service.set(
+      "permissions.providerModes",
+      { claude: "auto", opencode: "ask" },
+      { kind: "global" },
+    );
+    expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
+      claude: "acceptEdits",
+      opencode: "ask",
+    });
+    const { SettingsService } = await import("./index.ts");
+    const restarted = new SettingsService({ dataDir: f.dataDir });
+    try {
+      expect((await restarted.get("permissions.providerModes", scope)).value).toEqual({
+        claude: "acceptEdits",
+        opencode: "ask",
+      });
+    } finally {
+      await restarted.close();
+    }
+    await f.service.set(
+      "permissions.providerModes",
+      {},
+      { kind: "workspace", workspace: f.workspace },
+    );
+    expect((await f.service.get("permissions.providerModes", scope)).value.claude).toBe("auto");
   } finally {
     await f.close();
   }

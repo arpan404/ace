@@ -1,6 +1,7 @@
 import type { ThreadView, EventPayload, InteractionResolution, Thread } from "@ace/protocol";
 export interface FakeServiceContext {
   now(): number;
+  projectRoots?(): readonly string[];
   canManageProjects?(device: string): boolean;
   scheduleProject?(callback: () => void): void;
   createThread?(input: {
