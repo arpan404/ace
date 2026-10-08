@@ -19,8 +19,8 @@ import { RediscoverButton } from "./rediscover-button.tsx";
 
 function Fact(props: { term: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-11 items-center gap-4 px-4 py-2.5">
-      <dt className="w-36 shrink-0 text-muted-foreground">{props.term}</dt>
+    <div className="flex min-h-9 items-center gap-4 py-0.5">
+      <dt className="w-24 shrink-0 text-muted-foreground">{props.term}</dt>
       <dd className="min-w-0 flex-1 text-right break-words">{props.children}</dd>
     </div>
   );

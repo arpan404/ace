@@ -77,6 +77,9 @@ test("provider configuration changes visibility, stars and custom model choices 
   const storage = memoryKeyValue();
   storage.setItem("ace.models.favorites", JSON.stringify(["claude\u0000claude-opus-5-5"]));
   const app = harness({ storage });
+  app.daemon.services.models = app.daemon.services.models.map((model) =>
+    model.id === "claude-opus-4" ? { ...model, deprecated: true, legacy: false } : model,
+  );
   await app.open("/settings/providers/claude");
   await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
   const models = await screen.findByRole("list", { name: "Models" });
@@ -93,6 +96,13 @@ test("provider configuration changes visibility, stars and custom model choices 
   if (!("models" in reply.result)) throw new Error("Model list unavailable");
   expect(reply.result.models.find((model) => model.id === "claude-sonnet-5-5")).toMatchObject({
     hidden: true,
+    favourite: true,
+  });
+  expect(reply.result.models.find((model) => model.id === "claude-opus-4")).toMatchObject({
+    hidden: true,
+    visibilityReason: "deprecated",
+  });
+  expect(reply.result.models.find((model) => model.id === "claude-opus-5-5")).toMatchObject({
     favourite: true,
   });
   await userEvent.click(await screen.findByRole("button", { name: "Add custom model" }));
@@ -114,8 +124,21 @@ test("provider configuration changes visibility, stars and custom model choices 
     hidden: true,
     visibilityReason: "not_favourite",
   });
+  await userEvent.click(await screen.findByRole("switch", { name: "Only favourites" }));
+  await waitFor(() => expect(configuration(app)[0]?.showOnlyFavourites).toBe(false));
   await userEvent.click(await screen.findByRole("switch", { name: "Hide deprecated models" }));
   await waitFor(() => expect(configuration(app)[0]?.hideDeprecated).toBe(false));
+  const visible = await app.client.request({
+    type: "models.list",
+    options: { provider: "claude" },
+  });
+  if (!("models" in visible.result)) throw new Error("Models unavailable");
+  expect(visible.result.models.find((model) => model.id === "claude-opus-4")).toMatchObject({
+    hidden: false,
+  });
+  expect(visible.result.models.find((model) => model.id === "claude-sonnet-5-5")).toMatchObject({
+    hidden: true,
+  });
   await userEvent.type(screen.getByRole("textbox", { name: "CLI path" }), "/tmp/fake-claude");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(configuration(app)[0]?.binaryPath).toBe("/tmp/fake-claude"));
@@ -214,7 +237,22 @@ test("settle-on-close moves finished threads but keeps work in progress active",
             facts: [
               facts.rootAgent("claude"),
               facts.turn("root"),
-              ...(done ? [facts.endTurn("root")] : []),
+              ...(done
+                ? [facts.endTurn("root")]
+                : [
+                    facts.tool("root", "spawn", {
+                      kind: "agent.spawn",
+                      title: "Background work",
+                      detail: {
+                        kind: "agent.spawn",
+                        description: "Check the project",
+                        childAgent: "worker",
+                      },
+                    }),
+                    facts.subagent("claude", "worker", "Worker", "spawn", { background: true }),
+                    facts.turn("worker"),
+                    facts.endTurn("root"),
+                  ]),
             ],
           },
         ],
@@ -229,6 +267,11 @@ test("settle-on-close moves finished threads but keeps work in progress active",
   if (snapshot?.kind !== "threads") throw new Error("Threads unavailable");
   expect(snapshot.threads["finished-pr"]?.settledAt).toBeDefined();
   expect(snapshot.threads["working-pr"]?.settledAt).toBeUndefined();
+  app.daemon.apply("working-pr", [facts.endTurn("worker"), facts.toolDone("root", "spawn")]);
+  app.daemon.sweep();
+  const after = app.daemon.snapshot({ kind: "threads" });
+  if (after?.kind !== "threads") throw new Error("Threads unavailable");
+  expect(after.threads["working-pr"]?.settledReason).toBe("pr_closed");
   cleanup();
   await app.open("/settings/general");
   expect(

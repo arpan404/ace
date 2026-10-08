@@ -86,27 +86,36 @@ function stuckCommand(): Scenario {
   };
 }
 
-test("a turn has one live line: an earlier log with a step still running stays Worked for", async () => {
+test("a turn is one log: a note between steps reads inside it, and it carries the live line", async () => {
   const app = harness();
   const script = app.play(stuckCommand());
   script.runThrough("second-step");
   await app.open("/t/thread-stuck");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const live = await within(feed).findAllByRole("button", { name: /^Working for/ });
-  expect(live).toHaveLength(1);
-  const logs = within(feed).getAllByRole("button", { name: /^Work(ed|ing) for/ });
-  expect(logs.map((log) => /^Work(ed|ing)/.exec(log.textContent ?? "")?.[0])).toEqual([
-    "Worked",
-    "Working",
-  ]);
+  const logs = await within(feed).findAllByRole("button", { name: /^Work(ed|ing) for/ });
+  expect(logs).toHaveLength(1);
+  expect(logs[0]!.textContent).toMatch(/^Working for/);
   // The live header names the step in flight; no second line under the transcript.
   expect(within(feed).getByText("Reading src/config.ts")).toBeTruthy();
   expect(screen.queryByRole("status", { name: /Work/ })).toBeNull();
+  // The note the agent wrote between the two steps is in the log, between them.
+  expect(within(feed).queryByText("Installing; reading the config meanwhile.")).toBeNull();
+  await userEvent.click(logs[0]!);
+  const steps = await within(feed).findByRole("list", { name: "Steps" });
+  const note = await within(steps).findByText("Installing; reading the config meanwhile.");
+  expect(follows(within(steps).getByRole("button", { name: /^Running bun install/ }), note)).toBe(
+    true,
+  );
+  expect(follows(note, within(steps).getByRole("button", { name: /^Reading src\/config/ }))).toBe(
+    true,
+  );
 
-  // Once the agent speaks again, the log above freezes and the live line moves to the footer.
+  // Once the agent answers, the answer reads below the log, the log is history and the live
+  // line moves to the footer (the install still runs).
   act(() => script.runThrough("answered"));
-  await within(feed).findByText("The config reads the lockfile path.");
+  const answer = await within(feed).findByText("The config reads the lockfile path.");
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
+  expect(follows(within(feed).getByRole("button", { name: /^Worked for/ }), answer)).toBe(true);
   expect(await screen.findByRole("status", { name: "Working" })).toBeTruthy();
 });
 
@@ -373,18 +382,23 @@ test("the step in flight on the live line follows the step's own updates", async
   const app = harness();
   app
     .play({
-      thread: { id: "thread-run", workspaceId: "ace", title: "Run the tests", provider: "codex" },
+      thread: {
+        id: "thread-run",
+        workspaceId: "ace",
+        title: "Build the web app",
+        provider: "codex",
+      },
       steps: [
         {
           kind: "facts",
           facts: [
             rootAgent("codex"),
             turn("root"),
-            message("root", "ask", "user", "Run the web tests."),
+            message("root", "ask", "user", "Build the web app."),
             tool("root", "tests", {
               kind: "shell",
-              title: "bun test",
-              detail: { kind: "shell", command: "bun test" },
+              title: "bun run build",
+              detail: { kind: "shell", command: "bun run build" },
             }),
           ],
         },
@@ -393,7 +407,7 @@ test("the step in flight on the live line follows the step's own updates", async
     .runUntilBlocked();
   await app.open("/t/thread-run");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Running bun test");
+  await within(feed).findByText("Running bun run build");
 
   // The provider refines the command; the agent's own status doesn't change.
   act(() =>
@@ -404,12 +418,12 @@ test("the step in flight on the live line follows the step's own updates", async
         item: "tests",
         draft: {
           type: "tool_call",
-          call: { detail: { kind: "shell", command: "bun test apps/web" } },
+          call: { detail: { kind: "shell", command: "bun run build apps/web" } },
         },
       },
     ]),
   );
-  expect(await within(feed).findByText("Running bun test apps/web")).toBeTruthy();
+  expect(await within(feed).findByText("Running bun run build apps/web")).toBeTruthy();
 });
 
 test("a finished log's time is fixed when the agent moved on, whatever settles later", async () => {

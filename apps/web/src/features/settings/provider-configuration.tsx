@@ -21,39 +21,48 @@ export function ProviderPreferences(props: { provider: ProviderKind }) {
           onCheckedChange={(enabled) => void update((row) => ({ ...row, enabled }))}
         />
       </SettingRow>
-      <SettingRow title="CLI path" htmlFor="provider-path">
-        <form
-          className="flex min-w-0 items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (binary && !/^(?:\/|[A-Za-z]:[\\/])/.test(binary)) {
-              setError(true);
-              return;
-            }
-            setError(false);
-            void update((row) => {
-              const { binaryPath: _before, ...rest } = row;
-              return binary ? { ...rest, binaryPath: binary } : rest;
-            });
-          }}
-        >
-          <Input
-            id="provider-path"
-            value={binary}
-            placeholder="Automatic"
-            className="min-w-0"
-            onChange={(event) => setPath(event.target.value)}
-            disabled={disabled}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            variant="ghost"
-            disabled={disabled || binary === (value?.binaryPath ?? "")}
+      <SettingRow
+        title="CLI path"
+        {...(props.provider === "acp" ? {} : { htmlFor: "provider-path" })}
+      >
+        {props.provider === "acp" ? (
+          <span className="text-sm text-muted-foreground">
+            Uses the command approved when the agent was added.
+          </span>
+        ) : (
+          <form
+            className="flex min-w-0 items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (binary && !/^(?:\/|[A-Za-z]:[\\/])/.test(binary)) {
+                setError(true);
+                return;
+              }
+              setError(false);
+              void update((row) => {
+                const { binaryPath: _before, ...rest } = row;
+                return binary ? { ...rest, binaryPath: binary } : rest;
+              });
+            }}
           >
-            Save
-          </Button>
-        </form>
+            <Input
+              id="provider-path"
+              value={binary}
+              placeholder="Automatic"
+              className="min-w-0"
+              onChange={(event) => setPath(event.target.value)}
+              disabled={disabled}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="ghost"
+              disabled={disabled || binary === (value?.binaryPath ?? "")}
+            >
+              Save
+            </Button>
+          </form>
+        )}
       </SettingRow>
       {error && (
         <p role="alert" className="text-sm text-status-failed">

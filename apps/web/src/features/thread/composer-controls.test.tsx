@@ -206,12 +206,15 @@ test("a model without effort levels says so instead of offering a slider", async
   expect(within(popover).getByText(/^Muse Spark .* has no effort levels$/)).toBeTruthy();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("while the agent works, a draft offers Queue and never turns into Stop", async () => {
+test("while the agent works, Stop sits on the composer's tab and a draft offers Queue", async () => {
   const { message } = await open("busy");
-  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  const agents = await screen.findByRole("region", { name: "Agents" });
+  expect(within(agents).getByRole("button", { name: "Stop the agent" })).toBeTruthy();
   await userEvent.type(message, "Also check cold start");
-  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
+  // Stop stays where it was, on the tab; the draft never turns the send button into it.
+  expect(screen.getAllByRole("button", { name: "Stop the agent" })).toHaveLength(1);
+  expect(within(agents).getByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
@@ -221,7 +224,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   await screen.findByText(/^Offline ·/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
-  expect(await screen.findByText("Offline: changes apply when the daemon is back")).toBeTruthy();
+  expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
 });
 
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {

@@ -1,4 +1,4 @@
-import type { CatalogModel, ProviderKind } from "@ace/protocol";
+import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
 import {
   modelKey,
   newThreadOptions,
@@ -140,9 +140,9 @@ function CustomModel(props: { provider: ProviderKind }) {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const valid =
-    !!id.trim() &&
-    !/\s/.test(id.trim()) &&
-    !!name.trim() &&
+    ProviderConfiguration.shape.customModels
+      .unwrap()
+      .element.safeParse({ id: id.trim(), displayName: name.trim() }).success &&
     !preferences.value?.customModels?.some((model) => model.id === id.trim());
   return open ? (
     <form
@@ -166,21 +166,27 @@ function CustomModel(props: { provider: ProviderKind }) {
           });
       }}
     >
-      <Input
-        aria-label="Model name used by the CLI"
-        placeholder="Model name used by the CLI"
-        value={id}
-        maxLength={256}
-        onChange={(event) => setId(event.target.value)}
-        autoFocus
-      />
-      <Input
-        aria-label="Display name"
-        placeholder="Display name"
-        value={name}
-        maxLength={256}
-        onChange={(event) => setName(event.target.value)}
-      />
+      <label className="grid gap-1 text-sm">
+        Model name used by the CLI
+        <Input
+          aria-label="Model name used by the CLI"
+          placeholder="Model name used by the CLI"
+          value={id}
+          maxLength={256}
+          onChange={(event) => setId(event.target.value)}
+          autoFocus
+        />
+      </label>
+      <label className="grid gap-1 text-sm">
+        Display name
+        <Input
+          aria-label="Display name"
+          placeholder="Display name"
+          value={name}
+          maxLength={256}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </label>
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
           Cancel

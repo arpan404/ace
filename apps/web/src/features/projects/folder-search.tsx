@@ -319,7 +319,7 @@ export function FolderSearchBox(props: {
 
 function KeyHints(props: { mode: SearchMode; path: boolean }) {
   return (
-    <span aria-hidden className="flex shrink-0 items-center gap-2.5">
+    <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
       <span className="inline-flex items-center gap-1">
         <Kbd>↵</Kbd>
         {props.mode === "open" ? "open" : "go in"}

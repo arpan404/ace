@@ -93,11 +93,18 @@ test.each([0, 80])(
     // Refresh must retain the original identity even when the physical cache was reclaimed.
     await service.refresh({ kind: "workspace", workspace: f.workspace });
     expect(
-      (await service.read({ keys: ["threads.followUpBehavior"], scope: { workspace: f.workspace } }))
-        .diagnostics,
+      (
+        await service.read({
+          keys: ["threads.followUpBehavior"],
+          scope: { workspace: f.workspace },
+        })
+      ).diagnostics,
     ).toContainEqual(expect.objectContaining({ code: "validation" }));
     await expect(
-      service.set("threads.followUpBehavior", "steer", { kind: "workspace", workspace: f.workspace }),
+      service.set("threads.followUpBehavior", "steer", {
+        kind: "workspace",
+        workspace: f.workspace,
+      }),
     ).rejects.toMatchObject({ code: "validation" });
     expect(await readFile(join(dataDir, "settings.json"), "utf8")).toBe(source);
     await service.refresh({ kind: "global" });
@@ -223,7 +230,9 @@ test("global aliases retain workspace containment after physical file eviction",
   const result = await service.read({ keys: ["threads.settleOnClose"], scope: {} });
   expect(result.entries[0]).toMatchObject({ value: false, provenance: "defaults" });
   expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
-  await expect(service.set("threads.followUpBehavior", "steer", { kind: "global" })).rejects.toMatchObject({
+  await expect(
+    service.set("threads.followUpBehavior", "steer", { kind: "global" }),
+  ).rejects.toMatchObject({
     code: "validation",
   });
   expect(await readFile(path, "utf8")).toBe(source);

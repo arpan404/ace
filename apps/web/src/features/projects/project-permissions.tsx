@@ -23,7 +23,9 @@ export function ProjectPermissionsDialog(props: {
             you choose an override.
           </DialogDescription>
         </DialogHeader>
-        <PermissionDefaults workspaceId={props.projectId} />
+        <div>
+          <PermissionDefaults workspaceId={props.projectId} />
+        </div>
       </DialogContent>
     </Dialog>
   );

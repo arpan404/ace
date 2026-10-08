@@ -95,12 +95,12 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
         loading: loading || (!meta?.permission && !failed),
         unavailable:
           failed && !meta?.permission
-            ? "The daemon didn't say how this thread is approved"
+            ? "Couldn't load this thread's permissions. Reconnect and try again."
             : undefined,
         coverage: permissionCoverageNote(capabilities, provider, wanted),
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
         reset:
-          defaultMode && !summary?.inherited
+          summary && !summary.inherited
             ? {
                 label: permissionLabel(defaultMode, capabilities),
                 unavailable: resetUnavailable || undefined,
@@ -113,7 +113,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
 }
 
 /** Offline, changes still go: effort and speed with the next message, a switch from the outbox. */
-const offlineNote = "Offline: changes apply when the daemon is back";
+const offlineNote = "Offline: changes apply when reconnected";
 const clock = new Intl.DateTimeFormat(undefined, {
   hour: "2-digit",
   minute: "2-digit",

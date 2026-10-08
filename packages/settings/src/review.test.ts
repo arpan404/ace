@@ -62,7 +62,10 @@ test("a workspace symlink cannot overwrite the daemon's global approvals", async
   await f.service.set("threads.followUpBehavior", "queue", { kind: "global" });
   await symlink(f.dataDir, join(f.workspace, ".ace"), "dir");
   await expect(
-    f.service.set("threads.followUpBehavior", "steer", { kind: "workspace", workspace: f.workspace }),
+    f.service.set("threads.followUpBehavior", "steer", {
+      kind: "workspace",
+      workspace: f.workspace,
+    }),
   ).rejects.toMatchObject({ code: "validation" });
   expect(JSON.parse(await readFile(f.globalPath, "utf8"))).toMatchObject({
     settings: { "threads.followUpBehavior": "queue" },

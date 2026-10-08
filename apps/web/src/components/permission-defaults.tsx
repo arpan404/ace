@@ -48,7 +48,8 @@ function PermissionDefault(props: { provider: ProviderKind; workspaceId?: string
       : undefined;
   return (
     <SettingRow
-      title={title}
+      title={providerNames[props.provider]}
+      inline
       description={
         failed
           ? "Couldn't load permission modes. Reconnect and try again."

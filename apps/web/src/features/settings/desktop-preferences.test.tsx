@@ -124,11 +124,8 @@ test("desktop work preferences round-trip through the app bridge", async () => {
   await userEvent.click(await screen.findByRole("switch", { name: "Keep running in background" }));
   await userEvent.click(screen.getByRole("switch", { name: "Prevent sleep while agents work" }));
   await userEvent.click(screen.getByRole("switch", { name: "Bounce dock icon for attention" }));
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Quick-thread global shortcut" }),
-    "CommandOrControl+Shift+N",
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await userEvent.click(screen.getByRole("button", { name: "Quick-thread global shortcut" }));
+  await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   await waitFor(() =>
     expect(machine.stored()).toMatchObject({
       background: false,
@@ -147,8 +144,13 @@ test("desktop work preferences round-trip through the app bridge", async () => {
     ),
   ).toBe("true");
   expect(
-    screen.getByRole("textbox", { name: "Quick-thread global shortcut" }).getAttribute("value"),
-  ).toBe("CommandOrControl+Shift+N");
+    screen.getByRole("button", { name: "Quick-thread global shortcut" }).textContent,
+  ).toContain("N");
+  await userEvent.click(screen.getByRole("button", { name: "Turn off global shortcut" }));
+  await waitFor(() => expect(machine.stored().globalShortcut).toBeNull());
+  expect(screen.getByRole("button", { name: "Quick-thread global shortcut" }).textContent).toBe(
+    "Off",
+  );
 });
 
 test("tray pause is visible across pages and Resume reopens admission", async () => {
