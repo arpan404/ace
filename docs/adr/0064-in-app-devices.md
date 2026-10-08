@@ -141,3 +141,28 @@ causes, and the decisions that replace the behaviour:
 
 macOS-side causes (permission attribution, Simulator windows on another Space, keyboard focus
 and Simulator key codes) are recorded in ADR 0011.
+
+## Device actions and explicit sharing, 2026-10-07
+
+Opening an iOS device tab does not enable computer use or grant Simulator access. The
+person approves the device for the current thread before its live view starts. The approval
+copy explains that this enables computer use and grants Simulator to that thread. Revoking
+or disabling devices removes that grant; cleanup failure must not leave the grant behind.
+Other approved iOS devices in the same thread retain their shared Simulator grant.
+
+Agent device tools ask through the blocking host approval machinery before operating an
+unapproved device. Allow for this thread enables devices, approves the selected device and
+delegates it to the requesting agent. Denial, cancellation and expiry perform none of those
+steps. Existing human controller leases remain authoritative.
+
+The device menu owns installation, opening URLs/apps, settings, screenshots and recordings.
+Stopping or completing a bounded recording publishes a registered MP4 and a thread artifact.
+Artifacts carry an optional opaque download identity; clients reuse the bounded file preview
+and native video controls. The wire adds optional device recording state and a device artifact
+source. Browser artifacts remain compatible.
+
+Computer-use Take over pauses the agent. Its view does not yet forward pointer or keyboard
+input, so its status says "Agent paused". Sharing an app/window approves it for this thread,
+starts a session and delegates to the thread's root agent. Sensitive apps use the current
+turn grant instead. The picker leaves an explicit grant visible if starting or delegation
+fails, and cleans up any session it started.

@@ -3,6 +3,7 @@ import type { DeviceInput, DeviceOperation, DevicePermission, DeviceSettings } f
 import { AgentId, ThreadId, ScreenFrameHeader } from "@ace/protocol";
 import {
   deviceControls,
+  deviceProblem,
   deviceRows,
   type DeviceControls,
   type DeviceProblem,
@@ -19,7 +20,12 @@ export type { DeviceProblem } from "@ace/ui-core";
 
 function problem(error: unknown): DeviceProblem {
   if (error instanceof DeviceClientError)
-    return { message: error.message, hint: error.hint, permission: error.permission };
+    return deviceProblem({
+      code: error.code,
+      message: error.message,
+      hint: error.hint,
+      permission: error.permission,
+    });
   return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
 }
 
@@ -235,15 +241,18 @@ export function useDevices(threadId: string, deviceId?: string) {
       act(async () => {
         if (!session) return;
         let image: Uint8Array | undefined;
-        let header: unknown;
+        const candidates = new Map<string, Uint8Array>();
         const release = session.client.watchFrames(target, async (frame) => {
-          image = frame.payload.slice();
-          header = frame.header;
+          candidates.set(JSON.stringify(frame.header), frame.payload);
+          if (candidates.size > 4) {
+            const oldest = candidates.keys().next().value;
+            if (oldest !== undefined) candidates.delete(oldest);
+          }
         });
         try {
           const reply = ScreenFrameHeader.parse(await run({ op: "screenshot", deviceId: target }));
-          if (!image || JSON.stringify(header) !== JSON.stringify(reply))
-            throw new Error("Couldn't save the screenshot. Try again.");
+          image = candidates.get(JSON.stringify(reply));
+          if (!image) throw new Error("Couldn't save the screenshot. Try again.");
         } finally {
           release();
         }

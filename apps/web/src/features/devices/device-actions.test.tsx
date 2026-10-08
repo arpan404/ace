@@ -25,7 +25,7 @@ async function live() {
 }
 async function action(device: HTMLElement, name: string) {
   await userEvent.click(within(device).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name, exact: true }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
 for (const entry of [
   {
@@ -53,7 +53,7 @@ for (const entry of [
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByRole("textbox", { name: entry.field }), entry.value);
     await userEvent.click(
-      within(dialog).getByRole("button", { name: entry.name.replace("…", ""), exact: true }),
+      within(dialog).getByRole("button", { name: entry.name.replace("…", "") }),
     );
     await waitFor(() =>
       expect(app.daemon.appDevices.actions).toEqual([expect.objectContaining(entry.expected)]),
@@ -65,7 +65,7 @@ test("device settings apply appearance, locale and location", async () => {
   await action(device, "Device settings…");
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("combobox", { name: "Appearance" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Dark", exact: true }));
+  await userEvent.click(await screen.findByRole("option", { name: "Dark" }));
   await userEvent.type(within(dialog).getByRole("textbox", { name: "Locale" }), "fr-FR");
   await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Latitude" }), "48.85");
   await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Longitude" }), "2.35");

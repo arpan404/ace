@@ -49,7 +49,10 @@ export function ArtifactLine(props: {
       <p className="flex min-w-0 max-w-full items-center gap-2 text-ui text-muted-foreground">
         <ArchiveIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
         <span className="shrink-0">Saved</span>
-        <code title={name} className="min-w-0 truncate font-mono text-[12.5px] text-foreground">
+        <code
+          title={props.filename ?? name}
+          className="min-w-0 truncate font-mono text-[12.5px] text-foreground"
+        >
           {props.filename ?? name}
         </code>
       </p>

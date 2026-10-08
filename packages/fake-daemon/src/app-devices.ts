@@ -281,7 +281,15 @@ export class FakeAppDevices {
         this.send(open, { type: "devices.enabled", enabled: this.enabled });
       if (!this.enabled)
         for (const session of this.sessions.values()) {
+          if (session.device.platform === "ios" && session.threadId)
+            this.screenHost?.access.approve(
+              "com.apple.iphonesimulator",
+              false,
+              "thread",
+              session.threadId,
+            );
           delete session.threadId;
+          session.recording = false;
           delete session.streamId;
           delete session.leaseExpiresAt;
           session.lifecycle = "idle";
@@ -363,6 +371,12 @@ export class FakeAppDevices {
         this.publish(session);
         return { completed: true };
       case "start":
+        if (session.device.platform === "ios" && this.screenHost && !this.screenHost.access.enabled)
+          throw new Refusal(
+            "permission_denied",
+            "Computer use is off",
+            "Turn it on in Computer use, then try again.",
+          );
         if (
           session.device.platform === "ios" &&
           this.screenHost &&

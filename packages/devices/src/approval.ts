@@ -12,32 +12,30 @@ export async function approveDevice(
   if (session.changingApproval)
     throw new DeviceError("busy", "Approval is changing", "Wait for approval cleanup.");
   session.changingApproval = true;
-  session.approvalEpoch++;
+  const approvalEpoch = ++session.approvalEpoch;
   const previousThread = session.threadId;
   delete session.threadId;
   const oldLogs = session.logs;
   // Close deactivates subscribers synchronously before awaiting subprocess exit.
   const closingLogs = oldLogs.close();
   session.logs = new DeviceLogs();
-  try {
-    const revokeGrant = async () => {
-      if (
-        previousThread &&
-        session.device.platform === "ios" &&
-        options.screen &&
-        ![...owner.sessions()].some(
-          (other) =>
-            other !== session &&
-            other.device.platform === "ios" &&
-            other.threadId === previousThread,
-        )
+  const revokeGrant = async (threadId: string | undefined) => {
+    if (
+      threadId &&
+      session.device.platform === "ios" &&
+      options.screen &&
+      ![...owner.sessions()].some(
+        (other) =>
+          other !== session && other.device.platform === "ios" && other.threadId === threadId,
       )
-        await options.screen.approve("com.apple.iphonesimulator", false, "thread", previousThread);
-    };
+    )
+      await options.screen.approve("com.apple.iphonesimulator", false, "thread", threadId);
+  };
+  try {
     const results = await Promise.allSettled([
       stopDevice(session, owner),
       closingLogs,
-      revokeGrant(),
+      revokeGrant(previousThread),
     ]);
     delete session.completed;
     delete session.recordingArtifact;
@@ -45,7 +43,7 @@ export async function approveDevice(
       result.status === "rejected" ? [result.reason] : [],
     );
     if (errors.length) throw new AggregateError(errors, "Device approval cleanup failed");
-    if (!owner.enabled())
+    if (!owner.enabled() || session.approvalEpoch !== approvalEpoch)
       throw new DeviceError(
         "busy",
         "Devices disabled during approval",
@@ -61,12 +59,14 @@ export async function approveDevice(
           operation.threadId,
         );
       }
-      if (!owner.enabled())
+      if (!owner.enabled() || session.approvalEpoch !== approvalEpoch) {
+        await revokeGrant(operation.threadId);
         throw new DeviceError(
           "busy",
           "Devices disabled during approval",
           "Enable devices and retry.",
         );
+      }
       session.threadId = operation.threadId;
     }
   } finally {
