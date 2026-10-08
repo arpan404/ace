@@ -9,16 +9,16 @@
       "sha256": "3b974ae783d7591822f2648d1711ab12ea156c2f897df7fe0cb5d71049a3a168"
     },
     "commands.md": {
-      "bytes": 35120,
-      "sha256": "fa3773f7e5b4682858b459fe41353124fd1dbc60130e8a14a1eec879a2f30eaa"
+      "bytes": 35361,
+      "sha256": "8de4b119fd1f19f48b10033573d46e75a45af74fdc8fb869a6a2ed114683bb09"
     },
     "events.md": {
       "bytes": 19518,
       "sha256": "2a66ed603e88b16739b295fc61f32f6335bcebca28882baa07806a484e078640"
     },
     "forge.md": {
-      "bytes": 16137,
-      "sha256": "87a9141a4f4b664bde78a770576dcc02369142e4a72533ae2b6ef8588ca63896"
+      "bytes": 16378,
+      "sha256": "2ea5d23066054fc998051b6dcae11be8a0fa7943541bd6950851fe17c0deeac7"
     },
     "mcp.md": {
       "bytes": 114800,
@@ -37,8 +37,8 @@
       "sha256": "05ada29c1dc0a8596ecec0a7542598bcaccde117b3ee5107a76d9da8c93d7bd6"
     },
     "requests.md": {
-      "bytes": 66894,
-      "sha256": "e4c20b3c194422d47c2c5a3817aeef1e08396d95b699a03cdeb8dadb48f597f4"
+      "bytes": 66889,
+      "sha256": "36aacf8dc5e03921f558c603fdd0b77314b931e72dde0f28baa3a240f05a0198"
     },
     "schema/AccountAssignment.json": {
       "bytes": 504,
@@ -453,8 +453,8 @@
       "sha256": "b65cdd57e3595d55d32fdb9bce3c5498945bfac9be2f122383582635ed9ad4ec"
     },
     "schema/CommandPayload.json": {
-      "bytes": 36237,
-      "sha256": "8555f2852dd34b89ac8e67d6f9001cbfd1872309899ac2fd5b4228c8a1794f28"
+      "bytes": 36521,
+      "sha256": "3bff57626a5ddb35f7b130f8a7e22990aafc01570d00bfdbaecbbcd929f7d577"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -729,8 +729,8 @@
       "sha256": "520273492751d5359f831743f457a0e4242315339d37b6922d3411d23c568349"
     },
     "schema/ForgeCommand.json": {
-      "bytes": 3595,
-      "sha256": "07f4d2bf533cfadea0a2d50fa5f980d74c21c57e1f2dc6d97ccff4f121eb3f78"
+      "bytes": 3879,
+      "sha256": "808bb716df92588132e1d64f9248a48e444a0133aa15228bd7f7feb63125d52c"
     },
     "schema/ForgeComment.json": {
       "bytes": 1394,
@@ -2833,6 +2833,6 @@
       "sha256": "f7ebeaacc83c5e81dae89c037c5d841d968144bbab6b28c4752f0d59f466bc8d"
     }
   },
-  "input": "e85dfd81720c9cecfe06b8955d06642982ff1f51f5f2fa185b5d4608135864f1",
+  "input": "e5ea45d2322791ca146cba57dbfe15c925b8dc8407412893a21a2d1095f6df85",
   "version": 1
 }

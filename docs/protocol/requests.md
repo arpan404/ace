@@ -2552,7 +2552,7 @@ Example:
         "threadId": "example"
       },
       "method": "squash",
-      "type": "forge.pr.auto-merge"
+      "type": "forge.pr.merge"
     }
   },
   "type": "command"

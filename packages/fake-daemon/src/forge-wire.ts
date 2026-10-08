@@ -85,6 +85,16 @@ export class FakeForgeWire {
     const p = parsed.data;
     const id = "threadId" in p ? p.threadId : p.link.threadId;
     if (!this.context.thread(id)) return { ok: false, error: "thread_not_found" };
+    if (p.type === "forge.pr.unlink") {
+      this.links.delete(id);
+      this.autoMerge.delete(id);
+      const thread = this.context.thread(id)?.thread;
+      this.context.update(id, {
+        type: "thread.client.updated",
+        changes: { details: { ...thread?.details, linkedPr: null } },
+      });
+      return { ok: true };
+    }
     if (!this.links.has(id) && this.links.size >= 64) return { ok: false, error: "forge_limit" };
     const repository = "repository" in p ? p.repository : p.link.pr.repository;
     if (repository.forge !== "github") return { ok: false, error: "forge_unsupported" };

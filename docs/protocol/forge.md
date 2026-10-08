@@ -176,6 +176,22 @@ Example:
 }
 ```
 
+### forge.pr.unlink
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"forge.pr.unlink"` |  |
+| threadId | yes | string |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "forge.pr.unlink"
+}
+```
+
 ### forge.comment.reply
 
 | Field | Required | Type | Constraints |

@@ -210,6 +210,20 @@ test("forge failures retain their categories over sockets and GitLab is refused 
         ),
       ).toMatchObject({ result: { kind: "error", code: `forge_${code}` } });
     }
+    // Removing a broken link is local and still works when the forge refuses reads.
+    expect(await f.send({ type: "forge.pr.unlink", threadId })).toMatchObject({ ok: true });
+    expect(f.daemon.store.getThread(threadId)?.details?.linkedPr).toBeNull();
+    f.client.send({
+      type: "workspace.request",
+      requestId: "unlinked-status",
+      operation: { op: "pr.status", threadId },
+    });
+    expect(
+      await until(
+        f.client,
+        (message) => message.type === "workspace.result" && message.requestId === "unlinked-status",
+      ),
+    ).toMatchObject({ result: { kind: "pr", status: null } });
     await f.runGit("remote", "set-url", "origin", "https://gitlab.com/octo/ace.git");
     const before = await readFile(join(f.home, "gh-calls"), "utf8");
     expect(
