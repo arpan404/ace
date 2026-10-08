@@ -8,7 +8,11 @@ import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
-import { droppedWorkerZodMethods, zodWithoutUnusedMethods } from "./zod-methods.ts";
+import {
+  droppedWorkerZodMethods,
+  droppedPerfWorkerZodMethods,
+  zodWithoutUnusedMethods,
+} from "./zod-methods.ts";
 import { workerBundle } from "./worker-bundle.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
@@ -17,7 +21,7 @@ import { workerZod } from "./worker-zod.ts";
 const preloads = initialPreloads();
 
 // The router plugin must precede the React plugin so route files are generated and split first.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     tanstackRouter({ target: "react", autoCodeSplitting: true, quoteStyle: "double" }),
     ...reactPlugins(),
@@ -50,7 +54,9 @@ export default defineConfig({
     plugins: () => [
       zodWithoutJsonSchema(),
       zodWithoutMetadata(),
-      zodWithoutUnusedMethods(droppedWorkerZodMethods),
+      zodWithoutUnusedMethods(
+        mode === "perf" ? droppedPerfWorkerZodMethods : droppedWorkerZodMethods,
+      ),
       zodPureSchemas(),
       workerZod(),
       workerBundle(),
@@ -59,4 +65,4 @@ export default defineConfig({
     // workers', where `@__PURE__` and `@__NO_SIDE_EFFECTS__` alone were 0.5 KB gzip.
     rolldownOptions: { output: { comments: { annotation: false, jsdoc: false, legal: false } } },
   },
-});
+}));
