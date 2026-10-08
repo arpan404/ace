@@ -502,6 +502,11 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "artifactId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "bytes": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -547,7 +552,10 @@
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
         "source": {
-          "const": "browser",
+          "enum": [
+            "browser",
+            "device"
+          ],
           "type": "string"
         },
         "type": {

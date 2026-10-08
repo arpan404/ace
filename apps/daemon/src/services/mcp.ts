@@ -1,5 +1,6 @@
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
+import { requestDeviceAccess } from "../device-access.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { type CallObserver, agentControlToolkit } from "@ace/mcp-server";
@@ -66,7 +67,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       }),
       ...(options.toolkits ?? []),
       ...(services.browser ? [browserToolkit(services.browser, store)] : []),
-      ...(services.devices ? [devicesToolkit(services.devices)] : []),
+      ...(services.devices
+        ? [
+            devicesToolkit(services.devices, undefined, async (deviceId, caller, signal) => {
+              const devices = services.devices;
+              if (!devices) throw new Error("Devices unavailable");
+              await requestDeviceAccess(
+                devices,
+                services.screenApprovals,
+                deviceId,
+                caller,
+                signal,
+              );
+            }),
+          ]
+        : []),
       ...(services.screen ? [screenToolkit(services.screen)] : []),
     ],
     async (intent, signal) =>

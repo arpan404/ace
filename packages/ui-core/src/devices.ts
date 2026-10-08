@@ -76,6 +76,30 @@ export interface DeviceProblem {
   permission?: "screenRecording" | "accessibility" | undefined;
 }
 
+export function deviceProblem(failure: DeviceProblem & { code: string }): DeviceProblem {
+  if (failure.permission)
+    return { message: failure.message, hint: failure.hint, permission: failure.permission };
+  const plain: Record<string, DeviceProblem> = {
+    command_failed: {
+      message: "The device action didn't finish.",
+      hint: "Check that the device is running, then try again.",
+    },
+    tool_missing: {
+      message: "A device tool is missing on this machine.",
+      hint: "Install the device and recording tools, then try again.",
+    },
+    sdk_missing: {
+      message: "The device software isn't installed.",
+      hint: "Install Xcode for iOS or the Android SDK, then reconnect.",
+    },
+    invalid_data: {
+      message: "The device returned an unreadable response.",
+      hint: "Restart its live view and try again.",
+    },
+  };
+  return plain[failure.code] ?? { message: failure.message, hint: failure.hint };
+}
+
 export function deviceControls(
   device: AppDevice,
   state: DeviceState | undefined,
@@ -118,11 +142,7 @@ export function deviceControls(
     inControl,
     leaseLeftMs,
     status: who ? `${where} · ${who}` : where,
-    error: state?.error && {
-      message: state.error.message,
-      hint: state.error.hint,
-      permission: state.error.permission,
-    },
+    error: state?.error && deviceProblem(state.error),
   };
 }
 

@@ -25,12 +25,12 @@ export function EnableRow(props: { use: ComputerUse }) {
   const id = useId();
   const { snapshot } = use;
   const description = snapshot.unavailable
-    ? "This daemon has no screen helper, so agents can't use apps here."
+    ? "This machine cannot share apps. Install the screen helper, then reconnect."
     : !snapshot.connected
       ? "Connecting to the screen helper…"
       : "Agents can ask to use apps on this Mac, in the background while you keep working. You approve each app.";
   return (
-    <SettingRow title="Let agents use apps" description={description} htmlFor={id}>
+    <SettingRow title="Let agents use apps" description={description} htmlFor={id} inline>
       <Switch
         id={id}
         checked={snapshot.enabled === true}
@@ -164,30 +164,29 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
   return (
     <>
       {picker}
-      <ul aria-label="Approved apps" className="flex flex-col">
-        {rows.map((row) => (
-          <li key={row.key} className="flex items-center gap-2.5 border-b py-2 last:border-b-0">
-            <AppMark name={row.app} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-ui">{row.app}</p>
-              <p className="truncate text-xs text-subtle-foreground">
-                {row.scopeLabel}
-                {row.sensitive && " · asks every turn"}
-                <span className="font-mono"> · {row.bundleId}</span>
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`Revoke ${row.app} (${row.scopeLabel})`}
-              disabled={use.pending}
-              onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
-            >
-              Revoke
-            </Button>
-          </li>
-        ))}
-      </ul>
+    <ul aria-label="Approved apps" className="flex flex-col">
+      {rows.map((row) => (
+        <li key={row.key} className="flex h-9 items-center gap-2 border-b last:border-b-0">
+          <AppMark name={row.app} />
+          <p className="min-w-0 flex-1 truncate text-ui">
+            {row.app}
+            <span className="ml-2 text-xs text-subtle-foreground">
+              {row.scopeLabel}
+              {row.sensitive && " · asks every turn"}
+            </span>
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Revoke ${row.app} (${row.scopeLabel})`}
+            disabled={use.pending}
+            onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
+          >
+            Revoke
+          </Button>
+        </li>
+      ))}
+    </ul>
     </>
   );
 }
@@ -217,7 +216,7 @@ export function Permissions(props: { use: ComputerUse }) {
       <EmptyState
         variant="inline"
         icon={MonitorIcon}
-        title="No screen helper on this daemon."
+        title="No screen helper on this machine."
         description="Computer use runs on a Mac with the ace desktop app installed."
       />
     );

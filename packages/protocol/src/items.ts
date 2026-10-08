@@ -161,7 +161,8 @@ export const Item = z.discriminatedUnion("type", [
     flags: z.array(z.enum(["executable", "archive"])).optional(),
     /** Thread artifacts can exist before the first agent starts. */
     agentId: AgentId.optional(),
-    source: z.literal("browser"),
+    source: z.enum(["browser", "device"]),
+    artifactId: z.string().min(1).max(256).optional(),
     path: z.string(),
     mimeType: z.string(),
     bytes: z.number().int().nonnegative(),

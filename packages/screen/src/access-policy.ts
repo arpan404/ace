@@ -101,8 +101,8 @@ export class ScreenAccessPolicy {
       await this.approve(bundleId, true);
     }
   }
-  requireApproval(bundleId: string): void {
-    this.authorize({ kind: "window", bundleId: ScreenBundle.parse(bundleId), windowId: 1 });
+  requireApproval(bundleId: string, scope?: ScreenAgentScope): void {
+    this.authorize({ kind: "window", bundleId: ScreenBundle.parse(bundleId), windowId: 1 }, scope);
   }
   configureAccess(access: ScreenAccess): void {
     this.access = access;

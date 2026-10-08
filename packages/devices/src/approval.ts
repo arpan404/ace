@@ -12,21 +12,38 @@ export async function approveDevice(
   if (session.changingApproval)
     throw new DeviceError("busy", "Approval is changing", "Wait for approval cleanup.");
   session.changingApproval = true;
-  session.approvalEpoch++;
+  const approvalEpoch = ++session.approvalEpoch;
+  const previousThread = session.threadId;
   delete session.threadId;
   const oldLogs = session.logs;
   // Close deactivates subscribers synchronously before awaiting subprocess exit.
   const closingLogs = oldLogs.close();
   session.logs = new DeviceLogs();
+  const revokeGrant = async (threadId: string | undefined) => {
+    if (
+      threadId &&
+      session.device.platform === "ios" &&
+      options.screen &&
+      ![...owner.sessions()].some(
+        (other) =>
+          other !== session && other.device.platform === "ios" && other.threadId === threadId,
+      )
+    )
+      await options.screen.approve("com.apple.iphonesimulator", false, "thread", threadId);
+  };
   try {
-    const results = await Promise.allSettled([stopDevice(session, owner), closingLogs]);
+    const results = await Promise.allSettled([
+      stopDevice(session, owner),
+      closingLogs,
+      revokeGrant(previousThread),
+    ]);
     delete session.completed;
     delete session.recordingArtifact;
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
     );
     if (errors.length) throw new AggregateError(errors, "Device approval cleanup failed");
-    if (!owner.enabled())
+    if (!owner.enabled() || session.approvalEpoch !== approvalEpoch)
       throw new DeviceError(
         "busy",
         "Devices disabled during approval",
@@ -35,14 +52,21 @@ export async function approveDevice(
     if (operation.allowed) {
       if (session.device.platform === "ios" && options.screen) {
         await options.screen.enable(true);
-        await options.screen.approve("com.apple.iphonesimulator", true);
+        await options.screen.approve(
+          "com.apple.iphonesimulator",
+          true,
+          "thread",
+          operation.threadId,
+        );
       }
-      if (!owner.enabled())
+      if (!owner.enabled() || session.approvalEpoch !== approvalEpoch) {
+        await revokeGrant(operation.threadId);
         throw new DeviceError(
           "busy",
           "Devices disabled during approval",
           "Enable devices and retry.",
         );
+      }
       session.threadId = operation.threadId;
     }
   } finally {
@@ -54,9 +78,16 @@ export async function approveDevice(
 export async function disableDeviceSessions(
   sessions: Iterable<DeviceSession>,
   owner: LifecycleOwner,
+  options: LifecycleOptions,
 ): Promise<void> {
+  const entries = [...sessions];
+  const threads = new Set(
+    entries
+      .filter((session) => session.device.platform === "ios")
+      .flatMap((session) => (session.threadId ? [session.threadId] : [])),
+  );
   const cleanup = await Promise.allSettled(
-    [...sessions].map(async (session) => {
+    entries.map(async (session) => {
       session.approvalEpoch++;
       delete session.threadId;
       const results = await Promise.allSettled([stopDevice(session, owner), session.logs.close()]);
@@ -68,6 +99,8 @@ export async function disableDeviceSessions(
       if (errors.length) throw new AggregateError(errors, "Device disable cleanup failed");
     }),
   );
+  for (const threadId of threads)
+    await options.screen?.approve("com.apple.iphonesimulator", false, "thread", threadId);
   const errors = cleanup.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
   if (errors.length) throw new AggregateError(errors, "Devices disable cleanup failed");
 }

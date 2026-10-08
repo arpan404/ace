@@ -1,4 +1,7 @@
-import { expect, test, onTestFinished } from "vitest";
+import { DevicesService, DevicePlatform } from "@ace/devices";
+import { spawnRawSupervised } from "@ace/provider-kit/process";
+import { requestDeviceAccess } from "./device-access.ts";
+import { expect, test, onTestFinished, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -437,4 +440,128 @@ test.each([
   await expect(
     h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
   ).rejects.toMatchObject({ code: "approval_required" });
+});
+
+test("device requests wait for human thread approval while computer use is off", async () => {
+  const h = await fixture();
+  let completed = false;
+  const pending = h.approvals
+    .device("android:Pixel", "Pixel 9", h.caller, new AbortController().signal)
+    .then(() => {
+      completed = true;
+    });
+  const interaction = Object.values(h.store.snapshotThread(h.thread.id).interactions).find(
+    (value) => value.state === "pending",
+  );
+  expect(interaction?.request).toMatchObject({
+    kind: "approval",
+    title: "Use Pixel 9",
+    options: [
+      { id: "allow_thread", label: "Allow for this thread" },
+      { id: "deny", label: "Deny" },
+    ],
+  });
+  expect(completed).toBe(false);
+  expect(h.resolve("allow_thread")?.ok).toBe(true);
+  await pending;
+  expect(completed).toBe(true);
+  expect(h.grants.list()).toEqual([]);
+});
+test("denied and cancelled device requests never resolve as approved", async () => {
+  const h = await fixture();
+  const denied = h.approvals.device(
+    "android:Pixel",
+    "Pixel 9",
+    h.caller,
+    new AbortController().signal,
+  );
+  const denial = expect(denied).rejects.toThrow(/denied/);
+  h.resolve("deny");
+  await denial;
+  const cancel = new AbortController();
+  const pending = h.approvals.device("android:Pixel", "Pixel 9", h.caller, cancel.signal);
+  const cancellation = expect(pending).rejects.toThrow();
+  cancel.abort();
+  await cancellation;
+  expect(
+    Object.values(h.store.snapshotThread(h.thread.id).interactions).every(
+      (value) => value.state !== "pending",
+    ),
+  ).toBe(true);
+});
+
+async function approvalDevice(h: Awaited<ReturnType<typeof fixture>>) {
+  const platform = new DevicePlatform({ platform: "linux", home: h.home, env: {} });
+  vi.spyOn(platform, "list").mockResolvedValue([
+    { id: "android:Pixel", platform: "android", name: "Pixel 9", state: "booted" },
+  ]);
+  let serial = 0;
+  const devices = new DevicesService({
+    platform,
+    runtime: {
+      now: () => 1000,
+      id: () => `device-${++serial}`,
+      after: () => () => {},
+      spawn: spawnRawSupervised,
+    },
+    env: {},
+    recordingDirectory: h.home,
+    publishArtifact: async () => {},
+  });
+  onTestFinished(() => devices.close());
+  return devices;
+}
+
+test("approving an agent device request enables it and delegates only to the requesting thread", async () => {
+  const h = await fixture(),
+    devices = await approvalDevice(h);
+  const pending = requestDeviceAccess(
+    devices,
+    h.approvals,
+    "android:Pixel",
+    h.caller,
+    new AbortController().signal,
+  );
+  await vi.waitFor(() =>
+    expect(
+      Object.values(h.store.snapshotThread(h.thread.id).interactions).some(
+        (value) => value.state === "pending",
+      ),
+    ).toBe(true),
+  );
+  expect(devices.isEnabled()).toBe(false);
+  h.resolve("allow_thread");
+  await pending;
+  expect(devices.states()).toEqual([
+    expect.objectContaining({
+      approved: true,
+      threadId: h.thread.id,
+      controller: "agent",
+      holder: h.caller,
+    }),
+  ]);
+});
+
+test("denying a requested device leaves devices disabled and gives the agent no lease", async () => {
+  const h = await fixture(),
+    devices = await approvalDevice(h);
+  const pending = requestDeviceAccess(
+    devices,
+    h.approvals,
+    "android:Pixel",
+    h.caller,
+    new AbortController().signal,
+  );
+  const denied = expect(pending).rejects.toThrow(/denied/);
+  await vi.waitFor(() =>
+    expect(
+      Object.values(h.store.snapshotThread(h.thread.id).interactions).some(
+        (value) => value.state === "pending",
+      ),
+    ).toBe(true),
+  );
+  h.resolve("deny");
+  await denied;
+  expect(devices.isEnabled()).toBe(false);
+  expect(devices.states()).toEqual([]);
 });

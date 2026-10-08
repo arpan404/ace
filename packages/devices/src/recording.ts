@@ -8,6 +8,7 @@ export async function recordDevice(
   session: DeviceSession,
   options: LifecycleOptions,
   streams: DeviceStreamControl,
+  changed: () => void = () => {},
 ): Promise<void> {
   if (!session.threadId)
     throw new DeviceError(
@@ -59,6 +60,7 @@ export async function recordDevice(
         if (recording && session.recording === recording) {
           delete session.recording;
           session.completed = recording;
+          changed();
         }
         void release();
       },

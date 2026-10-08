@@ -30,23 +30,23 @@ Example:
 
 ```json
 {
-  "concurrency": 2,
-  "enabled": false,
+  "concurrency": 1,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 3,
+  "jitterMs": 0,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "acp",
   "title": "example",
   "trigger": {
-    "event": "issue_labelled",
+    "event": "ci_failed",
     "kind": "github",
-    "pollIntervalMs": 60009,
-    "pullRequest": 4,
-    "repository": "0aAUYpggCf/OB"
+    "label": "example",
+    "pollIntervalMs": 60000,
+    "repository": "PBdrXqs/mEUR89i4TB"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -81,7 +81,7 @@ Example:
 
 ```json
 {
-  "before": 1,
+  "before": null,
   "runs": []
 }
 ```
@@ -103,21 +103,17 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
-    "enabled": true,
+    "concurrency": 3,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 1,
+    "jitterMs": 0,
     "missedRun": "skip",
     "model": "example",
-    "permissionMode": "example",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
-      "kind": "file",
-      "paths": [
-        "example"
-      ]
+      "kind": "manual"
     },
     "workspace": "example",
     "worktree": true
@@ -194,7 +190,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 2,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -219,9 +215,19 @@ Example:
 
 ```json
 {
+  "automations": [],
   "error": "example",
   "ok": true,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "id": "example",
+    "startedAt": 8,
+    "status": "failed",
+    "title": "example",
+    "trigger": "file"
+  },
   "type": "automation.result"
 }
 ```
@@ -249,12 +255,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 2,
   "id": "example",
-  "startedAt": 2,
-  "status": "succeeded",
+  "startedAt": 3,
+  "status": "running",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "github"
 }
 ```
 
@@ -274,7 +279,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "cron",
+  "kind": "rrule",
   "startAt": 0,
   "timezone": "example"
 }
@@ -334,11 +339,11 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "issue_labelled",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60009,
-  "repository": "58_Fk/zC_"
+  "pollIntervalMs": 60000,
+  "pullRequest": 4,
+  "repository": "Byl/U"
 }
 ```
 

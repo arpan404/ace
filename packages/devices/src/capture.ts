@@ -1,6 +1,6 @@
 import { H264AccessUnits } from "./h264.ts";
 import { framePacket, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
-import type { ScreenStreamSettings } from "@ace/protocol";
+import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import { findExecutable as discoverExecutable } from "@ace/provider-kit/discovery";
@@ -18,6 +18,7 @@ export interface DeviceCapture extends Capture {
 }
 export async function startCapture(options: {
   device: Device;
+  scope?: ScreenAgentScope;
   streamId: string;
   fps: number;
   platform: DevicePlatform;
@@ -45,7 +46,7 @@ export async function startCapture(options: {
     const permissions = await screen.currentPermissions();
     checkAbort();
     if (!permissions.screenRecording) throw permissionDenied("screenRecording");
-    screen.requireApproval("com.apple.iphonesimulator");
+    screen.requireApproval("com.apple.iphonesimulator", options.scope);
     const selected = await options.platform.simulatorCaptureDevice(options.device);
     checkAbort();
     const window = await simulatorWindow(screen, options, selected.name, checkAbort);
@@ -60,6 +61,7 @@ export async function startCapture(options: {
     const state = await screen.start(
       { kind: "window", bundleId: window.bundleId, windowId: window.windowId },
       options.fps,
+      options.scope,
     );
     let stopped = false;
     let terminated = false;

@@ -25,6 +25,7 @@ export type ImageSource =
 /** Where a file's bytes come from: the browser's own file before it is sent, else the daemon. */
 export type FileSource =
   | { kind: "file"; file: File }
+  | { kind: "artifact"; threadId: string; artifactId: string; bytes: number }
   | { kind: "attachment"; threadId: string; sha256: string; bytes: number };
 
 /** A file the preview can show: what it is, and where its bytes are when this device has them. */

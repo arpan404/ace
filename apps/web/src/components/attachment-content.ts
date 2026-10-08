@@ -26,8 +26,11 @@ export interface TextPrefix {
 /** A sent file over the budget can't be loaded whole on this device. */
 export function tooLargeToLoad(
   source: FileSource,
-): source is Extract<FileSource, { kind: "attachment" }> {
-  return source.kind === "attachment" && source.bytes > wholePreviewBytes;
+): source is Extract<FileSource, { kind: "attachment" | "artifact" }> {
+  return (
+    source.kind !== "file" &&
+    source.bytes > (source.kind === "artifact" ? 64 * 1024 * 1024 : wholePreviewBytes)
+  );
 }
 
 function decode(bytes: Uint8Array, truncated: boolean): string {
@@ -45,6 +48,14 @@ export async function readTextPrefix(
     const truncated = source.file.size > textPreviewBytes;
     const bytes = new Uint8Array(await source.file.slice(0, textPreviewBytes).arrayBuffer());
     return { text: decode(bytes, truncated), total: source.file.size, truncated };
+  }
+  if (source.kind === "artifact") {
+    const blob = await readWhole(client, source, "text/plain", signal);
+    return {
+      text: await blob.slice(0, textPreviewBytes).text(),
+      total: blob.size,
+      truncated: blob.size > textPreviewBytes,
+    };
   }
   const reply = await client.request(
     {
@@ -81,6 +92,25 @@ export async function readWhole(
 ): Promise<Blob> {
   if (source.kind === "file")
     return type && source.file.type !== type ? new Blob([source.file], { type }) : source.file;
+  if (source.kind === "artifact") {
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let total = 0;
+    for await (const chunk of client.downloadFile(
+      {
+        threadId: ThreadId.parse(source.threadId),
+        op: "artifact.download",
+        artifactId: source.artifactId,
+        offset: 0,
+      },
+      { signal },
+    )) {
+      total += chunk.length;
+      if (total > 64 * 1024 * 1024)
+        throw new Error("Recording is too large to preview. Save a shorter recording.");
+      chunks.push(chunk.slice());
+    }
+    return new Blob(chunks, { type: type ?? "application/octet-stream" });
+  }
   const { bytes, mimeType } = await client.attachmentBytes(
     {
       threadId: source.threadId,
