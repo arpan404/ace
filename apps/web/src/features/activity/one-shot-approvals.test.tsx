@@ -72,15 +72,14 @@ function pushRequest(mode: "auto-review" | "full-access"): Scenario {
   };
 }
 
-test("in Auto-review, Activity offers only one-shot approval and says why", async () => {
+test("in Auto-review, Activity offers Allow once and Deny, and A takes the one-shot grant", async () => {
   const app = harness();
   const scenario = pushRequest("auto-review");
   app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
-  expect(within(card).queryByRole("checkbox")).toBeNull();
-  expect(within(card).queryByText(/Always allow git push/)).toBeNull();
-  expect(within(card).getByText(/Always-allow isn't available in Auto-review/)).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Always allow" })).toBeNull();
+  expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
   // The command reads as typed, not as the login shell that ran it.
   expect(within(card).getByText("git push origin main")).toBeTruthy();
 
@@ -96,11 +95,17 @@ test("in Auto-review, Activity offers only one-shot approval and says why", asyn
   );
 });
 
-test("in Full access, the wider grant stays on offer", async () => {
+test("in Full access, Always allow answers with the wider grant", async () => {
   const app = harness();
-  app.play(pushRequest("full-access")).runUntilBlocked();
+  const scenario = pushRequest("full-access");
+  app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await screen.findByRole("article", { name: title });
-  expect(within(card).getByText("Always allow git push in this thread")).toBeTruthy();
-  expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "Always allow" }));
+  await waitFor(() =>
+    expect(app.daemon.resolution(scenario.thread.id, "approve-push")).toEqual({
+      kind: "approval",
+      optionId: "thread",
+    }),
+  );
 });

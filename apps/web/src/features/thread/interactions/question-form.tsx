@@ -3,7 +3,7 @@ import { questionOptions } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useId, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { useOfferAnswer } from "../composer/answer-slot.ts";
+import { useComposerMessage, useOfferAnswer } from "../composer/answer-slot.ts";
 import type { Answer } from "./answer.ts";
 
 const other = "__other__";
@@ -11,8 +11,9 @@ const other = "__other__";
 /**
  * One or more questions with options; free text where the agent accepts it. On its own card it
  * has Answer and Skip. Attached to a thread's composer (`composer`, the thread's id) it shows one
- * question at a time ("1 of 2", Back), and once the one shown is answered the composer's send
- * button carries it on: Next, then Submit on the last; Skip is the card's.
+ * question at a time ("1 of 2", Back) and the composer answers it: its message is the typed
+ * answer ("Something else" puts the caret there), and its send button reads Answer, Submit once
+ * an option is picked, or Next while more questions follow. Skip is the card's.
  */
 export function QuestionForm(props: {
   questions: readonly Question[];
@@ -23,44 +24,74 @@ export function QuestionForm(props: {
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [at, setAt] = useState(0);
-  const answered = (question: Question | undefined) => {
-    const choice = (question && picked[question.id]) ?? [];
-    return (
-      !!question && choice.length > 0 && (!choice.includes(other) || !!texts[question.id]?.trim())
-    );
-  };
-  const complete = props.questions.every(answered);
   const stepped = props.composer !== undefined;
   const index = Math.min(at, props.questions.length - 1);
+  const current = props.questions[index];
   const last = index === props.questions.length - 1;
   const shown = stepped ? props.questions.slice(index, index + 1) : props.questions;
+  // Attached, the message is the typed answer: typing picks "Something else" for the question shown.
+  const message = useComposerMessage(props.composer);
+  const typed = stepped && !!message?.typed && !!current?.allowOther;
+  const [wasTyped, setWasTyped] = useState(typed);
+  if (typed !== wasTyped) {
+    setWasTyped(typed);
+    if (typed && current && !(picked[current.id] ?? []).includes(other))
+      setPicked((previous) => ({
+        ...previous,
+        [current.id]: current.multiSelect ? [...(previous[current.id] ?? []), other] : [other],
+      }));
+  }
+  const answered = (question: Question | undefined) => {
+    const choice = (question && picked[question.id]) ?? [];
+    if (!question || choice.length === 0) return false;
+    if (!choice.includes(other)) return true;
+    return question === current && stepped ? typed : !!texts[question.id]?.trim();
+  };
+  const complete = props.questions.every(answered);
+  const takesText = stepped && (picked[current?.id ?? ""] ?? []).includes(other);
   // Attached: the composer's send button goes on once the question shown is answered.
-  const ready = !props.disabled && answered(props.questions[index]) && (!last || complete);
-  const submit = () => {
+  const ready = !props.disabled && answered(current) && (!last || complete);
+  const submit = (typedText: Record<string, string> = texts) => {
     const answers: Record<string, string[]> = {};
     for (const question of props.questions)
       answers[question.id] = (picked[question.id] ?? []).map((id) =>
-        id === other ? (texts[question.id] ?? "").trim() : id,
+        id === other ? (typedText[question.id] ?? "").trim() : id,
       );
     props.onAnswer({ kind: "question", answers });
   };
-  const advance = () => {
-    if (!ready) return;
-    if (last) submit();
+  /** The message's text answers the question shown when "Something else" is picked. */
+  const advance = (text = "") => {
+    if (!ready || !current) return;
+    const typedText = takesText ? { ...texts, [current.id]: text } : texts;
+    if (takesText) setTexts(typedText);
+    if (last) submit(typedText);
     else setAt(index + 1);
   };
   useOfferAnswer(
     props.composer,
-    stepped && ready ? (last ? "Submit" : "Next") : undefined,
+    stepped && current
+      ? {
+          label: ready && !last ? "Next" : ready && !takesText ? "Submit" : "Answer",
+          blocked: ready
+            ? undefined
+            : takesText
+              ? "Type your answer in the message"
+              : current.allowOther
+                ? "Pick an answer, or type one in the message"
+                : "Pick an answer",
+          takesText,
+          invitesText: !!current.allowOther,
+        }
+      : undefined,
     advance,
   );
   const toggle = (question: Question, id: string) =>
     setPicked((previous) => {
-      const current = previous[question.id] ?? [];
+      const before = previous[question.id] ?? [];
       const next = question.multiSelect
-        ? current.includes(id)
-          ? current.filter((value) => value !== id)
-          : [...current, id]
+        ? before.includes(id)
+          ? before.filter((value) => value !== id)
+          : [...before, id]
         : [id];
       return { ...previous, [question.id]: next };
     });
@@ -77,8 +108,8 @@ export function QuestionForm(props: {
         !["radio", "checkbox"].includes((target as HTMLInputElement).type));
     if (event.key === "Enter" && !text && target.tagName !== "BUTTON") {
       event.preventDefault();
-      if (stepped) advance();
-      else if (complete) submit();
+      if (stepped && !takesText) advance();
+      else if (!stepped && complete) submit();
       return;
     }
     const digit = Number.parseInt(event.key, 10);
@@ -96,7 +127,12 @@ export function QuestionForm(props: {
     const id = ids[digit - 1];
     if (!id) return;
     event.preventDefault();
+    pick(question, id);
+  };
+  /** Picking "Something else" on the composer's card sends the caret to the message. */
+  const pick = (question: Question, id: string) => {
     toggle(question, id);
+    if (id === other && stepped) message?.focus();
   };
   return (
     <form
@@ -104,8 +140,8 @@ export function QuestionForm(props: {
       onKeyDown={onKeyDown}
       onSubmit={(event) => {
         event.preventDefault();
-        if (stepped) advance();
-        else if (complete) submit();
+        if (stepped && !takesText) advance();
+        else if (!stepped && complete) submit();
       }}
     >
       {shown.map((question) => (
@@ -120,7 +156,8 @@ export function QuestionForm(props: {
           picked={picked[question.id] ?? []}
           text={texts[question.id] ?? ""}
           disabled={props.disabled}
-          onToggle={(id) => toggle(question, id)}
+          inline={!stepped}
+          onToggle={(id) => pick(question, id)}
           onText={(text) => setTexts((previous) => ({ ...previous, [question.id]: text }))}
         />
       ))}
@@ -151,6 +188,8 @@ function QuestionField(props: {
   picked: readonly string[];
   text: string;
   disabled: boolean;
+  /** "Something else" is typed here, on a card without a composer under it. */
+  inline: boolean;
   onToggle(id: string): void;
   onText(text: string): void;
 }) {
@@ -198,8 +237,9 @@ function QuestionField(props: {
           <label
             key={option.id}
             className={cn(
+              // The pick reads as a filled row; the one focus ring is the radio's own.
               "flex cursor-pointer items-start gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-(--dur-1) hover:bg-accent",
-              checked && "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent)]",
+              checked && "bg-accent",
             )}
           >
             <input
@@ -208,7 +248,7 @@ function QuestionField(props: {
               checked={checked}
               disabled={props.disabled}
               onChange={() => props.onToggle(option.id)}
-              className="mt-0.5 accent-(--ring)"
+              className="mt-0.5 rounded-full accent-(--ring) focus-ring"
             />
             {/* The option's words, its description under them so a narrow card never wraps
                 them into columns. */}
@@ -229,7 +269,7 @@ function QuestionField(props: {
           </label>
         );
       })}
-      {props.picked.includes(other) && (
+      {props.inline && props.picked.includes(other) && (
         <input
           aria-label={`Your answer to: ${question.text}`}
           value={props.text}

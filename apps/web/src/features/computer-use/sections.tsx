@@ -14,7 +14,8 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
-import { AppMark, SessionCard } from "./session-card.tsx";
+import { AppMark } from "@/components/app-mark.tsx";
+import { SessionCard } from "./session-card.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
 /** Computer use on or off: off stops every session and keeps agents from starting one. */

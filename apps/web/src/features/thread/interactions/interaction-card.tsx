@@ -1,4 +1,4 @@
-import { Suspense, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ClientApi } from "@ace/client";
 import {
   useAgent,
@@ -8,27 +8,23 @@ import {
   useItem,
   useThreadMeta,
 } from "@ace/client-react";
-import type { ApprovalOption, Interaction } from "@ace/protocol";
+import type { Interaction } from "@ace/protocol";
 import {
   agentName,
   approvalByKey,
   approvalCopy,
   privateBrowserGate,
   displayCommand,
-  offeredOptions,
-  oneShotNote,
   questionTitle,
   requestIdentity,
-  unwrapShellCommand,
 } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
-import { ApprovalButtons, ApprovalDetails } from "@/components/approval-details.tsx";
+import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
-import { DeferredReviewSummary } from "../items/deferred-review.ts";
 import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
 import { answerStore, pendingAnswers, useLocalAnswer, type LocalAnswer } from "./answers.ts";
 import { QuestionForm } from "./question-form.tsx";
@@ -237,18 +233,17 @@ function OpenRequest(props: {
   const mode = useThreadMeta(props.threadId)?.permission?.effective;
   const request = interaction.request;
   const sending = local?.state === "sending";
-  const shell =
+  const command =
     call?.type === "tool_call" && call.call.detail.kind === "shell"
-      ? displayCommand(call.call.detail)
+      ? displayCommand(call.call.detail).command
       : undefined;
-  const unwrappedTitle =
-    request.kind === "approval" ? unwrapShellCommand(request.title)?.inner : undefined;
-  const copy = request.kind === "approval" ? approvalCopy(request) : undefined;
+  const copy =
+    request.kind === "approval"
+      ? approvalCopy(request, { mode, command, review: interaction.review })
+      : undefined;
   const title =
     request.kind === "approval"
-      ? unwrappedTitle
-        ? `Run ${unwrappedTitle}`
-        : (copy?.title ?? request.title)
+      ? (copy?.title ?? request.title)
       : request.kind === "question"
         ? questionTitle(request.questions)
         : request.kind === "plan_review"
@@ -260,14 +255,7 @@ function OpenRequest(props: {
     plan_review: privateBrowserGate(interaction) ? "Browser" : "Plan review",
     elicitation: request.kind === "elicitation" ? request.server : "Request",
   }[request.kind];
-  const offered = request.kind === "approval" ? offeredOptions(request.options, mode) : undefined;
-  // The request's own order and words. A one-shot mode leaves out session and always grants,
-  // except on ace's own tools, which ace answers before that rule.
-  const choices = copy?.tool
-    ? copy.choices
-    : copy?.choices.filter((choice) =>
-        offered?.options.some((option) => option.id === choice.option.id),
-      );
+  const decisions = copy?.decisions;
   const chosen =
     local?.resolution.kind === "approval" && request.kind === "approval"
       ? request.options.find(
@@ -275,16 +263,17 @@ function OpenRequest(props: {
             local.resolution.kind === "approval" && option.id === local.resolution.optionId,
         )
       : undefined;
-  const [nudged, setNudged] = useState<ApprovalOption>();
+  const [nudged, setNudged] = useState<string>();
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!offered || sending || chosen || typing(event.target)) return;
+    if (!decisions || sending || chosen || typing(event.target)) return;
     const digit = Number.parseInt(event.key, 10);
-    const option = Number.isNaN(digit) ? undefined : choices?.[digit - 1]?.option;
-    if (!option || event.metaKey || event.ctrlKey || event.altKey) return;
+    const decision = Number.isNaN(digit) ? undefined : decisions[digit - 1];
+    if (!decision || event.metaKey || event.ctrlKey || event.altKey) return;
     event.preventDefault();
     // A default-to-no request is approved only by a click (or Enter on its focused button).
-    if (request.kind === "approval" && !approvalByKey(request, option)) return setNudged(option);
-    answer({ kind: "approval", optionId: option.id });
+    if (request.kind === "approval" && !approvalByKey(request, decision.option))
+      return setNudged(decision.label);
+    answer({ kind: "approval", optionId: decision.option.id });
   };
   return (
     <article aria-label={title} onKeyDown={onKeyDown} className={props.className}>
@@ -307,66 +296,35 @@ function OpenRequest(props: {
       </p>
       {request.kind !== "question" || request.questions.length !== 1 ? (
         <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
-          {title}
+          {copy ? <ApprovalHeading copy={copy} /> : title}
         </h3>
       ) : null}
-      {shell && (
-        <pre className="rounded-md bg-code px-3 py-[9px] font-mono text-[12.5px] leading-[1.5] whitespace-pre-wrap">
-          {shell.command}
-        </pre>
-      )}
-      {request.kind === "approval" && (
+      {request.kind === "approval" && copy && (
         <>
-          {copy?.tool ? (
-            <ApprovalDetails copy={copy} className="mt-2.5" />
-          ) : (
-            request.description && (
-              <p className="mt-2.5 text-ui text-muted-foreground">{request.description}</p>
-            )
-          )}
-          {interaction.review && (
-            <Suspense fallback={null}>
-              <DeferredReviewSummary.Component review={interaction.review} className="mt-2.5" />
-            </Suspense>
-          )}
-          {chosen ? (
-            <p role="status" className="mt-3.5 flex items-center gap-2 text-ui">
-              <CheckIcon aria-hidden size={14} className="text-status-done" />
-              <span>{chosen.label}</span>
-              <span className="flex items-center gap-1.5 text-xs text-subtle-foreground">
-                {sending ? (
-                  <>
-                    <Spinner /> sending…
-                  </>
-                ) : (
-                  "· answered earlier"
-                )}
-              </span>
-              {!sending && (
-                <Button size="sm" variant="ghost" className="ml-auto" onClick={props.onAnswerAgain}>
-                  Answer again
-                </Button>
-              )}
-            </p>
-          ) : (
-            <>
-              <div className="mt-3.5">
-                <ApprovalButtons
-                  choices={choices ?? []}
-                  numbered
-                  keyed={(choice) => approvalByKey(request, choice.option)}
-                  onChoose={(choice) => answer({ kind: "approval", optionId: choice.option.id })}
+          <ApprovalRequest
+            copy={copy}
+            review={interaction.review}
+            disabled={sending}
+            numbered
+            keyed={(option) => approvalByKey(request, option)}
+            onAnswer={(picked) => answer({ kind: "approval", optionId: picked.option.id })}
+            answered={
+              chosen && (
+                <Chosen
+                  label={
+                    decisions?.find((decision) => decision.option.id === chosen.id)?.label ??
+                    chosen.label
+                  }
+                  sending={sending}
+                  onAgain={props.onAnswerAgain}
                 />
-              </div>
-              {nudged && (
-                <p role="status" className="mt-2 text-xs text-subtle-foreground">
-                  This request defaults to no: click {nudged.label} to allow it.
-                </p>
-              )}
-              {!copy?.tool && offered && offered.hidden > 0 && mode && (
-                <p className="mt-2 text-xs text-subtle-foreground">{oneShotNote(mode)}</p>
-              )}
-            </>
+              )
+            }
+          />
+          {nudged && !chosen && (
+            <p role="status" className="mt-2 text-xs text-subtle-foreground">
+              This request defaults to no: click {nudged} to allow it.
+            </p>
           )}
         </>
       )}
@@ -417,5 +375,29 @@ function OpenRequest(props: {
         </p>
       )}
     </article>
+  );
+}
+
+/** The pick made on this device, in place of the buttons, with a way to answer again. */
+function Chosen(props: { label: string; sending: boolean; onAgain(): void }) {
+  return (
+    <p role="status" className="flex items-center gap-2 text-ui">
+      <CheckIcon aria-hidden size={14} className="text-status-done" />
+      <span>{props.label}</span>
+      <span className="flex items-center gap-1.5 text-xs text-subtle-foreground">
+        {props.sending ? (
+          <>
+            <Spinner /> sending…
+          </>
+        ) : (
+          "· answered earlier"
+        )}
+      </span>
+      {!props.sending && (
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={props.onAgain}>
+          Answer again
+        </Button>
+      )}
+    </p>
   );
 }

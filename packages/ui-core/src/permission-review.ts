@@ -1,5 +1,5 @@
 import type { ApprovalTarget, Interaction, PermissionReview } from "@ace/protocol";
-import { approvalOutcome, reviewModeNames } from "./approvals.ts";
+import { approvalOutcome, reviewModeNames, reviewReason } from "./approvals.ts";
 import { displayCommand, stepPath, type PathContext } from "./step-display.ts";
 import { toolDisplayName } from "./tool-labels.ts";
 export { reviewedInteraction } from "./review-pointer.ts";
@@ -73,12 +73,6 @@ function targetLines(target: ApprovalTarget | undefined, context: PathContext): 
   return lines;
 }
 
-/** Reasons the policy states for itself, reworded for the person reading them. */
-const reasonWords: Record<string, string> = {
-  "Provider did not supply an exact action":
-    "ace couldn't see exactly what this does, so it's asking you",
-};
-
 /**
  * A review in words. With the interaction it reviewed, the verdict follows what happened after
  * (IR-2): an escalated request reads "Approved by you" once the person answered, not "Sent to
@@ -106,7 +100,7 @@ export function describeReview(
         : tone === "denied"
           ? "Denied by ace"
           : "Sent to you",
-    reason: reasonWords[review.reason] ?? review.reason,
+    reason: reviewReason(review),
     reviewer: `${reviewerLabels[review.reviewer]} · ${reviewModeNames[review.mode]}`,
     tool: toolDisplayName(review.target?.tool),
     target: targetLines(review.target, context),

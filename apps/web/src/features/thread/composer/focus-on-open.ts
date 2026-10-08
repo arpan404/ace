@@ -20,7 +20,9 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
           "button:not([disabled]):not([aria-disabled='true']):not([data-slot='icon-button'])",
         );
       if (option) {
-        option.focus();
+        // The card sits above the composer, in view; scrolling to it mid-rise would drag the
+        // whole shell up with it.
+        option.focus({ preventScroll: true });
         return;
       }
     }

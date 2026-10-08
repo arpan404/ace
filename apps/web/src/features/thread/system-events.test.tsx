@@ -459,7 +459,6 @@ test("outside full access, approvals don't offer choices the daemon would refuse
   const card = await screen.findByRole("article", { name: "Run git push origin main" });
   expect(within(card).getByText("git push origin main")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: /Always allow/ })).toBeNull();
-  expect(within(card).getByText(/Always-allow isn't available in Auto-review/)).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(feed.textContent).not.toContain("/bin/zsh");
 });

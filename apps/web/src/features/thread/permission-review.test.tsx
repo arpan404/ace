@@ -1,8 +1,12 @@
 import { permissionAudit } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
+import { answerStore } from "@/features/thread/interactions/answers.ts";
 import { harness } from "@/test/harness.tsx";
+
+// Answers are remembered on this device by interaction id, and the audit's ids repeat.
+afterEach(() => answerStore.forgetAll());
 
 async function openAudit(path: string) {
   const app = harness();
@@ -33,7 +37,10 @@ test("a safe command in an outside working directory still waits for a person", 
   app.play(scenario).runThrough("approved");
   await app.open("/t/thread-outside-review");
   const card = await screen.findByRole("article", { name: "Run pwd?" });
-  expect(within(card).getByRole("region", { name: "ace's review" }).textContent).toContain(
+  // Why ace sent it on waits behind Details, beside who reviewed it.
+  expect(within(card).queryByRole("region", { name: "ace's review" })).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
+  expect((await within(card).findByRole("region", { name: "ace's review" })).textContent).toContain(
     "Action reaches outside the thread workspace",
   );
   expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
@@ -92,9 +99,12 @@ test("a request sent to the person waits on its step, then reads as their answer
 test("a request ace sent on says why, in the thread and in Activity", async () => {
   const app = await openAudit("/t/thread-release-audit");
   const card = await screen.findByRole("article", { name: "Run npm publish --dry-run?" });
-  const review = within(card).getByRole("region", { name: "ace's review" });
+  await userEvent.click(await within(card).findByRole("button", { name: "Details" }));
+  const review = await within(card).findByRole("region", { name: "ace's review" });
   expect(review.textContent).toContain("Command is not in the low-risk allowlist");
-  expect(within(review).getByText("npm publish --dry-run")).toBeTruthy();
+  // The command reads once, in the card's block, never again in the review.
+  expect(within(card).getAllByText("npm publish --dry-run")).toHaveLength(1);
+  expect(within(review).queryByText("npm publish --dry-run")).toBeNull();
   // Approved and denied requests never reached a person.
   expect(screen.queryByRole("article", { name: "Run rm -rf dist?" })).toBeNull();
 
@@ -105,9 +115,10 @@ test("a request ace sent on says why, in the thread and in Activity", async () =
     }),
   );
   const inActivity = await screen.findByRole("article", { name: /npm publish --dry-run/ });
-  expect(within(inActivity).getByRole("region", { name: "ace's review" }).textContent).toContain(
-    "Command is not in the low-risk allowlist",
-  );
-  await userEvent.click(within(inActivity).getByRole("button", { name: /Approve/ }));
+  await userEvent.click(within(inActivity).getByRole("button", { name: "Details" }));
+  expect(
+    (await within(inActivity).findByRole("region", { name: "ace's review" })).textContent,
+  ).toContain("Command is not in the low-risk allowlist");
+  await userEvent.click(within(inActivity).getByRole("button", { name: "Allow once" }));
   await waitFor(() => expect(app.daemon.isPending("thread-release-audit", "dry-run")).toBe(false));
 });

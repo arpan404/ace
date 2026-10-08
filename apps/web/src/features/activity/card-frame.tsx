@@ -26,7 +26,9 @@ const threadOf = (cardKey: string) =>
  */
 export function CardFrame(props: {
   cardKey: string;
+  /** The card's name, and its heading unless `heading` draws it. */
   title: string;
+  heading?: ReactNode;
   context: string;
   at: number;
   children: ReactNode;
@@ -67,7 +69,7 @@ export function CardFrame(props: {
         {threadId && <CardMenu threadId={threadId} focused={isFocused} />}
       </div>
       <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
-        {props.title}
+        {props.heading || props.title}
       </h3>
       {props.children}
     </article>
@@ -104,14 +106,6 @@ function CardMenu(props: { threadId: string; focused: boolean }) {
 
 export function useCardFocused(cardKey: string): boolean {
   return useActivityState().focused === cardKey;
-}
-
-export function CommandBlock(props: { command: string }) {
-  return (
-    <pre className="rounded-md bg-code px-3 py-[9px] font-mono text-sm leading-normal whitespace-pre-wrap text-foreground">
-      {props.command}
-    </pre>
-  );
 }
 
 /** Actions row: optional leading control, a spacer, then buttons. */

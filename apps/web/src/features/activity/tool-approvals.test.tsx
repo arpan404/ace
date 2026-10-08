@@ -108,7 +108,7 @@ test("a sensitive app's request says it asks again every turn", async () => {
 
   const card = await screen.findByRole("article", { name: "Let an agent use Keychain Access" });
   expect(within(card).getByText(/asks again every turn/)).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Allow, ask each turn" })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
 });
 
 test("Activity's card for an app request can't be approved by a reflex key, only denied", async () => {
@@ -128,7 +128,7 @@ test("Activity's card for an app request can't be approved by a reflex key, only
   expect(app.daemon.screen.access.list(threadId)).toEqual([]);
 });
 
-test("an agent asking for an app shows its reason and every scope, even in Auto-review, and the thread grant is what the daemon keeps", async () => {
+test("an agent asking for an app names the app, not its bundle id, answers in the shared verbs, and keeps the thread grant under Details", async () => {
   const app = harness();
   app.play(working).runUntilBlocked();
   await app.open(`/t/${threadId}`);
@@ -136,13 +136,15 @@ test("an agent asking for an app shows its reason and every scope, even in Auto-
 
   const card = await screen.findByRole("article", { name: "Let an agent use TextEdit" });
   expect(within(card).getByText("Compare the totals in the open sheet")).toBeTruthy();
-  expect(within(card).getByText("com.apple.TextEdit")).toBeTruthy();
+  expect(within(card).queryByText("com.apple.TextEdit")).toBeNull();
   expect(
     within(card)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["Allow this turn", "Allow for this thread", "Always allow", "Deny"]);
+  ).toEqual(["Allow once", "Always allow", "Deny", "Details"]);
 
+  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
+  expect(within(card).getByText("com.apple.TextEdit")).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Allow for this thread" }));
 
   await asked;

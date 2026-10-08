@@ -8,7 +8,7 @@ test("an approval is answered from Activity and leaves the needs-you list", asyn
     card.getByText("git push --force-with-lease origin fix/restart-retry"),
   ).toBeVisible();
 
-  await card.getByRole("button", { name: "Approve" }).click();
+  await card.getByRole("button", { name: "Allow once" }).click();
 
   await expect(card).toHaveCount(0);
   // The release dry-run that ace's risk policy sent on still needs you, with the other five.

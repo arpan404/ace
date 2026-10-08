@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useBrowserControls, type BrowserControl } from "@/lib/browser-control.ts";
-import { AppMark } from "./session-card.tsx";
+import { AppMark } from "@/components/app-mark.tsx";
 import { StopAllButton } from "./sections.tsx";
 import { useComputerUse, type ComputerUse } from "./use-computer-use.ts";
 
