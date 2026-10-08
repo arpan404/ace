@@ -4,7 +4,7 @@ import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failureMessage, waitingNote } from "@/lib/daemon-command.ts";
+import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
 import { useOrganizeOverlay } from "./overlay.ts";
 
@@ -73,6 +73,13 @@ type Organize = Extract<
       | "thread.move";
   }
 >;
+
+/** A delete the daemon refused, and whether it was refused only for work still running. */
+interface Refusal {
+  entry: ThreadTarget;
+  error: unknown;
+  live: boolean;
+}
 
 /** One organize action: what it shows at once, the command, and words for its list and toast. */
 interface Action {
@@ -206,23 +213,65 @@ export function useThreadActions(): ThreadActions {
       verb: "Restore",
       failed: "restore it",
     });
+    const deleteOne = (entry: ThreadTarget, force: boolean) =>
+      overlay
+        .run(
+          entry.id,
+          { deleted: true },
+          { type: "thread.delete", threadId: id(entry), ...(force ? { force } : {}) },
+          `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
+          Date.now(),
+        )
+        .then(
+          (): Refusal | undefined => undefined,
+          (error: unknown): Refusal => ({
+            entry,
+            error,
+            live: !force && error instanceof CommandRefused && stillAlive(error.alive),
+          }),
+        );
     /**
      * Delete each now: the permanent command goes out at once (to the durable outbox when
-     * offline), never waiting on a toast. There is no Undo; the caller asked first.
+     * offline), never waiting on a toast. There is no Undo; the caller asked first. Threads
+     * refused only because their agents or terminals are still running are offered together
+     * as one Stop and delete, which stops that work on the daemon and then deletes.
      */
-    const removeAll = (entries: readonly ThreadTarget[], done: (count: number) => string) => {
-      void Promise.all(
-        entries.map((entry) =>
-          act(entry, {
-            patch: { deleted: true },
-            payload: { type: "thread.delete", threadId: id(entry) },
-            verb: "Delete",
-            failed: "delete the thread",
-          }),
-        ),
-      ).then((deleted) => {
-        const removed = deleted.filter(Boolean).length;
+    const removeAll = (
+      entries: readonly ThreadTarget[],
+      done: (count: number) => string,
+      force = false,
+    ) => {
+      void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
+        const refused = outcomes.filter((outcome) => outcome !== undefined);
+        const removed = entries.length - refused.length;
         if (removed) toast.add({ title: done(removed) });
+        const live = refused.filter((refusal) => refusal.live);
+        for (const refusal of refused.filter((each) => !each.live))
+          toast.add({
+            title: force ? "Couldn't stop and delete the thread" : "Couldn't delete the thread",
+            description: failureMessage(refusal.error),
+          });
+        const only = live.length === 1 ? live[0] : undefined;
+        if (!live.length) return;
+        const toastId = toast.add({
+          title: only
+            ? `Couldn't delete · ${only.entry.title}`
+            : `Couldn't delete ${count(live.length)}`,
+          description: only
+            ? failureMessage(only.error)
+            : "Their agents or terminals are still running.",
+          actionProps: {
+            children: "Stop and delete",
+            onClick: () => {
+              toast.close(toastId);
+              removeAll(
+                live.map((refusal) => refusal.entry),
+                done,
+                true,
+              );
+            },
+          },
+        });
       });
     };
     const move = (entry: ThreadTarget, to: string): Action => {

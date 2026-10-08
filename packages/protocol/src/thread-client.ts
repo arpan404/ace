@@ -125,7 +125,7 @@ export const ThreadOrganizationCommands = [
       }),
   }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.delete"), threadId: ThreadId }),
+  z.object({ type: z.literal("thread.delete"), threadId: ThreadId, force: z.boolean().optional() }),
   z.object({
     type: z.literal("thread.pin"),
     threadId: ThreadId,

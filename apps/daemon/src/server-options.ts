@@ -39,6 +39,7 @@ export interface ServerOptions {
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   projects?: import("./projects.ts").Projects;
+  threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;

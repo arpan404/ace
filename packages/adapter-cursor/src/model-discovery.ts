@@ -7,10 +7,10 @@ export async function cursorModelsInHost(
   environmentKeyUsable: boolean | undefined,
 ): Promise<unknown> {
   try {
-    const status = await sdk.Cursor.auth.status();
     if (
       environmentKeyUsable === false ||
-      (environmentKeyUsable === undefined && status.status !== "logged-in")
+      (environmentKeyUsable === undefined &&
+        (await sdk.Cursor.auth.status()).status !== "logged-in")
     )
       throw Object.assign(new Error("Cursor SDK is not configured"), { code: "not_configured" });
     return await sdk.Cursor.models.list();

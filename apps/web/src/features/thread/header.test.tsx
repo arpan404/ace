@@ -655,9 +655,7 @@ test("deleting a thread with work still running from the ⋯ menu keeps it and s
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   expect(
-    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
-      timeout: 9_000,
-    }),
+    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
   ).toBeTruthy();
   expect(screen.getByRole("feed", { name: "Transcript" })).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "threads" });

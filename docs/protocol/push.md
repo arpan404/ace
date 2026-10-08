@@ -2192,6 +2192,7 @@ Example:
 | forkThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | health | no | [DiagnosticsHealth.json](schema/DiagnosticsHealth.json) |  |
 | error | no | string |  |
+| alive | no | object | {"properties":{"agentsRunning":{"type":"integer","minimum":0,"maximum":9007199254740991},"terminalsOpen":{"type":"integer","minimum":0,"maximum":9007199254740991},"operationsRunning":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["agentsRunning","terminalsOpen","operationsRunning"]} |
 | code | no | string |  |
 | title | no | string |  |
 | detail | no | string |  |
@@ -2208,39 +2209,19 @@ Example:
 ```json
 {
   "commandId": "example",
-  "commit": "ccd80c2e741fd229634d7f0d59e62526e2ab5b2ab314732af18b9f480",
-  "detail": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
-  },
+  "commit": "b4ccd80c2e741fd229634d7f0d59e62526e2ab5b2ab314732af18b9f48004ada",
   "ok": true,
-  "prStatus": {
-    "checks": [],
-    "ci": "unknown",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "conflicting",
-    "raw": null,
-    "ref": {
-      "number": 7,
-      "repository": {
-        "forge": "gitlab",
-        "host": "R",
-        "name": "R40ihU56w",
-        "owner": "G6DF"
-      }
-    },
-    "reviewThreads": [],
-    "state": "merged",
-    "title": "example",
-    "url": "example"
+  "pr": {
+    "number": 7,
+    "repository": {
+      "forge": "gitlab",
+      "host": "R",
+      "name": "R40ihU56w",
+      "owner": "G6DF"
+    }
   },
   "threadId": "example",
+  "title": "example",
   "type": "commandResult",
   "workspace": {
     "id": "example",
@@ -2269,7 +2250,6 @@ Example:
   "code": "example",
   "commandId": "example",
   "message": "example",
-  "retryable": true,
   "type": "error"
 }
 ```
@@ -2292,8 +2272,8 @@ Example:
 {
   "bytes": "example",
   "eof": true,
-  "nextOffset": 8,
-  "offset": 9,
+  "nextOffset": 7,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2317,9 +2297,9 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 9,
   "requestId": "example",
-  "seq": 9,
+  "seq": 4,
   "threadId": "example",
   "type": "items.page"
 }

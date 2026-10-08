@@ -128,16 +128,17 @@ test("Archive takes effect on the daemon at once and Undo unarchives it", async 
   expect(archivedAt()).toBeUndefined();
 });
 
-test("a thread the daemon won't delete stays in the list and says why", async () => {
-  await openHome();
+test("a running thread refused for delete stays listed, says what runs, and Stop and delete removes it", async () => {
+  const app = await openHome();
   const menu = await rightClick(/Dedupe thread events/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
   expect(
-    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
-      timeout: 9_000,
-    }),
+    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
   ).toBeTruthy();
   await waitFor(() => expect(card(/Dedupe thread events/)).toBeTruthy());
+  await userEvent.click(screen.getByRole("button", { name: "Stop and delete" }));
+  await waitFor(() => expect(card(/Dedupe thread events/)).toBeNull());
+  await waitFor(() => expect(onDaemon(app, "thread-dedupe")).toBe(false));
 }, 15_000);
 
 test("New thread on main starts a thread in the same project", async () => {
