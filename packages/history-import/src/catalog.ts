@@ -329,22 +329,17 @@ export class Catalog {
   }
   list(input: z.infer<typeof HistoryListRequest>) {
     const { cwd, limit, before, search, openableOnly } = HistoryListRequest.parse(input);
-    const rows = before
-      ? this.readStatement(
-          `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?`,
-        ).all(
-          cwd,
-          openableOnly ? 1 : 0,
-          search ?? "",
-          search ?? "",
-          before.lastActivity,
-          before.lastActivity,
-          before.id,
-          limit + 1,
-        )
-      : this.readStatement(
-          `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) ORDER BY activity DESC,id DESC LIMIT ?`,
-        ).all(cwd, openableOnly ? 1 : 0, search ?? "", search ?? "", limit + 1);
+    const cursor = before ? " AND (activity<? OR (activity=? AND id<?))" : "";
+    const rows = this.readStatement(
+      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl'))${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
+    ).all(
+      cwd,
+      openableOnly ? 1 : 0,
+      search ?? "",
+      search ?? "",
+      ...(before ? [before.lastActivity, before.lastActivity, before.id] : []),
+      limit + 1,
+    );
     const sessions = rows.slice(0, limit).map((r) =>
       HistorySession.parse({
         ...this.displaySummary(String(r.summary)),

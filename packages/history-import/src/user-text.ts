@@ -1,5 +1,19 @@
 import { object, string } from "@ace/native-session";
 
+const contextTags = [
+  "recommended_plugins",
+  "local-command-caveat",
+  "local-command-stdout",
+  "environment_context",
+  "user_instructions",
+  "system-reminder",
+  "skills_instructions",
+  "plugins_instructions",
+  "command-name",
+  "command-message",
+];
+const contextBlocks = new RegExp(`<(${contextTags.join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, "g");
+
 /** Remove the context envelopes saved by CLIs and IDEs, before truncating display text. */
 export function sanitizeUserText(value: string): string {
   let text = value.trim();
@@ -13,6 +27,8 @@ export function sanitizeUserText(value: string): string {
     const opening = /^<([\w][\w:-]*)(?:\s[^>]*)?>/.exec(text);
     if (!opening) break;
     const tag = opening[1];
+    // Other XML belongs to the person, including incomplete examples.
+    if (tag !== "command-args" && !contextTags.includes(tag ?? "")) break;
     const tokens = new RegExp(`<(/?)${tag}(?:\\s[^>]*)?>`, "g");
     let depth = 0;
     let end = 0;
@@ -30,10 +46,7 @@ export function sanitizeUserText(value: string): string {
     text = text.trimStart();
   }
   text = text
-    .replace(
-      /<(recommended_plugins|local-command-caveat|local-command-stdout|environment_context|user_instructions|system-reminder|skills_instructions|plugins_instructions|command-name|command-message)\b[^>]*>[\s\S]*?<\/\1>/g,
-      "",
-    )
+    .replace(contextBlocks, "")
     .replace(/^\/(?:[\w-]+)(?:\s|$)/, "")
     .replace(/\[(?:Image|Attachment)\s*\d+(?:[^\]]*)\]/gi, "")
     .replace(/^\s*(?:\[?Attached (?:image|file|screenshot)[^\n]*|<image>)[\n]?/gi, "")

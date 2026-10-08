@@ -48,6 +48,27 @@ test.each([
   expect(sanitizeUserText(raw)).toBe(expected);
 });
 
+test.each([
+  "<config><retry>3</retry></config>",
+  "<config>Keep the unfinished example",
+  "<command-args><config>Keep this XML</config></command-args>",
+])("History lists and imports user XML after injected context: %s", async (prompt) => {
+  const env = await environment();
+  cleanup.push(env.close);
+  const home = join(env.root, "claude");
+  const path = join(home, "projects/p", nativeId + ".jsonl");
+  await jsonl(path, claudeRecords(plugins + "\n" + prompt));
+  const service = await env.start([{ id: "claude", provider: "claude", homeDir: home }]);
+  await service.scan();
+  const root = (await service.list({ type: "history.list", cwd, openableOnly: true })).sessions[0];
+  expect(root?.nativeId).toBe(nativeId);
+  if (!root) throw new Error("Missing user XML session");
+  const sink = memorySink();
+  await service.importSession(init(root.id), sink);
+  const expected = prompt.startsWith("<command-args>") ? "<config>Keep this XML</config>" : prompt;
+  expect(text(sink.items)).toBe(`${expected} answer`);
+});
+
 test("Claude summaries take priority, context-only and sidechain sessions stay hidden, and imported prompts are cleaned", async () => {
   const env = await environment();
   cleanup.push(env.close);
