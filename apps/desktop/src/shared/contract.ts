@@ -73,6 +73,26 @@ export const EditorIconImage = z
   .max(2_000_000)
   .nullable();
 
+/** Arbitrary installed apps, resolved by the system's bundle-id registry. */
+export const AppIdentityRequest = z.object({
+  bundleId: z
+    .string()
+    .min(1)
+    .max(256)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9.-]*$/),
+});
+export const AppIdentity = z
+  .object({
+    bundleId: AppIdentityRequest.shape.bundleId,
+    displayName: z.string().min(1).max(256),
+    icon: z
+      .string()
+      .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/)
+      .max(128 * 1024)
+      .nullable(),
+  })
+  .nullable();
+
 export const NotifyRequest = z.object({
   title: z.string().min(1).max(200),
   body: z.string().max(1000).default(""),
