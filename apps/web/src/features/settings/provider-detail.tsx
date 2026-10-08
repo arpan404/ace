@@ -112,10 +112,16 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             <ReadinessAction provider={install.kind} name={install.name} view={view} />
           </div>
         )}
-        <ProviderPreferences provider={install.kind} />
-        <Suspense fallback={null}>
-          <DeferredProviderCli.Component key={props.entry.id} install={install} missing={missing} />
-        </Suspense>
+        <ProviderPreferences provider={install.kind} missing={missing} />
+        {install.kind !== "cursor" && (
+          <Suspense fallback={null}>
+            <DeferredProviderCli.Component
+              key={props.entry.id}
+              install={install}
+              missing={missing}
+            />
+          </Suspense>
+        )}
         {!missing && (
           <>
             {upstreams && row && (

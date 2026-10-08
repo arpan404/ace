@@ -19,7 +19,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useAccountViews, WindowBar } from "@/features/accounts/index.ts";
-import { preloadSignIn, useSignIn } from "@/features/sign-in/index.ts";
+import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
 import { AddAccount } from "./add-provider-account.tsx";
 import {
   apiKeyUpstreamLabel,
@@ -77,6 +77,7 @@ function AccountItem(props: {
   const { account } = props;
   const now = useNow();
   const signIn = useSignIn();
+  const keyLogin = useInlineSignIn();
   const actions = useAccountActions();
   const toast = useToast();
   const [renaming, setRenaming] = useState(false);
@@ -143,7 +144,7 @@ function AccountItem(props: {
                           <MenuItem
                             key={upstream}
                             onClick={() =>
-                              signIn({
+                              keyLogin.start({
                                 provider,
                                 ...(account.implicit ? {} : { instance: account.id }),
                                 method: "api_key",
@@ -159,7 +160,7 @@ function AccountItem(props: {
                 ) : (
                   <MenuItem
                     onClick={() =>
-                      signIn({
+                      keyLogin.start({
                         provider,
                         ...(account.implicit ? {} : { instance: account.id }),
                         method: "api_key",
@@ -193,6 +194,7 @@ function AccountItem(props: {
           </Menu>
         )}
       </div>
+      {keyLogin.content}
       {account.windows.length > 0 && (
         <div className="grid gap-x-6 gap-y-2 py-2 text-sm sm:grid-cols-2">
           {account.windows.map((window) => (

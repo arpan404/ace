@@ -20,7 +20,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useSeconds } from "@/lib/time.ts";
 import type { Pairing } from "./data/backend.ts";
-import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
+import { settingsQueries, useSettingsBackend, useRemoteStatus } from "./data/use-settings.ts";
 
 type Access = "operate" | "read" | "admin";
 const accessOptions: { value: Access; label: string }[] = [
@@ -50,6 +50,8 @@ export function countdown(expiresAt: number, now: number): string {
  */
 export function PairDevice() {
   const backend = useSettingsBackend();
+  const remote = useRemoteStatus();
+  const reachable = remote.data?.enabled && ["lan", "tailscale"].includes(remote.data.transport);
   const queries = useQueryClient();
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<Access>("operate");
@@ -93,8 +95,14 @@ export function PairDevice() {
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>
           <DialogDescription>
-            The link works once and expires after five minutes. Turn on LAN or Tailscale access
-            before pairing.
+            The link works once and expires after five minutes.{" "}
+            {reachable
+              ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
+              : remote.isError
+                ? "Couldn't check remote access. Reconnect and try again."
+                : !remote.data
+                  ? "Checking remote access…"
+                  : "Turn on LAN or Tailscale access before pairing."}
           </DialogDescription>
         </DialogHeader>
         {paired ? (
@@ -152,7 +160,7 @@ export function PairDevice() {
               </Button>
               <Button
                 variant="primary"
-                disabled={pair.isPending}
+                disabled={pair.isPending || !reachable}
                 onClick={() => pair.mutate(granted)}
               >
                 Show pairing code

@@ -1,7 +1,7 @@
 import { PastSessions } from "@/features/history/index.ts";
 import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { useClient } from "@ace/client-react";
-import { providerNames, readinessView } from "@ace/ui-core";
+import { providerNames } from "@ace/ui-core";
 import { ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
-import { useCatalogSignals } from "@/lib/provider-signals.ts";
+import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { MissingRow, ProviderRow } from "./provider-card.tsx";
@@ -29,7 +29,7 @@ export function SetupScreen() {
   const navigate = useNavigate();
   const onboarding = useOnboarding();
   const projects = useProjectDialogs();
-  const signals = useCatalogSignals();
+  const { model } = useProviderAccountModels();
   const [checking, setChecking] = useState(false);
   const leave = (to: "/") => {
     void dismissOnboarding(client, queryClient, true);
@@ -50,7 +50,10 @@ export function SetupScreen() {
   // report its sign-in works: ready when it lists models.
   const cards = (data?.providers ?? [])
     .filter((row) => row.provider !== "acp")
-    .map((row) => ({ row, view: readinessView(row, signals(row.provider)) }));
+    .flatMap((row) => {
+      const view = model(row.provider).view;
+      return view ? [{ row, view }] : [];
+    });
   const installed = cards.filter((card) => card.view.state !== "not_installed");
   const missing = cards.filter((card) => card.view.state === "not_installed");
   const readyNames = installed

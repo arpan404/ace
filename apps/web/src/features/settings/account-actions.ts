@@ -1,3 +1,4 @@
+import { apiKeyServiceLabel } from "@ace/ui-core";
 import { useClient } from "@ace/client-react";
 import type { ApiKeyUpstream, ProviderKind } from "@ace/protocol";
 import { NativeAccountProvider } from "@ace/protocol/accounts";
@@ -64,12 +65,6 @@ export function useApiKeySupport(provider: ProviderKind) {
   });
 }
 
-const upstreamLabels = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  openrouter: "OpenRouter",
-  opencode: "OpenCode",
-};
 export function apiKeyUpstreamLabel(upstream: z.infer<typeof ApiKeyUpstream>): string {
-  return upstreamLabels[upstream];
+  return apiKeyServiceLabel("opencode", upstream);
 }

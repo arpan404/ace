@@ -55,7 +55,10 @@ export function useProviderAccountModels(options: { enabled?: boolean; refreshMs
       accounts: accounts.data,
       now,
       row: readiness.data?.find((row) => row.provider === provider),
-      catalog: signals(provider),
+      catalog: signals(
+        provider,
+        readiness.data?.find((row) => row.provider === provider)?.instanceId,
+      ),
     });
   return { accounts, model };
 }

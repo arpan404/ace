@@ -1,4 +1,10 @@
 import { useClient, useConnectionState } from "@ace/client-react";
+import { ProviderKind } from "@ace/protocol";
+import { providerNames } from "@ace/ui-core";
+import { StatusLine } from "@/components/provider-tile.tsx";
+import { useProviderAccountModels } from "@/features/accounts/index.ts";
+import { refreshProviders } from "@/lib/provider-readiness.ts";
+import { useQueryClient } from "@tanstack/react-query";
 import type { DiagnosticReport } from "@ace/protocol";
 import { useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -22,16 +28,11 @@ const checks: Record<string, { label: string; fix: string }> = {
     fix: "Install OpenSSL to use secure remote connections.",
   },
 };
-const providers: Record<string, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-};
 
 export function RunChecks() {
   const client = useClient();
+  const queries = useQueryClient();
+  const { model } = useProviderAccountModels();
   const ready = useConnectionState() === "ready";
   const [report, setReport] = useState<DiagnosticReport>();
   const [running, setRunning] = useState(false);
@@ -45,6 +46,8 @@ export function RunChecks() {
         { timeoutMs: 30_000 },
       );
       if (!result.report || result.error) throw new Error();
+      await client.request({ type: "providers.request", operation: "refresh" });
+      refreshProviders(queries);
       setReport(result.report);
     } catch {
       setError("Couldn't finish the checks. Reconnect to this computer and try again.");
@@ -68,32 +71,38 @@ export function RunChecks() {
       {report && (
         <ul aria-label="Check results" className="divide-y">
           {report.checks.map((check) => {
-            const provider = check.id.startsWith("provider.")
-              ? providers[check.id.slice(9)]
-              : undefined;
+            const parsed = ProviderKind.safeParse(check.id.slice(9));
+            const kind =
+              check.id.startsWith("provider.") && parsed.success ? parsed.data : undefined;
+            const provider = kind && providerNames[kind];
+            const view = kind && model(kind).view;
             const info = checks[check.id];
             return (
               <li key={check.id}>
                 <div className="flex h-8 items-center justify-between gap-2 text-sm">
                   <span>{provider ?? info?.label ?? "Additional check"}</span>
-                  <StatusLabel
-                    tone={
-                      check.status === "ok"
-                        ? "done"
-                        : check.status === "warn"
-                          ? "waiting"
-                          : "failed"
-                    }
-                    label={
-                      check.status === "ok"
-                        ? "Passed"
-                        : check.status === "warn"
-                          ? "Needs attention"
-                          : "Needs a fix"
-                    }
-                  />
+                  {kind ? (
+                    <StatusLine tone={view?.tone ?? "idle"} text={view?.summary ?? "Checking…"} />
+                  ) : (
+                    <StatusLabel
+                      tone={
+                        check.status === "ok"
+                          ? "done"
+                          : check.status === "warn"
+                            ? "waiting"
+                            : "failed"
+                      }
+                      label={
+                        check.status === "ok"
+                          ? "Passed"
+                          : check.status === "warn"
+                            ? "Needs attention"
+                            : "Needs a fix"
+                      }
+                    />
+                  )}
                 </div>
-                {check.status !== "ok" && (
+                {(kind ? view && !view.ready : check.status !== "ok") && (
                   <p className="pb-2 text-sm text-muted-foreground">
                     {provider
                       ? `Open Settings › Providers to check ${provider}'s installation and sign-in.`

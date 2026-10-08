@@ -1,5 +1,5 @@
 import type { ProviderLoginProgress } from "@ace/protocol";
-import { serviceInfo, signInSteps } from "@ace/ui-core";
+import { serviceInfo, signInSteps, apiKeyServiceLabel } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { ProviderTile } from "@/components/provider-tile.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -130,7 +130,7 @@ export function LoginBody(props: {
       return (
         <Step key={key}>
           <ApiKeyStep
-            name={name}
+            name={apiKeyServiceLabel(login.target.provider, login.target.upstream)}
             disabled={view.sending}
             onSubmit={(apiKey) => login.submitApiKey(apiKey)}
             onCancel={() => login.cancel()}

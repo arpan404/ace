@@ -40,3 +40,25 @@ test("the chosen access shows above the code, and Change goes back to choose aga
   await userEvent.click(within(dialog).getByRole("button", { name: "Change" }));
   expect(within(dialog).getByRole("button", { name: "Show pairing code" })).toBeTruthy();
 });
+
+test("pairing explains the actual Tailscale listener instead of asking to enable it again", async () => {
+  await harness().open("/settings/remote");
+  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  expect(
+    await within(dialog).findByText(/Connect your device to your Tailscale network to pair/),
+  ).toBeTruthy();
+  expect(within(dialog).queryByText(/Turn on LAN or Tailscale/)).toBeNull();
+});
+
+test("remote access off explains the missing listener and prevents making an unusable code", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({ "remote.enabled": false });
+  await app.open("/settings/remote");
+  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  expect(await within(dialog).findByText(/Turn on LAN or Tailscale/)).toBeTruthy();
+  expect(
+    within(dialog).getByRole<HTMLButtonElement>("button", { name: "Show pairing code" }).disabled,
+  ).toBe(true);
+});

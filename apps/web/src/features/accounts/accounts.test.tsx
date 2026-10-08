@@ -29,7 +29,7 @@ test("an account whose CLI reports no usage says so instead of showing an empty 
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/accounts");
-  const opencode = await card("OpenCode Default (your CLI login)");
+  const opencode = await card("OpenCode Work");
   expect(within(opencode).queryByRole("meter")).toBeNull();
   expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
 });
@@ -132,7 +132,7 @@ test("usage shows a bar per day of the chosen range and totals by model", async 
     .getAllByRole("row")
     .slice(1)
     .map((row) => within(row).getAllByRole("cell")[0]?.textContent);
-  expect(models[0]).toBe("claude-opus-4-6");
+  expect(models[0]).toBe("Opus 4.6");
   expect(models).toHaveLength(6);
 });
 

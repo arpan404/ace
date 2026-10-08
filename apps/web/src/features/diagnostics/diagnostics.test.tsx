@@ -10,7 +10,7 @@ test("Run checks shows results and a next step for an agent needing attention", 
   const results = await screen.findByRole("list", { name: "Check results" });
   expect(within(results).getAllByText("Passed")).toHaveLength(3);
   expect(within(results).getByText("Needs attention")).toBeTruthy();
-  expect(within(results).getByText(/Open Settings › Providers to check Claude Code/)).toBeTruthy();
+  expect(within(results).getByText(/Open Settings › Providers to check Cursor/)).toBeTruthy();
 });
 test("support export excludes conversations by default and downloads the chosen contents", async () => {
   const app = harness({ throughWorker: true });

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
+  catalogModelNames,
   formatApiPrice,
   formatTokens,
   formatUsd,
@@ -13,6 +14,7 @@ import {
   usageDay,
 } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { ProviderKind } from "@ace/protocol";
@@ -115,6 +117,8 @@ export function UsageSection() {
   const byModel = useModelUsage(span);
   const byAccount = useAccountUsage(span, group === "account");
   const accounts = useAccountViews();
+  const catalog = useModelCatalog();
+  const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const reported = useReportedCosts(span);
   const sessionCosts = reported.data?.sessions.byProvider;
   const grouped = group === "model" ? byModel : byAccount;
@@ -127,9 +131,9 @@ export function UsageSection() {
       return {
         model:
           group === "model"
-            ? (row.dimensions.model ?? "Not reported")
+            ? modelName(provider ?? "", row.dimensions.model)
             : account
-              ? (labels.get(account) ?? account)
+              ? (labels.get(account) ?? "Other account")
               : "Not attributed",
         provider: providerLabel(provider),
         tokens: formatTokens(cost.tokens),
@@ -142,7 +146,7 @@ export function UsageSection() {
         apiPrice: formatApiPrice(cost.apiPrice),
       };
     });
-  }, [grouped.data, group, accounts.data, sessionCosts]);
+  }, [grouped.data, group, accounts.data, sessionCosts, modelName]);
   const rows = daily.data?.rows ?? [];
   const total = rows.reduce((sum, row) => sum + tokens(row.totals), 0);
   const subscription = rows.reduce((sum, row) => sum + row.totals.subscriptionTokens, 0);
@@ -261,7 +265,7 @@ function ReadFailed(props: { retry: () => void; children: ReactNode; className?:
 /** One figure; a skeleton until its value has loaded. */
 function Stat(props: { label: string; value: string | undefined; note?: string | undefined }) {
   return (
-    <div className="rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]">
+    <div className="py-2">
       <dt className="text-xs font-medium text-subtle-foreground">{props.label}</dt>
       <dd className="mt-1 text-xl font-semibold tracking-title tabular-nums">
         {props.value ?? <Skeleton className="my-1.5 h-4 w-16" />}
