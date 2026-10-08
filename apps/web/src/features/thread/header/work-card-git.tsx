@@ -6,7 +6,6 @@ import {
   GitDiffIcon,
   GitPullRequestIcon,
   LinkIcon,
-  PaperPlaneTiltIcon,
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
@@ -14,11 +13,11 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useThreadDiffStat } from "@/lib/diffs/use-turns.ts";
+import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { useGitFlow } from "./use-git-flow.tsx";
-import { Fade, RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
+import { RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -30,31 +29,31 @@ const glyph = (Glyph: typeof GitCommitIcon) => <Glyph aria-hidden size={16} />;
  */
 export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose(): void }) {
   const workspace = useWorkspaceActions(props.thread.id);
-  const stat = useThreadDiffStat(props.thread.id);
+  const { stat, label, pending } = useScopedDiff(props.thread.id);
   const edited = stat.additions + stat.deletions > 0;
   return (
     <section aria-label="Changes and branch">
       <RowButton
-        aria-label={`Changes: ${edited ? `${stat.additions} added, ${stat.deletions} removed` : "no edits yet"}`}
+        aria-label={`Changes, ${label.toLowerCase()}: ${edited ? `${stat.additions} added, ${stat.deletions} removed` : pending ? "preparing changes" : "no edits yet"}`}
         onClick={() => {
           workspace.open({ kind: "changes" });
           props.onClose();
         }}
       >
         <GitDiffIcon aria-hidden size={16} className={rowIcon} />
-        <span className="min-w-0 flex-1 truncate">Changes</span>
+        <span className="min-w-0 flex-1 truncate">Changes · {label}</span>
         {edited ? (
           <DiffStat {...stat} className="text-xs" />
         ) : (
-          <span className="text-xs text-subtle-foreground">No edits yet</span>
+          <span className="text-xs text-subtle-foreground">
+            {pending ? "Preparing changes" : "No edits yet"}
+          </span>
         )}
       </RowButton>
       <BranchRow git={props.git} onClose={props.onClose} />
     </section>
   );
 }
-
-const shortSha = (head: string | null) => head?.slice(0, 7);
 
 function BranchRow(props: { git: GitFlow; onClose(): void }) {
   const { checkout, state } = props.git;
@@ -80,7 +79,6 @@ function BranchRow(props: { git: GitFlow; onClose(): void }) {
       </RowNote>
     );
   const branch = checkout.branch ?? "detached HEAD";
-  const sha = shortSha(checkout.head);
   const status =
     checkout.changed > 0
       ? `${checkout.changed} uncommitted`
@@ -90,20 +88,19 @@ function BranchRow(props: { git: GitFlow; onClose(): void }) {
   return (
     <div className="flex h-8 items-center gap-2.5 pr-1 pl-2.5 text-ui">
       <GitBranchIcon aria-hidden size={16} className={rowIcon} />
-      <Fade>
-        <span>{branch}</span>
-        {sha && <span className="font-mono text-xs text-subtle-foreground"> {sha}</span>}
-        {status && <span className="text-subtle-foreground"> · {status}</span>}
-      </Fade>
+      <Tip label={`${branch}${status ? ` · ${status}` : ""}`}>
+        <span className="min-w-0 flex-1 truncate">{branch}</span>
+      </Tip>
+      {status && <span className="shrink-0 text-xs text-subtle-foreground">{status}</span>}
       <NextStep git={git} checkout={checkout} />
       <GitMenu git={git} checkout={checkout} />
     </div>
   );
 }
 
-/** The next git step: a quiet pill, so it reads as the row's one action. */
+/** The branch row's next action. */
 const stepButton =
-  "focus-ring inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/5 px-2.5 text-sm font-medium transition-colors duration-(--dur-1) hover:bg-foreground/8 disabled:text-muted-foreground";
+  "focus-ring inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2.5 text-sm font-medium transition-colors duration-(--dur-1) hover:bg-accent disabled:text-muted-foreground";
 
 /** The one git step that moves the branch on: commit (and push), push, or open a PR. */
 function NextStep(props: { git: GitFlow; checkout: Checkout }) {
@@ -149,7 +146,6 @@ function NextStep(props: { git: GitFlow; checkout: Checkout }) {
 
 function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
   const { git, checkout } = props;
-  const nothing = checkout.changed === 0 ? "Nothing uncommitted" : undefined;
   return (
     <Menu>
       <MenuTrigger
@@ -158,22 +154,6 @@ function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
         }
       />
       <MenuContent align="end" className="w-[240px]">
-        <MenuItem
-          icon={glyph(GitCommitIcon)}
-          disabled={!!nothing || git.pending}
-          reason={nothing}
-          onClick={() => git.open("commit")}
-        >
-          Commit…
-        </MenuItem>
-        <MenuItem
-          icon={glyph(PaperPlaneTiltIcon)}
-          disabled={!!nothing || git.pending}
-          reason={nothing}
-          onClick={() => git.open("commit-push")}
-        >
-          Commit &amp; push…
-        </MenuItem>
         <MenuItem
           icon={glyph(UploadSimpleIcon)}
           disabled={!checkout.branch || git.pending}

@@ -1,9 +1,7 @@
 import { useThreadMeta } from "@ace/client-react";
-import { baseRecordText } from "@ace/ui-core";
 import type { ThreadStatus } from "@ace/protocol";
 import {
   ArrowsSplitIcon,
-  CaretDownIcon,
   CheckIcon,
   CopyIcon,
   DotsThreeIcon,
@@ -17,9 +15,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
   MenuContent,
-  MenuGroup,
   MenuItem,
-  MenuLabel,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -31,7 +27,6 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
-import { rowIcon } from "./work-card-parts.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
 
@@ -46,9 +41,7 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
 ]);
 
 /**
- * The environment menu: where the thread runs (local checkout or its own worktree, the
- * folder, branch, commit and machine), then what changes it where the daemon can (switch
- * branch, move to a worktree) and the folder's own actions. What can't be done now stays listed,
+ * Checkout actions: switch branch, move to a worktree and open the folder. What can't be done now stays listed,
  * disabled, with the reason.
  */
 function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
@@ -68,54 +61,9 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
   const worktreeReason =
     noCheckout ?? (checkout?.mode === "worktree" ? "Already in a worktree of its own" : live);
   const switchReason = noCheckout ?? live;
-  // The same facts, in the same words, as the composer's environment card.
   const worktree = checkout?.mode === "worktree";
-  const facts: [string, string | undefined][] = [
-    ["Runs in", checkout ? (worktree ? "Its own worktree" : "Local checkout") : undefined],
-    ["Branch", checkout ? (checkout.branch ?? "detached HEAD") : undefined],
-    [
-      "Started from",
-      worktree
-        ? details?.base
-          ? baseRecordText(details.base).text
-          : checkout?.baseBranch
-        : undefined,
-    ],
-    ["Commit", checkout?.head?.slice(0, 7)],
-    ["Path", path],
-    ["Machine", details?.machine ? details.machine.name || details.machine.host : undefined],
-  ];
   return (
     <>
-      <MenuGroup>
-        <MenuLabel>Environment</MenuLabel>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 px-2 pb-1.5 text-sm">
-          {facts.flatMap(([label, value]) =>
-            value
-              ? [
-                  <dt key={`${label}-term`} className="text-subtle-foreground">
-                    {label}
-                  </dt>,
-                  <dd
-                    key={label}
-                    title={value}
-                    className={
-                      label === "Path" ||
-                      label === "Branch" ||
-                      label === "Commit" ||
-                      label === "Started from"
-                        ? "truncate font-mono text-foreground"
-                        : "truncate text-foreground"
-                    }
-                  >
-                    {value}
-                  </dd>,
-                ]
-              : [],
-          )}
-        </dl>
-      </MenuGroup>
-      <MenuSeparator />
       {switchReason ? (
         <MenuItem icon={glyph(ArrowsSplitIcon)} disabled reason={switchReason}>
           Switch branch
@@ -129,7 +77,7 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
             className="max-h-[min(360px,var(--available-height))] overflow-y-auto"
           >
             {branches.length === 0 ? (
-              <MenuItem disabled reason="They show here once the daemon has read them">
+              <MenuItem disabled reason="Branches appear here once the checkout has been read">
                 Loading branches
               </MenuItem>
             ) : (
@@ -208,7 +156,7 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
   );
 }
 
-/** The environment menu on whatever opens it: the project's ⋯, or the environment row. */
+/** The project's checkout actions. */
 function EnvironmentMenu(props: {
   thread: ThreadRef;
   trigger: ReactElement;
@@ -225,29 +173,14 @@ function EnvironmentMenu(props: {
   );
 }
 
-/**
- * The card's head: the project's name with its ⋯, then where the thread runs ("Worktree · This
- * Mac"), both opening the environment menu.
- */
+/** The project's name and checkout actions. Environment details live in the composer. */
 export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
-  const { checkout } = useCheckoutState(props.thread);
-  const details = meta?.details;
-  const worktree = (checkout?.mode ?? details?.mode) === "worktree";
-  const place = worktree ? "Worktree" : "Local";
-  const machine = details?.machine ? details.machine.name || details.machine.host : undefined;
-  // The composer's environment pill draws the same place with the same glyph.
-  const Glyph = worktree ? GitForkIcon : LaptopIcon;
   return (
     <>
       <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
-        <h2
-          className="min-w-0 flex-1 truncate text-ui text-subtle-foreground"
-          title={details?.worktree ?? details?.workspace?.path}
-        >
-          {project}
-        </h2>
+        <h2 className="min-w-0 flex-1 truncate text-ui text-subtle-foreground">{project}</h2>
         <EnvironmentMenu
           thread={props.thread}
           move={props.move}
@@ -257,29 +190,6 @@ export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; o
           }
         />
       </div>
-      <EnvironmentMenu
-        thread={props.thread}
-        move={props.move}
-        onClose={props.onClose}
-        trigger={
-          <button
-            type="button"
-            aria-label={`Where this thread runs: ${place}${machine ? ` on ${machine}` : ""}`}
-            className="focus-ring-inset flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-ui text-foreground transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent"
-          >
-            <Glyph aria-hidden size={16} className={rowIcon} />
-            <span className="shrink-0">{place}</span>
-            {machine && (
-              <span className="min-w-0 flex-1 truncate text-subtle-foreground">{machine}</span>
-            )}
-            <CaretDownIcon
-              aria-hidden
-              size={12}
-              className="ml-auto shrink-0 text-subtle-foreground"
-            />
-          </button>
-        }
-      />
     </>
   );
 }

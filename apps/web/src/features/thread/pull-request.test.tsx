@@ -223,10 +223,10 @@ test("a forge refusal reads as a sentence with its fix, not its code", async () 
   app.daemon.refuseCommands("forge_auth", "forge.pr.merge");
   const popover = await openPr();
   await userEvent.click(await within(popover).findByRole("button", { name: "Squash and merge" }));
-  const [title] = await screen.findAllByText("Couldn't merge");
-  const toast = title?.parentElement;
-  expect(toast?.textContent).toContain("Sign in to GitHub: run gh auth login, then retry.");
-  expect(toast?.querySelector("code")?.textContent).toBe("gh auth login");
+  expect(await screen.findAllByText("Couldn't merge")).not.toHaveLength(0);
+  expect(await screen.findAllByText(/Sign in to GitHub: run/)).not.toHaveLength(0);
+  expect(await screen.findAllByText("gh auth login")).not.toHaveLength(0);
+  expect(await screen.findAllByText(/, then retry\./)).not.toHaveLength(0);
 });
 
 test("a GitLab checkout says merge requests aren't supported before anything is tried", async () => {
@@ -265,14 +265,13 @@ test("switching branch with uncommitted changes offers to bring them along", asy
 test("a thread in its own worktree moves back to the local checkout", async () => {
   const app = await withPr(undefined, { mode: "worktree", worktree: "/fake/worktrees/thread-pr" });
   const card = await openCard();
-  await userEvent.click(
-    within(card).getByRole("button", { name: "Where this thread runs: Worktree on This Mac" }),
-  );
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  expect(
-    await within(card).findByRole("button", { name: "Where this thread runs: Local on This Mac" }),
-  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(screen.getByRole("button", { name: /^Environment:/ }));
+  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
+  expect(within(environment).getByText("Local checkout")).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });

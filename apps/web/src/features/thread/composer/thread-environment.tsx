@@ -1,13 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText } from "@ace/ui-core";
-import {
-  ArrowSquareOutIcon,
-  CopyIcon,
-  GitForkIcon,
-  LaptopIcon,
-  WarningIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { CopyIcon, GitForkIcon, LaptopIcon, WarningIcon, XIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -18,7 +11,7 @@ import { AttachedCard } from "./attached-card.tsx";
 /**
  * Where a thread runs, attached to the composer: its own worktree or the local checkout, the
  * branch and how far it is from its upstream, what a worktree started from (and whether the
- * remote could be reached then), the path, the machine and the PR. The daemon fixes the place
+ * remote could be reached then), the path and the machine. The daemon fixes the place
  * when the thread starts, so this reports it; the path can be copied.
  */
 export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; onClose(): void }) {
@@ -26,7 +19,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
   const details = useThreadMeta(props.thread.id)?.details;
   const toast = useToast();
   const worktree = checkout?.mode === "worktree";
-  const path = details?.worktree;
+  const path = details?.worktree ?? details?.workspace?.path;
   const base = details?.base ? baseRecordText(details.base) : undefined;
   const sync = checkout
     ? [
@@ -81,6 +74,11 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
               {sync && <span className="text-subtle-foreground"> · {sync}</span>}
             </Row>
           )}
+          {checkout?.head && (
+            <Row term="Commit">
+              <span className="font-mono">{checkout.head.slice(0, 7)}</span>
+            </Row>
+          )}
           {worktree && (base || checkout?.baseBranch) && (
             <Row term="Started from">
               <span className="block font-mono">{base?.text ?? checkout?.baseBranch}</span>
@@ -109,19 +107,6 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
           )}
           {details?.machine && (
             <Row term="Machine">{details.machine.name || details.machine.host}</Row>
-          )}
-          {checkout?.pr?.url && (
-            <Row term="Pull request">
-              <a
-                href={checkout.pr.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline focus-ring rounded-xs"
-              >
-                #{checkout.pr.number} · {checkout.pr.state}
-                <ArrowSquareOutIcon aria-hidden size={12} />
-              </a>
-            </Row>
           )}
         </dl>
       </div>

@@ -1,3 +1,5 @@
+import { LaptopIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { RunId, ThreadId } from "@ace/protocol";
@@ -235,7 +237,16 @@ export function ThreadComposer({
           sendsWhileUploading
           attached={
             <Suspense fallback={null}>
-              {tab === "requests" && open ? (
+              {environment ? (
+                <DeferredThreadEnvironment.Component
+                  thread={props.thread}
+                  id={environmentId}
+                  onClose={() => {
+                    setShown(undefined);
+                    toMessage();
+                  }}
+                />
+              ) : tab === "requests" && open ? (
                 <DeferredRequestStack.Component
                   threadId={props.thread.id}
                   ids={open}
@@ -250,15 +261,6 @@ export function ThreadComposer({
                   stopping={stopping}
                   onStop={stop}
                 />
-              ) : environment ? (
-                <DeferredThreadEnvironment.Component
-                  thread={props.thread}
-                  id={environmentId}
-                  onClose={() => {
-                    setShown(undefined);
-                    toMessage();
-                  }}
-                />
               ) : (
                 <DeferredEnvironmentStrip.Component
                   thread={props.thread}
@@ -272,6 +274,15 @@ export function ThreadComposer({
           controls={
             <Suspense fallback={<ControlsPending />}>
               <DeferredPermissionControl.Component thread={props.thread} />
+              {tab !== "environment" && (
+                <IconButton
+                  icon={LaptopIcon}
+                  label="Environment details"
+                  aria-expanded={environment}
+                  aria-controls={environmentId}
+                  onClick={() => setShown(environment ? undefined : props.thread.id)}
+                />
+              )}
             </Suspense>
           }
           trailing={
