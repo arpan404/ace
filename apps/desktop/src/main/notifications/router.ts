@@ -135,7 +135,7 @@ export class NotificationRouter {
         actions: actionable
           ? (alert.actions ?? []).map((entry) => ({
               action: entry.action,
-              label: entry.action === "approve" ? "Approve" : "Deny",
+              label: entry.action === "approve" ? "Allow once" : "Deny",
             }))
           : [],
         reply: alert.category === "needsYou" && Boolean(alert.threadId),

@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton } from "./add-button.tsx";
-import type { ComposerAnswer } from "./answer-slot.ts";
+import { useShareMessage, type ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
@@ -93,8 +93,8 @@ export function Composer({
    */
   attached?: ReactNode;
   /**
-   * An answer picked on the question card above: while the message is empty, the primary
-   * action sends it ("Submit") and Enter does too.
+   * The question card above: while it asks, the primary action and Enter answer it ("Answer",
+   * "Submit", "Next"), and where it takes a typed answer the message is that answer.
    */
   answer?: ComposerAnswer | undefined;
   /**
@@ -300,6 +300,21 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
           : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
+  // While a question asks, sending answers it; a message it can't take as its answer (a question
+  // without free text) still goes as a message.
+  const answer = props.answer && (empty || props.answer.invitesText) ? props.answer : undefined;
+  // The composer is always in view; scrolling to it could drag the shell up mid-animation.
+  useShareMessage(props.answer ? props.thread.id : undefined, !empty, () =>
+    input.current?.focus({ preventScroll: true }),
+  );
+  const sendAnswer = () => {
+    if (!answer || answer.blocked) return;
+    answer.submit(text.trim());
+    if (!answer.takesText) return;
+    saved.discard();
+    setText("");
+    setCaret(0);
+  };
   const submit = (opposite: boolean) => {
     if (blocked) return;
     const draft: Draft = {
@@ -352,28 +367,29 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      if (empty && props.answer) return props.answer.submit();
+      if (answer) return sendAnswer();
       submit((event.metaKey || event.ctrlKey) && props.canSteer !== false);
     }
   };
-  // An empty composer offers what it can do now: send an answer picked above, Stop, or (with
-  // nothing to send) Send, unavailable; a draft goes as a message, queued or steered while the
-  // agent works.
-  const mode = empty
-    ? props.answer
-      ? "answer"
-      : props.busy && props.onStop
+  // While a question asks, the composer answers it. Otherwise an empty composer offers what it
+  // can do now: Stop, or (with nothing to send) Send, unavailable; a draft goes as a message,
+  // queued or steered while the agent works.
+  const mode = answer
+    ? "answer"
+    : empty
+      ? props.busy && props.onStop
         ? "stop"
         : "send"
-    : props.busy
-      ? props.followUp === "steer"
-        ? "steer"
-        : "queue"
-      : "send";
+      : props.busy
+        ? props.followUp === "steer"
+          ? "steer"
+          : "queue"
+        : "send";
   const unscoped =
     props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
   const placeholder =
     props.unavailable?.short ??
+    (answer?.invitesText ? "Type your answer" : undefined) ??
     (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
     (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
   const expanded = suggestions.state === "ready";
@@ -498,9 +514,9 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               off={!!off}
               canSteer={props.canSteer !== false}
               stopping={!!props.stopping}
-              answer={props.answer?.label}
+              answer={answer}
               describedBy={props.unavailable?.describedBy}
-              onSend={() => (mode === "answer" ? props.answer?.submit() : submit(false))}
+              onSend={() => (answer ? sendAnswer() : submit(false))}
               onStop={() => props.onStop?.()}
             />
           </div>

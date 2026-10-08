@@ -29,6 +29,3 @@ export const DeferredReviewNote = deferredComponent(() =>
     preloadStepLabels(),
   ]).then(([module]) => module.ReviewNote),
 );
-export const DeferredReviewSummary = deferredComponent(() =>
-  import("@/components/permission-review.tsx").then((module) => module.PermissionReviewSummary),
-);

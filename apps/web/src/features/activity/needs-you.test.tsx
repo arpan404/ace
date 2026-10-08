@@ -25,7 +25,7 @@ test("answering an approval in Activity resolves it and takes it off the sidebar
   // This fixture has one ordinary thread approval.
   expect(await within(views).findByLabelText("1 needs you")).toBeTruthy();
 
-  await userEvent.click(within(approval).getByRole("button", { name: "Approve" }));
+  await userEvent.click(within(approval).getByRole("button", { name: "Allow once" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
   expect(within(views).queryByLabelText(/need.*you/)).toBeNull();
@@ -45,7 +45,7 @@ test("answering an approval in Activity resolves it and takes it off the sidebar
   });
 });
 
-test("an approval card shows the command it would run and how risky it is", async () => {
+test("an approval card shows the command it would run, says a high risk outright and keeps a medium one in its details", async () => {
   const app = workbenchApp();
   await app.open("/activity");
 
@@ -60,7 +60,9 @@ test("an approval card shows the command it would run and how risky it is", asyn
 
   const font = await card("Install @fontsource/noto-sans-jp?");
   expect(within(font).getByText("bun add @fontsource/noto-sans-jp@5.1.0")).toBeTruthy();
-  expect(within(font).getByText("Medium risk.")).toBeTruthy();
+  expect(within(font).queryByText("Check first.")).toBeNull();
+  await userEvent.click(within(font).getByRole("button", { name: "Details" }));
+  expect(within(font).getByText("Check first.")).toBeTruthy();
 });
 
 test("J and K move between cards and A approves only the focused one", async () => {
@@ -140,17 +142,14 @@ test("a number key picks that option of the focused question", async () => {
   );
 });
 
-test("ticking Always allow answers with the provider's wider grant", async () => {
+test("Always allow answers with the provider's wider grant", async () => {
   const app = harness();
   app.play(seedIndex()).runUntilBlocked();
   await app.open("/activity");
   const seed = await card("Reseed the docs search index?");
   expect(within(seed).getByText("bun run search:seed --from src/content/docs")).toBeTruthy();
 
-  await userEvent.click(
-    within(seed).getByRole("checkbox", { name: "Always allow bun run in docs-site" }),
-  );
-  await userEvent.click(within(seed).getByRole("button", { name: "Approve" }));
+  await userEvent.click(within(seed).getByRole("button", { name: "Always allow" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution("thread-seed-index", "approve-seed")).toEqual({

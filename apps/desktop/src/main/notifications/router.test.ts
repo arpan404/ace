@@ -45,7 +45,7 @@ describe("notification routing", () => {
         title: "Fix flaky checkout test",
         body: "Run `pnpm test --filter checkout`?",
         actions: [
-          { action: "approve", label: "Approve" },
+          { action: "approve", label: "Allow once" },
           { action: "deny", label: "Deny" },
         ],
         reply: true,

@@ -65,7 +65,7 @@ test("a needs-you toast goes once the request is answered", async () => {
 
   await userEvent.click(within(toasts()).getByRole("button", { name: "Review" }));
   const card = await screen.findByRole("article", { name: request });
-  await userEvent.click(within(card).getByRole("button", { name: "Approve" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
 
   await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
 });

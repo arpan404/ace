@@ -2,21 +2,13 @@ import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
 import { approvalByKey, approvalCopy, displayCommand } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { Interaction } from "@ace/protocol";
-import { useId, useState } from "react";
-import { ApprovalButtons, ApprovalDetails } from "@/components/approval-details.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { Checkbox } from "@/components/ui/checkbox.tsx";
-import { PermissionReviewSummary } from "@/components/permission-review.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { useState } from "react";
+import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { interactionKey } from "./activity-state.tsx";
-import { alwaysLabel, commandRisk, offeredChoices } from "./approval.ts";
 import {
-  ButtonKey,
-  CardActions,
   CardError,
   CardFrame,
-  CommandBlock,
   OpenThreadAction,
   useCardFocused,
   useOpenThreadKey,
@@ -36,15 +28,16 @@ export function InteractionCard(props: {
   const projectName = useProjectName();
   if (!interaction || interaction.state !== "pending") return null;
   const cardKey = props.cardKey ?? interactionKey(props.threadId, props.interactionId);
+  const request = interaction.request;
   return (
     <CardFrame
       cardKey={cardKey}
-      title={
-        interaction.request.kind === "approval" && approvalCopy(interaction.request).tool
-          ? approvalCopy(interaction.request).title
-          : requestTitle(interaction.request)
+      title={request.kind === "approval" ? approvalCopy(request).title : requestTitle(request)}
+      heading={request.kind === "approval" && <Heading interaction={interaction} />}
+      context={
+        props.context ??
+        (thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread")
       }
-      context={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : "A thread"}
       at={interaction.createdAt}
     >
       <CardBody interaction={interaction} cardKey={cardKey} />
@@ -73,186 +66,79 @@ function CardBody(props: { interaction: Interaction; cardKey: string }) {
   }
 }
 
-function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
-  const request = props.interaction.request;
-  if (request.kind === "approval" && approvalCopy(request).tool)
-    return <ToolApprovalBody interaction={props.interaction} cardKey={props.cardKey} />;
-  return <ProviderApprovalBody interaction={props.interaction} cardKey={props.cardKey} />;
-}
-
 /**
- * An ace tool's request (computer use, page scripts, downloads, uploads): its reason, risk and
- * exact target, and every option it offers in order. These ask for a deliberate yes, so only
- * D (deny) has a key.
+ * An approval: the shared card body (Allow once, Always allow, Deny). A takes the one-shot grant
+ * and D denies, except that a request asking for a deliberate yes (ace's own tools, anything
+ * that defaults to no) is approved only by a click.
  */
-function ToolApprovalBody(props: { interaction: Interaction; cardKey: string }) {
+function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
   const { interaction } = props;
   const request = interaction.request;
-  const focused = useCardFocused(props.cardKey);
-  const { answer, sending, chosen, failure } = useAnswer(interaction.id);
-  if (request.kind !== "approval") return null;
-  // ace answers its own tools' requests before any permission mode's one-shot rule, so every
-  // option the daemon offered stands.
-  const copy = approvalCopy(request);
-  const choices = copy.choices;
-  const deny = choices.find((choice) => choice.emphasis === "quiet");
-  const picked =
-    chosen?.kind === "approval"
-      ? choices.find((choice) => choice.option.id === chosen.optionId)
-      : undefined;
-  return (
-    <>
-      <ApprovalDetails copy={copy} />
-      {interaction.review && (
-        <PermissionReviewSummary review={interaction.review} className="mt-2.5" />
-      )}
-      <CardActions>
-        {sending ? (
-          <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <CheckIcon aria-hidden size={13} className="text-status-done" />
-            {picked?.label ?? "Answer"} · sending…
-          </span>
-        ) : (
-          <ApprovalButtons
-            choices={choices}
-            disabled={sending}
-            onChoose={(choice) =>
-              answer(
-                { kind: "approval", optionId: choice.option.id },
-                choice.emphasis === "quiet" ? confirmations.denied : confirmations.approved,
-              )
-            }
-          />
-        )}
-      </CardActions>
-      <DenyKey
-        enabled={focused && !sending && deny !== undefined}
-        onDeny={() =>
-          deny && answer({ kind: "approval", optionId: deny.option.id }, confirmations.denied)
-        }
-      />
-      <CardError message={failure} />
-    </>
-  );
-}
-
-function DenyKey(props: { enabled: boolean; onDeny(): void }) {
-  useHotkey("d", props.onDeny, { enabled: props.enabled });
-  return null;
-}
-
-function ProviderApprovalBody(props: { interaction: Interaction; cardKey: string }) {
-  const { interaction } = props;
-  const request = interaction.request;
-  const options = request.kind === "approval" ? request.options : [];
   const mode = useSidebarThread(interaction.threadId)?.permission?.effective;
-  const choices = offeredChoices(options, mode);
-  const [always, setAlways] = useState(false);
-  const checkboxId = useId();
+  const command = useShellCommand(interaction);
   const focused = useCardFocused(props.cardKey);
   const { answer, sending, chosen, failure } = useAnswer(interaction.id);
+  const [nudged, setNudged] = useState(false);
+  const copy =
+    request.kind === "approval"
+      ? approvalCopy(request, { mode, command, review: interaction.review })
+      : undefined;
+  const once = copy?.decisions.find((decision) => decision.verb === "allow_once");
+  const deny = copy?.decisions.find((decision) => decision.verb === "deny");
+  const keyApproves =
+    !!once && request.kind === "approval" && !copy?.tool && approvalByKey(request, once.option);
+  const live = focused && !sending;
+  const decide = (option: { id: string; kind: string }) =>
+    answer(
+      { kind: "approval", optionId: option.id },
+      option.kind === "deny" || option.kind === "deny_always" || option.kind === "cancel"
+        ? confirmations.denied
+        : confirmations.approved,
+    );
+  useHotkey("a", () => (keyApproves && once ? decide(once.option) : setNudged(true)), {
+    enabled: live && !!once,
+  });
+  useHotkey("d", () => deny && decide(deny.option), { enabled: live && !!deny });
+  useOpenThreadKey(interaction.threadId, focused);
+  if (!copy) return null;
   const picked =
     chosen?.kind === "approval"
-      ? options.find((option) => option.id === chosen.optionId)
+      ? copy.decisions.find((decision) => decision.option.id === chosen.optionId)?.label
       : undefined;
-  const command = useShellCommand(interaction);
-  const risk = command ? commandRisk(command) : undefined;
-  const description = request.kind === "approval" ? request.description : undefined;
-  const defaultToNo = request.kind === "approval" && request.defaultToNo === true;
-  const approveOption = always && choices.always ? choices.always : choices.approve;
-  const approve = () =>
-    approveOption &&
-    answer({ kind: "approval", optionId: approveOption.id }, confirmations.approved);
-  const deny = () =>
-    choices.deny && answer({ kind: "approval", optionId: choices.deny.id }, confirmations.denied);
-  const live = focused && !sending;
-  // A request that defaults to no is approved only by a click; A says so instead.
-  const keyApproves =
-    !!approveOption && request.kind === "approval" && approvalByKey(request, approveOption);
-  const [nudged, setNudged] = useState(false);
-  useHotkey("a", keyApproves ? approve : () => setNudged(true), {
-    enabled: live && !!approveOption,
-  });
-  useHotkey("d", deny, { enabled: live && !!choices.deny });
-  useOpenThreadKey(interaction.threadId, focused);
   return (
     <>
-      {command && <CommandBlock command={command} />}
-      {(risk || description) && (
-        <p className="mt-2.5 text-ui text-muted-foreground">
-          {risk && (
-            <b
-              className={
-                risk === "high"
-                  ? "mr-[7px] font-medium text-status-failed"
-                  : "mr-[7px] font-medium text-status-needs-you"
-              }
-            >
-              {risk === "high" ? "High risk." : "Medium risk."}
-            </b>
-          )}
-          {description}
-        </p>
-      )}
-      {interaction.review && (
-        <PermissionReviewSummary review={interaction.review} className="mt-2.5" />
-      )}
-      <CardActions
-        lead={
-          choices.always && (
-            <span className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Checkbox
-                id={checkboxId}
-                checked={always}
-                onCheckedChange={(checked) => setAlways(checked)}
-              />
-              <label htmlFor={checkboxId} className="cursor-pointer">
-                {alwaysLabel(choices.always)}
-              </label>
+      <ApprovalRequest
+        copy={copy}
+        review={interaction.review}
+        disabled={sending}
+        hints={{ allow_once: "A", deny: "D" }}
+        keyed={(option) => option.id !== once?.option.id || keyApproves}
+        onAnswer={(choice) => decide(choice.option)}
+        answered={
+          sending && (
+            <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckIcon aria-hidden size={13} className="text-status-done" />
+              {picked ?? "Answer"} · sending…
             </span>
           )
         }
-      >
-        {sending && (
-          <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {picked ? (
-              <>
-                <CheckIcon aria-hidden size={13} className="text-status-done" />
-                {picked.label} · sending…
-              </>
-            ) : (
-              <>
-                <Spinner /> Sending…
-              </>
-            )}
-          </span>
-        )}
-        {choices.deny && (
-          <Button variant="ghost" disabled={sending} onClick={deny}>
-            Deny
-            <ButtonKey>D</ButtonKey>
-          </Button>
-        )}
-        {approveOption && (
-          // A request that defaults to no never makes approving the filled button.
-          <Button
-            variant={defaultToNo ? "secondary" : "primary"}
-            disabled={sending}
-            onClick={approve}
-          >
-            Approve
-            {keyApproves && <ButtonKey primary>A</ButtonKey>}
-          </Button>
-        )}
-      </CardActions>
-      {nudged && !sending && (
+      />
+      {nudged && !sending && once && (
         <p role="status" className="mt-2 text-xs text-subtle-foreground">
-          This request defaults to no: click Approve to allow it.
+          This request defaults to no: click {once.label} to allow it.
         </p>
       )}
       <CardError message={failure} />
     </>
   );
+}
+
+/** An approval's heading, which leaves the command it runs to the body's block. */
+function Heading(props: { interaction: Interaction }) {
+  const request = props.interaction.request;
+  const command = useShellCommand(props.interaction);
+  if (request.kind !== "approval") return null;
+  return <ApprovalHeading copy={approvalCopy(request, { command })} />;
 }
 
 /** The shell command an approval is about, from the tool call that asked. */

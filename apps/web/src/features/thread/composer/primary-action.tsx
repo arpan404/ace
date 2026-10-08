@@ -3,6 +3,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
+import type { ComposerAnswer } from "./answer-slot.ts";
 import { iconControl, pillControl } from "./composer-styles.ts";
 
 export type PrimaryMode = "send" | "queue" | "steer" | "stop" | "answer";
@@ -30,9 +31,8 @@ function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean):
 /**
  * The composer's one primary action, always in the same place: Send, Queue or Steer for a draft
  * (by the daemon's follow-up setting while the agent works), Stop when the agent works and the
- * composer is empty, and Submit (or Next) when the empty composer carries an answer picked on the
- * question card above it. A draft never turns into Stop or Submit. Unavailable, it stays
- * focusable and its tooltip says why.
+ * composer is empty, and Answer, Submit or Next while the question card above it asks. A draft
+ * never turns into Stop. Unavailable, it stays focusable and its tooltip says why.
  */
 export function PrimaryAction(props: {
   mode: PrimaryMode;
@@ -46,24 +46,36 @@ export function PrimaryAction(props: {
   canSteer?: boolean | undefined;
   /** A Stop is on its way: "Stopping…" until the turn ends. */
   stopping?: boolean | undefined;
-  /** In `answer` mode: what the button says, "Submit" or "Next". */
-  answer?: string | undefined;
+  /** In `answer` mode: the question card's answer, its words and why it can't go yet. */
+  answer?: ComposerAnswer | undefined;
   onSend(): void;
   onStop(): void;
 }) {
   if (props.mode === "answer") {
-    const next = props.answer === "Next";
+    const label = props.answer?.label ?? "Answer";
+    const blocked = props.answer?.blocked;
+    const next = label === "Next";
     return (
-      <Tip label={next ? "Next question" : "Send your answer"} keys="enter" side="top">
+      <Tip
+        label={blocked ?? (next ? "Next question" : "Send your answer")}
+        {...(blocked ? {} : { keys: "enter" })}
+        side="top"
+      >
         <button
           type="button"
-          onClick={props.onSend}
+          aria-disabled={blocked ? true : undefined}
+          onClick={() => {
+            if (!blocked) props.onSend();
+          }}
           className={cn(
             pillControl,
-            "fx-pop bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+            "fx-pop",
+            blocked
+              ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
+              : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
           )}
         >
-          {props.answer}
+          {label}
           {next ? (
             <ArrowRightIcon aria-hidden size={14} weight="bold" />
           ) : (
