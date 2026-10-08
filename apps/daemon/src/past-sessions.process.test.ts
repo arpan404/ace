@@ -208,6 +208,8 @@ for (const provider of ["claude", "codex", "opencode"] as const) {
       })
       .parse(JSON.parse((await readFile(f.receipt, "utf8")).trim()));
     expect(effect).toMatchObject({ home: f.home, cwd: f.cwd, instance: "fixture", native });
+    expect(daemon.store.getThread(id)?.status.state).toBe("new");
+    expect(daemon.engine?.queue(id).messages).toEqual([]);
     if (provider === "codex") expect(effect.codexHome).toBe(f.home);
     if (provider === "claude") expect(effect.claudeHome).toBe(f.home);
     if (provider === "opencode") expect(effect.dataHome).toBe(dirname(f.home));
