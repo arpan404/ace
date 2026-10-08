@@ -1,5 +1,6 @@
+import { loginSuccessMessage } from "./login-copy.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { apiKeyServiceLabel } from "@ace/ui-core";
+import { apiKeyServiceLabel, providerNames } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
@@ -12,7 +13,10 @@ export function InlineSignIn(props: { login: LoginController; onClose(): void; o
   const toast = useToast();
   const close = useEffectEvent(() => {
     toast.add({
-      title: `Signed in${props.login.target.newAccount ? ` · ${props.login.target.newAccount}` : ""}`,
+      title: loginSuccessMessage({
+        name: props.login.target.name ?? providerNames[props.login.target.provider],
+        account: props.login.target.newAccount,
+      }),
     });
     props.onClose();
   });

@@ -37,6 +37,7 @@ export function useProviderAccountModels(options: { enabled?: boolean; refreshMs
       acpAgentId,
       accounts: accounts.data,
       now,
+      catalogForAccount: (id) => signals(provider, id),
       row: readiness.data?.find((row) => row.provider === provider),
       catalog: signals(
         provider,

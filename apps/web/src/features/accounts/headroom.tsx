@@ -15,9 +15,7 @@ function headroomLine(row: ProviderHeadroom, now: number): string {
     );
   else if (row.best) parts.push(`${row.best.left}% of ${row.best.window.label} left`);
   if (row.nextReset)
-    parts.push(
-      `${row.nextReset.account.label} ${formatResetCountdown(row.nextReset.at, now).toLowerCase()}`,
-    );
+    parts.push(`${row.nextReset.account.label} ${formatResetCountdown(row.nextReset.at, now)}`);
   return parts.join(" · ");
 }
 

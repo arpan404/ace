@@ -60,7 +60,7 @@ test("discovery clarifies the normal profile without signing in isolated account
   expect(model.view?.label).toBe("Limit reached");
   expect(model.view?.primary).toBeUndefined();
   expect(model.accounts.map((entry) => [entry.label, accountStatus(entry, 10).text])).toEqual([
-    ["Ada", "Limit reached"],
+    ["Your CLI login", "Limit reached"],
     ["Work", "Signed out"],
   ]);
   expect(model.accounts[0]?.windows[0]?.usedPercent).toBe(100);
@@ -135,4 +135,35 @@ test("OpenCode can offer credential-free models while its normal profile is sign
   expect(model.view?.summary).toBe("Ready · Your CLI login");
   expect(model.view?.primary).toBeUndefined();
   expect(accountStatus(model.accounts[0] ?? normal, 10).canRun).toBe(true);
+});
+
+test("service failures follow their account without changing a working sibling or bypassing quota", () => {
+  const failing = { ...account("OpenRouter API", "logged_in"), provider: "opencode" as const };
+  const working = { ...account("Work2", "logged_in"), provider: "opencode" as const };
+  const model = providerAccountModel({
+    provider: "opencode",
+    now: 10,
+    row: { ...row, provider: "opencode", auth: "logged_in" },
+    accounts: [failing, working],
+    catalogForAccount: (id) => ({
+      models: true,
+      connected: id === failing.id ? 0 : 1,
+      serviceProblems: id === failing.id ? 1 : 0,
+    }),
+  });
+  expect(model.accounts.map((entry) => [entry.label, accountStatus(entry, 10).text])).toEqual([
+    ["OpenRouter API", "Connection needs attention"],
+    ["Work2", "Signed in"],
+  ]);
+  const first = model.accounts[0];
+  if (!first) throw new Error("Account missing");
+  expect(
+    accountStatus(
+      {
+        ...first,
+        quota: { ...failing.quota, windows: { daily: { usedPercent: 100, resetsAt: 100 } } },
+      },
+      10,
+    ).text,
+  ).toBe("Limit reached");
 });

@@ -1,3 +1,4 @@
+import { formatClock } from "@ace/ui-core";
 import { civilStamp, zonedCalendar } from "@ace/automations/calendar";
 import { compileSchedule } from "@ace/automations/recurrence";
 import type { AutomationSchedule, AutomationTrigger } from "@ace/protocol";
@@ -282,7 +283,7 @@ export function formatWhen(instant: number, now: number, timezone = localTimeZon
   const calendar = zonedCalendar(timezone);
   const target = calendar.local(instant);
   const today = calendar.local(now);
-  const time = clock(target.hour, target.minute);
+  const time = formatClock(instant, undefined, timezone);
   const midnight = (civil: typeof target) => civilStamp({ ...civil, hour: 0, minute: 0 });
   const days = (midnight(target) - midnight(today)) / day;
   if (days === 0) return `${target.hour >= 18 ? "Tonight" : "Today"} ${time}`;

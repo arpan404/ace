@@ -1,3 +1,4 @@
+import { loginSuccessMessage } from "./login-copy.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,11 +51,7 @@ export function SignInDialog(props: {
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
   const finish = useEffectEvent(() => {
     toast.add({
-      title: service
-        ? `${service} is ${action === "logout" ? "disconnected" : "connected"}`
-        : action === "logout"
-          ? `Signed out of ${name}`
-          : `Signed in to ${name}${login.target.newAccount ? ` · ${login.target.newAccount}` : ""}`,
+      title: loginSuccessMessage({ name, action, service, account: login.target.newAccount }),
     });
     props.onClose();
   });

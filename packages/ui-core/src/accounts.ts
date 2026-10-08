@@ -63,14 +63,23 @@ export function quotaWindowLabel(name: string): string {
   return classify(name).label;
 }
 
-/** Account names stay exactly as entered. Normal-profile logins use only reported identity. */
+/** Account names stay exactly as entered. Normal-profile logins use a consistent provider label. */
 export function accountDisplayName(
   account:
     | string
-    | { label: string; implicit?: boolean | undefined; signedInAs?: string | undefined },
+    | {
+        label: string;
+        provider?: ProviderKind | undefined;
+        implicit?: boolean | undefined;
+        signedInAs?: string | undefined;
+      },
 ): string {
   if (typeof account === "string") return account;
-  return account.implicit ? (account.signedInAs ?? "Your CLI login") : account.label;
+  return account.implicit
+    ? account.provider === "cursor"
+      ? "Your Cursor login"
+      : "Your CLI login"
+    : account.label;
 }
 
 /** What the accounts screen and pickers show for one `accounts.list` entry. */
