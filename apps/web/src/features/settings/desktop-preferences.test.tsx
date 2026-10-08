@@ -103,13 +103,13 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
   expect(screen.queryByLabelText("Quiet hours start")).toBeNull();
 });
 
-test("a browser offers no login item and says where notifications are set", async () => {
+test("a browser offers no login item or dead system notification page", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  const view = await app.open("/settings/general");
   await screen.findByRole("switch", { name: "New threads use a worktree" });
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
-
+  view.unmount();
   await app.open("/settings/notifications");
-  expect(await screen.findByText(/set in the ace desktop app/)).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "General", level: 2 })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Thread done" })).toBeNull();
 });

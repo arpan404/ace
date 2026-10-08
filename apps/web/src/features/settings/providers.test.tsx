@@ -215,3 +215,13 @@ test("an ACP agent added by command joins the list, and its page removes it", as
   expect(await section("ACP agents")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Qwen Code" })).toBeNull());
 }, 30_000);
+
+test("an unknown provider shows a not-found page with a working way back", async () => {
+  await harness().open("/settings/providers/acp");
+  expect(await screen.findByRole("heading", { level: 2, name: "Provider not found" })).toBeTruthy();
+  expect(
+    screen.getByText("This provider page doesn't exist. Choose a provider from the list."),
+  ).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
+  expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
+});

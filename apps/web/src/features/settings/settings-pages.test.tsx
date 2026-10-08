@@ -22,8 +22,8 @@ test("a switched-off General setting stays off after leaving the page and coming
   expect(worktree.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(worktree);
 
-  await goTo("Notifications");
-  await screen.findByText(/set in the ace desktop app/);
+  await goTo("Keyboard");
+  await screen.findByRole("heading", { level: 2, name: "Keyboard" });
   await goTo("General");
   expect(
     (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
@@ -44,7 +44,7 @@ test("follow-ups and restart recovery are stored on the daemon", async () => {
     expect(app.daemon.services.settings.get("threads.continueAfterRestart")).toBe(true);
   });
 
-  await goTo("Notifications");
+  await goTo("Keyboard");
   await goTo("General");
   expect(
     (await screen.findByRole("combobox", { name: "Messages sent while the agent works" }))
@@ -218,4 +218,14 @@ test("⌘K finds a single setting and opens its page at that row", async () => {
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
   expect(document.getElementById("appearance.accent")).toBeTruthy();
+});
+
+test("web hides system notifications in settings and search and redirects old links", async () => {
+  await harness().open("/settings/notifications");
+  expect(await screen.findByRole("heading", { level: 2, name: "General" })).toBeTruthy();
+  const nav = within(screen.getByRole("navigation", { name: "Settings pages" }));
+  expect(nav.queryByRole("link", { name: "Notifications" })).toBeNull();
+  await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "notifications");
+  expect(await nav.findByText("No matching settings")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Notifications on this computer" })).toBeNull();
 });

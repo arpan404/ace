@@ -1,3 +1,4 @@
+import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
@@ -112,15 +113,20 @@ export function NotificationPreferencesDialog(props: {
         <DialogHeader>
           <DialogTitle>Notifications on this device</DialogTitle>
           <DialogDescription>
-            Choose what pops up while ace is open. System notifications and quiet hours are in{" "}
-            <Link
-              to="/settings/notifications"
-              onClick={() => props.onOpenChange(false)}
-              className="text-foreground underline-offset-4 hover:underline"
-            >
-              Settings › Notifications
-            </Link>
-            .
+            Choose what pops up while ace is open.{" "}
+            {hasDesktopPreferences() && (
+              <>
+                System notifications and quiet hours are in{" "}
+                <Link
+                  to="/settings/notifications"
+                  onClick={() => props.onOpenChange(false)}
+                  className="text-foreground underline-offset-4 hover:underline"
+                >
+                  Settings › Notifications
+                </Link>
+                .
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <NotificationPreferences />

@@ -80,7 +80,6 @@ export const sideChatKind = defineTabKind({
   label: "Side chat",
   icon: ChatsCircleIcon,
   singleton: true,
-  launcher: 40,
   // No daemon can run one yet: the protocol has no ephemeral, thread-scoped session.
   unavailable: "Not available yet",
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),
