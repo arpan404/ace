@@ -106,6 +106,14 @@ it.each([
     content: [{ text: expect.stringContaining(`"code":"${code}"`) }],
   });
   expect(result.content).toMatchObject([{ text: expect.stringContaining('"phase":"partial"') }]);
+  if (code === "window_ambiguous")
+    expect(result.content).toMatchObject([
+      {
+        text: expect.stringContaining(
+          '"candidates":[{"windowId":2,"title":"Native candidate","bounds":{"x":0,"y":0,"w":100,"h":100}}]',
+        ),
+      },
+    ]);
 });
 it("action tools reuse one settled traversal and cached permission facts", async () => {
   const h = await fixture();

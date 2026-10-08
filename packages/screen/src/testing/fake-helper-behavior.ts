@@ -154,6 +154,17 @@ async function dispatch(request: ScreenHelperRequest) {
           ScreenError.parse({
             code: process.env.AUTHORED_ERROR,
             message: "Fixture authored failure",
+            ...(process.env.AUTHORED_ERROR === "window_ambiguous"
+              ? {
+                  candidates: [
+                    {
+                      windowId: 2,
+                      title: "Native candidate",
+                      bounds: { x: 0, y: 0, w: 100, h: 100 },
+                    },
+                  ],
+                }
+              : {}),
             phase: process.env.DISPATCH_PHASE ?? "rejected-before-dispatch",
           }),
         );
