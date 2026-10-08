@@ -22,6 +22,10 @@ export const WorkerInput = z.discriminatedUnion("type", [
     type: z.literal("execution"),
     key,
     ok: z.boolean(),
+    error: z
+      .string()
+      .regex(/^review_[a-z_]+$/)
+      .optional(),
     output: ReviewerOutput.optional(),
   }),
 ]);

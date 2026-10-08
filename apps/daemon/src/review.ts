@@ -1,6 +1,8 @@
 import { ReviewWorker, type ReviewExecutor } from "@ace/review";
+import { createHash } from "node:crypto";
+import { Command } from "@ace/protocol";
 import { join } from "node:path";
-import type { Command, CommandResult, ReviewSource, ThreadId } from "@ace/protocol";
+import type { CommandResult, ReviewSource, ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
 export interface ReviewPort {
@@ -17,16 +19,43 @@ export function createDaemonReview(
   options: DaemonReviewOptions = {},
 ) {
   const worker = new ReviewWorker(join(directory, "reviews.sqlite"), options.executor);
+  const threadRoot = (id: ThreadId) => {
+    const thread = store.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) return undefined;
+    if (!options.threadWorktree)
+      return thread.details?.mode === "worktree"
+        ? undefined
+        : store.getWorkspacePath(thread.workspaceId);
+    try {
+      return options.threadWorktree(id);
+    } catch {
+      return undefined;
+    }
+  };
   const worktree = (source: ReviewSource) => {
     const root = store.getWorkspacePath(source.workspaceId);
     if (!root) return undefined;
     if (!source.threadId) return root;
     const thread = store.getThread(source.threadId);
     if (thread?.workspaceId !== source.workspaceId) return undefined;
-    return options.threadWorktree ? options.threadWorktree(source.threadId) : root;
+    return threadRoot(source.threadId);
   };
   return {
-    handle(command: Command): Promise<CommandResult> {
+    async handle(command: Command): Promise<CommandResult> {
+      if (command.payload.type === "review.applySuggestion") {
+        const listed = await worker.handle(
+          Command.parse({
+            id: `review-source:${createHash("sha256").update(command.id).digest("hex")}`,
+            deviceId: "review-host",
+            payload: { type: "review.list", sessionId: command.payload.sessionId, limit: 1 },
+          }),
+        );
+        const source = listed.review?.session?.source;
+        if (!listed.ok || !source) return { ...listed, commandId: command.id };
+        const root = worktree(source);
+        if (!root) return { commandId: command.id, ok: false, error: "review_target_unavailable" };
+        return worker.handle(command, root);
+      }
       if (command.payload.type === "review.open") {
         const root = worktree(command.payload.source);
         if (!root)
@@ -44,9 +73,7 @@ export function createDaemonReview(
         const thread = store.getThread(command.payload.threadId);
         if (!thread)
           return Promise.resolve({ commandId: command.id, ok: false, error: "thread_not_found" });
-        const root = options.threadWorktree
-          ? options.threadWorktree(thread.id)
-          : store.getWorkspacePath(thread.workspaceId);
+        const root = threadRoot(thread.id);
         if (!root)
           return Promise.resolve({
             commandId: command.id,

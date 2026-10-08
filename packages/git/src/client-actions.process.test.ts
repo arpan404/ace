@@ -188,6 +188,7 @@ test("a silent failing pre-commit hook reports a safe hook failure and preserves
 test.each([
   ["fatal: Authentication failed for https://token@example.org/private", "auth_failed"],
   ["fatal: private /home/user/repo failed", "git_failed"],
+  ["fatal: Could not resolve host: example.invalid", "remote_unreachable"],
 ])("push classifies %s without publishing local diagnostics", async (diagnostic, code) => {
   const root = await repository();
   await git(root, "remote", "add", "origin", "https://example.org/repo");

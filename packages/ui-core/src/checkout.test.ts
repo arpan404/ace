@@ -94,3 +94,9 @@ test("a linked PR without an address opens on its repository's forge", () => {
     checkoutOf(details({ repository: gitlab, linkedPr: { number: 4, state: "open" } }))?.pr?.url,
   ).toBe("https://gitlab.com/acme/relay/-/merge_requests/4");
 });
+
+test("GitLab checkouts explain the unsupported forge before creating a PR", () => {
+  expect(
+    step({ repository: { ...repository, forge: "gitlab", host: "gitlab.com" } }),
+  ).toMatchObject({ kind: "create-pr", blocked: /GitLab.*supported.*merge request/ });
+});

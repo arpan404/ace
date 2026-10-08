@@ -182,6 +182,7 @@ export const ReviewCommands = [
   z.object({ type: z.literal("review.status"), sessionId: id, status: ReviewSession.shape.status }),
   z.object({
     type: z.literal("review.list"),
+    threadId: ThreadId.optional(),
     sessionId: id.optional(),
     commentId: id.optional(),
     cursor: z.string().max(128).default(""),
