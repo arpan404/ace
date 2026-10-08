@@ -31,6 +31,12 @@ export class IntentWorkers {
       });
     this.tasks.set(id, task);
   }
+  isActive(id: ThreadId): boolean {
+    return this.tasks.has(id);
+  }
+  async drain(id: ThreadId): Promise<void> {
+    while (this.tasks.has(id)) await this.tasks.get(id);
+  }
   get active(): boolean {
     return this.tasks.size > 0;
   }

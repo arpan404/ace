@@ -1,3 +1,4 @@
+import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
@@ -107,6 +108,7 @@ export class Engine {
   private meters: ContextMeters;
   private delivery: IntentDelivery;
   private transitions: ThreadTransitions;
+  private liveness: ThreadLiveness;
   private readyPromise: Promise<void>;
   private readyState = false;
   private closing = false;
@@ -219,6 +221,18 @@ export class Engine {
       isSteer: (intent) => this.isSteer(intent),
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
+    this.liveness = new ThreadLiveness({
+      repo: this.repo,
+      clock: this.clock,
+      maxThreads: this.limits.maxActiveThreads,
+      sessions: this.sessions,
+      sends: this.sends,
+      controls: this.controls,
+      steering: this.steering,
+      recovery: this.recovery,
+      actor: (id) => this.actors.get(id),
+      updateChild: (parent, child) => this.updateChild(parent, child),
+    });
     this.repo.observe = (state, facts, events, at) => {
       this.repo.permissions.observe(state, events, at, () => this.wake(state.threadId));
       if (facts.some((fact) => fact.type === "process.started"))
@@ -674,6 +688,33 @@ export class Engine {
     this.workspaceChanges.set(id, change);
     return change;
   }
+  /** Settles what dead providers left in the tree; genuinely live work is untouched. */
+  async reconcileThread(id: ThreadId): Promise<void> {
+    await this.readyPromise;
+    await this.liveness.reconcileTree(id);
+  }
+  /** One thread, for periodic sweeps: a live session returns without reading state. */
+  async reconcileOwn(id: ThreadId): Promise<void> {
+    await this.readyPromise;
+    await this.liveness.reconcile(id);
+  }
+  cleanupThreads(id: ThreadId): ThreadId[] {
+    return this.liveness.tree(id);
+  }
+  liveWork(id: ThreadId): LiveWork {
+    return this.liveness.live(id);
+  }
+  /** Called after the durable cleanup fence has denied all new execution. */
+  stopForDeletion(id: ThreadId): Promise<void> {
+    return this.liveness.stop(id);
+  }
+  private deletionPolicy?: (id: ThreadId, commandId: string) => void;
+  bindDeletionPolicy(policy: (id: ThreadId, commandId: string) => void): void {
+    this.deletionPolicy = policy;
+  }
+  prepareDeletion(id: ThreadId, commandId: string): void {
+    this.deletionPolicy?.(id, commandId);
+  }
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
   }
@@ -753,7 +794,13 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (this.closing || this.repo.store.getThread(id)?.continuation) return;
+    if (
+      this.closing ||
+      this.repo.cleaning(id) ||
+      this.repo.store.getThread(id)?.deletedAt !== undefined ||
+      this.repo.store.getThread(id)?.continuation
+    )
+      return;
     if (this.repo.store.isHistoryWriting()) {
       if (!this.deferredWakes.has(id)) {
         this.deferredWakes.add(id);
@@ -775,7 +822,7 @@ export class Engine {
   }
   private async control(actor: ThreadActor): Promise<void> {
     await actor.flush();
-    if (actor.poisoned) return;
+    if (actor.poisoned || this.repo.cleaning(actor.id)) return;
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
     const pendingControls = this.repo.pending.controls(actor.id);
     const controls =
@@ -797,6 +844,7 @@ export class Engine {
   }
   private async work(actor: ThreadActor): Promise<void> {
     await actor.flush();
+    if (this.repo.cleaning(actor.id)) return;
     if (actor.poisoned) {
       if (actor.session) await this.sessions.close(actor, "user");
       for (const intent of this.repo.pending.headers(actor.id))
@@ -896,7 +944,7 @@ export class Engine {
   }
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
-    if (actor.poisoned || this.closing || !actor.session) return;
+    if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
     const intent = this.repo.pending.steerMessage(actor.id);
