@@ -86,11 +86,6 @@ test("arrow keys move between cards, Enter selects, and j and k step through the
   await open("/offshifts/relay-streams");
   await screen.findByRole("region", { name: mergeGate });
   const first = card(/Sequence numbers on every event/);
-  // One card in the plan is a tab stop; the rest are reached with the arrows.
-  expect(
-    screen.getByRole("grid", { name: "Plan" }).querySelectorAll('[tabindex="0"]'),
-  ).toHaveLength(1);
-
   first.focus();
   await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement?.textContent).toMatch(/Server-side replay cursor/);

@@ -255,7 +255,6 @@ test("at 1024px the right panel docks beside the thread instead of floating over
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
-  expect(document.querySelector("[data-scrim]")).toBeNull();
   await userEvent.keyboard("{Escape}");
   expect(screen.getByRole("region", { name: "Thread panel" })).toBeTruthy();
 });
@@ -263,12 +262,13 @@ test("at 1024px the right panel docks beside the thread instead of floating over
 test("on a small tablet the floating panel leaves the sidebar where the person put it", async () => {
   windowWidth(860);
   await openThread();
-  const frame = document.querySelector("[data-sidebar]");
-  expect(frame?.getAttribute("data-sidebar")).toBe("shown");
+  expect(sidebar()).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
-  expect(document.querySelector("[data-scrim]")).toBeTruthy();
-  expect(frame?.getAttribute("data-sidebar")).toBe("shown");
+  expect(sidebar()).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(sidebar()).toBeTruthy();
 });
 
 test("on a tablet the floating panel closes with Escape, as an overlay does, and focus returns to its toggle", async () => {

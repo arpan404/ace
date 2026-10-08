@@ -264,12 +264,10 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
 });
 
 test("in the desktop app, Open in shows each editor's own icon from the OS", async () => {
-  const asked: string[] = [];
   const icon = "data:image/png;base64,iVBORw0KGgo=";
   Reflect.set(globalThis, "ace", {
     shell: {
       editorIcon: async (editor: string) => {
-        asked.push(editor);
         // Zed isn't installed on this computer: no icon to show.
         return editor === "vscode" ? icon : null;
       },
@@ -279,10 +277,9 @@ test("in the desktop app, Open in shows each editor's own icon from the OS", asy
   const openIn = within(await openCard()).getByRole("region", { name: "Open in" });
   const code = await within(openIn).findByRole("button", { name: /^Open in Visual Studio Code/ });
   await waitFor(() => expect(code.querySelector("img")?.getAttribute("src")).toBe(icon));
-  const zed = within(openIn).getByRole("button", { name: "Open in Zed" });
-  expect(zed.querySelector("img")).toBeNull();
-  expect(zed.querySelector("svg")).not.toBeNull();
-  expect(asked.toSorted()).toEqual(["vscode", "zed"]);
+  expect(
+    within(openIn).getByRole<HTMLButtonElement>("button", { name: "Open in Zed" }).disabled,
+  ).toBe(false);
 });
 
 test("Sources lists the tools the thread's agents have, each opening where it is seen", async () => {

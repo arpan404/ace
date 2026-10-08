@@ -110,10 +110,16 @@ test("the palette hands its words to search", async () => {
   expect(within(await results()).getAllByRole("option")).toHaveLength(2);
 });
 
-test("results are options themselves, with nothing focusable inside them", async () => {
-  await search("dedupe");
-  const options = within(await results()).getAllByRole("option");
-  for (const option of options) expect(option.querySelector("a, button, [tabindex]")).toBeNull();
+test("Tab skips results and cycles through the search dialog's controls", async () => {
+  await search("retry budget");
+  await results();
+  field().focus();
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close search" }));
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "All" }));
+  await userEvent.tab();
+  await waitFor(() => expect(document.activeElement).toBe(field()));
 });
 
 test("a search that was opened is offered again from Recent, and can be forgotten", async () => {
