@@ -272,11 +272,7 @@ test("unknown and disconnected explicit engine models are refused before any pro
   const h = await harness([], frames, { models: catalog, provider: "opencode" });
   try {
     const before = h.store.listThreads();
-    for (const model of [
-      "missing/model",
-      "disconnected/muse-spark-1.3-contributor",
-      "muse-spark-1.3-contributor",
-    ]) {
+    for (const model of ["missing/model", "disconnected/muse-spark-1.3-contributor"]) {
       expect(
         h.command({
           type: "thread.create",

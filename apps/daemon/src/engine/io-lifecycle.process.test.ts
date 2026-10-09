@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { threadAttention } from "@ace/projection";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -58,7 +59,10 @@ test("interrupt reaches the provider while its send is still awaiting a turn res
   expect(h.adapter.commands.filter((command) => command.type === "interrupt")).toEqual([
     { type: "interrupt", target: { cascade: false } },
   ]);
-  expect(h.store.getThread(thread.id)?.status.state).toBe("done");
+  const stopped = h.store.getThread(thread.id);
+  expect(stopped?.status.state).toBe("done");
+  expect(stopped?.queue).toMatchObject({ paused: true, reason: "stopped", pendingCount: 0 });
+  expect(stopped && threadAttention(stopped)).toBe("stopped");
 });
 
 test("a control intent without a live session becomes a visible failure notice", async () => {
