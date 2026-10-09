@@ -56,6 +56,15 @@ export function formatClock(at: number, locale?: string, timeZone?: string): str
     .replace(/[\u202f\u00a0]/g, " ");
 }
 
+/** A bounded clock for row statuses: "14:02", without a day period or date. */
+export function formatShortClock(at: number, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+}
+
 /** "under a minute", "12m", "1h 27m", "3d 4h": the time left until a reset, rounded up. */
 export function formatCountdown(ms: number): string {
   const minutes = Math.ceil(Math.max(0, ms) / 60_000);

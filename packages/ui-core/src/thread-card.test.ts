@@ -55,12 +55,22 @@ test("a thread that needs you is emphasised without a second unread announcement
   );
   expect(card.emphasis).toBe(true);
   expect(card.announceUnread).toBe(false);
-  expect(card.status).toEqual({ label: "Needs you", tone: "needs-you", mark: "needs-you" });
+  expect(card.status).toMatchObject({
+    label: "Needs you",
+    compact: "Needs you",
+    tone: "needs-you",
+    mark: "needs-you",
+  });
 });
 
 test("a thread held at its account's usage limit is marked in the list, unlike a waiting one", () => {
   const limited = threadCard(input({ entry: entry("t", { state: "limited" }, now) }));
-  expect(limited.status).toEqual({ label: "Limited", tone: "waiting", mark: "limited" });
+  expect(limited.status).toMatchObject({
+    label: "Limited",
+    compact: "Limited",
+    tone: "waiting",
+    mark: "limited",
+  });
   const waiting = threadCard(
     input({ entry: entry("t", { state: "waiting", on: "background_task" }, now) }),
   );
@@ -163,15 +173,15 @@ test("finished work shows Done until it is read, then its age, quietly", () => {
 
 test("trouble and requests keep their pill whether read or not", () => {
   const read = { readAt: now, unread: false };
-  for (const [status, label] of [
-    [{ state: "needs_you", interactions: 1 }, "Needs you"],
-    [{ state: "failed" }, "Failed"],
-    [{ state: "limited" }, "Limited"],
-    [{ state: "waiting", on: "rate_limit" }, "Waiting"],
+  for (const [status, label, quiet] of [
+    [{ state: "needs_you", interactions: 1 }, "Needs you", false],
+    [{ state: "failed" }, "Failed", false],
+    [{ state: "limited" }, "Limited", true],
+    [{ state: "waiting", on: "rate_limit" }, "Waiting", true],
   ] as const) {
     const card = threadCard(input({ entry: entry("t", status, now - 1000, read) }));
     expect(card.pill?.label).toBe(label);
-    expect(card.dimmed).toBe(false);
+    expect(card.dimmed).toBe(quiet);
   }
 });
 
@@ -212,10 +222,13 @@ test("a row says what its thread is doing when the daemon's live hints know more
   );
   expect(watching.pill).toMatchObject({ label: "Watching", code: "bun run dev:relay" });
   expect(watching.status.label).toBe("Watching bun run dev:relay");
+  expect(watching.status.compact).toBe("Waiting");
 
   const subagents = card({ state: "working", agents: 3 }, { waitingOn: 2 });
   expect(subagents.pill).toMatchObject({ label: "Waiting on 2 subagents", tone: "working" });
   expect(subagents.pill?.since).toBeUndefined();
+  expect(subagents.status.compact).toBe("Waiting");
+  expect(subagents.status.since).toBeUndefined();
 
   const asking = card(
     { state: "needs_you", interactions: 1 },
@@ -224,12 +237,15 @@ test("a row says what its thread is doing when the daemon's live hints know more
     },
   );
   expect(asking.pill).toMatchObject({ label: "Waiting for your answer", tone: "needs-you" });
+  expect(asking.status.compact).toBe("Answer");
 
   const testing = card({ state: "working", agents: 1 }, { step: "tests" });
   expect(testing.status.label).toBe("Running tests…");
+  expect(testing.status.compact).toBe("Working");
 
   const limited = card({ state: "limited", until: now + 20 * 60_000 }, {});
   expect(limited.pill?.label).toBe("Limited until 3:20 PM");
+  expect(limited.status.compact).toBe("Limited 15:20");
 
   // Without hints a working thread reads Working, with the time it has been at it.
   const plain = card({ state: "working", agents: 1 }, {});

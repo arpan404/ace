@@ -10,6 +10,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { cn } from "@/lib/cn.ts";
 
 /*
  * Shared row pieces render the card facts. RowStatus reads the shared clock for elapsed time;
@@ -57,22 +58,25 @@ export function ProjectMark(props: { badge: ProjectBadge }) {
  * The status as one small mark in its tone: a spinner while working, a dot when it needs you or
  * failed, a hollow ring while it waits on something other than the person. Nothing at rest.
  */
-export function StatusMark(props: { card: ThreadCard }) {
+export function StatusMark(props: { card: ThreadCard; muted?: boolean }) {
   const { card } = props;
+  const quiet = props.muted ? "text-muted-foreground" : "";
   switch (card.status.mark) {
     case "working":
       return (
         <span className="fx-work-pulse">
-          <LiveWorkMark />
+          <LiveWorkMark className={quiet} />
         </span>
       );
     case "needs-you":
     case "failed":
     case "unresponsive":
     case "limited":
-      return <Dot tone={card.status.mark} />;
+      return <Dot tone={card.status.mark} className={props.muted ? "opacity-50" : ""} />;
     case "none":
-      return card.status.tone === "waiting" ? <Dot tone="limited" /> : null;
+      return card.status.tone === "waiting" ? (
+        <Dot tone="limited" className={props.muted ? "opacity-50" : ""} />
+      ) : null;
   }
 }
 
@@ -99,21 +103,32 @@ function PullRequest(props: { card: ThreadCard }) {
 }
 
 /** Only visible working rows subscribe to the shared second clock. Offline facts stop ticking. */
-export function RowStatus(props: { card: ThreadCard }) {
+export function RowStatus(props: { card: ThreadCard; selected: boolean }) {
   const { card } = props;
+  const muted =
+    !props.selected && card.status.tone !== "needs-you" && card.status.tone !== "failed";
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && card.status.since !== undefined);
   if (card.flags.settled || card.status.tone === "done" || card.status.tone === "idle")
-    return <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{card.age}</span>;
+    return (
+      <span
+        className={cn(
+          "shrink-0 text-xs tabular-nums",
+          props.selected ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {card.age}
+      </span>
+    );
   return (
     <StatusLabel
       tone={card.status.tone}
-      label={card.status.compact ?? card.pill?.label ?? card.status.label}
-      mark={<StatusMark card={card} />}
-      className="min-w-0 max-w-[60%] shrink-0 gap-1 text-xs"
+      label={card.status.compact}
+      mark={<StatusMark card={card} muted={muted} />}
+      className={cn("gap-1 text-xs", muted && "text-muted-foreground")}
     >
       {card.status.since !== undefined && fresh && (
-        <span className="tabular-nums">· {formatSpan(card.status.since, now)}</span>
+        <span className="tabular-nums">{formatSpan(card.status.since, now)}</span>
       )}
     </StatusLabel>
   );
@@ -137,7 +152,8 @@ export function RowMeta(props: { card: ThreadCard }) {
  * The title: bold when unread, bright when it needs you, quiet once the work is behind you,
  * quieter still once settled.
  */
-export function titleTone(card: ThreadCard): string {
+export function titleTone(card: ThreadCard, selected: boolean): string {
+  if (selected) return card.flags.unread ? "font-semibold text-foreground" : "text-foreground";
   if (card.flags.settled) return "text-subtle-foreground";
   if (card.flags.unread) return "font-semibold text-foreground";
   if (card.emphasis) return "text-foreground";
@@ -187,15 +203,10 @@ export function RowDetail(props: { card: ThreadCard; instance?: string | undefin
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         {card.branch && <span className="truncate">{card.branch.name}</span>}
         {card.machine && (
-          <>
-            {" "}
-            ·{" "}
-            <MachineLabel
-              name={card.machine}
-              icon={card.machineIcon}
-              className="shrink-0 max-w-[60%]"
-            />
-          </>
+          <span className="hidden min-w-0 items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
+            ·
+            <MachineLabel name={card.machine} icon={card.machineIcon} className="min-w-0" />
+          </span>
         )}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">

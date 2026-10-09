@@ -17,8 +17,14 @@ import {
   type ThreadMarkKind,
   type Tone,
 } from "./status.ts";
-import { formatAge, formatClock } from "./time.ts";
-import { describeLive, liveStatusText, threadLiveFact, type LiveStatus } from "./live-status.ts";
+import { formatAge, formatShortClock } from "./time.ts";
+import {
+  describeLive,
+  liveStatusText,
+  threadLiveFact,
+  type LiveStatus,
+  type LiveFact,
+} from "./live-status.ts";
 
 const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
   working: "working",
@@ -108,7 +114,7 @@ export interface ThreadCard {
   flags: ThreadRowFlags;
   /** Medium weight: it needs you or has activity the person hasn't opened. */
   emphasis: boolean;
-  /** Quiet: done and read, nothing left to look at. Settled rows are quiet too. */
+  /** Quiet unless it needs attention or has unread activity. Settled rows are quiet too. */
   dimmed: boolean;
   /** The status pill on the first line; without one the row shows its age. */
   pill: TaskPill | undefined;
@@ -132,7 +138,7 @@ export interface ThreadCard {
     label: string;
     tone: Tone;
     mark: ThreadMarkKind;
-    compact?: string;
+    compact: string;
     since?: number | undefined;
   };
   provider: ProviderKind;
@@ -174,12 +180,32 @@ export function middleTruncateText(text: string, max: number): string {
   return `${chars.slice(0, head).join("")}…${chars.slice(-tail).join("")}`;
 }
 
+/** Short row wording; the full status remains in the row name and tooltip. */
+function compactStatus(
+  entry: ThreadListEntry,
+  fact: LiveFact | undefined,
+  now: number,
+  locale?: string,
+): string {
+  if (fact?.kind === "asking") {
+    if (fact.request === "approval") return "Approve";
+    return fact.request === "plan_review" ? "Needs you" : "Answer";
+  }
+  if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
+    return `Limited ${formatShortClock(fact.until, locale)}`;
+  if (fact?.kind === "subagents" || entry.status.state === "waiting") return "Waiting";
+  if (entry.status.state === "unresponsive") return "Failed";
+  return threadStatusLabel(entry.status).label;
+}
+
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
 export function threadCard(input: ThreadCardInput): ThreadCard {
   const { entry, details, now } = input;
   const flags = threadRowFlags(entry, input);
   const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
+  const attention =
+    needsYou || entry.status.state === "failed" || entry.status.state === "unresponsive";
   const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
@@ -194,8 +220,8 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     badge: projectBadge({ id: entry.workspaceId, name: input.projectName ?? entry.workspaceId }),
     age: formatAge(activityOf(entry), now),
     flags,
-    emphasis: needsYou || unread,
-    dimmed: input.settled || (entry.status.state === "done" && !unread),
+    emphasis: attention || unread,
+    dimmed: input.settled || (!attention && !unread),
     pill: input.settled
       ? undefined
       : live
@@ -226,14 +252,9 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       label,
       tone,
       mark: threadStatusMark(entry.status),
-      ...(entry.status.state === "working"
+      compact: compactStatus(entry, fact, now, input.locale),
+      ...(entry.status.state === "working" && fact?.kind !== "subagents"
         ? { since: entry.live?.workingSince ?? activityOf(entry) }
-        : {}),
-      ...(fact?.kind === "asking"
-        ? { compact: fact.request === "question" ? "Waiting for answer" : "Needs you" }
-        : {}),
-      ...(fact?.kind === "limited" && fact.until !== undefined && fact.until > now
-        ? { compact: `Limited · ${formatClock(fact.until, input.locale)}` }
         : {}),
     },
     provider: entry.provider,

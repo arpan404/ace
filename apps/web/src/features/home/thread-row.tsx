@@ -1,5 +1,5 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useState } from "react";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -34,6 +34,10 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
   const renaming = editing || refused !== undefined;
   const started = useStartedTitle(props.threadId);
   const selected = useSelected(props.threadId);
+  const current = useLocation({
+    select: (location) => location.pathname === `/t/${props.threadId}`,
+  });
+  const highlighted = selected || current;
   if (!data) return null;
   const { entry } = data;
   // A thread this window started reads its provisional title until the daemon titles it.
@@ -105,7 +109,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                     <ProjectMark badge={card.badge} />
                     <span className="min-w-0 flex-1 truncate">{card.project}</span>
                     <span className="contents group-focus-within/row:hidden group-hover/row:hidden">
-                      <RowStatus card={card} />
+                      <RowStatus card={card} selected={highlighted} />
                     </span>
                   </span>
                 )}
@@ -115,7 +119,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                     className={cn(
                       "min-w-0 flex-1 truncate",
                       settled ? "text-ui leading-4" : "text-base leading-5",
-                      titleTone(card),
+                      titleTone(card, highlighted),
                     )}
                   >
                     {card.title}

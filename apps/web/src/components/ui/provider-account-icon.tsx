@@ -15,7 +15,7 @@ export const accountColors: Record<AccountBadgeColor, string> = {
   violet: "var(--project-10)",
 };
 
-/** One provider mark and corner label everywhere an account is shown. */
+/** Provider glyph and a separate account dot, only when there are accounts to distinguish. */
 export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
@@ -32,13 +32,11 @@ export function ProviderAccountIcon(
   const siblings = own?.filter(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
-  const label = siblings && siblings.length > 1 ? account?.shortLabel : undefined;
-  const name = [providerNames[props.provider], account?.label, label && `label ${label}`]
-    .filter(Boolean)
-    .join(" · ");
+  const multiple = siblings !== undefined && siblings.length > 1;
+  const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn("relative inline-flex shrink-0", props.className)}
+      className={cn("inline-flex shrink-0 items-center gap-0.5", props.className)}
       title={name}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
@@ -48,16 +46,14 @@ export function ProviderAccountIcon(
         className={undefined}
         decorative
       />
-      {label && (
+      {multiple && account && (
         <span
-          style={{
-            background: accountColors[account?.badgeColor ?? "neutral"],
-            color: "var(--background)",
-          }}
-          className="absolute -right-1 -bottom-1 min-w-2.5 rounded-xs px-0.5 text-center text-2xs leading-[11px] font-semibold shadow-[0_0_0_1px_var(--background)]"
-        >
-          {label}
-        </span>
+          role="img"
+          aria-label={`${account.label} account`}
+          title={`${account.label} account`}
+          style={{ background: accountColors[account.badgeColor ?? "neutral"] }}
+          className="size-1 shrink-0 rounded-full"
+        />
       )}
     </span>
   );
