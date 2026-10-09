@@ -2,4 +2,4 @@
 // (icons/junie.svg, icons/junie-color.svg, MIT, Copyright (c) 2023 LobeHub; see NOTICE). Do not edit.
 import type { BrandArt } from "../brand-art-types.ts";
 
-export const art: BrandArt = {"viewBox":"0 0 24 24","mono":[{"d":"M24 9.333C24 18.666 20 24 9.333 24H8v-8h1.333C14 16 16 14 16 9.333V8h8v1.333zM8 16H0V8h8v8zM16 8H8V0h8v8z","fillRule":"evenodd"}],"color":[{"d":"M24 9.333C24 18.666 20 24 9.333 24H8v-8h1.333C14 16 16 14 16 9.333V8h8v1.333zM8 16H0V8h8v8zM16 8H8V0h8v8z","fill":"#47E054"}]};
+export const art: BrandArt = {"viewBox":"-0.5 -0.5 25 25","mono":[{"d":"M24 9.333C24 18.666 20 24 9.333 24H8v-8h1.333C14 16 16 14 16 9.333V8h8v1.333zM8 16H0V8h8v8zM16 8H8V0h8v8z","fillRule":"evenodd"}],"color":[{"d":"M24 9.333C24 18.666 20 24 9.333 24H8v-8h1.333C14 16 16 14 16 9.333V8h8v1.333zM8 16H0V8h8v8zM16 8H8V0h8v8z","fill":"#47E054"}]};
