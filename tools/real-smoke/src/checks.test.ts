@@ -29,7 +29,7 @@ describe("presentation failures", () => {
       checkPage({
         ...clean(),
         bubbles: ['{"type":"event_msg","data":{}}'],
-        models: ["gpt-5.4-mini"],
+        models: ["gpt-5.4-mini", "o4-mini"],
       }).map((failure) => failure.code),
     ).toEqual(["json-bubble", "raw-model-id"]);
     expect(

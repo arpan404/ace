@@ -72,7 +72,7 @@ export function pageFacts(options: Pick<PageFacts, "catalogsReady" | "expected">
     ],
     bubbles,
     models: texts(
-      '[role="option"], button[aria-label^="Model:"], button[aria-label^="Default model:"], table[aria-label="Usage by model"] td:first-child',
+      '[role="listbox"][aria-label="Models"] [role="option"] span.truncate:first-child, button[aria-label^="Model:"], button[aria-label^="Default model:"], table[aria-label="Usage by model"] td:first-child',
     ),
     alerts: [
       ...texts('[role="alert"], [role="alertdialog"], [data-slot="toast-root"]'),

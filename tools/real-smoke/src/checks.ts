@@ -43,7 +43,7 @@ export function checkPage(facts: PageFacts): Finding[] {
       add("json-bubble", "A message bubble displays a serialized object");
   if (
     facts.models.some((label) =>
-      /(?:^|\s)(?:[a-z\d]+\/)?[a-z][a-z\d]*(?:-[a-z\d.]+){2,}(?:$|\s)/.test(label),
+      /(?:^|\s)(?:[a-z\d]+\/)?[a-z][a-z\d]*(?:-[a-z\d.]+)+(?:$|\s)/.test(label),
     )
   )
     add("raw-model-id", "A model display label contains a raw id");
