@@ -62,7 +62,7 @@ test("a saved native Pi selector remains available with its advertised input mod
     nativeModelId: "fixture-model",
     inputModalities: ["text", "image"],
   });
-  const selection = { provider: "pi" as const, model: "fixture-model" };
-  expect(unavailableSelection([model], selection)).toBeUndefined();
-  expect(selectionInputs([model], selection)).toEqual(["text", "image"]);
+  const saved = { provider: "pi" as const, model: "fixture-model" };
+  expect(unavailableSelection([model], saved)).toBeUndefined();
+  expect(selectionInputs([model], saved)).toEqual(["text", "image"]);
 });
