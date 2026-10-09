@@ -1,4 +1,4 @@
-import type { HistoryListRequest } from "@ace/protocol";
+import { HistoryProvider, type HistoryListRequest } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { useDeferredValue, useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -49,14 +49,18 @@ export default function SessionsDialog(props: { project: Project; onClose: () =>
           }}
         />
         <DialogBody>
+          {query.data?.scan?.state === "scanning" && (
+            <StatusLabel tone="working" label="Looking for saved conversations…" />
+          )}
           {query.isError ? (
             <p role="alert">Past sessions couldn't be loaded. Reconnect and try again.</p>
           ) : !query.data ? (
             <StatusLabel tone="working" label="Loading past sessions…" />
-          ) : !sessions.length ? (
+          ) : !sessions.length &&
+            query.data.scan?.state === "scanning" ? null : !sessions.length ? (
             <p className="text-sm text-muted-foreground">No matching sessions.</p>
           ) : (
-            (["claude", "codex", "opencode", "cursor"] as const).map((provider) => {
+            HistoryProvider.options.map((provider) => {
               const group = sessions.filter((s) => s.provider === provider);
               return group.length ? (
                 <section key={provider}>

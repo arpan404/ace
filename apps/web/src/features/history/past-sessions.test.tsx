@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { HistorySession } from "@ace/protocol";
+import { HistorySession, ThreadId, ThreadView } from "@ace/protocol";
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -71,6 +71,11 @@ test("New thread lists the selected project's sessions and Import opens their sa
   expect(within(feed).getByText("Check reconnect retries.")).toBeTruthy();
   expect(await within(feed).findByText("Retries now stop at the configured cap.")).toBeTruthy();
   expect(within(feed).queryByText("Starting")).toBeNull();
+  expect(
+    ThreadView.parse(
+      made.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("past-saved-claude") }),
+    ).thread,
+  ).toMatchObject({ status: { state: "done" }, settledAt: expect.any(Number) });
   await userEvent.type(
     screen.getByRole("combobox", { name: "Message" }),
     "Add regression coverage",
@@ -123,7 +128,7 @@ test("Recent sessions stay capped, unavailable and other-project rows stay out, 
     HistorySession.parse({
       id: `saved-${index}`,
       instanceId: "personal",
-      provider: index % 2 ? "codex" : "opencode",
+      provider: index === 109 ? "pi" : index % 2 ? "codex" : "opencode",
       nativeId: `native-${index}`,
       cwd: "/Users/dev/relay",
       title: index === 109 ? "Find the missing keyboard shortcut" : `Review retry ${index}`,
@@ -167,6 +172,7 @@ test("Recent sessions stay capped, unavailable and other-project rows stay out, 
     "keyboard",
   );
   expect(await within(dialog).findByText("Find the missing keyboard shortcut")).toBeTruthy();
+  expect(within(dialog).getByRole("list", { name: "Pi sessions" })).toBeTruthy();
   expect(within(dialog).queryByText("Review retry 0")).toBeNull();
 });
 
@@ -177,4 +183,59 @@ test("A project with no readable sessions has no past sessions section or entry 
   await screen.findByRole("combobox", { name: "Message" });
   await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
   expect(screen.queryByRole("button", { name: "Show all past sessions" })).toBeNull();
+});
+
+test("old imported Codex notices and new raw-only items take no visible transcript rows", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await userEvent.click(await screen.findByRole("button", { name: "Import Trace delivery order" }));
+  await screen.findByRole("heading", { name: "Trace delivery order" });
+  const thread = ThreadView.parse(
+    made.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("past-saved-codex") }),
+  ).thread;
+  if (!thread?.rootAgentId) throw new Error("Missing imported thread");
+  const labels = [
+    "Native history record: event_msg",
+    "Native history record: turn_context",
+    "Native reasoning record",
+    "",
+  ];
+  for (const [index, text] of labels.entries())
+    made.daemon.apply(thread.id, [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: `raw-${index}`,
+        draft: {
+          complete: true,
+          type: "notice",
+          level: "info",
+          text,
+          ...(text ? {} : { code: "history.raw-only" }),
+          raw: [
+            { type: "event_msg", data: { type: "event_msg", payload: { type: "task_started" } } },
+          ],
+        },
+      },
+    ]);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByText("Saved events arrive before live events.")).toBeTruthy();
+  for (const text of labels.filter(Boolean)) expect(within(feed).queryByText(text)).toBeNull();
+});
+
+test("the full session list stays usable while more saved conversations are being found", async () => {
+  const made = app();
+  made.daemon.seedServices({
+    historyScan: {
+      state: "scanning",
+      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
+      unsupported: [],
+    },
+  });
+  await made.open("/new?project=relay");
+  await userEvent.click(await screen.findByRole("button", { name: "Show all past sessions" }));
+  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
+  expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
+  expect(within(dialog).getByText("Trace delivery order")).toBeTruthy();
+  expect(within(dialog).queryByRole("alert")).toBeNull();
 });

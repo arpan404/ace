@@ -9126,7 +9126,7 @@ Example:
 
 [JSON Schema](schema/HistoryProvider.json), input validation.
 
-Type: ["claude","codex","opencode","cursor"]. See JSON Schema for constraints.
+Type: ["claude","codex","opencode","cursor","pi"]. See JSON Schema for constraints.
 
 Example:
 
@@ -9283,7 +9283,7 @@ Example:
   "messageCount": 1,
   "nativeId": "example",
   "parentNativeId": "example",
-  "provider": "codex",
+  "provider": "opencode",
   "support": {
     "reason": "example",
     "status": "unsupported"

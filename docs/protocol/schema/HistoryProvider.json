@@ -5,7 +5,8 @@
     "claude",
     "codex",
     "opencode",
-    "cursor"
+    "cursor",
+    "pi"
   ],
   "type": "string"
 }

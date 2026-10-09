@@ -133,28 +133,44 @@ export async function scan(
         const headInput = sample.records.slice(0, sample.headCount).some(hasUserInput);
         if (isStorage || (!sample.exact && !headInput)) {
           if (!isStorage) result.reads++;
-          for await (const record of sourceRecords(
-            instance,
-            {
-              summary: s,
-              path,
-              fingerprint: fp,
-              kind: isStorage ? "storage" : "jsonl",
-              instanceId: instance.id,
-              hidden: false,
-            },
-            signal,
-            catalog.scratchRoot,
-          )) {
-            if (!isStorage) result.bytes += record.bytes;
-            if ("value" in record) {
-              prompt = userPrompt(record.value);
-              input = hasUserInput(record.value);
+          try {
+            for await (const record of sourceRecords(
+              instance,
+              {
+                summary: s,
+                path,
+                fingerprint: fp,
+                kind: isStorage ? "storage" : "jsonl",
+                instanceId: instance.id,
+                hidden: false,
+              },
+              signal,
+              catalog.scratchRoot,
+            )) {
+              if (!isStorage) result.bytes += record.bytes;
+              if ("value" in record) {
+                prompt = userPrompt(record.value);
+                input = hasUserInput(record.value);
+              }
+              if (input) break;
             }
-            if (input) break;
+          } catch (error) {
+            if (signal.aborted) throw error;
+            const reason =
+              error instanceof Error
+                ? error.message
+                : "This saved conversation could not be read. Open it in its original app to recover its history.";
+            s = { ...s, support: { status: "unsupported", reason } };
+            // Keep the source visible to diagnostics, but never offer a partial import.
+            input = true;
+            if (result.unsupported.length < 256)
+              result.unsupported.push({ instanceId: instance.id, reason });
           }
           if (!isStorage)
-            s = summary(instance, path, sample.records, sample.exact, sample.mtime, prompt);
+            s = {
+              ...summary(instance, path, sample.records, sample.exact, sample.mtime, prompt),
+              support: s.support,
+            };
           s = {
             ...s,
             title: sessionTitle(

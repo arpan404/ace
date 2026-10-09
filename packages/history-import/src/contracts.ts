@@ -92,6 +92,7 @@ export const Request = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("list"), request: HistoryListRequest }),
   z.object({ op: z.literal("get"), id: z.string() }),
+  z.object({ op: z.literal("reference"), id: z.string() }),
   z.object({ op: z.literal("import"), init: ImportInit }),
   z.object({ op: z.literal("import.persist"), init: ImportInit }),
   z.object({ op: z.literal("next") }),

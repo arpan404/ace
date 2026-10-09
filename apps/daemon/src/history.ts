@@ -1,3 +1,4 @@
+import { logFields } from "@ace/diagnostics";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -21,6 +22,7 @@ export type HistoryRequest = Extract<
   { type: "history.scan" | "history.list" | "history.import" | "history.continue" }
 >;
 export interface DaemonHistoryOptions {
+  log?: import("@ace/diagnostics").ComponentLogger;
   signal?: AbortSignal;
   spawnWorker?: Parameters<typeof openHistory>[1];
   historyRuntime?: HistoryRuntime;
@@ -50,6 +52,11 @@ export function readHistoryInstances(
               id: "codex-default",
               provider: "codex",
               homeDir: env.CODEX_HOME ?? join(home, ".codex"),
+            },
+            {
+              id: "pi-default",
+              provider: "pi",
+              homeDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi/agent"),
             },
             {
               id: "opencode-default",
@@ -87,6 +94,7 @@ export async function openDaemonHistory(
   }
 }
 export class DaemonHistory {
+  private log: DaemonHistoryOptions["log"];
   private store: Store;
   private service: HistoryService;
   private dataDir: string;
@@ -159,9 +167,19 @@ export class DaemonHistory {
     })
       .then(
         (result) => {
+          for (const entry of result.unsupported)
+            this.log?.log(
+              "warn",
+              "Saved history could not be read",
+              logFields([
+                ["instanceId", entry.instanceId],
+                ["reason", entry.reason],
+              ]),
+            );
           this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });
         },
         (error: unknown) => {
+          if (!signal.aborted) this.log?.log("error", "Past sessions scan failed", error);
           this.publishScan({
             ...this.scanState,
             state: signal.aborted ? "idle" : "failed",
@@ -192,6 +210,7 @@ export class DaemonHistory {
     indexPath: string,
     options: DaemonHistoryOptions,
   ) {
+    this.log = options.log;
     this.externalSignal = options.signal;
     this.store = store;
     this.service = service;
@@ -234,7 +253,10 @@ export class DaemonHistory {
       };
     }
     if (request.type === "history.list") {
-      const page = await this.service.list(request);
+      const page = await this.service.list(request).catch((error: unknown) => {
+        this.log?.log("error", "Past sessions could not be listed", error);
+        throw error;
+      });
       return {
         ...page,
         sessions: page.sessions.map((session) => {
@@ -275,6 +297,8 @@ export class DaemonHistory {
         throw new Error("Invalid history reply");
       return request.requestId ? { ...result, requestId: request.requestId } : result;
     } catch (error) {
+      if (!lifetime.aborted)
+        this.log?.log("error", "Saved conversation could not be opened", error);
       report("failed");
       throw error;
     } finally {

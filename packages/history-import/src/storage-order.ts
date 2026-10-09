@@ -48,7 +48,9 @@ export function orderedMessages(
     for await (const path of walkFiles(root, signal)) {
       const sample = await readHeadTail(instance.homeDir, path, signal);
       if (!sample.exact || sample.records.length !== 1)
-        throw new Error("Legacy OpenCode message exceeds metadata limit");
+        throw new Error(
+          "A saved OpenCode message is too large or unreadable. Open this conversation in OpenCode to recover its history.",
+        );
       const r = object(sample.records[0]);
       yield {
         at: timestamp(object(r.time).created) ?? 0,

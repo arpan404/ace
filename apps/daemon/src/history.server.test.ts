@@ -114,7 +114,11 @@ test("authenticated history import publishes a daemon thread with windowed canon
       ],
     }),
   );
-  expect(daemon.store.getThread(threadId)?.status.state).toBe("new");
+  expect(daemon.store.getThread(threadId)).toMatchObject({
+    status: { state: "done" },
+    settledAt: expect.any(Number),
+    unread: false,
+  });
   client.socket.send(JSON.stringify({ type: "history.import", sourceId: source.id, workspaceId }));
   expect(await client.next()).toMatchObject({
     type: "history.import",
