@@ -18,6 +18,9 @@ function bindings() {
   return {
     open: library.func("int openat(int directory, const char *name, int flags)"),
     create: library.func("int openat(int directory, const char *name, int flags, ...)"),
+    readlink: library.func(
+      "int readlinkat(int directory, const char *name, void *buffer, unsigned long size)",
+    ),
     mkdir: library.func("int mkdirat(int directory, const char *name, unsigned int mode)"),
     rename: library.func(
       "int renameat(int olddir, const char *oldname, int newdir, const char *newname)",
@@ -124,4 +127,12 @@ export async function linkCommandFile(
 ): Promise<void> {
   if (integer.parse(await call(api().link, directory, source, directory, target, 0)) < 0)
     throw new Error("prompt_conflict");
+}
+
+/** Read the link itself relative to the pinned skill directory, never its target. */
+export async function readCommandLink(directory: number, name: string): Promise<string> {
+  const bytes = Buffer.alloc(4096);
+  const count = integer.parse(await call(api().readlink, directory, name, bytes, bytes.length));
+  if (count < 1 || count >= bytes.length) throw new EntryUnavailable("Unavailable skill link");
+  return bytes.subarray(0, count).toString("utf8");
 }

@@ -11,6 +11,7 @@ import {
   removeCommandFile,
   linkCommandFile,
   openCommandChild,
+  readCommandLink,
   directoryReader,
   directoryFlags,
   fileFlags,
@@ -72,15 +73,57 @@ export class SecureCommandIo implements CommandFileIo {
     try {
       const parts = tail.split(sep).filter(Boolean);
       if (parts.length > 128) throw new Error("Command path depth limit");
-      for (const name of parts.slice(0, -1)) {
-        const child = await this.openChild(parent, name, directoryFlags);
+      for (const [index, name] of parts.slice(0, -1).entries()) {
+        const child = await this.openDirectory(
+          root,
+          parent,
+          name,
+          resolve(anchor, ...parts.slice(0, index + 1)),
+        );
         await closeFd(parent);
         parent = child;
       }
-      return await this.openChild(parent, parts.at(-1) ?? ".", flags);
+      const name = parts.at(-1) ?? ".";
+      try {
+        return await this.openChild(parent, name, flags);
+      } catch (error) {
+        if (!(error instanceof EntryUnavailable)) throw error;
+        return await this.openSkillLink(root, parent, name, path, flags);
+      }
     } finally {
       await closeFd(parent);
     }
+  }
+  private async openDirectory(
+    root: DiscoveryRoot,
+    parent: number,
+    name: string,
+    path: string,
+  ): Promise<number> {
+    try {
+      return await this.openChild(parent, name, directoryFlags);
+    } catch (error) {
+      if (!(error instanceof EntryUnavailable)) throw error;
+      return this.openSkillLink(root, parent, name, path, directoryFlags);
+    }
+  }
+  private async openSkillLink(
+    root: DiscoveryRoot,
+    parent: number,
+    name: string,
+    path: string,
+    flags: number,
+  ): Promise<number> {
+    const home = root.skillLinkHome;
+    // Only immediate skill folders may link elsewhere in the registered user's home.
+    if (!root.skill || !home || resolve(dirname(path)) !== resolve(root.path))
+      throw new EntryUnavailable("Unavailable skill folder");
+    const target = resolve(dirname(path), await readCommandLink(parent, name));
+    const tail = relative(resolve(home), target);
+    if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep))
+      throw new EntryUnavailable("Skill link outside home");
+    // Target ancestors and descendants still use O_NOFOLLOW: chains and nested links fail closed.
+    return this.open({ ...root, trustedRoot: home, skillLinkHome: undefined }, target, flags);
   }
   async stat(root: DiscoveryRoot, path: string): Promise<Stats | undefined> {
     let fd: number;
