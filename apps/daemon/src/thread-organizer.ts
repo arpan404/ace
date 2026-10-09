@@ -49,6 +49,7 @@ export class ThreadOrganizer {
           );
         }
         if (
+          p.type === "queue.updated" ||
           p.type === "thread.created" ||
           p.type === "thread.updated" ||
           (p.type === "thread.client.updated" &&

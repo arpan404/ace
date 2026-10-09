@@ -557,6 +557,7 @@ export class FakeDaemon implements Host {
     if (host.queueDirty) {
       host.queueDirty = false;
       host.queue.revision++;
+      host.queue.pendingCount = host.queued.length;
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);

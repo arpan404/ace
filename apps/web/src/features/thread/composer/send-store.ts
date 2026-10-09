@@ -1,3 +1,4 @@
+export { Observable } from "@/lib/observable.ts";
 /*
  * What this window knows about messages on their way that the client's outbox doesn't (UX audit
  * SY-2, SY-3): a message still waiting for its files to upload before it can be enqueued, the
@@ -31,30 +32,6 @@ export interface StagedSend {
   owner: string;
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
-}
-
-type Listener = () => void;
-
-/** A tiny observable value, read through `useSyncExternalStore`. */
-export class Observable<T> {
-  private listeners = new Set<Listener>();
-  private value: T;
-  constructor(value: T) {
-    this.value = value;
-  }
-  get = (): T => this.value;
-  /** Set without telling anyone: for a value loaded lazily during a render. */
-  seed(value: T): void {
-    this.value = value;
-  }
-  set(value: T): void {
-    this.value = value;
-    for (const listener of this.listeners) listener();
-  }
-  subscribe = (listener: Listener): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
 }
 
 /*

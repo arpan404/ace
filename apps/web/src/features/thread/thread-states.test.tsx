@@ -1,6 +1,5 @@
 import { ClientError } from "@ace/client";
 import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { threadLoadFailure } from "./thread-load-error.tsx";
@@ -14,11 +13,8 @@ test("a thread the daemon doesn't have says so in words and offers the way back"
   expect(alert.textContent).not.toContain("keep working");
   expect(within(alert).getByRole("link", { name: "Back to Home" })).toBeTruthy();
 
-  // The daemon's own code waits behind Details, closed until asked for.
-  const details = within(alert).getByText("not_found").closest("details");
-  expect(details?.open).toBe(false);
-  await userEvent.click(within(alert).getByText("Details"));
-  expect(details?.open).toBe(true);
+  expect(alert.textContent).not.toContain("not_found");
+  expect(screen.queryByText("Loading thread…")).toBeNull();
 });
 
 test("only a lost or slow connection says the agents keep working", () => {
@@ -31,4 +27,12 @@ test("only a lost or slow connection says the agents keep working", () => {
     description: "This device isn't allowed to read this.",
     code: "forbidden",
   });
+});
+
+test("a denied deleted-thread URL explains that the thread is missing", async () => {
+  const app = harness();
+  app.daemon.refuseRequests("read_denied", "subscribe");
+  await app.open("/t/deleted-thread");
+  expect(await screen.findByRole("heading", { name: "This thread doesn't exist" })).toBeTruthy();
+  expect(screen.queryByText("Something went wrong")).toBeNull();
 });

@@ -1,4 +1,4 @@
-export { isDefaultSelection } from "./catalog-cleanup.ts";
+export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { ModelRoleSpec, type CatalogModel, type ModelResolution } from "@ace/protocol";
 
@@ -12,6 +12,8 @@ export function resolveModel(
   const ranks = new Map<string, number>();
   for (const [index, id] of spec.preferenceOrder.entries())
     if (!ranks.has(id)) ranks.set(id, index);
+  const bareOpenCode = spec.provider === "opencode" && !!spec.model && !spec.model.includes("/");
+  let matchedRoute: string | undefined;
   let first: CatalogModel | undefined;
   let defaultModel: CatalogModel | undefined;
   let preferred: CatalogModel | undefined;
@@ -39,6 +41,14 @@ export function resolveModel(
       )
     )
       continue;
+    if (bareOpenCode) {
+      if (matchedRoute && matchedRoute !== model.id)
+        return {
+          ok: false,
+          reason: `${spec.role}: the saved model names more than one provider route; select a provider-qualified model`,
+        };
+      matchedRoute = model.id;
+    }
     first ??= model;
     if (model.isDefault) defaultModel ??= model;
     const rank = ranks.get(model.id) ?? Infinity;
@@ -47,8 +57,9 @@ export function resolveModel(
       bestRank = rank;
     }
     if (
-      (spec.selection === "strongest" && bestRank === 0) ||
-      (spec.selection === "default" && defaultModel)
+      !bareOpenCode &&
+      ((spec.selection === "strongest" && bestRank === 0) ||
+        (spec.selection === "default" && defaultModel))
     )
       break;
   }

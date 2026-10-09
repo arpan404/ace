@@ -471,3 +471,56 @@ test("provider approval options include the session grant and send the chosen op
     expect(within(feed).getByText("Approved by you for this thread")).toBeTruthy(),
   );
 });
+
+test("legacy notices hide stderr and native event names and clean command prefixes", async () => {
+  const feed = await open(
+    thread("legacy-notices", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "stderr",
+        draft: {
+          type: "notice",
+          level: "warning",
+          text: "\u001b[31mINTERNAL STDERR\u001b[0m",
+          raw: [{ type: "stderr", data: {} }],
+          complete: true,
+        },
+      },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "native",
+        draft: {
+          type: "notice",
+          level: "info",
+          text: "session.permissions",
+          raw: [{ type: "native-notice", data: {} }],
+          complete: true,
+        },
+      },
+      notice("model", "error", "opencode session opening failed: model_unavailable"),
+      notice("activation", "error", "thread.send: No adapter registered for opencode"),
+      notice(
+        "timeout",
+        "warning",
+        "\u001b[2mthread.resume: The connection timed out. Try again.\u001b[0m",
+      ),
+    ]),
+  );
+  expect(await within(feed).findByText("The connection timed out. Try again.")).toBeTruthy();
+  expect(
+    within(feed).getByText("The selected model isn't available. Pick another model."),
+  ).toBeTruthy();
+  expect(
+    within(feed).getByText(
+      "The provider isn't ready. Check its connection in Settings and try again.",
+    ),
+  ).toBeTruthy();
+  expect(feed.textContent).not.toContain("model_unavailable");
+  expect(feed.textContent).not.toContain("No adapter registered");
+  expect(feed.textContent).not.toContain("INTERNAL STDERR");
+  expect(feed.textContent).not.toContain("session.permissions");
+  expect(feed.textContent).not.toContain("thread.resume:");
+  expect(feed.textContent).not.toContain("\u001b");
+});

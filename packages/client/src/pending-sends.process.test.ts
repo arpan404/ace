@@ -180,3 +180,91 @@ test("record storage preserves offline send order across a restart and retains c
   await when(second.intent("a-second"), (intent) => intent?.state === "acked");
   expect(seen).toEqual(["z-first", "a-second"]);
 });
+
+test.each(["native", "run"] as const)(
+  "a late %s acknowledgement clears a saved send failure and stale notices cannot revive it",
+  async (acknowledgement) => {
+    const h = await setup();
+    cleanup = h.cleanup;
+    const { client } = h.make();
+    await ready(client);
+    const lease = client.thread(h.thread.id);
+    await client.enqueue(
+      {
+        type: "thread.send",
+        threadId: h.thread.id,
+        input: [{ type: "text", text: "Already answered" }],
+      },
+      "late-send",
+    );
+    const selection = client.pendingSends(h.thread.id);
+    const failure = ItemId.parse("legacy-failure");
+    h.daemon.store.appendEvents(h.thread.id, [
+      {
+        type: "item.created",
+        item: {
+          id: failure,
+          agentId: AgentId.parse("agent"),
+          createdAt: 10,
+          type: "notice",
+          level: "error",
+          code: "delivery_failed",
+          commandId: (await import("@ace/protocol")).CommandId.parse("late-send"),
+          text: "No adapter registered for opencode",
+          complete: true,
+          raw: [],
+        },
+      },
+    ]);
+    await when(selection, (entries) => entries[0]?.state === "failed");
+    const item = {
+      id: ItemId.parse("input:late-send"),
+      agentId: AgentId.parse("agent"),
+      createdAt: 1,
+      type: "message" as const,
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "Already answered" }],
+      ...(acknowledgement === "native"
+        ? { nativeId: "provider-message" }
+        : { runId: (await import("@ace/protocol")).RunId.parse("accepted-run") }),
+      synthetic: false,
+      complete: true,
+      raw: [],
+    };
+    const { Run } = await import("@ace/protocol");
+    h.daemon.store.appendEvents(h.thread.id, [
+      ...(acknowledgement === "run"
+        ? [
+            {
+              type: "run.started" as const,
+              run: Run.parse({
+                id: "accepted-run",
+                agentId: "agent",
+                threadId: h.thread.id,
+                state: "active",
+                startedAt: 20,
+                trigger: "user",
+              }),
+            },
+          ]
+        : []),
+      { type: "item.created", item },
+    ]);
+    await when(selection, (entries) => entries[0]?.state === "delivered");
+    const notice = h.daemon.store.snapshotThread(h.thread.id).items[failure];
+    if (!notice) throw new Error("Missing stored failure");
+    h.daemon.store.appendEvents(h.thread.id, [
+      { type: "item.updated", item: { ...notice, createdAt: 11 } },
+    ]);
+    await when(
+      lease.store.select([`item:${failure}`], (reader) => reader.item(failure)?.createdAt),
+      (at) => at === 11,
+    );
+    expect(selection.getSnapshot()[0]).toMatchObject({
+      state: "delivered",
+      commandId: "late-send",
+    });
+    expect(lease.store.order.filter((id) => id === item.id)).toHaveLength(1);
+    lease.release();
+  },
+);

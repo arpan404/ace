@@ -1,3 +1,4 @@
+import { QueueState } from "./queue.ts";
 import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { PermissionState, PermissionMode } from "./permissions.ts";
@@ -73,6 +74,7 @@ export const Thread = z.object({
   id: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string(),
+  queue: QueueState.optional(),
   titleSource: z.enum(["provisional", "provider", "person", "agent"]).optional(),
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),

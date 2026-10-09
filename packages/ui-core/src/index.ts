@@ -1,3 +1,5 @@
+export { threadAttention, withoutPortableHandoff } from "@ace/projection";
+export * from "./notice-text.ts";
 /*
  * Headless view logic shared by the web app and the Expo app: status wording, Home ordering and
  * settling, thread cards, work-log and diff summaries, relative time. Pure

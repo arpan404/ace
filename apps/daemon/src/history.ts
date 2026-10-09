@@ -1,4 +1,4 @@
-import { logFields } from "@ace/diagnostics";
+import { logFields, logError } from "@ace/diagnostics";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -23,6 +23,7 @@ export type HistoryRequest = Extract<
 >;
 export interface DaemonHistoryOptions {
   log?: import("@ace/diagnostics").ComponentLogger;
+  onError?(error: unknown, operation: string): void;
   signal?: AbortSignal;
   spawnWorker?: Parameters<typeof openHistory>[1];
   historyRuntime?: HistoryRuntime;
@@ -100,6 +101,7 @@ export class DaemonHistory {
   private dataDir: string;
   private indexPath: string;
   private now: () => number;
+  private onError: DaemonHistoryOptions["onError"];
   private nextId: () => string;
   private lifetime = new AbortController();
   private externalSignal: AbortSignal | undefined;
@@ -179,7 +181,7 @@ export class DaemonHistory {
           this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });
         },
         (error: unknown) => {
-          if (!signal.aborted) this.log?.log("error", "Past sessions scan failed", error);
+          if (!signal.aborted) this.reportError(error, "history.scan");
           this.publishScan({
             ...this.scanState,
             state: signal.aborted ? "idle" : "failed",
@@ -211,6 +213,7 @@ export class DaemonHistory {
     options: DaemonHistoryOptions,
   ) {
     this.log = options.log;
+    this.onError = options.onError;
     this.externalSignal = options.signal;
     this.store = store;
     this.service = service;
@@ -233,7 +236,30 @@ export class DaemonHistory {
       this.lifetime.signal,
     );
   }
+  private reportError(error: unknown, operation: string): void {
+    this.log?.log(
+      "warn",
+      "Past sessions operation failed",
+      logFields([
+        ["operation", operation],
+        ["error", logError(error)],
+      ]),
+    );
+    this.onError?.(error, operation);
+  }
   async handle(
+    request: HistoryRequest,
+    signal: AbortSignal,
+    progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
+  ): Promise<ServerMessage> {
+    try {
+      return await this.handleRequest(request, signal, progress);
+    } catch (error) {
+      if (!signal.aborted) this.reportError(error, request.type);
+      throw error;
+    }
+  }
+  private async handleRequest(
     request: HistoryRequest,
     signal: AbortSignal,
     progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
@@ -253,10 +279,7 @@ export class DaemonHistory {
       };
     }
     if (request.type === "history.list") {
-      const page = await this.service.list(request).catch((error: unknown) => {
-        this.log?.log("error", "Past sessions could not be listed", error);
-        throw error;
-      });
+      const page = await this.service.list(request);
       return {
         ...page,
         sessions: page.sessions.map((session) => {
@@ -297,8 +320,6 @@ export class DaemonHistory {
         throw new Error("Invalid history reply");
       return request.requestId ? { ...result, requestId: request.requestId } : result;
     } catch (error) {
-      if (!lifetime.aborted)
-        this.log?.log("error", "Saved conversation could not be opened", error);
       report("failed");
       throw error;
     } finally {

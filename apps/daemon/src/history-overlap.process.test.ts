@@ -66,14 +66,29 @@ test("scan failures leave a useful diagnostic instead of failing silently", asyn
     now: () => 10,
     redact: (line) => line,
   });
+  const failures: string[] = [];
   const history = new DaemonHistory(store, service, data, join(data, "index.sqlite"), {
     instances,
     log: log.child("history"),
+    onError(_error, operation) {
+      failures.push(operation);
+    },
   });
   try {
     await service.close();
     await history.startScan();
     expect(history.scanStatus().state).toBe("failed");
+    expect(failures).toEqual(["history.scan"]);
+    await expect(
+      history.handle({ type: "history.list", cwd, limit: 10 }, new AbortController().signal),
+    ).rejects.toThrow();
+    expect(failures).toEqual(["history.scan", "history.list"]);
+    expect(log.recent().filter((line) => line.includes('"operation":"history.scan"'))).toHaveLength(
+      1,
+    );
+    expect(log.recent().filter((line) => line.includes('"operation":"history.list"'))).toHaveLength(
+      1,
+    );
     expect(
       log
         .recent()
@@ -84,9 +99,12 @@ test("scan failures leave a useful diagnostic instead of failing silently", asyn
         ),
     ).toContainEqual(
       expect.objectContaining({
-        level: "error",
-        message: "Past sessions scan failed",
-        data: expect.objectContaining({ message: expect.stringContaining("closed") }),
+        level: "warn",
+        message: "Past sessions operation failed",
+        data: expect.objectContaining({
+          operation: "history.scan",
+          error: expect.objectContaining({ message: expect.stringContaining("closed") }),
+        }),
       }),
     );
   } finally {

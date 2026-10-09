@@ -144,3 +144,29 @@ test("a trusted prepared agent title survives provider title replay", async () =
     titleSource: "agent",
   });
 });
+
+test("startup names pre-title-source threads from their first real user message and preserves explicit titles", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  closes.push(h.close);
+  const id = await h.create();
+  await h.engine.close();
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE threads SET title='New thread',provider_metadata=json_remove(provider_metadata,'$.titleSource') WHERE id=?",
+      )
+      .run(id),
+  );
+  const { Engine } = await import("@ace/daemon");
+  const restarted = new Engine(h.store, { registry: h.registry, clock: h.clock });
+  closes.push(() => restarted.close());
+  await restarted.ready();
+  expect(h.store.getThread(id)).toMatchObject({ title: "first", titleSource: "provisional" });
+  const head = h.store.headSeq();
+  await restarted.close();
+  const again = new Engine(h.store, { registry: h.registry, clock: h.clock });
+  closes.push(() => again.close());
+  await again.ready();
+  expect(h.store.headSeq()).toBe(head);
+});

@@ -655,11 +655,11 @@ Example:
     "messages": [],
     "next": null,
     "paused": true,
-    "reason": "manual",
-    "resumeAt": null,
-    "revision": 4,
+    "reason": "uncertain",
+    "resumeAt": 9,
+    "revision": 2,
     "threadId": "example",
-    "total": 1
+    "total": 0
   },
   "requestId": "example",
   "type": "queue.result"
@@ -680,7 +680,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": true
+    "error": "example",
+    "ok": false
   },
   "type": "pi.result"
 }
@@ -2425,13 +2426,87 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 9,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "itemsBefore": 4,
+    "kind": "thread",
+    "queue": {
+      "paused": false,
+      "reason": "limit",
+      "resumeAt": null,
+      "revision": 7
+    },
+    "runs": {},
+    "seq": 0,
+    "thread": {
+      "backend": "cursor-sdk",
+      "createdAt": 0,
+      "deletedAt": 9,
+      "details": {
+        "base": {
+          "head": "95acfebedf5bd92174810b4a9bbf40a07539aaf0590d762d08",
+          "ref": "example",
+          "remote": "Q"
+        },
+        "branch": "example",
+        "machine": {
+          "host": "example",
+          "name": "example"
+        },
+        "mode": "worktree",
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 7,
+          "cleanupComplete": false,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 2,
+          "startedAt": 3,
+          "state": "local",
+          "step": "done",
+          "steps": []
+        }
+      },
+      "id": "example",
+      "imported": {
+        "importedAt": 1,
+        "instanceId": "example",
+        "native": {
+          "acpAgentId": "example",
+          "path": "example",
+          "provider": "cursor"
+        },
+        "sourceId": "example"
+      },
+      "provider": "claude",
+      "settledReason": "pr_closed",
+      "status": {
+        "state": "failed"
+      },
+      "switch": {
+        "at": 0,
+        "lossy": true,
+        "selection": {
+          "instanceId": "example",
+          "provider": "antigravity"
+        },
+        "state": "failed"
+      },
+      "title": "example",
+      "unread": false,
+      "updatedAt": 3,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -2452,10 +2527,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 5,
+  "afterSeq": 3,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 9,
   "type": "events"
 }
 ```
@@ -2475,9 +2550,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 4,
+  "afterSeq": 1,
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 9,
   "type": "progress"
 }
 ```
@@ -2510,8 +2585,8 @@ Example:
 
 ```json
 {
-  "code": "example",
   "commandId": "example",
+  "commit": "e4182ee7a9fd098ef008564c00b550211d63cdcf5879d6860f619fd3",
   "editor": {
     "editor": {
       "command": "example",
@@ -2520,70 +2595,40 @@ Example:
     },
     "path": "example"
   },
-  "ok": true,
-  "pr": {
-    "number": 8,
-    "repository": {
-      "forge": "github",
-      "host": "Pr",
-      "name": "8Pb4U0ZjCM",
-      "owner": "bHYHiX.n/B1va6bdVoe/pu-Mb7m/1a4TM7/B2y/9Es1AiQOO/zWZOO/ToGHcJx"
-    }
-  },
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": false,
-      "sessionId": "example",
-      "text": "example"
+  "inspection": {
+    "git": {
+      "branch": "example",
+      "defaultBranch": "example",
+      "remotes": [],
+      "root": "example"
     },
-    "intentId": "example",
-    "replies": []
+    "path": "example",
+    "suggestedRepoRoot": "example"
   },
-  "type": "commandResult",
-  "workspace": {
-    "id": "example",
-    "name": "example",
-    "path": "example"
-  }
+  "ok": true,
+  "prStatus": {
+    "checks": [],
+    "ci": "unknown",
+    "comments": [],
+    "headSha": "example",
+    "mergeability": "conflicting",
+    "raw": null,
+    "ref": {
+      "number": 7,
+      "repository": {
+        "forge": "github",
+        "host": "7WXvWkT3.pt",
+        "name": "j",
+        "owner": "92nof/5lHHZGD3k7/oDDJkD"
+      }
+    },
+    "reviewThreads": [],
+    "state": "open",
+    "title": "example",
+    "url": "example"
+  },
+  "terminalId": "example",
+  "type": "commandResult"
 }
 ```
 
@@ -2604,8 +2649,9 @@ Example:
 ```json
 {
   "code": "example",
-  "commandId": "example",
   "message": "example",
+  "requestId": "example",
+  "retryable": false,
   "type": "error"
 }
 ```
@@ -2627,9 +2673,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": false,
-  "nextOffset": 4,
-  "offset": 7,
+  "eof": true,
+  "nextOffset": 0,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2652,10 +2698,11 @@ Example:
 
 ```json
 {
+  "itemSeqs": {},
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 6,
   "requestId": "example",
-  "seq": 8,
+  "seq": 5,
   "threadId": "example",
   "type": "items.page"
 }

@@ -40,7 +40,7 @@ export interface QueueNotice {
   actions: QueueAction[];
 }
 
-export type QueueHold = Pick<QueueSnapshot, "paused" | "reason" | "resumeAt">;
+export type QueueHold = Pick<QueueSnapshot, "paused" | "reason" | "resumeAt" | "pendingCount">;
 
 /**
  * Why the queue isn't sending, and the way out; undefined while it flows. `account` is what
@@ -149,6 +149,8 @@ export function queueNotice(
         actions: [],
       };
     case "manual":
+      if (!(queue?.pendingCount ?? (status?.state === "waiting" && status.on === "queue" ? 1 : 0)))
+        return undefined;
       return {
         kind: "paused",
         title: "Queue paused",

@@ -189,6 +189,29 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    waitForProvider:
+      engineOptions.waitForProvider ??
+      (async (provider) => {
+        await services.providerActivation;
+        if (
+          !registry.has(provider) &&
+          services.providerConfigurations?.for(provider).enabled !== false
+        )
+          await services.rediscoverProviders?.();
+      }),
+    onModelUnavailable(provider, model, instance) {
+      log.log(
+        "warn",
+        "Selected model unavailable",
+        logFields([
+          ["code", "model_unavailable"],
+          ["provider", provider],
+          ["model", model],
+          ["instance", instance ?? null],
+        ]),
+      );
+      engineOptions.onModelUnavailable?.(provider, model, instance);
+    },
     onCommandEvent(event) {
       engineOptions.onCommandEvent?.(event);
       if (event.type === "session.closed") services.commands?.clearRuntime(event.threadId);

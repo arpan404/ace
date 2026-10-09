@@ -2,6 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item, ProviderKind } from "@ace/protocol";
 import {
+  displayNotice,
   echoesEarlierError,
   handoffSummary,
   inputLine,
@@ -136,7 +137,8 @@ function useEchoedCode(threadId: string, item: Item | undefined): boolean {
  * one readable row, notices as one quiet line. Never a chat bubble.
  */
 export function EventBlock(props: { threadId: string; itemId: string }) {
-  const item = useItem(props.threadId, props.itemId);
+  const stored = useItem(props.threadId, props.itemId);
+  const item = stored?.type === "notice" ? displayNotice(stored) : stored;
   const thread = useThreadMeta(props.threadId);
   const input = systemInput(item);
   const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));

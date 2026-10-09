@@ -1,3 +1,4 @@
+import { matchesModel } from "@ace/models/resolve";
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
 
 /*
@@ -7,7 +8,12 @@ import type { CatalogModel, ProviderKind } from "@ace/protocol";
 
 /** Ids other than the catalog id that name the row: native, resolved and alias ids. */
 export function modelAliases(model: CatalogModel): string[] {
-  const ids = [model.nativeModelId, model.resolvedModelId, ...(model.aliases ?? [])];
+  const ids = [
+    model.nativeModelId,
+    model.resolvedModelId,
+    ...(model.aliases ?? []),
+    ...(model.provider === "opencode" ? [model.id.slice(model.id.indexOf("/") + 1)] : []),
+  ];
   return [...new Set(ids.filter((id): id is string => id !== undefined && id !== model.id))];
 }
 
@@ -21,11 +27,8 @@ export function selectionInputs(
 ): readonly string[] | undefined {
   const named = selection?.model;
   if (!named) return undefined;
-  return models.find(
-    (model) =>
-      model.provider === selection.provider &&
-      (model.id === named || modelAliases(model).includes(named)),
-  )?.inputModalities;
+  return models.find((model) => model.provider === selection.provider && matchesModel(model, named))
+    ?.inputModalities;
 }
 
 /** Canonical identities for historical rows, including unambiguous bare OpenCode selectors. */
@@ -33,8 +36,6 @@ export function catalogModelIds(models: readonly CatalogModel[]) {
   const ids = new Map<string, string | null>();
   for (const model of models) {
     const aliases = [model.id, ...modelAliases(model)];
-    if (model.provider === "opencode" && model.id.includes("/"))
-      aliases.push(model.id.slice(model.id.indexOf("/") + 1));
     for (const alias of aliases) {
       const key = `${model.provider}\0${alias}`;
       const previous = ids.get(key);

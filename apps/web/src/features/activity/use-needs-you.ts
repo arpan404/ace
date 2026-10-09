@@ -1,3 +1,6 @@
+import type { CatalogModel } from "@ace/protocol";
+import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { recoveryAttention, useFailedSendThreads } from "./recovery-attention.ts";
 import type { SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
@@ -15,10 +18,15 @@ function waiting(
   id: string,
   project: string | undefined,
   now: number,
+  models: readonly CatalogModel[] | undefined,
+  failed: ReadonlySet<string>,
 ): boolean {
   const thread = reader.thread(id);
   return (
-    thread?.status.state === "needs_you" &&
+    !!thread &&
+    (thread.status.state === "needs_you" || !!recoveryAttention(thread, models, failed)) &&
+    thread.archivedAt === undefined &&
+    thread.deletedAt === undefined &&
     !((thread.snoozedUntil ?? 0) > now) &&
     inProject(project, thread.workspaceId)
   );
@@ -30,12 +38,15 @@ export function useNeedsYou(): {
   entries: readonly NeedsYouEntry[];
 } {
   const { project } = useActivityState();
+  const models = useModelCatalog();
+  const failed = useFailedSendThreads();
   // Snoozes end on the minute; the list follows.
   const now = useNow();
   const minute = Math.floor(now / 60_000);
   const predicate = useCallback(
-    (reader: SidebarReader, id: string) => waiting(reader, id, project, minute * 60_000),
-    [project, minute],
+    (reader: SidebarReader, id: string) =>
+      waiting(reader, id, project, minute * 60_000, models, failed),
+    [project, minute, models, failed],
   );
   const threadIds = useThreadIdsWhere(predicate);
   const since = useWaitingSince();
@@ -53,16 +64,18 @@ export function useNeedsYou(): {
 /** Open requests across unsnoozed threads, optionally filtered by project. */
 export function useNeedsYouCount(options: { project?: string | undefined } = {}): number {
   const { project } = options;
+  const models = useModelCatalog();
+  const failed = useFailedSendThreads();
   const minute = Math.floor(useNow() / 60_000);
   const pendingTotal = useCallback(
     (reader: SidebarReader) =>
       reader.ids.reduce((sum, id) => {
         const status = reader.thread(id)?.status;
-        return status?.state === "needs_you" && waiting(reader, id, project, minute * 60_000)
-          ? sum + status.interactions
+        return status && waiting(reader, id, project, minute * 60_000, models, failed)
+          ? sum + (status.state === "needs_you" ? status.interactions : 1)
           : sum;
       }, 0),
-    [project, minute],
+    [project, minute, models, failed],
   );
   const pending = useSidebarAll(pendingTotal) ?? 0;
   return pending;

@@ -359,6 +359,7 @@ export class EngineRepository {
     return this.opening.has(id);
   }
   queuedCount(id: ThreadId): number {
+    // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
     return this.store.atomic((_db) =>
       Number(
         this.store

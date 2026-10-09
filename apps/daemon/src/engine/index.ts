@@ -1,3 +1,4 @@
+import { backfillThreadTitles } from "./title-input.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { EngineModels } from "./models.ts";
@@ -36,6 +37,12 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
+  onModelUnavailable?(
+    provider: import("@ace/protocol").ProviderKind,
+    model: string,
+    instance?: string,
+  ): void;
   onCommandEvent?(event: import("./provider-command-metadata.ts").ProviderCommandEvent): void;
   models?: import("@ace/models").ModelCatalogApi;
   worktreeGit?: WorktreeGit;
@@ -80,6 +87,7 @@ export interface EngineOptions {
 }
 export class Engine {
   private readonly models: EngineModels;
+  private readonly waitForProvider: EngineOptions["waitForProvider"];
   readonly handler: CommandHandler;
   /** In-process admission for ace-owned inputs; never installed on the socket. */
   readonly internalHandler: CommandHandler;
@@ -117,6 +125,7 @@ export class Engine {
     accept: () => import("@ace/protocol").CommandResult,
   ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
+    this.waitForProvider = options.waitForProvider;
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
     const worktreeGit =
@@ -133,6 +142,7 @@ export class Engine {
       this.repo,
       () => this.clock.now(),
       options.models,
+      options.onModelUnavailable,
     ));
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
@@ -150,6 +160,7 @@ export class Engine {
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
       models,
+      ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
@@ -287,6 +298,7 @@ export class Engine {
     this.handler = {
       handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
+    backfillThreadTitles(store, this.clock.now());
     const recover = () =>
       recoverEngine(
         this.repo,
@@ -759,6 +771,14 @@ export class Engine {
     return this.admissions.acquire(command);
   }
   async prepareCommand(command: Command): Promise<void> {
+    const p = command.payload;
+    const provider =
+      "provider" in p
+        ? p.provider
+        : "threadId" in p && p.threadId
+          ? this.repo.store.getThread(ThreadId.parse(p.threadId))?.provider
+          : undefined;
+    if (provider) await this.waitForProvider?.(provider);
     await this.readyPromise;
     if (
       !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(

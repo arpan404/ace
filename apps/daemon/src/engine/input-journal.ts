@@ -1,3 +1,4 @@
+import { withoutPortableHandoff } from "@ace/projection";
 import { piInput } from "@ace/adapter-pi/input";
 import { content as claudeInputContent } from "@ace/adapter-claude/input";
 import { createHash } from "node:crypto";
@@ -34,7 +35,7 @@ export function inputOrigin(command: Command): MessageOrigin {
 function signature(parts: ContentPart[]): string {
   return createHash("sha256")
     .update(
-      parts
+      withoutPortableHandoff(parts)
         .filter((p) => p.type === "text")
         .map((p) => p.text)
         .join("\n"),
@@ -220,7 +221,7 @@ export class InputJournal {
       alias ??
       this.store
         .statement(
-          "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
+          "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation IS ? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
         )
         .get(thread, signature(fact.draft.parts ?? []), generation ?? null);
     if (!row) return fact;

@@ -1,8 +1,9 @@
+import { withoutPortableHandoff } from "@ace/projection";
 import type { ContentPart } from "@ace/protocol";
 /** A title uses only prose from the first nonempty line, never attachment paths. */
 export function provisionalTitle(parts: readonly ContentPart[]): string {
   const line =
-    parts
+    withoutPortableHandoff(parts)
       .filter((p) => p.type === "text")
       .map((p) => p.text)
       .join("\n")
