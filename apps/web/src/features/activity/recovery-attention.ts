@@ -27,9 +27,9 @@ export function recoveryAttention(
   failed: ReadonlySet<string>,
 ): string | undefined {
   const reason = threadAttention(thread);
-  if (reason === "model_unavailable" || unavailableSelection(models, thread.execution))
-    return "Pick a model";
-  if (reason === "not_sent" || failed.has(thread.id)) return "Message not sent";
+  if (unavailableSelection(models, thread.execution)) return "Pick a model";
+  if (reason === "not_sent" || reason === "model_unavailable" || failed.has(thread.id))
+    return "Message not sent";
   if (reason === "restart") return "Stopped by a restart";
   if (reason === "stopped") return "Agent stopped";
   if (reason === "uncertain") return "Review a message";

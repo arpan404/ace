@@ -1,4 +1,8 @@
-export { isRawHistoryItem } from "./history-visibility.ts";
+export {
+  isRawHistoryItem,
+  historyMessageIdentity,
+  visibleHistoryOrder,
+} from "./history-visibility.ts";
 export { threadAttention } from "./thread-attention.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
 import { usageSnapshotKey } from "./usage.ts";
@@ -377,3 +381,5 @@ export { isTestCommand } from "./step-purpose.ts";
 export { digestFromCounters, digestContributions, mergeTurnDigests } from "./long-thread-merge.ts";
 
 export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-move.ts";
+
+export { distinctRetainedInputs } from "./retained-inputs.ts";

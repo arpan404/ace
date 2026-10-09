@@ -5,6 +5,7 @@ export function lostWork(
   pendingNativeInputs = 0,
   backend?: ProviderBackend,
 ): string | undefined {
+  if (!Object.keys(state.runs).length) return undefined;
   const lines: string[] = [];
   for (const key of Object.keys(state.indexes.runningTasks)) {
     const task = state.tasks[key];

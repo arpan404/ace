@@ -31,7 +31,8 @@ import { queuedText, type QueueControls } from "./use-queue.ts";
  */
 export function QueuedPills(props: { queue: QueueControls; pending?: readonly PendingQueued[] }) {
   const { page, messages } = props.queue;
-  const pending = props.pending ?? [];
+  const listed = new Set(messages.map((message) => message.id));
+  const pending = (props.pending ?? []).filter((message) => !listed.has(message.id));
   if (!messages.length && !pending.length) return null;
   const hidden = page ? page.total - page.messages.length : 0;
   const stopped = !!page?.paused && String(page.reason) === "stopped";
