@@ -150,7 +150,7 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
 });
 
-test("once the agent is idle, the tab shows where the thread runs and raises its details", async () => {
+test("the environment strip opens checkout details and refreshes them after a commit", async () => {
   const { app } = await open("busy");
   // While the agent works the tab says so; Stop ends the turn and the background relay.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
@@ -161,7 +161,7 @@ test("once the agent is idle, the tab shows where the thread runs and raises its
     name: "Environment: Local · fix/replay-cursor",
   });
   await userEvent.click(strip);
-  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  let card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(card).getByText("Local checkout")).toBeTruthy();
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
@@ -172,6 +172,9 @@ test("once the agent is idle, the tab shows where the thread runs and raises its
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
+  await userEvent.click(screen.getByRole("button", { name: /^Environment: Local/ }));
+  card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
 
   // Escape folds the details back to the strip and puts the caret in the message.

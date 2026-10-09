@@ -1,5 +1,3 @@
-import { LaptopIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import { RunId, ThreadId } from "@ace/protocol";
@@ -10,7 +8,7 @@ import {
   selectionInputs,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useEffect, useId, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
@@ -35,7 +33,6 @@ import {
   DeferredPlanTab,
   DeferredRequestStack,
   DeferredStatusStrip,
-  DeferredThreadEnvironment,
 } from "./deferred-cards.ts";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
@@ -62,8 +59,7 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
  * are approved and the model, both changeable from the next turn. One tab is attached to its top
  * edge, the first of: the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button), the agents' to-do list, what the agents are doing with Stop, and
- * where the thread runs. Stop is in the send slot only while the tab doesn't carry it, and never
+ * sent with the send button), the agents' to-do list, what the agents are doing with Stop. The environment strip sits below the box. Stop is in the send slot only while the tab doesn't carry it, and never
  * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
@@ -166,10 +162,6 @@ export function ThreadComposer({
   const plans = useShownPlans(props.thread.id);
   const answer = useComposerAnswer(props.thread.id);
   const tab = asking ? "requests" : plans.length ? "plan" : busy ? "status" : "environment";
-  // The environment card, while the person has it open on this thread.
-  const [shown, setShown] = useState<string>();
-  const environment = shown === props.thread.id;
-  const environmentId = useId();
   const toMessage = () =>
     box.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
   const [focusOnOpen] = useState(wideEnoughToFocus);
@@ -235,16 +227,7 @@ export function ThreadComposer({
         sendsWhileUploading
         attached={
           <Suspense fallback={null}>
-            {environment ? (
-              <DeferredThreadEnvironment.Component
-                thread={props.thread}
-                id={environmentId}
-                onClose={() => {
-                  setShown(undefined);
-                  toMessage();
-                }}
-              />
-            ) : tab === "requests" && open ? (
+            {tab === "requests" && open ? (
               <DeferredRequestStack.Component
                 threadId={props.thread.id}
                 ids={open}
@@ -259,28 +242,18 @@ export function ThreadComposer({
                 stopping={stopping}
                 onStop={stop}
               />
-            ) : (
-              <DeferredEnvironmentStrip.Component
-                thread={props.thread}
-                controls={environmentId}
-                onOpen={() => setShown(props.thread.id)}
-              />
-            )}
+            ) : null}
+          </Suspense>
+        }
+        environment={
+          <Suspense fallback={null}>
+            <DeferredEnvironmentStrip.Component thread={props.thread} onClose={toMessage} />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}
         controls={
           <Suspense fallback={<ControlsPending />}>
             <DeferredPermissionControl.Component thread={props.thread} />
-            {tab !== "environment" && (
-              <IconButton
-                icon={LaptopIcon}
-                label="Environment details"
-                aria-expanded={environment}
-                aria-controls={environmentId}
-                onClick={() => setShown(environment ? undefined : props.thread.id)}
-              />
-            )}
           </Suspense>
         }
         trailing={

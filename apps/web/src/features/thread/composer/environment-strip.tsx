@@ -1,58 +1,73 @@
-import { useThreadMeta } from "@ace/client-react";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
+import { useThreadMeta } from "@ace/client-react";
 import { CaretDownIcon, GitBranchIcon, GitForkIcon } from "@phosphor-icons/react";
+import { Suspense, useId, useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useCheckout } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { AttachedCard } from "./attached-card.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { stripControl, stripRow } from "./composer-styles.ts";
 
-/**
- * Where a follow-up runs, in the composer's tab while the agent is idle: the branch (on its own
- * worktree or the local checkout) and the machine, quiet until hovered. It raises the
- * environment's details in its place. A narrow composer keeps the machine's icon alone.
- */
-export function EnvironmentStrip(props: {
-  thread: ThreadRef;
-  onOpen(): void;
-  /** The details card it raises, for `aria-controls`. */
-  controls: string;
-}) {
+const DeferredThreadEnvironment = deferredComponent(() =>
+  import("./thread-environment.tsx").then((module) => module.ThreadEnvironmentCard),
+);
+
+/** Branch and machine below the box, always available alongside requests, plans and Stop. */
+export function EnvironmentStrip(props: { thread: ThreadRef; onClose(): void }) {
   const checkout = useCheckout(props.thread);
   const host = useMachineIdentity(useThreadMeta(props.thread.id)?.details?.machine);
-
+  const [open, setOpen] = useState(false);
+  const controls = useId();
   if (!checkout) return null;
   const worktree = checkout.mode === "worktree";
   const branch = checkout.branch ?? "detached HEAD";
   const Place = worktree ? GitForkIcon : GitBranchIcon;
+  const close = () => {
+    setOpen(false);
+    props.onClose();
+  };
   return (
-    <AttachedCard label="Environment" strip cardKey="environment">
+    <section aria-label="Environment">
       <div className={stripRow}>
-        <Tip label="Where this thread runs" side="top">
-          <button
-            type="button"
-            aria-label={`Environment: ${worktree ? "Worktree" : "Local"} · ${branch}`}
-            aria-expanded={false}
-            aria-controls={props.controls}
-            onClick={props.onOpen}
-            className={cn(stripControl, "max-w-full")}
+        <Popover open={open} onOpenChange={setOpen}>
+          <Tip label="Where this thread runs" side="top">
+            <PopoverTrigger
+              aria-label={`Environment: ${worktree ? "Worktree" : "Local"} · ${branch}`}
+              aria-controls={controls}
+              className={cn(stripControl, "max-w-full")}
+            >
+              <Place aria-hidden size={14} className="shrink-0" />
+              <span className="min-w-0 truncate">{branch}</span>
+              {host && (
+                <>
+                  <span aria-hidden className="text-subtle-foreground">
+                    ·
+                  </span>
+                  <MachineLabel name={host.name} icon={host.icon} />
+                </>
+              )}
+              <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+            </PopoverTrigger>
+          </Tip>
+          <PopoverContent
+            side="top"
+            align="start"
+            className="max-h-[50vh] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain"
+            finalFocus={false}
           >
-            <Place aria-hidden size={14} className="shrink-0" />
-            <span className="min-w-0 truncate">{branch}</span>
-            {host && (
-              <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
-                <MachineLabel name={host.name} icon={host.icon} />
-              </>
-            )}
-            <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-          </button>
-        </Tip>
+            <Suspense fallback={null}>
+              <DeferredThreadEnvironment.Component
+                thread={props.thread}
+                id={controls}
+                onClose={close}
+              />
+            </Suspense>
+          </PopoverContent>
+        </Popover>
       </div>
-    </AttachedCard>
+    </section>
   );
 }
