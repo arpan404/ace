@@ -1,5 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { usePhone } from "@/lib/breakpoints.ts";
+import { useCallback, useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
@@ -7,109 +6,98 @@ import { ActionsSection } from "./work-card-actions.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
 import { ChangesSection } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
-import { OpenInSection } from "./work-card-open-in.tsx";
-import { Rule } from "./work-card-parts.tsx";
+import { Rule, WorkSection } from "./work-card-parts.tsx";
+import { ThreadEnvironmentCard } from "../composer/thread-environment.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { attachCardScroll } from "./work-card-scroll.ts";
+import { WorkCardStateProvider, useWorkCardState } from "./work-card-state.tsx";
+import { XIcon } from "@phosphor-icons/react";
 
-/** The phone sheet's scrim and both shapes' sizes (inline: one-off values, ADR 0056 CSS budget). */
-const scrim = { background: "color-mix(in oklab, black 40%, transparent)" };
-const sheetSize = {
-  maxHeight: "85dvh",
-  paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
-};
-const floatingSize = { width: 352, maxWidth: "calc(100% - 24px)", maxHeight: "calc(100% - 16px)" };
-
-/** Popups the card opens (its menus, the commit form) and its toggle: clicks there keep it open. */
-const ownPopups =
-  '[role="menu"], [role="dialog"], [role="listbox"], [data-slot="tooltip-content"], [data-work-card-toggle]';
-
-/**
- * The thread's work card, toggled by the list button in the header (⌥⌘O): the project, its
- * changes and branch with Commit & push, pull requests, the project's actions (scripts) to run,
- * the apps to open the checkout in, and checkout actions. It floats under the
- * header's right end, over the conversation; on a phone it is a sheet. A click outside it or
- * Escape closes it, and it keeps nothing between openings.
- *
- * Mounted from its first opening on, so a commit form it opened outlives the card closing.
- */
+/** Inline context beside the conversation, stacked above it when its body is narrow. */
 export function WorkCard(props: {
   thread: ThreadRef;
   open: boolean;
-  /** Close it; `returnFocus` puts focus back on the header's toggle (Escape). */
   onClose(returnFocus: boolean): void;
 }) {
   const git = useGitFlow(props.thread);
+  const surface = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (props.open) surface.current?.focus({ preventScroll: true });
+  }, [props.open]);
   const checkout = useCheckoutMove(props.thread);
   const close = () => props.onClose(false);
+  const escape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault();
+    props.onClose(true);
+  };
   return (
-    <>
-      {props.open && (
-        <Floating onClose={props.onClose}>
-          <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
-          <ChangesSection thread={props.thread} git={git} onClose={close} />
-          <Rule />
-          <PullRequestsSection git={git} />
-          <Rule />
-          <ActionsSection thread={props.thread} onClose={props.onClose} />
-          <Rule />
-          <OpenInSection thread={props.thread} onClose={close} />
-        </Floating>
-      )}
+    <WorkCardStateProvider scope={props.thread.id}>
+      <aside
+        ref={surface}
+        id="work-card"
+        aria-label="Work card"
+        hidden={!props.open}
+        tabIndex={-1}
+        onKeyDown={escape}
+        className="order-first max-h-[40dvh] min-h-0 w-full shrink-0 p-3 focus-ring-inset @min-[832px]/work-body:order-last @min-[832px]/work-body:h-full @min-[832px]/work-body:max-h-none @min-[832px]/work-body:w-[352px]"
+      >
+        <div
+          data-work-card-surface
+          className="flex max-h-[calc(40dvh-24px)] min-h-0 flex-col overflow-hidden rounded-xl border bg-panel p-2 @min-[832px]/work-body:max-h-[min(480px,100%)]"
+        >
+          <div className="flex shrink-0 items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
+            </div>
+            <IconButton
+              icon={XIcon}
+              label="Close work card"
+              tooltip={false}
+              size="sm"
+              onClick={() => props.onClose(true)}
+            />
+          </div>
+          <CardScroll open={props.open}>
+            <WorkSection id="work-card-environment" title="Environment">
+              <ThreadEnvironmentCard thread={props.thread} />
+            </WorkSection>
+            <Rule />
+            <WorkSection id="work-card-changes" title="Changes">
+              <ChangesSection thread={props.thread} git={git} onClose={close} />
+            </WorkSection>
+            <Rule />
+            <PullRequestsSection git={git} />
+            <Rule />
+            <ActionsSection thread={props.thread} onClose={props.onClose} />
+          </CardScroll>
+        </div>
+      </aside>
       {git.dialog}
       {checkout.dialog}
-    </>
+    </WorkCardStateProvider>
   );
 }
 
-/** The card's surface: floating under the header, or a sheet on a phone; dismissed from outside. */
-function Floating(props: { onClose(returnFocus: boolean): void; children: ReactNode }) {
-  const phone = usePhone();
-  const card = useRef<HTMLDivElement>(null);
-  const { onClose } = props;
-  useEffect(() => {
-    card.current?.focus({ preventScroll: true });
-  }, []);
-  useEffect(() => {
-    const outside = (target: EventTarget | null) =>
-      target instanceof Element && !card.current?.contains(target) && !target.closest(ownPopups);
-    const down = (event: PointerEvent) => {
-      if (outside(event.target)) onClose(false);
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      // A menu or form the card opened closes first.
-      const target = event.target instanceof Element ? event.target : null;
-      if (target && !card.current?.contains(target) && target.closest(ownPopups)) return;
-      onClose(true);
-    };
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("keydown", key);
-    return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("keydown", key);
-    };
-  }, [onClose]);
+/** Restore once asynchronous content can contain the saved position. */
+function CardScroll(props: { open: boolean; children: ReactNode }) {
+  const { state, update } = useWorkCardState();
+  const saved = state.scrollTop ?? 0;
+  const open = props.open;
+  const scroll = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node || !open) return;
+      return attachCardScroll(node, saved, (scrollTop) => update({ scrollTop }));
+    },
+    [open, saved, update],
+  );
   return (
-    <>
-      {phone && <div aria-hidden style={scrim} className="fx-fade-in fixed inset-0 z-40" />}
-      {/* An elevated, opaque surface: the transcript never reads through it. */}
-      <div
-        ref={card}
-        id="work-card"
-        role="dialog"
-        aria-label="Work card"
-        tabIndex={-1}
-        style={phone ? sheetSize : floatingSize}
-        className={
-          phone
-            ? "fx-rise-in fixed inset-x-0 bottom-0 z-40 flex flex-col overflow-y-auto rounded-t-xl bg-popover px-2 shadow-glass outline-none"
-            : "isolate fx-rise-in absolute top-2 right-3 z-40 flex flex-col overflow-y-auto rounded-xl bg-popover p-2 shadow-glass outline-none"
-        }
-      >
-        {phone && (
-          <span aria-hidden className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-border" />
-        )}
-        {props.children}
-      </div>
-    </>
+    <div
+      ref={scroll}
+      data-work-card-scroll
+      className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
+    >
+      <div>{props.children}</div>
+    </div>
   );
 }

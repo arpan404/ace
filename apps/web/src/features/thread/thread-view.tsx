@@ -63,6 +63,7 @@ import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+import { useWorkspaceActions, useScopeWorkspace } from "@/lib/workspace/index.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -207,7 +208,17 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             />
           )
         }
-        workspace={{ scope: id, definition: threadWorkspace }}
+        workspace={{
+          scope: id,
+          definition: threadWorkspace,
+          contextPanel: thread && (
+            <Suspense fallback={null}>
+              {card.mounted && (
+                <DeferredWorkCard.Component thread={thread} open={card.open} onClose={card.close} />
+              )}
+            </Suspense>
+          ),
+        }}
       >
         {error ? (
           <ThreadLoadError error={error} />
@@ -221,15 +232,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
               {...drop.handlers}
             >
               {drop.overlay}
-              {thread && card.mounted && (
-                <Suspense fallback={null}>
-                  <DeferredWorkCard.Component
-                    thread={thread}
-                    open={card.open}
-                    onClose={card.close}
-                  />
-                </Suspense>
-              )}
               {nav.turnsOpen && (
                 <Suspense fallback={null}>
                   <DeferredTurnsPanel.Component nav={nav} />
@@ -291,22 +293,32 @@ function TargetJump(props: { target: ThreadTarget | undefined }) {
 }
 
 /**
- * The work card's state for one thread: closed whenever another thread shows, and mounted from
+ * The work card retains each thread's view state and is mounted from
  * its first opening (so a commit form it opened outlives it). ⌥⌘O toggles it; closing with
  * Escape hands focus back to the header's button.
  */
 function useWorkCard(threadId: string) {
-  const [openFor, setOpenFor] = useState<string>();
-  const [mounted, setMounted] = useState<string>();
-  const open = openFor === threadId;
+  const workspace = useScopeWorkspace(threadId);
+  const actions = useWorkspaceActions(threadId);
+  const open = workspace.workCard?.open ?? false;
   const toggle = () => {
-    setOpenFor(open ? undefined : threadId);
-    setMounted(threadId);
+    const showing = open && !workspace.open;
+    if (!showing) actions.setOpen(false);
+    actions.setWorkCard({ open: !showing });
   };
   useHotkey(keymap.workCard.keys, toggle, { id: "workCard" });
   const close = (returnFocus: boolean) => {
-    setOpenFor(undefined);
-    if (returnFocus) document.querySelector<HTMLElement>("header [data-work-card-toggle]")?.focus();
+    actions.setWorkCard({ open: false });
+    if (returnFocus)
+      (
+        document.querySelector<HTMLElement>("header [data-work-card-toggle]") ??
+        document.querySelector<HTMLElement>('header button[aria-label="More actions"]')
+      )?.focus();
   };
-  return { open, mounted: mounted === threadId, toggle, close };
+  return {
+    open: open && !workspace.open,
+    mounted: workspace.workCard !== undefined,
+    toggle,
+    close,
+  };
 }

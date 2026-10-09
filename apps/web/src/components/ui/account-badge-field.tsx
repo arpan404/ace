@@ -45,7 +45,7 @@ export function AccountBadgeField(props: {
           aria-label={`Account badge preview${props.name ? ` for ${props.name}` : ""}`}
         >
           <span
-            className="relative inline-flex items-center pr-1.5 pb-1.5"
+            className="relative inline-flex size-4.5 items-center justify-center"
             style={{ "--account-color": "var(--foreground)" } as CSSProperties}
           >
             <ProviderIcon provider={props.provider} size={16} decorative />

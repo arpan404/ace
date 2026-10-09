@@ -46,11 +46,6 @@ export interface ModelControlView {
   /** The account (catalog instance) it runs on, when known. */
   instance?: string | undefined;
   efforts: readonly string[];
-  /**
-   * The model has no default ace knows of: the slider starts with a "Default" stop, the
-   * provider's own default, which is also where it sits until an effort is picked.
-   */
-  defaultStop: boolean;
   /** The effort in effect, or the model's default. */
   effort: string | undefined;
   /** `effort` is the default rather than a choice the provider reported. */

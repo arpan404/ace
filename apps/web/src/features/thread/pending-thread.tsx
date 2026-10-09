@@ -220,7 +220,7 @@ function PendingComposer({
         environment={
           <section aria-label="Environment" className={environmentSurface}>
             <div className={environmentRow}>
-              <p role="status" className="flex min-w-0 flex-1 items-center gap-1">
+              <p role="status" className="flex w-fit min-w-0 max-w-full items-center gap-1">
                 <GitForkIcon aria-hidden size={14} className="shrink-0" />
                 <span className="truncate">{worktreeTabLabel(progress)}</span>
               </p>

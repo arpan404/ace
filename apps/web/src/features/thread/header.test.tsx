@@ -25,12 +25,17 @@ const header = () => {
   if (!found) throw new Error("No header");
   return found;
 };
+async function openEditorsMenu() {
+  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+}
+
 const sidePanel = () => screen.findByRole("region", { name: "Thread panel" });
 
 /** Open the work card from the header's list button. */
 async function openCard() {
   await userEvent.click(within(header()).getByRole("button", { name: "Work card" }));
-  return screen.findByRole("dialog", { name: "Work card" });
+  return screen.findByRole("complementary", { name: "Work card" });
 }
 
 /** The git step the card's branch row offers once the checkout has been read. */
@@ -121,19 +126,24 @@ test("the work card opens under its button and closes on Escape, giving focus ba
   expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relay");
 
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
   expect(document.activeElement).toBe(button);
   expect(button.getAttribute("aria-pressed")).toBe("false");
 
   await openCard();
   await userEvent.click(screen.getByRole("feed", { name: "Transcript" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  expect(screen.getByRole("complementary", { name: "Work card" })).toBeTruthy();
+  await userEvent.click(button);
 
   // ⌥⌘O toggles it from anywhere on the thread.
   await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
-  expect(await screen.findByRole("dialog", { name: "Work card" })).toBeTruthy();
+  expect(await screen.findByRole("complementary", { name: "Work card" })).toBeTruthy();
   await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
 });
 
 test("a menu opened from the card closes before the card does", async () => {
@@ -143,16 +153,18 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(await screen.findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Copy path/ })).toBeNull());
-  expect(screen.getByRole("dialog", { name: "Work card" })).toBeTruthy();
+  expect(screen.getByRole("complementary", { name: "Work card" })).toBeTruthy();
 });
 
 test("Changes in the card opens the Changes tab and gets out of the way", async () => {
   await openThread();
   const card = await openCard();
-  await userEvent.click(within(card).getByRole("button", { name: /^Changes/ }));
+  await userEvent.click(within(card).getByRole("button", { name: /^Changes,/ }));
   const panel = await sidePanel();
   expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
 });
 
 test("an action from the card runs the project's script in a terminal tab of the side panel", async () => {
@@ -260,19 +272,66 @@ test("when the scripts can't be read, the card says so and reads them again", as
 test("Open in launches the checkout in an editor, and the one picked becomes the default", async () => {
   await openThread();
   const launched = vi.spyOn(window, "open").mockImplementation(() => null);
-  const openIn = within(await openCard()).getByRole("region", { name: "Open in" });
-  expect(
-    await within(openIn).findByRole("button", { name: "Open in Visual Studio Code, default" }),
-  ).toBeTruthy();
-  await userEvent.click(within(openIn).getByRole("button", { name: "Open in Zed" }));
+  const card = await openCard();
+  expect(within(card).queryByRole("region", { name: "Open in" })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  const openEditors = async () => {
+    await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+    return screen.findByRole("menuitem", { name: "Open in Visual Studio Code, default" });
+  };
+  expect(await openEditors()).toBeTruthy();
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in Zed" }));
   expect(await screen.findByText("Opened in Zed")).toBeTruthy();
   expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self");
-
-  const again = within(await openCard()).getByRole("region", { name: "Open in" });
-  // The default comes first.
-  const rows = within(again).getAllByRole("button");
-  expect(rows[0]?.getAttribute("aria-label")).toBe("Open in Zed, default");
+  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  const picked = await screen.findByRole("menuitem", { name: "Open in Zed, default" });
+  const menu = picked.closest('[role="menu"]');
+  expect(menu).toBeTruthy();
+  expect(menu?.querySelector('[role="menuitem"]')?.textContent).toContain("Zed");
   launched.mockRestore();
+});
+
+test("the header only offers installed editors and says when none are installed", async () => {
+  const app = await openThread();
+  app.daemon.workspace.setEditors([]);
+  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  expect(await screen.findByRole("menuitem", { name: "No editors installed" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /Open in (Visual Studio Code|Zed)/ })).toBeNull();
+  await userEvent.keyboard("{Escape}{Escape}");
+  app.daemon.workspace.setEditors([{ id: "cursor", name: "Cursor", command: "cursor" }]);
+  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  const editor = await screen.findByRole("menuitem", { name: "Open in Cursor, default" });
+  expect(editor.querySelector('[data-app-icon="cursor"]')).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /Open in (Visual Studio Code|Zed)/ })).toBeNull();
+});
+
+test("editor discovery refreshes after reconnect without keeping removed apps", async () => {
+  const app = await openThread();
+  await openEditorsMenu();
+  expect(
+    await screen.findByRole("menuitem", { name: "Open in Visual Studio Code, default" }),
+  ).toBeTruthy();
+  await userEvent.keyboard("{Escape}{Escape}");
+  act(() => app.daemon.refuseConnections(true));
+  await waitFor(() =>
+    expect(document.querySelector("[data-connection]")?.getAttribute("data-connection")).not.toBe(
+      "ready",
+    ),
+  );
+  app.daemon.workspace.setEditors([{ id: "zed", name: "Zed", command: "zed" }]);
+  act(() => app.daemon.refuseConnections(false));
+  await waitFor(() =>
+    expect(document.querySelector("[data-connection]")?.getAttribute("data-connection")).toBe(
+      "ready",
+    ),
+  );
+  await openEditorsMenu();
+  expect(await screen.findByRole("menuitem", { name: "Open in Zed, default" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /Open in Visual Studio Code/ })).toBeNull();
 });
 
 test("the branch keeps its complete status and one commit entry point", async () => {
@@ -291,9 +350,13 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
   expect(await within(card).findByText("3 uncommitted")).toBeTruthy();
-  await userEvent.hover(within(card).getByText(branch));
+  await userEvent.hover(
+    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+  );
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} · 3 uncommitted`);
-  await userEvent.unhover(within(card).getByText(branch));
+  await userEvent.unhover(
+    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+  );
   expect(within(card).getAllByRole("button", { name: /^Commit/ })).toHaveLength(1);
   await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
   await screen.findByRole("menu");
@@ -307,7 +370,9 @@ test("a provider MCP server waiting for its own sign-in shows nowhere in the thr
   await app.open("/t/thread-mcp");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await within(card).findByText("sketch/parser");
+  await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+    "sketch/parser",
+  );
   expect(within(card).queryByRole("region", { name: "Sources" })).toBeNull();
   // Nothing in the header, card, transcript, composer or sidebar names the server or its state.
   expect(screen.queryAllByText(/vercel|not signed in|MCP|connector/i)).toHaveLength(0);
@@ -324,7 +389,7 @@ test("another thread opens with the card closed", async () => {
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Fix flaky checkout test/ }));
   await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
-  expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull();
+  expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -489,7 +554,7 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
   expect(draft.textContent).toContain("PR #188 is already open");
   await userEvent.keyboard("{Escape}");
 
-  const prs = within(screen.getByRole("dialog", { name: "Work card" })).getByRole("region", {
+  const prs = within(screen.getByRole("complementary", { name: "Work card" })).getByRole("region", {
     name: "Pull requests",
   });
   await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
@@ -595,7 +660,7 @@ test("past 500 files the list says it is cut short, and commits only what it lis
 // ---------------------------------------------------------------------------------------------
 // Where the thread runs, at the head of the card
 
-test("environment details are in the composer and project actions only change the checkout", async () => {
+test("environment details move into the work card while project actions only change the checkout", async () => {
   await openThread("checkout");
   const card = await openCard();
   expect(within(card).queryByRole("button", { name: /^Where this thread runs/ })).toBeNull();
@@ -606,10 +671,6 @@ test("environment details are in the composer and project actions only change th
   const move = within(menu).getByRole("menuitem", { name: /Move to a worktree/ });
   expect(move.getAttribute("aria-disabled")).toBe("true");
   await userEvent.keyboard("{Escape}");
-  await userEvent.keyboard("{Escape}");
-  await userEvent.click(
-    screen.getByRole("button", { name: /^(Environment:|Environment details)/ }),
-  );
   const environment = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(environment).getByText("Machine")).toBeTruthy();
   expect(within(environment).getByText("Fake machine")).toBeTruthy();
@@ -626,15 +687,17 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   await userEvent.click(await screen.findByRole("menuitem", { name: /Switch branch/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "develop" }));
   expect(await screen.findByText("Switched to develop")).toBeTruthy();
-  expect((await within(card).findByText("develop")).textContent).toBe("develop");
+  expect(
+    (
+      await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+        "develop",
+      )
+    ).textContent,
+  ).toBe("develop");
 
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  await userEvent.click(
-    screen.getByRole("button", { name: /^(Environment:|Environment details)/ }),
-  );
   const environment = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(environment).getByText("Its own worktree")).toBeTruthy();
 });
@@ -697,7 +760,9 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
     items
       .filter(
         (label) =>
-          !/^(Open agent tree|New side chat|Attachments|Search this thread|Turns)/.test(label),
+          !/^(Open agent tree|New side chat|Attachments|Open in…|Search this thread|Turns)/.test(
+            label,
+          ),
       )
       .map((label) => label.replace(shortcut, "")),
   ).toEqual(context);

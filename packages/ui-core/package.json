@@ -24,6 +24,7 @@
     "@ace/models": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/screen": "workspace:*",
     "zod": "^4.6.5"
   }

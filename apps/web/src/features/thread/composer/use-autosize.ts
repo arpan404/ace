@@ -1,5 +1,5 @@
 import { useLayoutEffect, type RefObject } from "react";
-import { inputLine, inputPadding } from "./composer-styles.ts";
+import { inputLine } from "./composer-styles.ts";
 
 /**
  * Fit the input to its text in whole lines, before paint: one 20px line at rest, growing a line
@@ -20,20 +20,15 @@ export function useAutosize(
     const measure = () => {
       el.style.height = "auto";
       // An empty input is one line, however long its placeholder.
-      const lines = text.trim()
-        ? Math.max(1, Math.ceil((el.scrollHeight - inputPadding) / inputLine))
-        : 1;
+      const lines = text.trim() ? Math.max(1, Math.ceil(el.scrollHeight / inputLine)) : 1;
       const column = el.closest<HTMLElement>("[data-thread-column]");
       const dock = el.closest<HTMLElement>("[data-composer-dock]");
       const available =
         column && dock
           ? column.clientHeight - (dock.offsetHeight - el.offsetHeight) - 16
           : innerHeight;
-      const room = Math.max(
-        1,
-        Math.floor((Math.min(innerHeight * 0.4, available) - inputPadding) / inputLine),
-      );
-      el.style.height = `${Math.min(lines, room, 7) * inputLine + inputPadding}px`;
+      const room = Math.max(1, Math.floor(Math.min(innerHeight * 0.4, available) / inputLine));
+      el.style.height = `${Math.min(lines, room, 7) * inputLine}px`;
     };
     measure();
     window.addEventListener("resize", measure);

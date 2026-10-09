@@ -152,10 +152,12 @@ test("on a phone the work card is a sheet over the thread that Escape closes", a
   await openThread();
   await userEvent.click(await moreActions(screen.getByRole("banner")));
   await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("dialog", { name: "Work card" });
+  const card = await screen.findByRole("complementary", { name: "Work card" });
   expect(within(card).getByRole("region", { name: "Actions" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
 });
 
 test("in a wide window the header shows only its ⋯, the work card and the side panel's toggle", async () => {

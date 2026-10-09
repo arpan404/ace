@@ -118,6 +118,11 @@ export function harness(
       ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
       : {}),
   });
+  // Installed-app scenarios are explicit test facts, never fake-preview OS discovery.
+  daemon.workspace.setEditors([
+    { id: "code", name: "Visual Studio Code", command: "code" },
+    { id: "zed", name: "Zed", command: "zed" },
+  ]);
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
   const client = options.throughWorker
     ? workerClient(daemon)

@@ -32,3 +32,8 @@ export function panelBounds(rowWidth: number, overlay: boolean): Bounds {
 export function clampToBounds(size: number, bounds: Bounds): number {
   return Math.round(Math.min(Math.max(size, bounds.min), Math.max(bounds.min, bounds.max)));
 }
+
+/** Crowded desktop windows yield their sidebar to tools before the row measurement updates. */
+export function panelFloats(rowWidth: number, viewportOverlay: boolean, crowded: boolean): boolean {
+  return viewportOverlay || (!crowded && rowWidth < panelLimits.min + panelLimits.keep);
+}

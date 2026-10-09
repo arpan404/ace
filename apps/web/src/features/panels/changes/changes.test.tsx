@@ -242,6 +242,8 @@ test("Changes says what is uncommitted in the checkout, and follows a commit", a
   await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
+  // WorkCard owns the context pane while open; return to tools after the commit.
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await waitFor(() =>
     expect(within(panel).getByRole("status", { name: "Working tree" }).textContent).toContain(
       "Everything is committed",

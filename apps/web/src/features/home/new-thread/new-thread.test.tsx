@@ -42,7 +42,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   await screen.findByRole("heading", { level: 1, name: "New thread" });
 
   await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
+  await userEvent.click(await screen.findByRole("option", { name: "relay" }));
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   await closeModelControl();
   expect(
@@ -239,7 +239,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const made = app({ storage });
   await made.open("/new");
   expect(
-    await screen.findByRole("button", { name: "Model: Sonnet 5.5, Work, provider default effort" }),
+    await screen.findByRole("button", { name: "Model: Sonnet 5.5, Work, Medium effort" }),
   ).toBeTruthy();
   expect(
     (await screen.findByRole("checkbox", { name: "Worktree" })).getAttribute("aria-checked"),
@@ -354,7 +354,7 @@ test("when the remote can't be reached, the thread starts from the last fetched 
   expect(created?.details?.base).toMatchObject({ remote: "origin", fetch: "unreachable" });
   // Once its agent is stopped, the composer's tab shows where it runs, and raises the details.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
-  await userEvent.click(await screen.findByRole("button", { name: /^Environment: Worktree/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
   const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(card).getByText(/^origin\/main at [0-9a-f]{7}$/)).toBeTruthy();
   expect(
@@ -405,27 +405,31 @@ test("slash commands are offered before the thread exists, for the chosen provid
 test("native approvals chosen for a new thread are the ones it starts with", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
-  expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Auto review" }));
+  const approvals = await screen.findByRole("button", { name: "Approvals: Auto review" });
+  expect(approvals.textContent).toBe("Auto review");
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
-  expect(await screen.findByRole("button", { name: /^Approvals: Accept edits/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Approvals: Auto review/ })).toBeTruthy();
 });
 test("switching provider clears a native mode the new provider does not offer", async () => {
   const made = app();
   cursorSharesGpt6(made);
   await made.open("/new?project=relay");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Auto review" }));
   await chooseModel("GPT-6", "Cursor", /^Model: Opus 5.5/);
   await closeModelControl();
-  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Approvals: Auto review" })).toBeTruthy();
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect loop" });
   expect(await started(made)).toMatchObject({
     provider: "cursor",
-    permission: { override: null, effective: null },
+    permission: {
+      override: '{"sandboxOptions":{"enabled":true},"autoReview":true}',
+      effective: '{"sandboxOptions":{"enabled":true},"autoReview":true}',
+    },
   });
 });
 
@@ -525,30 +529,34 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   );
 });
 
-test("Provider default follows Settings on a new thread and stays inherited after sending", async () => {
+test("an explicit native settings default is passed without falsely selecting a preset", async () => {
   const made = app();
   made.daemon.services.settings.seed({ "permissions.providerModes": { claude: "acceptEdits" } });
   await made.open("/new?project=relay");
   await userEvent.click(await screen.findByRole("button", { name: "Approvals: Accept edits" }));
-  expect(
-    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("true");
-  await userEvent.click(screen.getByRole("menuitemradio", { name: "Plan" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Plan" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Provider default" }));
-  expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
+  const options = await screen.findAllByRole("menuitemradio");
+  expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
+    "Manual",
+    "Auto review",
+    "Full access",
+  ]);
+  expect(options.every((option) => option.getAttribute("aria-checked") === "false")).toBe(true);
+  await userEvent.keyboard("{Escape}");
   await userEvent.type(await prompt(), "Use my approval default{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Use my approval default" });
   expect((await started(made))?.permission).toMatchObject({
-    override: null,
+    override: "acceptEdits",
     effective: "acceptEdits",
   });
-  await userEvent.click(await screen.findByRole("button", { name: /^Approvals: Accept edits/ }));
-  expect(
-    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("true");
+  expect(await screen.findByRole("button", { name: /^Approvals: Accept edits/ })).toBeTruthy();
+});
+
+test("new threads pass the automatic native review default without a picker interaction", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  expect(await screen.findByRole("button", { name: "Approvals: Auto review" })).toBeTruthy();
+  expect(screen.queryByText("Provider default")).toBeNull();
+  await userEvent.type(await prompt(), "Review the inherited default{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Review the inherited default" });
+  expect((await started(made))?.permission).toMatchObject({ override: "auto", effective: "auto" });
 });

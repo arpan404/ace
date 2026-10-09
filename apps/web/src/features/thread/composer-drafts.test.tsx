@@ -68,3 +68,22 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   expect((await message()).textContent).toBe("");
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });
+
+test("a new-thread draft restores after the project directory becomes available on a fresh page", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem(
+    "ace.composer.drafts",
+    JSON.stringify([
+      [
+        "new:relay",
+        {
+          text: "Keep this new-thread draft",
+          mentions: [],
+          attachments: [],
+        },
+      ],
+    ]),
+  );
+  await app(storage).open("/new?project=relay");
+  expect((await message()).textContent).toBe("Keep this new-thread draft");
+});

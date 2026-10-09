@@ -22,6 +22,14 @@ export interface WorkspaceTab {
   pinned: boolean;
   /** JSON the kind keeps with the tab (a path, an address); it survives reloads. */
   data?: unknown;
+  /** Lightweight view preferences, separate from the resource's provider data. */
+  ui?: TabUiState | undefined;
+}
+
+export interface TabUiState {
+  query?: string | undefined;
+  collapsed?: readonly string[] | undefined;
+  selected?: string | undefined;
 }
 
 export interface ScopeWorkspace {
@@ -33,6 +41,14 @@ export interface ScopeWorkspace {
   size: number | undefined;
   /** The panel fills the work area and the main column steps aside. */
   expanded: boolean;
+  workCard?: WorkCardState | undefined;
+}
+
+export interface WorkCardState {
+  open: boolean;
+  sections: Record<string, boolean>;
+  search: string;
+  scrollTop?: number | undefined;
 }
 
 export interface OpenRequest {
@@ -220,14 +236,15 @@ export function replaceTab(
 export function updateTab(
   workspace: ScopeWorkspace,
   key: string,
-  change: { title?: string; data?: unknown },
+  change: { title?: string; data?: unknown; ui?: TabUiState },
 ): ScopeWorkspace {
   const found = findTab(workspace, key);
   if (!found) return workspace;
   const title = change.title ?? found.tab.title;
   const data = "data" in change ? change.data : found.tab.data;
-  if (title === found.tab.title && data === found.tab.data) return workspace;
-  const tab: WorkspaceTab = { ...found.tab, title, data };
+  const ui = change.ui ?? found.tab.ui;
+  if (title === found.tab.title && data === found.tab.data && ui === found.tab.ui) return workspace;
+  const tab: WorkspaceTab = { ...found.tab, title, data, ui };
   return patch(workspace, { tabs: workspace.tabs.map((each) => (each.key === key ? tab : each)) });
 }
 
@@ -265,6 +282,13 @@ const TabSchema = z.object({
   title: z.optional(z.string()),
   pinned: z.boolean(),
   data: z.optional(z.unknown()),
+  ui: z.optional(
+    z.object({
+      query: z.optional(z.string()),
+      collapsed: z.optional(z.array(z.string())),
+      selected: z.optional(z.string()),
+    }),
+  ),
 });
 const PanelSchema = z.object({
   tabs: z.array(TabSchema),
@@ -275,6 +299,14 @@ const PanelSchema = z.object({
 const CurrentSchema = z.object({
   ...PanelSchema.shape,
   expanded: z.catch(z.boolean(), false),
+  workCard: z.optional(
+    z.object({
+      open: z.boolean(),
+      sections: z.record(z.string(), z.boolean()),
+      search: z.string(),
+      scrollTop: z.optional(z.number().check(z.minimum(0), z.maximum(10_000_000))),
+    }),
+  ),
 });
 /** Before 0.9 a scope had a side panel (`right`) and a bottom panel (terminals, logs). */
 const LegacySchema = z.object({
@@ -316,5 +348,6 @@ export function sanitize(stored: Stored): ScopeWorkspace {
     open,
     size: workspace.size,
     expanded: workspace.expanded && open,
+    ...(workspace.workCard ? { workCard: workspace.workCard } : {}),
   };
 }

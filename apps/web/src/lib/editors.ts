@@ -1,14 +1,8 @@
-import {
-  CodeIcon,
-  CursorIcon,
-  FileCodeIcon,
-  LightningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
 import type { InstalledEditor } from "@ace/protocol";
 import { readJson, writeJson } from "@ace/ui-core";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useConnectionState } from "@ace/client-react";
 import { editorIconReader } from "@/boot/editor-launch.ts";
 import { z } from "zod";
 import { useDaemonQuery } from "./daemon-query.ts";
@@ -26,12 +20,15 @@ export function useEditors(): {
   current: InstalledEditor | undefined;
   choose(id: string): void;
   error: Error | null;
+  unavailable: string | undefined;
 } {
   const { storage } = useLayout();
+  const ready = useConnectionState() === "ready";
   const [picked, setPicked] = useState(() => readJson(storage, storageKey, z.string(), ""));
   const query = useDaemonQuery({
     queryKey: ["daemon", "editors"],
-    staleTime: 5 * 60_000,
+    staleTime: 0,
+    retry: false,
     read: async (client, signal) => {
       const reply = await client.request(
         { type: "workspace.request", operation: { op: "editors.list" } },
@@ -39,10 +36,11 @@ export function useEditors(): {
       );
       const result = reply.result;
       if (result.kind === "error") throw new Error(result.code);
-      return result.kind === "editors" ? result.editors : [];
+      if (result.kind !== "editors") throw new Error("Unexpected editor discovery response");
+      return result.editors;
     },
   });
-  const editors = query.data;
+  const editors = ready && !query.error && !query.isFetching ? query.data : undefined;
   return {
     editors,
     current: editors?.find((editor) => editor.id === picked) ?? editors?.[0],
@@ -51,18 +49,16 @@ export function useEditors(): {
       writeJson(storage, storageKey, id);
     },
     error: query.error,
+    unavailable: !ready
+      ? "Connect to this machine to list editors"
+      : query.error
+        ? "Couldn't list editors. Try again."
+        : !editors
+          ? "Looking for editors…"
+          : !editors.length
+            ? "No editors installed"
+            : undefined,
   };
-}
-
-const editorIcons: Record<string, PhosphorIcon> = {
-  code: CodeIcon,
-  cursor: CursorIcon,
-  zed: LightningIcon,
-};
-
-/** An editor's glyph: its own where the design has one, a code file otherwise. */
-export function editorIcon(id: string | undefined): PhosphorIcon {
-  return editorIcons[id ?? ""] ?? FileCodeIcon;
 }
 
 /**

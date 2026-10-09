@@ -92,3 +92,29 @@ test("Usage & accounts moves every thread stopped at an account's limit", async 
     "Limited",
   );
 });
+
+test("thread and new-thread drafts stay separate across navigation and a fresh reload", async ({
+  page,
+}) => {
+  await page.goto("/t/thread-dedupe?fakeWorld=thread-activity");
+  const message = page.getByRole("combobox", { name: "Message", exact: true });
+  const a = page.getByRole("link", { name: /^Dedupe thread events after reconnect/ });
+  const b = page.getByRole("link", { name: /^Retry budget for app-server restarts/ });
+  const fresh = page.getByRole("link", { name: "New thread", exact: true });
+  await message.fill("Draft A");
+  await b.click();
+  await expect(message).toHaveText("");
+  await message.fill("Draft B");
+  await a.click();
+  await expect(message).toHaveText("Draft A");
+  await fresh.click();
+  await expect(page.getByRole("heading", { level: 1, name: "New thread" })).toBeVisible();
+  await expect(message).toHaveText("");
+  await message.fill("New-thread draft");
+  await b.click();
+  await expect(message).toHaveText("Draft B");
+  await fresh.click();
+  await expect(message).toHaveText("New-thread draft");
+  await page.reload();
+  await expect(message).toHaveText("New-thread draft");
+});

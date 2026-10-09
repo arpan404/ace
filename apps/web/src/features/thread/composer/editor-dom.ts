@@ -1,5 +1,14 @@
 /** Text and caret offsets exclude chip decoration. Browser I/O stays here. */
 export function editorText(node: Node): string {
+  // Chromium leaves a single filler break after deleting the final character.
+  // It keeps the caret line alive, but is not an authored newline.
+  if (
+    node instanceof HTMLElement &&
+    node.isContentEditable &&
+    node.childNodes.length === 1 &&
+    node.firstChild?.nodeName === "BR"
+  )
+    return "";
   if (node instanceof HTMLElement && node.dataset.editorTail !== undefined) return "";
   if (node instanceof HTMLElement && node.dataset.tokenText !== undefined)
     return node.dataset.tokenText;

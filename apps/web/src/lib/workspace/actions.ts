@@ -15,6 +15,8 @@ import {
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
+  type WorkCardState,
+  type TabUiState,
 } from "./model.ts";
 import type { ClosingTab } from "./registry.ts";
 import type { WorkspaceStore } from "./store.ts";
@@ -50,8 +52,10 @@ export interface WorkspaceActions {
   /** Turn one tab into another resource in place (the launcher into the tool picked). */
   replace(key: string, request: OpenRequest): void;
   update(key: string, patch: { title?: string; data?: unknown }): void;
+  updateUi(key: string, patch: Partial<TabUiState>): void;
   cycle(delta: 1 | -1): void;
   setOpen(open: boolean): void;
+  setWorkCard(patch: Partial<WorkCardState>): void;
   toggle(): void;
   setExpanded(expanded: boolean): void;
   /** Live while dragging; `persist` when the gesture ends. Also becomes the preferred width. */
@@ -213,8 +217,24 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     replace: (key, next) =>
       withKinds(() => change((workspace) => replaceTab(workspace, key, request(next)))),
     update: (key, patch) => change((workspace) => updateTab(workspace, key, patch)),
+    updateUi: (key, patch) =>
+      change((workspace) => {
+        const tab = findTab(workspace, key)?.tab;
+        return tab ? updateTab(workspace, key, { ui: { ...tab.ui, ...patch } }) : workspace;
+      }),
     cycle: (delta) => change((workspace) => cycleTab(workspace, delta)),
     setOpen: (open) => (open ? show() : change((workspace) => setPanelOpen(workspace, false))),
+    setWorkCard: (patch) =>
+      change((workspace) => ({
+        ...workspace,
+        workCard: {
+          open: false,
+          search: "",
+          ...workspace.workCard,
+          ...patch,
+          sections: { ...workspace.workCard?.sections, ...patch.sections },
+        },
+      })),
     toggle: () => {
       if (store.get(scope).open) change((workspace) => setPanelOpen(workspace, false));
       else show();

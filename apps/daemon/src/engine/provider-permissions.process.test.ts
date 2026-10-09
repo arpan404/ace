@@ -85,3 +85,69 @@ test("Pi's native no-mode permission metadata remains readable before its adapte
     await h.close();
   }
 });
+
+test.each([
+  { adapter: createClaudeAdapter(), version: "2.1.286", mode: "auto" },
+  {
+    adapter: createCodexAdapter(),
+    version: "0.159.1",
+    mode: '{"permissions":":workspace","approvalsReviewer":"auto_review"}',
+  },
+  {
+    adapter: createCursorAdapter(),
+    version: "1.0.35",
+    mode: '{"sandboxOptions":{"enabled":true},"autoReview":true}',
+  },
+  { adapter: createOpenCodeAdapter(), version: "2.0.22", mode: "ask" },
+])(
+  "$adapter.provider absent settings dispatches an explicit predefined native mode",
+  async ({ adapter, version, mode }) => {
+    const frames = scriptFrames();
+    const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+      provider: adapter.provider,
+      capabilities: adapter.capabilities({
+        installed: true,
+        version,
+        auth: "logged_in",
+        loginHint: "unused",
+      }),
+    });
+    try {
+      const id = await h.create();
+      expect(h.contexts[0]?.permissionMode).toBe(mode);
+      expect(h.store.getThread(id)?.permission?.effective).toBe(mode);
+      expect(h.store.getThread(id)?.permission?.override).toBeNull();
+    } finally {
+      await h.close();
+    }
+  },
+);
+
+test.each([
+  ["acceptEdits", "acceptEdits"],
+  ["future-unavailable-mode", "auto"],
+] as const)(
+  "saved setting %s wins when supported and never delegates an unavailable mode to CLI defaults",
+  async (configured, expected) => {
+    const adapter = createClaudeAdapter();
+    const frames = scriptFrames();
+    const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+      provider: "claude",
+      capabilities: adapter.capabilities({
+        installed: true,
+        version: "2.1.286",
+        auth: "logged_in",
+        loginHint: "unused",
+      }),
+      permissionSettings: async () => configured,
+    });
+    try {
+      const id = await h.create();
+      expect(h.contexts[0]?.permissionMode).toBe(expected);
+      expect(h.store.getThread(id)?.permission?.effective).toBe(expected);
+      expect(h.store.getThread(id)?.permission?.override).toBeNull();
+    } finally {
+      await h.close();
+    }
+  },
+);

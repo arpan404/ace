@@ -28,7 +28,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
   const client = useClient();
   const toast = useToast();
   const queries = useQueryClient();
-  const { editors, current: editor, choose } = useEditors();
+  const { editors, current: editor, choose, unavailable: editorUnavailable } = useEditors();
   const [saving, setSaving] = useState<{ path: string; received: number } | undefined>();
   const [upload, setUpload] = useState<UploadState | undefined>();
   const cancel = useRef<AbortController | undefined>(undefined);
@@ -167,6 +167,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
       setUpload(undefined);
     },
     editors,
+    editorUnavailable,
     editor,
     openInEditor,
     copyPath,

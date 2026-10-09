@@ -2,6 +2,7 @@ import { FakeProjects } from "./projects.ts";
 import {
   gitStatusLimit,
   ServerMessage,
+  InstalledEditor,
   type GitStatusFile,
   type WorkspaceActionRequest,
   type CommandPayload,
@@ -26,10 +27,11 @@ export class FakeWorkspaceWire {
     this.projects = new FakeProjects(context, (id) => this.terminals.hasOwnedWork(id));
     this.forge = new FakeForgeWire(context);
   }
-  readonly editors = [
-    { id: "code", name: "Visual Studio Code", command: "code" },
-    { id: "zed", name: "Zed", command: "zed" },
-  ];
+  /** Browser fixtures cannot inspect the OS. Apps exist only when a scenario explicitly seeds them. */
+  private editors: readonly InstalledEditor[] = [];
+  setEditors(editors: readonly InstalledEditor[]): void {
+    this.editors = InstalledEditor.array().max(32).parse(editors);
+  }
   /** The project's scripts as the daemon lists them from package.json, by workspace. */
   private scriptOverrides = new Map<string, readonly string[]>();
   setScripts(workspaceId: string, names: readonly string[]): void {

@@ -74,27 +74,33 @@ test("a file query that matches nothing says so until Escape dismisses it", asyn
   expect(screen.queryByText("No matching suggestions")).toBeNull();
 });
 
-test("permission picker offers Claude native modes", async () => {
+test("permission picker offers three approval presets with exact Claude selectors", async () => {
   const { app } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto review" }));
+  const options = await screen.findAllByRole("menuitemradio");
+  expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
+    "Manual",
+    "Auto review",
+    "Full access",
+  ]);
   expect(
-    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("true");
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Accept edits" }));
+    options
+      .filter((option) => option.getAttribute("aria-checked") === "true")
+      .map((option) => option.getAttribute("aria-label")),
+  ).toEqual(["Auto review"]);
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Manual" }));
   await waitFor(() =>
-    expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("acceptEdits"),
+    expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("default"),
   );
 });
 
 test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   const { app, message } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Bypass permissions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Provider default, Bypass permissions applies at the agent's next turn",
+      name: "Approvals: Full access, applies at the agent's next turn",
     }),
   ).toBeTruthy();
 
@@ -105,7 +111,7 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   await userEvent.type(message, "Now cap the replay{Enter}");
-  await screen.findByRole("button", { name: "Approvals: Bypass permissions" });
+  await screen.findByRole("button", { name: "Approvals: Full access" });
   expect(thread(app, "thread-replay-cursor")?.permission).toMatchObject({
     effective: "bypassPermissions",
     pending: false,
@@ -115,20 +121,19 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
 test("the model chip opens effort and speed for the thread's model", async () => {
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
-  const popover = await openModelControl("Model: Opus 5.5, Personal, provider default effort");
+  const popover = await openModelControl("Model: Opus 5.5, Personal, Medium effort (default)");
   expect(within(popover).getByRole("heading", { name: "Opus 5.5" })).toBeTruthy();
-  expect(within(popover).getByText("Default effort")).toBeTruthy();
+  expect(within(popover).queryByText("Default")).toBeNull();
+  expect(within(popover).getByText("Medium")).toBeTruthy();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, provider default effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, Medium effort (default)" }),
   ).toBeTruthy();
   expect(within(popover).getByRole("button", { name: "Change model: Opus 5.5" })).toBeTruthy();
-  // Opus has no default ace knows of: the provider's own is the slider's first stop, and each
-  // stop is named.
-  const slider = within(popover).getByRole("slider", { name: "Effort" });
-  expect(slider.getAttribute("aria-valuetext")).toBe("Default");
-  expect(slider.getAttribute("aria-valuenow")).toBe("0");
-  for (const step of ["Default", "Low", "Medium", "High"])
-    expect(within(popover).getByText(step)).toBeTruthy();
+  // The predefined level is selected; every stop is an actual supported capability.
+  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Medium");
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuemax"),
+  ).toBe("2");
   // Opus has no faster tier.
   expect(
     within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
@@ -172,6 +177,22 @@ test("effort from the slider goes with the next message and applies to its turn"
   );
 });
 
+test("an unresolved running effort stays untouched until the predefined next turn starts", async () => {
+  const { app, message } = await open("busy");
+  expect(thread(app, "thread-replay-cursor")?.live?.options?.effort).toBeUndefined();
+  await userEvent.type(message, "Apply the predefined reasoning level{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  expect(thread(app, "thread-replay-cursor")?.live?.options?.effort).toBeUndefined();
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "background.ended", task: "relay", status: "stopped" },
+  ]);
+  await waitFor(() =>
+    expect(thread(app, "thread-replay-cursor")?.live?.options).toMatchObject({ effort: "medium" }),
+  );
+});
+
 test("reset drops the effort picked for the next message, so it can steer again", async () => {
   const { message } = await open("busy");
   const popover = await openModelControl(/^Model: Opus 5\.5/);
@@ -181,10 +202,10 @@ test("reset drops the effort picked for the next message, so it can steer again"
   await userEvent.keyboard("{End}");
   expect(reset.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(reset);
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Default");
+  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Medium");
   await closeModelControl();
   expect(
-    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, provider default effort" }),
+    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, Medium effort (default)" }),
   ).toBeTruthy();
 
   // A message carrying a new effort always waits for the next turn; without one, ⌘↵ steers.
@@ -250,17 +271,16 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 });
 
-test("the permission menu checks an explicit mode and returns to Provider default", async () => {
+test("the chosen approval preset stays checked while its native change is pending", async () => {
   const { app } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Plan" }));
-  await userEvent.click(
-    await screen.findByRole("button", { name: /^Approvals: Provider default, Plan/ }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Manual" }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Approvals: Manual/ }));
   expect(
-    (await screen.findByRole("menuitemradio", { name: "Plan" })).getAttribute("aria-checked"),
+    (await screen.findByRole("menuitemradio", { name: "Manual" })).getAttribute("aria-checked"),
   ).toBe("true");
-  await userEvent.click(screen.getByRole("menuitemradio", { name: "Provider default" }));
-  await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
-  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Auto review" }));
+  await waitFor(() =>
+    expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("auto"),
+  );
 });

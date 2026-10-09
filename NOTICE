@@ -43,3 +43,13 @@ Attachment previews use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and contr
 Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
 These dependencies and their bundled notices/licenses are accepted for bounded previews.
 Original uploads and provider images are never re-encoded.
+
+Editor menu marks identify installed editors, never ace itself. Visual Studio Code's blue icon
+is from https://code.visualstudio.com/brand (the published SVG icon archive). Zed's mark is its
+published site icon, https://zed.dev/favicon_black_64.png (brand guidelines: https://zed.dev/brand).
+These remain their owners' trademarks and are not licensed under ace's license. Cursor's mark
+is from the accepted MIT LobeHub Icons collection described above. Desktop uses the OS app icon
+when available; browser fallbacks are bundled, with no third-party image requests.
+Sublime Text uses its published favicon (https://www.sublimetext.com/favicon.ico).
+IntelliJ IDEA uses its official JetBrains mark (https://github.com/JetBrains/logos,
+https://www.jetbrains.com/company/brand/). Both identify only the corresponding installed app.

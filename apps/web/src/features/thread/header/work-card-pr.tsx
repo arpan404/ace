@@ -30,7 +30,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
-import { TruncatedText, RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
+import { TruncatedText, RowButton, RowNote, rowIcon, WorkSection } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -66,8 +66,7 @@ export function PullRequestsSection(props: { git: GitFlow }) {
   const { checkout } = props.git;
   const pr = checkout?.pr;
   return (
-    <section aria-labelledby="work-card-prs">
-      <SectionHead id="work-card-prs" title="Pull requests" />
+    <WorkSection id="work-card-prs" title="Pull requests">
       {pr && checkout ? (
         <PrDisclosure key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
       ) : (
@@ -80,7 +79,7 @@ export function PullRequestsSection(props: { git: GitFlow }) {
               : "None for this branch yet"}
         </RowNote>
       )}
-    </section>
+    </WorkSection>
   );
 }
 

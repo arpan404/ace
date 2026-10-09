@@ -46,6 +46,20 @@ test("workspace reads expose declared scripts and installed editors and receipts
         { id: "justfile:serve", name: "serve", source: "justfile", command: "just 'serve'" },
       ]),
     });
+    // Names alone are not installation evidence: directories, non-executable files and broken links do not qualify.
+    await mkdir(join(root, "zed"));
+    await writeFile(join(root, "cursor"), "not an executable");
+    await chmod(join(root, "cursor"), 0o600);
+    await symlink(join(root, "missing-idea"), join(root, "idea"));
+    expect(
+      (
+        await runtime.read({
+          type: "workspace.request",
+          requestId: "empty-editors",
+          operation: { op: "editors.list" },
+        })
+      ).result,
+    ).toEqual({ kind: "editors", editors: [] });
     await writeFile(join(root, "code"), "#!/bin/sh\nexit 0\n");
     await chmod(join(root, "code"), 0o700);
     expect(
@@ -67,6 +81,20 @@ test("workspace reads expose declared scripts and installed editors and receipts
       editor: { editor: { id: "code" }, path: root },
     });
     expect(await runtime.execute(command)).toMatchObject({ ok: true, editor: { path: root } });
+    await rm(join(root, "code"));
+    expect(
+      (
+        await runtime.read({
+          type: "workspace.request",
+          requestId: "removed-editors",
+          operation: { op: "editors.list" },
+        })
+      ).result,
+    ).toEqual({ kind: "editors", editors: [] });
+    expect(
+      await runtime.execute(Command.parse({ ...command, id: "removed-editor" })),
+    ).toMatchObject({ ok: false });
+
     expect(
       await runtime.execute(
         Command.parse({

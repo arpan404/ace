@@ -13,6 +13,7 @@ import { Icon } from "@/components/icon.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "./diff-stat.tsx";
+import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 
 /** Past this many rows, only those near the viewport mount. */
 const virtualAbove = 300;
@@ -24,6 +25,7 @@ const rowHeight = 28;
  * fold, Enter jumps to the file's diff.
  */
 export function FileTree(props: {
+  threadId: string;
   files: readonly TreeFile[];
   /** The file last jumped to. */
   current: string | undefined;
@@ -32,8 +34,12 @@ export function FileTree(props: {
   onJump(index: number): void;
   className?: string;
 }) {
-  const [filter, setFilter] = useState("");
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const workspace = useScopeWorkspace(props.threadId);
+  const actions = useWorkspaceActions(props.threadId);
+  const ui = workspace.tabs.find((tab) => tab.key === "changes")?.ui;
+  const filter = ui?.query ?? "";
+  const setFilter = (query: string) => actions.updateUi("changes", { query });
+  const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
   const rows = useMemo(
     () => changeTreeRows(props.files, { collapsed, filter }),
     [props.files, collapsed, filter],
@@ -41,13 +47,12 @@ export function FileTree(props: {
   const [focused, setFocused] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const at = Math.min(focused, Math.max(0, rows.length - 1));
-  const fold = (key: string, open: boolean) =>
-    setCollapsed((previous) => {
-      const next = new Set(previous);
-      if (open) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const fold = (key: string, open: boolean) => {
+    const next = new Set(collapsed);
+    if (open) next.delete(key);
+    else next.add(key);
+    actions.updateUi("changes", { collapsed: [...next] });
+  };
   const focus = (index: number) => {
     const next = Math.max(0, Math.min(rows.length - 1, index));
     setFocused(next);

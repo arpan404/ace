@@ -23,6 +23,7 @@ export function ProviderAccountIcon(
     instance?: string | undefined;
     account?: AccountView | undefined;
     accountLabel?: boolean;
+    tooltip?: boolean;
   },
 ) {
   const accounts = useAccountViews();
@@ -36,20 +37,18 @@ export function ProviderAccountIcon(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
   const multiple = siblings !== undefined && siblings.length > 1;
+  const size = props.size ?? 16;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn(
-        "relative inline-flex shrink-0 items-center",
-        multiple && account && "pr-1.5 pb-1.5",
-        props.className,
-      )}
-      title={account?.shortLabel ? `${name} · ${account.shortLabel}` : name}
+      className={cn("relative inline-flex shrink-0 items-center justify-center", props.className)}
+      style={multiple && account ? { width: size + 2, height: size + 2 } : undefined}
+      title={hoverTitle(props.tooltip, name, account?.shortLabel)}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
       <ProviderIcon
         {...props}
-        size={props.size ?? 16}
+        size={size}
         acpAgentId={props.acpAgentId ?? account?.acpAgentId}
         className={undefined}
         decorative
@@ -57,7 +56,7 @@ export function ProviderAccountIcon(
       {multiple && account && (
         <span
           role="img"
-          title={`${account.label} account`}
+          title={hoverTitle(props.tooltip, `${account.label} account`)}
           aria-label={`${account.label} account`}
           style={
             { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
@@ -69,4 +68,13 @@ export function ProviderAccountIcon(
       )}
     </span>
   );
+}
+
+function hoverTitle(
+  enabled: boolean | undefined,
+  name: string,
+  shortLabel?: string,
+): string | undefined {
+  if (enabled === false) return undefined;
+  return shortLabel ? `${name} · ${shortLabel}` : name;
 }

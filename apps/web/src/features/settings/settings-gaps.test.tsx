@@ -65,7 +65,7 @@ test("project permission overrides take precedence and reset to a changed global
   await userEvent.click(screen.getByRole("button", { name: "Close" }));
   cleanup();
   await app.open("/settings/general");
-  await choose("Claude Code permissions", "Auto");
+  await choose("Claude Code permissions", "Auto review");
   cleanup();
   await app.open("/new");
   expect(await screen.findByRole("button", { name: "Approvals: Accept edits" })).toBeTruthy();
@@ -76,7 +76,7 @@ test("project permission overrides take precedence and reset to a changed global
   await userEvent.click(await screen.findByRole("menuitem", { name: "Project permissions…" }));
   await choose("Claude Code permissions", "Use global default");
   await userEvent.click(screen.getByRole("button", { name: "Close" }));
-  expect(await screen.findByRole("button", { name: "Approvals: Auto" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Approvals: Auto review" })).toBeTruthy();
 });
 
 test("provider configuration changes visibility, stars and custom model choices and survives navigation", async () => {
@@ -308,4 +308,23 @@ test("settle-on-close moves finished threads but keeps work in progress active",
       "aria-checked",
     ),
   ).toBe("true");
+});
+
+test("global permissions show the predefined review default and never a provider-default choice", async () => {
+  const app = harness();
+  await app.open("/settings/general");
+  const picker = await screen.findByRole("combobox", { name: "Claude Code permissions" });
+  await waitFor(() => {
+    expect(picker.textContent).toBe("Auto review");
+    expect(picker).toHaveProperty("disabled", false);
+  });
+  await userEvent.click(picker);
+  await screen.findByRole("option", { name: "Full access" });
+  expect(screen.queryByRole("option", { name: "Use provider default" })).toBeNull();
+  await userEvent.click(screen.getByRole("option", { name: "Full access" }));
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("permissions.providerModes")).toMatchObject({
+      claude: "bypassPermissions",
+    }),
+  );
 });

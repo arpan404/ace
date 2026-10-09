@@ -36,14 +36,28 @@ for (const theme of ["light", "dark"])
           height: element.clientHeight,
           scroll: element.scrollHeight,
         }));
-        expect(size.height).toBe(160);
+        expect(size.height).toBe(140);
         expect(size.scroll).toBeGreaterThan(size.height);
       }).toPass();
       await input.press("ControlOrMeta+End");
       await input.press("!");
       await expect(input).toHaveText(pasted + "!");
+      // Padding belongs to the fixed frame, so neither scroll edge can touch the card border.
+      await expect(async () => {
+        const insets = await input.evaluate((element) => {
+          const editor = element.getBoundingClientRect();
+          const frame = element.parentElement?.getBoundingClientRect();
+          if (!frame) throw new Error("input frame missing");
+          return { top: editor.top - frame.top, bottom: frame.bottom - editor.bottom };
+        });
+        expect(insets).toEqual({ top: 14, bottom: 6 });
+      }).toPass();
+      await composer.screenshot({
+        animations: "disabled",
+        path: `/tmp/ace-composer-scroll-padding-${theme}-${width}.png`,
+      });
       await input.fill("");
-      await expect(input).toHaveCSS("height", "40px");
+      await expect(input).toHaveCSS("height", "20px");
       await expect
         .poll(() => input.evaluate((element) => getComputedStyle(element, "::before").content))
         .toContain("Ask anything");
@@ -53,9 +67,11 @@ for (const theme of ["light", "dark"])
         buffer: Buffer.from("retry trace"),
       });
       await page.getByRole("button", { name: /Remove trace.txt/ }).click();
-      const environment = page.getByRole("region", { name: "Environment", exact: true });
+      const environment = composer.getByRole("region", { name: "Environment", exact: true });
       const model = composer.getByRole("button", { name: /^Model: / });
       await expect(model).toBeVisible();
+      await model.focus();
+      await expect(model).toHaveCSS("box-shadow", "none");
       const modelBox = await model.boundingBox(),
         sendBox = await send.boundingBox();
       if (!modelBox || !sendBox) throw new Error("composer actions missing");
@@ -63,10 +79,7 @@ for (const theme of ["light", "dark"])
       expect(
         Math.abs(modelBox.y + modelBox.height / 2 - sendBox.y - sendBox.height / 2),
       ).toBeLessThan(1);
-      await expect(environment.getByRole("button", { name: /^Environment:/ })).toHaveCSS(
-        "height",
-        "28px",
-      );
+      await expect(environment).toHaveCount(0);
       await expect(environment.getByRole("button", { name: /^Model: / })).toHaveCount(0);
       await expect(composer.getByRole("button", { name: /^Approvals:/ })).toBeVisible();
       await page.locator("[data-composer-dock]").screenshot({
@@ -76,9 +89,7 @@ for (const theme of ["light", "dark"])
     });
 
 for (const theme of ["light", "dark"])
-  test(`the composer and both attached panels share one glass tint in ${theme}`, async ({
-    page,
-  }) => {
+  test(`the composer and request panel share one glass tint in ${theme}`, async ({ page }) => {
     await page.addInitScript(
       (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
       theme,
@@ -87,7 +98,7 @@ for (const theme of ["light", "dark"])
     await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
     const dock = page.locator("[data-composer-dock]");
     const surfaces = dock.locator(".glass");
-    await expect(surfaces).toHaveCount(3);
+    await expect(surfaces).toHaveCount(2);
     await expect(async () => {
       const materials = await surfaces.evaluateAll((elements) =>
         elements.map((element) => {
@@ -128,7 +139,7 @@ for (const theme of ["light", "dark"])
 
 for (const theme of ["light", "dark"])
   for (const width of [1440, 390])
-    test(`composer floats above scrollable text with an attached environment in ${theme} at ${width}`, async ({
+    test(`composer floats above scrollable text without a running environment footer in ${theme} at ${width}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 700 });
@@ -137,19 +148,15 @@ for (const theme of ["light", "dark"])
       }, theme);
       await page.goto("/t/thread-refund-tax");
       const composer = page.locator('[data-slot="composer"]');
-      const environment = page.getByRole("region", { name: "Environment", exact: true });
-      await expect(environment).toBeVisible();
+      const environment = composer.getByRole("region", { name: "Environment", exact: true });
+      await expect(environment).toHaveCount(0);
       await expect(async () => {
         const shell = await composer.boundingBox();
-        const panel = await environment.boundingBox();
         const viewport = await page
           .locator("[data-thread-column] [data-virtual-viewport]")
           .boundingBox();
-        if (!shell || !panel || !viewport) throw new Error("composer layout missing");
-        expect(panel.x).toBe(shell.x + 16);
-        expect(panel.y).toBe(shell.y + shell.height - 16);
-        expect(panel.width).toBe(shell.width - 32);
-        expect(viewport.y + viewport.height).toBeGreaterThan(panel.y + panel.height);
+        if (!shell || !viewport) throw new Error("composer layout missing");
+        expect(viewport.y + viewport.height).toBeGreaterThanOrEqual(shell.y + shell.height);
         const glass = await composer.evaluate((element) => {
           const style = getComputedStyle(element);
           return { background: style.backgroundColor, blur: style.backdropFilter };

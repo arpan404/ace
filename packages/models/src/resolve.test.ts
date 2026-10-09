@@ -1,6 +1,17 @@
 import { expect, test } from "vitest";
 import { normalizeCodex, resolveModel } from "./index.ts";
 import { codexPayload, instance } from "./testing/support.ts";
+import { resolveEffort } from "./resolve.ts";
+
+test("effort presets preserve explicit and catalog choices and otherwise use only supported levels", () => {
+  const levels = ["low", "medium", "high"];
+  expect(resolveEffort(levels, "low", "high")).toBe("low");
+  expect(resolveEffort(levels, undefined, "high")).toBe("high");
+  expect(resolveEffort(levels, undefined, "missing")).toBe("medium");
+  expect(resolveEffort(["brief", "balanced", "deep", "extreme"])).toBe("balanced");
+  expect(resolveEffort(["high"])).toBe("high");
+  expect(resolveEffort([])).toBeUndefined();
+});
 const rows = [
   ...normalizeCodex(codexPayload("normal"), instance()),
   ...normalizeCodex(codexPayload("stronger", false), instance()),

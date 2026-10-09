@@ -89,7 +89,6 @@ export function ModelPicker(props: {
     modelKey: model?.key,
     instance: model?.account,
     efforts,
-    defaultStop: model?.defaultEffort === undefined,
     effort,
     effortDefault: false,
     effortReason: model && !efforts.length ? `${model.label} has no effort levels` : undefined,

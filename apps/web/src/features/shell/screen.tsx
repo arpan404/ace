@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode, UIEvent } from "react";
-import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
@@ -11,6 +10,7 @@ import { Workspace } from "./workspace/workspace.tsx";
 export interface ScreenWorkspace {
   scope: string;
   definition: WorkspaceDefinition;
+  contextPanel?: ReactNode;
 }
 
 /**
@@ -25,9 +25,6 @@ export function Screen(
   },
 ) {
   const [scrolled, setScrolled] = useState(false);
-  const pane = useRef<HTMLElement>(null);
-  // Toasts stand in this pane's bottom-right corner, clear of the panel beside it.
-  useToastAnchor(pane);
   // Any scroller inside the content draws the header hairline once it leaves the top.
   const onScroll = (event: UIEvent) => {
     const target = event.target;
@@ -35,7 +32,6 @@ export function Screen(
   };
   const main = (
     <main
-      ref={pane}
       id="main"
       tabIndex={-1}
       onScrollCapture={onScroll}
@@ -72,6 +68,7 @@ export function Screen(
       definition={props.workspace.definition}
       title={props.title}
       header={header}
+      contextPanel={props.workspace.contextPanel}
       notice={
         <>
           <PausedNotice />

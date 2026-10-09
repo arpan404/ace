@@ -1,7 +1,8 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
+import { crowdedQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { withViewTransition } from "@/lib/motion.ts";
@@ -13,7 +14,7 @@ import {
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
 import { HeaderNav } from "../app-header.tsx";
-import { panelBounds } from "./bounds.ts";
+import { panelFloats, panelBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
@@ -25,20 +26,49 @@ const WorkspacePanel = lazy(() => loadPanel().then((m) => ({ default: m.Workspac
 const CloseConfirm = lazy(() => loadPanel().then((m) => ({ default: m.CloseConfirm })));
 
 /** Hold the panel back until the kinds (icons, titles, views) have loaded too. */
-function WhenKindsReady(props: { definition: WorkspaceDefinition; children: ReactNode }) {
+export function WhenKindsReady(props: {
+  definition: WorkspaceDefinition;
+  children: ReactNode;
+  visible?: boolean;
+}) {
   const [ready, setReady] = useState(props.definition.loaded());
+  const [error, setError] = useState(false);
   useEffect(() => {
     if (ready) return;
     let live = true;
     props.definition.load().then(
       () => live && setReady(true),
-      () => undefined,
+      () => live && setError(true),
     );
     return () => {
       live = false;
     };
   }, [ready, props.definition]);
-  return ready ? props.children : null;
+  if (ready) return props.children;
+  if (!props.visible) return null;
+  return (
+    <div
+      role={error ? "alert" : "status"}
+      className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col items-center justify-center gap-3 border-l bg-panel p-4 text-sm"
+    >
+      {error ? "Tools couldn't load." : "Loading tools…"}
+      {error && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setError(false);
+            void props.definition.load().then(
+              () => setReady(true),
+              () => setError(true),
+            );
+          }}
+        >
+          Try again
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /** Each kind's overlay (a palette its shortcut opens), once the kinds have loaded. */
@@ -74,6 +104,7 @@ export function Workspace(props: {
   header(trailing?: ReactNode): ReactNode;
   notice: ReactNode;
   children: ReactNode;
+  contextPanel?: ReactNode;
 }) {
   const { scope, definition } = props;
   const store = useWorkspaceStore();
@@ -82,10 +113,14 @@ export function Workspace(props: {
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
   const preferred = usePreferredSize();
-  const overlay = useMediaQuery(overlayPanelsQuery, false);
+  const viewportOverlay = useMediaQuery(overlayPanelsQuery, false);
+  const crowded = useMediaQuery(crowdedQuery, false);
   const sheet = usePhone();
   const outer = useRef<HTMLDivElement>(null);
   const size = useElementSize(outer);
+  // At crowded desktop widths the sidebar yields to tools. Account for that before its
+  // measurement changes so opening/closing never reparents tab views into a modal portal.
+  const overlay = panelFloats(size.width, viewportOverlay, crowded);
   // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
     () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),
@@ -98,8 +133,7 @@ export function Workspace(props: {
     };
   }, [store, scope]);
 
-  // The panel mounts once it first opens and stays mounted (hidden it renders nothing), so its
-  // exit plays and its tab views keep their state.
+  // Keep tab state after the first open; hidden Activity boundaries pause tool effects.
   const [shown, setShown] = useState(false);
   if (workspace.open && !shown) setShown(true);
   const expanded = workspace.expanded && workspace.open;
@@ -135,14 +169,24 @@ export function Workspace(props: {
       )}
       <div className="relative flex min-h-0 flex-1">
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
-        <div hidden={expanded} className="relative flex min-w-0 flex-1 flex-col">
+        <div
+          hidden={expanded}
+          className="@container/work-body relative flex min-w-0 flex-1 flex-col"
+        >
           {props.header(inline ? undefined : controls("header"))}
           {props.notice}
-          {props.children}
+          {props.contextPanel ? (
+            <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
+              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">{props.children}</div>
+              <Activity mode={workspace.open ? "hidden" : "visible"}>{props.contextPanel}</Activity>
+            </div>
+          ) : (
+            props.children
+          )}
         </div>
         {shown && (
           <Suspense fallback={null}>
-            <WhenKindsReady definition={definition}>
+            <WhenKindsReady definition={definition} visible={workspace.open}>
               <WorkspacePanel
                 scope={scope}
                 definition={definition}
@@ -158,6 +202,11 @@ export function Workspace(props: {
                 controls={controls("panel")}
                 notice={expanded ? props.notice : undefined}
                 context={props.title}
+                restoreFocus={() =>
+                  outer.current?.querySelector<HTMLElement>(
+                    'header button[aria-label="More actions"]',
+                  ) ?? null
+                }
               />
             </WhenKindsReady>
           </Suspense>

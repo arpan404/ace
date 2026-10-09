@@ -35,7 +35,7 @@ async function open(options: Parameters<typeof harness>[0] = {}) {
   return { app, sent, message };
 }
 
-/** Move the effort slider with the keyboard, as a person tabbing to it would. */
+/** Move the reasoning choices with the keyboard, as a person tabbing to it would. */
 async function effort(chip: RegExp, keys: string) {
   const popover = await openModelControl(chip);
   within(popover).getByRole("slider", { name: "Effort" }).focus();
@@ -72,7 +72,7 @@ test("effort picked while a message is still saving stays for the next message",
   held = new Promise((resolve) => (release = resolve));
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   // While it saves, the person picks Low for the message after.
-  await effort(/^Model: Opus 5\.5, Personal, High effort/, "{Home}{ArrowRight}");
+  await effort(/^Model: Opus 5\.5, Personal, High effort/, "{Home}");
   release?.();
 
   await waitFor(() => expect(sent).toHaveLength(1));

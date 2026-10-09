@@ -150,7 +150,7 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
 });
 
-test("the environment strip opens checkout details and refreshes them after a commit", async () => {
+test("the work card carries checkout details and refreshes them after a commit", async () => {
   const { app } = await open("busy");
   // While the agent works the tab says so; Stop ends the turn and the background relay.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
@@ -158,7 +158,7 @@ test("the environment strip opens checkout details and refreshes them after a co
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   const strip = await screen.findByRole("button", {
-    name: "Environment: Local · fix/replay-cursor",
+    name: "Work card",
   });
   await userEvent.click(strip);
   let card = await screen.findByRole("region", { name: "Where this thread runs" });
@@ -167,18 +167,17 @@ test("the environment strip opens checkout details and refreshes them after a co
   expect(within(card).queryByText(/ahead/)).toBeNull();
 
   // The branch row opens the commit form; pushing stays optional.
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
   await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: /^Environment: Local/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
   card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
 
   // Escape folds the details back to the strip and puts the caret in the message.
-  const close = within(card).getByRole("button", { name: "Close" });
+  const close = screen.getByRole("button", { name: "Close work card" });
   // Once the commit dialog has handed focus back.
   await waitFor(() => {
     close.focus();
@@ -188,8 +187,8 @@ test("the environment strip opens checkout details and refreshes them after a co
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
   );
-  expect(screen.getByRole("button", { name: /^Environment: Local/ })).toBeTruthy();
-  expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+  expect(screen.getByRole("button", { name: "Work card" })).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Work card" }));
 });
 
 test("the composer carries no context or usage meter, whatever the provider reports", async () => {
@@ -222,15 +221,15 @@ test("a wide composer spells out the @ and / hints", async () => {
   );
 });
 
-test("approvals show as an icon alone, the mode kept in its name; a phone drops the model's effort", async () => {
+test("approvals keep their readable mode on a phone and unknown effort is omitted", async () => {
   layoutWidth(358);
   await open("busy");
-  const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
-  expect(approvals.textContent).toBe("");
-  // The model chip keeps its name; only its effort goes.
-  const model = screen.getByRole("button", { name: /^Model: / });
+  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto review/ });
+  expect(approvals.textContent).toBe("Auto review");
+  // The model chip retains identity; an unreported effort stays unset at every width.
+  const model = await screen.findByRole("button", { name: /^Model: Opus 5\.5/ });
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(within(model).getByRole("img", { name: "Personal account" })).toBeTruthy();
-  expect(model.textContent).not.toContain("Medium");
+  expect(within(model).queryByRole("img", { name: /reasoning/ })).toBeNull();
 });

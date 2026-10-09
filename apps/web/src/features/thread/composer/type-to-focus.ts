@@ -27,6 +27,8 @@ export function listenTypeToFocus(input: {
       return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest(owned)) return;
+    // Space activates a focused control on keyup. Moving focus now would cancel its action.
+    if (event.key === " " && target?.closest('button, [role="button"], summary')) return;
     // A dialog or menu that's open elsewhere keeps the keys even when focus drifted out.
     if (document.querySelector('[role="dialog"][data-open], [role="menu"][data-open]')) return;
     el.focus();

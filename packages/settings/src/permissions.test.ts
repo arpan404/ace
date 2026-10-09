@@ -111,3 +111,13 @@ test("a project overrides one provider and keeps following other global defaults
     await f.close();
   }
 });
+
+test("a legacy null permission default remains absence rather than a saved choice", async () => {
+  const f = await fixture();
+  try {
+    await f.write(f.globalPath, { "permissions.defaultMode": null });
+    expect((await f.service.get("permissions.providerModes")).value).toEqual({});
+  } finally {
+    await f.close();
+  }
+});

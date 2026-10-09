@@ -39,16 +39,15 @@ test("editing this machine updates its name and mark in Settings, both thread en
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(
-    await screen.findByRole("button", { name: /^(Environment:|Environment details)/ }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
   const environment = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(environment).findByText("Workshop Mac")).toBeTruthy();
   expect(within(environment).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("dialog", { name: "Work card" });
-  expect(await within(card).findByText("Workshop Mac")).toBeTruthy();
-  expect(within(card).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
+  const card = await screen.findByRole("complementary", { name: "Work card" });
+  expect((await within(card).findAllByText("Workshop Mac")).length).toBeGreaterThan(0);
+  expect(within(card).getAllByRole("img", { name: "desktop machine icon" }).length).toBeGreaterThan(
+    0,
+  );
 });
 
 test("editing a paired machine saves on that host and replaces stale thread labels", async () => {
@@ -77,8 +76,13 @@ test("editing a paired machine saves on that host and replaces stale thread labe
   view.unmount();
   view = await app.open("/");
   const sidebar = await screen.findByRole("list", { name: "Threads" });
-  expect(await within(sidebar).findByText("Build server")).toBeTruthy();
-  expect(within(sidebar).getByRole("img", { name: "server machine icon" })).toBeTruthy();
+  const device = await within(sidebar).findByRole("img", { name: "Device: Build server" });
+  await userEvent.hover(device);
+  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
+  expect(
+    within(device).getByRole("img", { name: "server machine icon", hidden: true }),
+  ).toBeTruthy();
+  expect(sidebar.textContent).not.toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
   view.unmount();
 });
@@ -176,7 +180,7 @@ test("a paired machine's updated host identity replaces the cached label after r
     .runThrough("finding");
   await app.open("/");
   const sidebar = await screen.findByRole("list", { name: "Threads" });
-  await within(sidebar).findByText("Old server");
+  await within(sidebar).findByRole("img", { name: "Device: Old server" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.machines.get("build")?.services.settings.seed({
     "host.displayName": "Build server",
@@ -184,8 +188,12 @@ test("a paired machine's updated host identity replaces the cached label after r
   });
   app.crashMachine("build");
   await app.pool().reconnect("build");
-  expect(await within(sidebar).findByText("Build server")).toBeTruthy();
-  expect(within(sidebar).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
+  const device = await within(sidebar).findByRole("img", { name: "Device: Build server" });
+  expect(
+    within(device).getByRole("img", { name: "cloud machine icon", hidden: true }),
+  ).toBeTruthy();
+  await userEvent.hover(device);
+  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
 });
 

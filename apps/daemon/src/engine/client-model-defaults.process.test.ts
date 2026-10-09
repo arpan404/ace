@@ -23,6 +23,55 @@ const native = (model: string, efforts: string[] = []) => ({
   })),
   defaultReasoningEffort: "high",
 });
+
+test("missing effort is admitted as a supported preset", async () => {
+  const instance = ModelInstance.parse({
+    id: "personal",
+    provider: "codex",
+    loginRevision: "test",
+    executable: "unused",
+    cwd: process.cwd(),
+  });
+  const catalog = new ModelCatalog({
+    instances: [instance],
+    storage: storage(),
+    now: () => 1000,
+    deadline: () => () => {},
+    discover: async (config) =>
+      normalizeCodex(
+        {
+          data: [
+            {
+              ...native("preset-model", ["low", "medium", "high"]),
+              defaultReasoningEffort: "unknown",
+            },
+          ],
+        },
+        config,
+      ),
+  });
+  await catalog.refresh();
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    models: catalog,
+  });
+  try {
+    const admitted = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      account: "personal",
+      model: "preset-model",
+      input: [{ type: "text", text: "preset" }],
+    });
+    expect(admitted.ok).toBe(true);
+    await h.engine.flush();
+    expect(h.contexts[0]?.options).toMatchObject({ effort: "medium" });
+  } finally {
+    await h.close();
+    await catalog.close();
+  }
+});
 const openCode = (providerID: string, enabled = true) => ({
   id: `${providerID}/muse-spark-1.3-contributor`,
   providerID,

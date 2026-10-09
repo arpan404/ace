@@ -2,6 +2,21 @@ export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
 import { ModelRoleSpec, type CatalogModel, type ModelResolution } from "@ace/protocol";
 
+/** Only advertised levels: explicit choice, catalog default, Medium, then the lower middle. */
+export function resolveEffort(
+  supported: readonly string[],
+  configured?: string,
+  advertisedDefault?: string,
+): string | undefined {
+  if (configured !== undefined && supported.includes(configured)) return configured;
+  if (advertisedDefault !== undefined && supported.includes(advertisedDefault))
+    return advertisedDefault;
+  return (
+    supported.find((level) => level.toLowerCase() === "medium") ??
+    supported[Math.floor((supported.length - 1) / 2)]
+  );
+}
+
 export function resolveModel(
   input: ModelRoleSpec,
   models: Iterable<CatalogModel>,
@@ -71,11 +86,7 @@ export function resolveModel(
       ? option.id === spec.tier || (spec.tier === "fast" && option.speed === "fast")
       : option.id === chosen.defaultTier,
   );
-  const effort =
-    spec.effort ??
-    (chosen.defaultEffort && chosen.reasoningEfforts.includes(chosen.defaultEffort)
-      ? chosen.defaultEffort
-      : undefined);
+  const effort = resolveEffort(chosen.reasoningEfforts, spec.effort, chosen.defaultEffort);
   const basis = spec.model
     ? "explicit model"
     : preferred

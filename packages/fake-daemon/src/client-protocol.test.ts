@@ -1098,3 +1098,34 @@ test("an Activity read mark reaches every connected device, even one that never 
     }),
   );
 });
+
+test("editor reads never invent installed apps and launch only explicitly discovered fixture apps", async () => {
+  const f = await fixture();
+  f.daemon.createThread({
+    id: "editor-thread",
+    workspaceId: "workspace",
+    provider: "codex",
+    title: "Editor",
+  });
+  try {
+    const list = () =>
+      f.client.request({ type: "workspace.request", operation: { op: "editors.list" } });
+    expect((await list()).result).toEqual({ kind: "editors", editors: [] });
+    const open = () =>
+      f.client.command({
+        type: "workspace.editor.open",
+        threadId: ThreadId.parse("editor-thread"),
+        editorId: "code",
+      });
+    expect(await open()).toMatchObject({ ok: false, error: "editor_not_found" });
+    const editor = { id: "code", name: "Visual Studio Code", command: "/fixture/bin/code" };
+    f.daemon.workspace.setEditors([editor]);
+    expect((await list()).result).toEqual({ kind: "editors", editors: [editor] });
+    expect(await open()).toMatchObject({ ok: true, editor: { editor } });
+    f.daemon.workspace.setEditors([]);
+    expect((await list()).result).toEqual({ kind: "editors", editors: [] });
+    expect(await open()).toMatchObject({ ok: false, error: "editor_not_found" });
+  } finally {
+    await f.client.close();
+  }
+});

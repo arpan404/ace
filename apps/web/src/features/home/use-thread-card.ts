@@ -17,7 +17,14 @@ export function useThreadCard(
   threadId: string,
   settled: boolean,
   leaving = false,
-): { entry: ThreadListEntry; card: ThreadCard; icon: string | null | undefined } | undefined {
+):
+  | {
+      entry: ThreadListEntry;
+      card: ThreadCard;
+      icon: string | null | undefined;
+      machinePrimary: boolean;
+    }
+  | undefined {
   const liveEntry = useOverlaidEntry(useSidebarThread(threadId));
   // Pagination removes archived entries immediately. Only this mounted row retains its
   // last immutable entry, so an inert exit animation can finish without keeping history
@@ -45,6 +52,7 @@ export function useThreadCard(
   return {
     entry,
     icon: project?.icon ?? project?.defaultIcon,
+    machinePrimary: details?.machinePrimary ?? true,
     card: threadCard({
       entry,
       details,

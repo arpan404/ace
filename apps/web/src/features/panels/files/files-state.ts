@@ -22,6 +22,9 @@ export const FileTabData = z.object({
   line: z.optional(z.number()),
   /** The tree shown or hidden by hand in this tab; unset, it follows the room there is. */
   tree: z.optional(z.boolean()),
+  query: z.optional(z.string()),
+  find: z.optional(z.object({ query: z.string(), index: z.number() })),
+  collapsed: z.optional(z.array(z.string())),
 });
 export type FileTabData = z.infer<typeof FileTabData>;
 

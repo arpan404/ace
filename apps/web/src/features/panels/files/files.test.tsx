@@ -2,7 +2,7 @@ import { coldStartReplay } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 async function openThread() {
@@ -247,4 +247,30 @@ test("a selected source range is mentioned inline and sends only those lines", a
       { path: "apps/web/src/relay/socket.ts", lines: { start: 1, end } },
     ]),
   );
+});
+
+test("a source file offers only installed editors and opens its checkout path", async () => {
+  const { app } = await openThread();
+  app.daemon.workspace.setEditors([{ id: "zed", name: "Zed", command: "zed" }]);
+  const launched = vi.spyOn(window, "open").mockImplementation(() => null);
+  try {
+    await quickOpen("socket");
+    await userEvent.keyboard("{Enter}");
+    const side = await panel();
+    const launch = await within(side).findByRole("button", { name: "Open in Zed" });
+    expect(launch.querySelector('[data-app-icon="zed"]')).toBeTruthy();
+    await userEvent.click(within(side).getByRole("button", { name: "Open in another editor" }));
+    expect(await screen.findByRole("menuitem", { name: /^Zed/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /Visual Studio Code/ })).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(launch);
+    await waitFor(() =>
+      expect(launched).toHaveBeenCalledWith(
+        "zed://file/Users/dev/ace/apps/web/src/relay/socket.ts",
+        "_self",
+      ),
+    );
+  } finally {
+    launched.mockRestore();
+  }
 });

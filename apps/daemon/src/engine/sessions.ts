@@ -154,7 +154,11 @@ export class Sessions {
       );
       openingModel = resolvedSelection.model;
       openingInstance = resolvedSelection.instanceId;
-      if (resolvedSelection.model && resolvedSelection.model !== metadata.model)
+      if (
+        resolvedSelection.model &&
+        (resolvedSelection.model !== metadata.model ||
+          resolvedSelection.options !== previousSelection.options)
+      )
         this.dependencies.models.remember(actor.id, resolvedSelection);
       metadata = this.dependencies.repo.session(actor.id);
       const transition = this.dependencies.repo.transitions.get(actor.id);

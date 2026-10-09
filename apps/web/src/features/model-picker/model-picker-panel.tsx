@@ -37,7 +37,7 @@ const numbered = 9;
  * refreshing, another tab, a search or a new star never move the search field or the list.
  * Longer lists scroll; the viewport can still make it shorter.
  */
-const panelHeight = 480;
+const panelHeight = 360;
 
 /** One row the arrows move through: a model, or a group's Legacy models row. */
 type Item =
@@ -313,7 +313,7 @@ export function ModelPickerPanel(props: {
     <div
       data-slot="model-picker"
       onKeyDownCapture={onKeyDown}
-      className="flex w-[min(440px,calc(100vw-2rem))]"
+      className="flex w-[min(360px,calc(100vw-2rem))]"
       style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <PickerRail
@@ -329,7 +329,7 @@ export function ModelPickerPanel(props: {
         onClose={props.onClose}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3 text-subtle-foreground">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3 text-subtle-foreground">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
@@ -367,7 +367,7 @@ export function ModelPickerPanel(props: {
           id={listId}
           aria-label="Models"
           aria-busy={loading || undefined}
-          className="min-h-0 flex-1 overflow-y-auto p-1.5"
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {!mixed && selected?.reason && (
             <p role="status" className="px-2.5 py-2 text-xs text-status-limited">

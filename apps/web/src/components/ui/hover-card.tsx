@@ -1,6 +1,6 @@
 import { PreviewCard } from "@base-ui/react/preview-card";
 import { cn } from "@/lib/cn.ts";
-import { layers, popupSurface } from "./menu-styles.ts";
+import { layers, popupSurface, popupBounds } from "./menu-styles.ts";
 
 const HoverCard = PreviewCard.Root;
 const HoverCardTrigger = PreviewCard.Trigger;
@@ -18,11 +18,12 @@ function HoverCardContent({
         side={side}
         align={align}
         sideOffset={sideOffset}
+        collisionPadding={8}
         className={layers.popup}
       >
         <PreviewCard.Popup
           data-slot="hover-card-content"
-          className={cn(popupSurface, "p-3 motion-reduce:transition-none", className)}
+          className={cn(popupSurface, popupBounds, "p-3 motion-reduce:transition-none", className)}
           {...props}
         />
       </PreviewCard.Positioner>

@@ -1,20 +1,14 @@
 import { effortLabel } from "@ace/ui-core";
 import { ArrowCounterClockwiseIcon, CaretRightIcon, LightningIcon } from "@phosphor-icons/react";
-import { useState } from "react";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { StepSlider } from "@/components/ui/step-slider.tsx";
+import { useId, useState } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { titleWhenClipped } from "@/lib/clipped-title.ts";
-import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
+import { StepSlider } from "@/components/ui/step-slider.tsx";
+import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
 
 const iconButton =
-  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
-
-/** The slider's "Default" stop: the provider's own default effort. Never an effort's name. */
-const defaultStep = "";
-const stepLabel = (step: string) => (step === defaultStep ? "Default" : effortLabel(step));
+  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
 
 /**
  * The model chip's popover. The model name opens the picker; account, effort and speed stay below it.
@@ -77,12 +71,17 @@ function EffortPanel(props: {
   const { view, actions } = props;
   const efforts = view.efforts;
   const tunable = efforts.length > 0 || !view.fastReason;
-  const steps = view.defaultStop && efforts.length ? [defaultStep, ...efforts] : efforts;
-  const index = steps.indexOf(view.effort ?? defaultStep);
+  const steps = efforts;
+  const selected = view.effort;
+  const index = selected === undefined ? -1 : steps.indexOf(selected);
+  const description = useId();
+  const choose = (effort: string) => {
+    if (!view.effortReason && effort !== selected) actions.onEffort(effort);
+  };
 
   return (
-    <div className="flex w-70 flex-col gap-3 p-3">
-      <div className="flex min-w-0 items-center gap-1">
+    <div className="flex w-72 max-w-[calc(100vw-24px)] flex-col gap-3 p-3">
+      <div className="flex min-w-0 items-start gap-1">
         {tunable && (
           <Tip label={view.fastReason ?? (view.fast ? "Fast: on" : "Fast: off")} side="top">
             <button
@@ -100,28 +99,34 @@ function EffortPanel(props: {
             </button>
           </Tip>
         )}
-        <div className="flex min-w-0 flex-1 flex-col items-center">
-          <h3 className="min-w-0 max-w-full">
-            <button
-              type="button"
-              aria-label={`Change model: ${view.label ?? ""}`}
-              onClick={props.onModels}
-              className="inline-flex h-8 max-w-full items-center gap-1 rounded-sm px-2 text-md font-semibold outline-none hover:bg-accent focus-ring"
-            >
-              {view.provider && <ProviderIcon provider={view.provider} size={12} decorative />}
-              <span className="truncate" onPointerEnter={titleWhenClipped(view.label ?? "")}>
-                {view.label}
-              </span>
-              <CaretRightIcon aria-hidden size={10} weight="bold" className="shrink-0" />
-            </button>
-          </h3>
+        <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5">
           {efforts.length > 0 && (
-            <span aria-live="polite" className="text-xs text-muted-foreground">
-              {view.effort
-                ? `${effortLabel(view.effort)} effort${view.effortDefault ? " · default" : ""}`
-                : "Default effort"}
-            </span>
+            <Tip label={view.effortReason ?? reasoningDescription(view.effort)} side="top">
+              <span
+                aria-live="polite"
+                className={
+                  isDeepReasoning(view.effort, efforts)
+                    ? "reasoning-deep-heading text-ui font-medium"
+                    : "text-ui font-medium text-link"
+                }
+              >
+                {view.effort ? effortLabel(view.effort) : "Choose effort"}
+              </span>
+            </Tip>
           )}
+          <h3 className="min-w-0 max-w-full">
+            <Tip label={view.tip} side="top">
+              <button
+                type="button"
+                aria-label={`Change model: ${view.label ?? ""}`}
+                onClick={props.onModels}
+                className="flex h-6 max-w-full min-w-0 items-center gap-1 rounded-sm px-1 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground outline-none"
+              >
+                <span className="min-w-0 truncate">{view.label}</span>
+                <CaretRightIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
+              </button>
+            </Tip>
+          </h3>
         </div>
         {tunable && (
           <Tip
@@ -146,23 +151,28 @@ function EffortPanel(props: {
         )}
       </div>
       {steps.length > 1 && (
-        <DisabledReason reason={view.effortReason}>
-          <StepSlider
-            label="Effort"
-            steps={steps}
-            value={Math.max(0, index)}
-            stepLabel={stepLabel}
-            disabled={!!view.effortReason}
-            onValueChange={(next) => {
-              const effort = steps[next];
-              if (effort !== undefined && effort !== (view.effort ?? defaultStep))
-                actions.onEffort(effort === defaultStep ? undefined : effort);
-            }}
-          />
-        </DisabledReason>
+        <StepSlider
+          label="Effort"
+          describedBy={description}
+          steps={steps}
+          value={index >= 0 ? index : undefined}
+          unselectedLabel="Choose effort"
+          stepLabel={effortLabel}
+          showLabels={false}
+          quietFocus
+          deepReasoning={isDeepReasoning(view.effort, efforts)}
+          disabled={!!view.effortReason}
+          className="py-0.5"
+          onValueChange={(next) => {
+            const step = steps[next];
+            if (step !== undefined) choose(step);
+          }}
+        />
       )}
-      {efforts.length > 0 && view.effortReason && (
-        <p className="text-center text-xs text-subtle-foreground">{view.effortReason}</p>
+      {steps.length > 1 && (
+        <p id={description} className="sr-only">
+          {view.effortReason ?? reasoningDescription(view.effort)}
+        </p>
       )}
     </div>
   );

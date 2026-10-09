@@ -109,7 +109,7 @@ export function Composer({
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
   /** Footer controls after +: the approvals icon. They read `useComposerCompact()`. */
   controls?: ReactNode;
-  /** Model and effort controls in the attached bottom environment strip. */
+  /** Model and effort controls beside send/stop on the main action row. */
   trailing?: ReactNode;
   /**
    * The tab attached to the composer (what the agents are doing, their plan, an
@@ -232,12 +232,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
   };
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-    preserveDraft: (key) => writeDraft(storage, key, current),
-  }));
   // Another window's version of this draft is taken whole, its files too (SY-12). Files can't
   // be set in place, so a different set remounts the composer on the stored draft: theirs.
   const otherFiles = (next: ComposerDraft) => {
@@ -314,6 +308,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     placeCaret.current = next.caret;
     input.current?.focus();
   };
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    preserveDraft: (key) => writeDraft(storage, key, current),
+  }));
   const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
     rememberFile(storage, props.thread.workspaceId, path);
@@ -586,6 +586,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         <Suspense fallback={null}>
           <DeferredSuggestionList.Component
             id={listId}
+            anchor={box}
+            onDismiss={() => setDismissed(trigger?.start)}
             suggestions={suggestions}
             active={active}
             onPick={pick}
@@ -641,13 +643,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             event.preventDefault();
             intake(event.dataTransfer);
           }}
-          className={cn(
-            composerSurface,
-            "relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-            // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
-            // the footer's controls carry their own focus-visible rings.
-            "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
-          )}
+          className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
         >
           <AttachmentChips
             items={chips}
@@ -655,50 +651,52 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             onRetry={attachments.retry}
             threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <MessageInput
-            input={input}
-            text={text}
-            tokens={tokens}
-            disabled={!!off}
-            aria-describedby={props.unavailable?.describedBy}
-            autoFocus={props.autoFocus}
-            aria-label={props.label ?? "Message"}
-            placeholder={placeholder}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={expanded}
-            aria-controls={expanded ? listId : undefined}
-            aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-            onChange={(next, at) => {
-              setTokens(editComposerTokens(text, next, tokens));
-              setText(next);
-              setCaret(at);
-              setDismissed(undefined);
-            }}
-            onCaret={setCaret}
-            onKeyDown={onKeyDown}
-            onPaste={(event) => {
-              if (event.clipboardData.files.length) {
+          <div className="px-4 pt-3.5 pb-1.5">
+            <MessageInput
+              input={input}
+              text={text}
+              tokens={tokens}
+              disabled={!!off}
+              aria-describedby={props.unavailable?.describedBy}
+              autoFocus={props.autoFocus}
+              aria-label={props.label ?? "Message"}
+              placeholder={placeholder}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={expanded}
+              aria-controls={expanded ? listId : undefined}
+              aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
+              onChange={(next, at) => {
+                setTokens(editComposerTokens(text, next, tokens));
+                setText(next);
+                setCaret(at);
+                setDismissed(undefined);
+              }}
+              onCaret={setCaret}
+              onKeyDown={onKeyDown}
+              onPaste={(event) => {
+                if (event.clipboardData.files.length) {
+                  event.preventDefault();
+                  intake(event.clipboardData);
+                  return;
+                }
                 event.preventDefault();
-                intake(event.clipboardData);
-                return;
-              }
-              event.preventDefault();
-              const el = input.current;
-              const selection = document.getSelection();
-              if (!el || !selection?.rangeCount) return;
-              const range = selection.getRangeAt(0);
-              range.deleteContents();
-              const node = document.createTextNode(event.clipboardData.getData("text/plain"));
-              range.insertNode(node);
-              range.setStartAfter(node);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-            }}
-            className="message-input block min-h-10 min-w-0 w-full overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
-          />
+                const el = input.current;
+                const selection = document.getSelection();
+                if (!el || !selection?.rangeCount) return;
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const node = document.createTextNode(event.clipboardData.getData("text/plain"));
+                range.insertNode(node);
+                range.setStartAfter(node);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+              }}
+              className="message-input block min-h-5 min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
+            />
+          </div>
           {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
           <div
             data-slot="composer-footer"

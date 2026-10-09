@@ -1,5 +1,6 @@
 import { BrowserIcon, BrowsersIcon, StopIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -141,6 +142,7 @@ function DevServer(props: {
   servers: readonly PreviewServer[];
   onShown(server: PreviewServer | undefined): void;
 }) {
+  const toast = useToast();
   const [port, setPort] = useState(props.servers[0]?.port);
   const [attempt, setAttempt] = useState(0);
   const workspace = useWorkspaceActions(props.threadId);
@@ -186,7 +188,12 @@ function DevServer(props: {
                 label="Stop previewing · the server keeps running"
                 className={toolbarButton}
                 onClick={() =>
-                  void props.source.unforward(props.threadId, server.port).catch(() => {})
+                  void props.source.unforward(props.threadId, server.port).catch((error: unknown) =>
+                    toast.error({
+                      title: "Couldn’t stop previewing",
+                      description: error instanceof Error ? error.message : String(error),
+                    }),
+                  )
                 }
               />
             )}
