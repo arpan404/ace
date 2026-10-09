@@ -80,8 +80,8 @@ test("removing a project keeps its files and stops listing it", async () => {
   expect(within(dialog).getByText(/This won't delete any files/)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Remove project" }));
 
-  // Home goes back to every project once the one it showed is gone.
-  await screen.findByRole("button", { name: "Project filter: All projects" });
+  // The empty sidebar offers Add project once the last project is gone.
+  await screen.findByRole("button", { name: /^Add project/ });
   expect(listed(made)).not.toContain("docs");
 });
 

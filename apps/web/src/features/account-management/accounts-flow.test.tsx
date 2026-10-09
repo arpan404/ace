@@ -82,7 +82,7 @@ test("a renamed default account immediately names the new-thread composer and pi
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
   await screen.findByText("Near its limit · Studio Work");
-  await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();
   expect(within(chip).getByRole("img", { name: "Studio Work account" })).toBeTruthy();
