@@ -24,7 +24,7 @@ import { useThreadCard } from "./use-thread-card.ts";
 const row =
   "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
-/** Tasks keep their context on a second line; settled work stays compact. */
+/** Tasks show project and status, title, then context; settled work stays compact. */
 export function ThreadRow(props: { threadId: string; settled: boolean }) {
   const { settled } = props;
   const data = useThreadCard(props.threadId, settled);
@@ -52,7 +52,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
           <div
             className={cn(
               row,
-              settled ? "h-8" : "h-9",
+              settled ? "h-8" : "h-19 py-2.5",
               "flex-row items-center gap-2 bg-sidebar-accent",
             )}
           >
@@ -86,8 +86,8 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
               draggable={false}
               className={cn(
                 row,
-                settled ? "h-8" : "h-9",
-                "group/link focus-visible:shadow-[inset_0_0_0_1px_var(--sidebar-border)] focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
+                settled ? "h-8" : "h-19 py-2.5",
+                "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
                 selected && "bg-foreground/8",
                 handle && "pointer-coarse:pr-11",
               )}
@@ -98,17 +98,28 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                   settled ? "items-center gap-2" : "flex-col gap-0.5",
                 )}
               >
-                {settled && <ProjectMark badge={card.badge} />}
-                <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
-                  <span className={cn("min-w-0 flex-1 truncate leading-4", titleTone(card))}>
-                    {card.title}
-                  </span>
-                  {!settled && (
+                {settled ? (
+                  <ProjectMark badge={card.badge} />
+                ) : (
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+                    <ProjectMark badge={card.badge} />
+                    <span className="min-w-0 flex-1 truncate">{card.project}</span>
                     <span className="contents group-focus-within/row:hidden group-hover/row:hidden">
                       <RowStatus card={card} />
                     </span>
-                  )}
+                  </span>
+                )}
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate",
+                      settled ? "text-ui leading-4" : "text-base leading-5",
+                      titleTone(card),
+                    )}
+                  >
+                    {card.title}
+                  </span>
                 </span>
                 {settled ? (
                   <span aria-hidden className="contents">

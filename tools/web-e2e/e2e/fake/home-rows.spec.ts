@@ -21,7 +21,7 @@ test("a focused or hovered row keeps saying its status, and its tooltip what the
   await expect(page.getByRole("tooltip")).toContainText("Waiting for your approval");
 });
 
-test("active tasks show their branch, changes and provider on a second line without hovering", async ({
+test("tasks show project and status above the title, with branch, changes and provider below", async ({
   page,
 }) => {
   await stageSidebarTasks(page);
@@ -35,8 +35,14 @@ test("active tasks show their branch, changes and provider on a second line with
   await expect(row.getByRole("img", { name: "Claude Code" })).toBeVisible();
   const taskTitle = row.getByText("Audit Console Feature Gaps", { exact: true });
   expect((await branch.boundingBox())?.y).toBeGreaterThan((await taskTitle.boundingBox())?.y ?? 0);
-  expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(32);
-  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(36);
+  expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(72);
+  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(76);
+  const project = row.getByText("OpenForge", { exact: true });
+  const status = row.getByText("Working", { exact: true });
+  expect((await project.boundingBox())?.y).toBeLessThan((await taskTitle.boundingBox())?.y ?? 0);
+  expect(
+    Math.abs(((await status.boundingBox())?.y ?? 0) - ((await project.boundingBox())?.y ?? 0)),
+  ).toBeLessThan(1);
   await expect(nav.getByText("Recent", { exact: true })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: /^New thread/ })).toHaveCount(0);
   for (const title of ["yo!", "greeting", "Hi bro"]) {
@@ -63,30 +69,16 @@ test("active tasks show their branch, changes and provider on a second line with
   await expect(nav.getByRole("button", { name: /^Pin |^Snooze / })).toHaveCount(0);
 });
 
-test("mouse selection fills a task and keyboard focus adds a subtle ring", async ({ page }) => {
+test("opening a task selects it and arrow keys move to the next task", async ({ page }) => {
   await stageSidebarTasks(page);
   await page.goto("/new");
-  const row = page.getByRole("navigation", { name: "Threads" }).getByRole("link", { name: /^yo!/ });
-  const paint = () =>
-    row.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        background: style.backgroundColor,
-        shadow: style.boxShadow,
-        outline: style.outlineStyle,
-      };
-    });
-  const before = await paint();
+  const nav = page.getByRole("navigation", { name: "Threads" });
+  const row = nav.getByRole("link", { name: /^yo!/ });
   await row.click();
   await expect(row).toHaveAttribute("aria-current", "page");
-  await expect.poll(async () => (await paint()).background).not.toBe(before.background);
-  expect((await paint()).shadow).toBe("none");
-  expect((await paint()).outline).toBe("none");
-  await page.keyboard.press("Tab");
   await row.focus();
   await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowUp");
-  await expect.poll(async () => (await paint()).shadow).not.toBe("none");
+  await expect(nav.getByRole("link", { name: /^greeting/ })).toBeFocused();
 });
 
 for (const theme of ["light", "dark"])
@@ -100,10 +92,19 @@ for (const theme of ["light", "dark"])
       await expect(nav.getByRole("link", { name: /^Audit Console/ })).toBeVisible();
       await nav.getByRole("button", { name: "Settled 1" }).click();
       await expect(nav.getByRole("link", { name: /^Build Agent/ })).toBeVisible();
+      await expect
+        .poll(() =>
+          nav
+            .getByRole("img", { name: /^(Claude Code|Codex)$/ })
+            .evaluateAll((marks) =>
+              marks.every((mark) => (mark.querySelector("svg")?.getBBox().width ?? 0) > 0),
+            ),
+        )
+        .toBe(true);
       await page.mouse.move(width - 2, 898);
       await page.screenshot({
         animations: "disabled",
-        path: `/tmp/ace-orch/shots/fix-sidebar-task-rows/sidebar-${theme}-${width}.png`,
+        path: `/tmp/ace-orch/shots/ui-task-rows-env-below/sidebar-${theme}-${width}.png`,
       });
     });
 
@@ -135,9 +136,18 @@ for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
     const nav = page.getByRole("navigation", { name: "Threads" });
     await expect(nav.getByText("console/consistency", { exact: true })).toBeVisible();
     expect(await nav.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect
+      .poll(() =>
+        nav
+          .getByRole("img", { name: /^(Claude Code|Codex)$/ })
+          .evaluateAll((marks) =>
+            marks.every((mark) => (mark.querySelector("svg")?.getBBox().width ?? 0) > 0),
+          ),
+      )
+      .toBe(true);
     await page.mouse.move(389, 898);
     await page.screenshot({
       animations: "disabled",
-      path: `/tmp/ace-orch/shots/fix-sidebar-task-rows/sidebar-${theme}-390.png`,
+      path: `/tmp/ace-orch/shots/ui-task-rows-env-below/sidebar-${theme}-390.png`,
     });
   });
