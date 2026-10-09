@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { startDaemon, readConfig, Engine, AdapterRegistry, stubHandler } from "@ace/daemon";
+import {
+  startDaemon,
+  readConfig,
+  Engine,
+  AdapterRegistry,
+  stubHandler,
+  readHistoryInstances,
+} from "@ace/daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
 import { getHeapCodeStatistics, queryObjects } from "node:v8";
@@ -11,7 +18,11 @@ const daemon = await startDaemon({
   config: readConfig(),
   handler: stubHandler(),
   modelInstances: [],
-  history: { instances: [] },
+  history: {
+    instances: readHistoryInstances({
+      ACE_HISTORY_INSTANCES: process.env.ACE_HISTORY_INSTANCES ?? "[]",
+    }),
+  },
   notificationChannels: {},
   toolkits: [],
   providerStatus: {
@@ -42,6 +53,7 @@ const Request = z.discriminatedUnion("op", [
   }),
   z.object({ id: z.number(), op: z.literal("idle-store") }),
   z.object({ id: z.number(), op: z.literal("idle-sample") }),
+  z.object({ id: z.number(), op: z.literal("history") }),
   z.object({ id: z.number(), op: z.literal("close") }),
   z.object({ id: z.number(), op: z.literal("memory") }),
   z.object({ id: z.number(), op: z.literal("plans") }),
@@ -112,6 +124,15 @@ process.on("message", (input: unknown) => {
         }
         if (errors.length) throw new Error(String(errors[0]));
         process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
+        return;
+      }
+      if (request.op === "history") {
+        await daemon.history?.startScan();
+        process.send?.({
+          id: request.id,
+          scan: daemon.history?.scanStatus(),
+          memory: process.memoryUsage(),
+        });
         return;
       }
       if (request.op === "idle-sample") {
