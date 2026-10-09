@@ -79,7 +79,7 @@ export async function guardProxy(target: string, onFailure: (finding: Finding) =
       try {
         const request = ClientMessage.safeParse(JSON.parse(text));
         if (request.success)
-          label = `${request.data.type}${request.data.type === "command" ? "." + request.data.command.payload.type : ""}${"operation" in request.data && typeof request.data.operation === "object" && "op" in request.data.operation ? "." + request.data.operation.op : ""}`;
+          label = `${request.data.type}${request.data.type === "command" ? "." + request.data.command.payload.type : ""}${request.data.type === "pluginRequest" ? "." + request.data.request.type : ""}${"operation" in request.data && typeof request.data.operation === "object" && "op" in request.data.operation ? "." + request.data.operation.op : ""}`;
         smokeMessage(JSON.parse(text));
         if (upstream.readyState === WebSocket.OPEN) upstream.send(text);
         else if (pending.length < 64) pending.push(text);

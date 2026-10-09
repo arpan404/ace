@@ -2,6 +2,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { expect, test } from "vitest";
 import { guardProxy } from "./proxy.ts";
 import type { Finding } from "./checks.ts";
+import { ClientMessage } from "@ace/protocol";
 
 async function peer(url: string) {
   const socket = new WebSocket(url);
@@ -42,9 +43,16 @@ test("the network guard refuses prompts, login, installation and malformed JSON 
         },
       }),
       JSON.stringify({ type: "provider.login.start", requestId: "login", provider: "claude" }),
-      JSON.stringify({ type: "provider.install.run", requestId: "install", provider: "codex" }),
+      JSON.stringify({
+        type: "provider.install.run",
+        requestId: "install",
+        provider: "codex",
+        action: "install",
+        method: "bun",
+      }),
       "{broken JSON",
     ]) {
+      if (request !== "{broken JSON") ClientMessage.parse(JSON.parse(request));
       const socket = await peer(proxy.url);
       const closed = new Promise<number>((resolve) =>
         socket.once("close", (code) => resolve(code)),

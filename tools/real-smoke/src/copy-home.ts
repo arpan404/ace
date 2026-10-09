@@ -1,7 +1,8 @@
 import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, writeFile } from "node:fs/promises";
-import { join, relative, resolve, dirname } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { backupStore } from "./backup.ts";
+import { inside } from "./paths.ts";
 import { z } from "zod";
 
 // Deliberately no directory traversal or glob. Credential stores never enter this list.
@@ -28,8 +29,7 @@ async function regular(path: string) {
 export async function copyHome(source: string, scratch: string): Promise<string[]> {
   const root = await realpath(source);
   const dest = await realpath(scratch);
-  if (root === dest || !relative(root, dest).startsWith(".."))
-    throw new Error("Scratch must be outside source home");
+  if (inside(root, dest)) throw new Error("Scratch must be outside source home");
   const copied: string[] = [];
   for (const name of ["settings.json", ...stores]) {
     const path = join(root, name);

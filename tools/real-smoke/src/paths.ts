@@ -1,5 +1,5 @@
 import { realpath, mkdir, lstat } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
 
 async function canonical(path: string): Promise<string> {
@@ -12,9 +12,9 @@ async function canonical(path: string): Promise<string> {
     return join(await canonical(parent), path.slice(parent.length));
   }
 }
-function inside(root: string, path: string) {
+export function inside(root: string, path: string) {
   const rel = relative(root, path);
-  return !rel || (!rel.startsWith("..") && !rel.startsWith("/"));
+  return !rel || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
 }
 /** Reject aliases before any output writes, including error-report writes. */
 export async function prepareOutput(out: string, source: string): Promise<string> {

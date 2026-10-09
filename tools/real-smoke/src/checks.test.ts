@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { checkLog, checkPage, checkRss, type PageFacts } from "./checks.ts";
 import { smokeMessage } from "./policy.ts";
 import { scrubber } from "./report.ts";
+import { ClientMessage } from "@ace/protocol";
 
 const clean = (): PageFacts => ({
   text: "Ready",
@@ -126,7 +127,13 @@ test.each([
   },
   { type: "history.continue", threadId: "thread", mode: "resume", input: [], delivery: "queue" },
   { type: "provider.login.start", requestId: "smoke", provider: "claude" },
-  { type: "provider.install.run", requestId: "smoke", provider: "claude" },
+  {
+    type: "provider.install.run",
+    requestId: "smoke",
+    provider: "claude",
+    action: "install",
+    method: "bun",
+  },
   {
     type: "settings.set",
     requestId: "smoke",
@@ -145,12 +152,15 @@ test.each([
     request: { type: "plugins.remove", name: "example" },
   },
 ])("refuses provider execution and mutations before transmission", (message) => {
+  ClientMessage.parse(message);
   expect(() => smokeMessage(message)).toThrow();
 });
 test("allows automatic UI reads without granting execution or plugin changes", () => {
   const messages = [
     { type: "screen.request", requestId: "smoke", operation: { op: "sessions" } },
     { type: "pluginRequest", requestId: "smoke", request: { type: "plugins.catalog" } },
+    { type: "pluginRequest", requestId: "smoke", request: { type: "plugins.origins" } },
+    { type: "mcp.provider.sources", requestId: "smoke", provider: "claude" },
     {
       type: "context.request",
       requestId: "smoke",

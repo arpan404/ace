@@ -1,9 +1,10 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
 import { copyHome } from "./copy-home.ts";
+import { prepareOutput } from "./paths.ts";
 
 test("backs up committed WAL rows and copies settings without touching forbidden state", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-smoke-copy-"));
@@ -65,13 +66,29 @@ test("refuses a safe-state symlink before reading its destination", async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+test("refuses output aliases and scratch paths inside the source before writing artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-smoke-output-"));
+  try {
+    const source = join(root, "source"),
+      alias = join(root, "alias");
+    await mkdir(source);
+    await mkdir(join(source, "..hidden"));
+    await symlink(source, alias);
+    await expect(prepareOutput(join(alias, "reports"), source)).rejects.toThrow("outside");
+    await expect(copyHome(source, join(source, "..hidden"))).rejects.toThrow("outside");
+    expect(await readdir(source)).toEqual(["..hidden"]);
+    expect(await readdir(join(source, "..hidden"))).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test.skipIf(process.platform !== "darwin")(
   "backs up a closed WAL store without creating sidecars in the protected source",
   async () => {
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
-    const { realpath, readdir } = await import("node:fs/promises");
+    const { realpath } = await import("node:fs/promises");
     const root = await realpath(await mkdtemp(join(tmpdir(), "ace-smoke-closed-wal-")));
     const source = join(root, "source"),
       scratch = join(root, "scratch");

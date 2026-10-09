@@ -45,6 +45,7 @@ const reads = new Set([
   "diagnostics.health",
   "diagnostics.request",
   "mcp.provider.list",
+  "mcp.provider.sources",
   "prompts.request",
   "context.request",
   "workspace.request",
@@ -70,7 +71,7 @@ export function smokeMessage(raw: unknown): ClientMessage {
     throw new Error("Smoke refuses screen control");
   if (
     message.type === "pluginRequest" &&
-    !["plugins.list", "plugins.catalog"].includes(message.request.type)
+    !["plugins.list", "plugins.catalog", "plugins.origins"].includes(message.request.type)
   )
     throw new Error("Smoke refuses plugin changes and repository access");
   if (message.type === "worktree.creation.request" && message.action !== "get")
