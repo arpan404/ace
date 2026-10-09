@@ -58,6 +58,9 @@ async function initializeCommands({
           .map(({ instance }) => ({
             id: instance.id,
             provider: instance.provider,
+            skillsHome: instance.implicit
+              ? defaults.find((d) => d.provider === instance.provider)?.skillsHome
+              : undefined,
             home: instance.implicit
               ? (defaults.find((d) => d.provider === instance.provider)?.home ?? instance.homeDir)
               : instance.provider === "opencode"

@@ -1,3 +1,4 @@
+import { serviceLabel } from "@ace/models/service-labels";
 import type { ProviderLoginDriver } from "@ace/accounts";
 import { loginUrl } from "@ace/accounts";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
@@ -6,12 +7,9 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { piLoginRuntime } from "./pi-login-runtime.ts";
 
-export const piLoginChoices = [
-  { id: "github-copilot", label: "GitHub Copilot" },
-  { id: "openai-codex", label: "ChatGPT / Codex" },
-  { id: "anthropic", label: "Claude" },
-  { id: "other", label: "Other provider" },
-];
+export const piLoginChoices = ["github-copilot", "openai-codex", "anthropic", "other"].map(
+  (id) => ({ id, label: serviceLabel(id) }),
+);
 const Frame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("auth_url"), url: z.string().max(8192) }),
   z.object({

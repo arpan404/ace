@@ -1,3 +1,5 @@
+export { serviceLabel } from "@ace/models/service-labels";
+import { serviceLabel } from "@ace/models/service-labels";
 import { providerNames } from "./providers.ts";
 import type { ModelSource, ProviderKind } from "@ace/protocol";
 import type { Brand } from "./brand-art/index.gen.ts";
@@ -67,13 +69,10 @@ export function serviceKind(kind: ModelSource["kind"]): string | undefined {
 
 /** Name the service that owns an API key, even when another provider routes to it. */
 export function apiKeyServiceLabel(provider: ProviderKind, upstream?: string): string {
-  const names: Readonly<Record<string, string>> = {
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    openrouter: "OpenRouter",
-    opencode: "OpenCode",
-  };
-  return (
-    (upstream && names[upstream]) || (provider === "codex" ? "OpenAI" : providerNames[provider])
-  );
+  const label = upstream && serviceLabel(upstream);
+  return label && label !== upstream
+    ? label
+    : provider === "codex"
+      ? serviceLabel("openai")
+      : providerNames[provider];
 }

@@ -224,3 +224,87 @@ test.each([
   expect(JSON.stringify(discoveryError(error))).not.toContain("private");
   expect(JSON.stringify(discoveryError(error))).not.toContain("secret");
 });
+
+test("OpenCode lists free Zen and local LM Studio choices even when connected metadata is complete", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const config = {
+    ...instance("opencode"),
+    cwd: work.path,
+    args: [await fakeCli(work.path)],
+    env: {
+      HOME: work.path,
+      FAKE_PROVIDER: "opencode",
+      FAKE_MODEL_IDS:
+        "opencode/big-pickle\nopencode/exo-free\nopencode/grok-code-preview-free\nlmstudio/qwen3-coder\nopenai/paid-model\nopencode-go/muse-spark-1.3-contributor",
+      FAKE_CONNECTIONS: JSON.stringify([
+        { id: "opencode-go", connections: [{ type: "credential" }] },
+      ]),
+    },
+  };
+  const models = await createModelDiscovery({
+    opencode: async () => ({
+      location: { directory: config.cwd },
+      data: [native("opencode-go", "muse-spark-1.3-contributor")],
+    }),
+  })(config, new AbortController().signal);
+  expect(models.map((model) => model.id)).toEqual([
+    "opencode-go/muse-spark-1.3-contributor",
+    "opencode/big-pickle",
+    "opencode/exo-free",
+    "opencode/grok-code-preview-free",
+    "lmstudio/qwen3-coder",
+  ]);
+  expect(models.filter((model) => model.free).map((model) => model.source)).toEqual(
+    Array.from({ length: 3 }, () => ({
+      id: "opencode",
+      label: "OpenCode Zen",
+      kind: "api_key",
+      service: "opencode_zen",
+      requiresAuth: false,
+    })),
+  );
+  expect(models.find((model) => model.id === "lmstudio/qwen3-coder")?.source).toMatchObject({
+    kind: "local",
+    label: "LM Studio",
+    requiresAuth: false,
+  });
+  expect(models.find((model) => model.id === "opencode/grok-code-preview-free")).toMatchObject({
+    displayName: "Grok Code",
+  });
+});
+
+test("Pi names ChatGPT and keeps Ollama cloud models out of the local group", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const config = {
+    ...instance("pi"),
+    cwd: work.path,
+    args: [await fakeCli(work.path)],
+    env: {
+      HOME: work.path,
+      FAKE_PROVIDER: "pi",
+      FAKE_PAYLOAD: JSON.stringify({
+        models: [
+          { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+          { provider: "ollama", id: "qwen3-coder:480b-cloud", name: "Qwen3 Coder" },
+          { provider: "ollama", id: "qwen3:cloud", name: "Qwen3" },
+          { provider: "ollama", id: "qwen3:8b", name: "Qwen3 8B" },
+        ],
+      }),
+    },
+  };
+  const models = await createModelDiscovery()(config, new AbortController().signal);
+  expect(models.map((model) => [model.source?.label, model.source?.kind])).toEqual([
+    ["ChatGPT / Codex", "subscription"],
+    ["Ollama Cloud", "api_key"],
+    ["Ollama Cloud", "api_key"],
+    ["Ollama", "local"],
+  ]);
+  expect(models.map((model) => model.nativeModelId)).toEqual([
+    "gpt-6.1-sol",
+    "qwen3-coder:480b-cloud",
+    "qwen3:cloud",
+    "qwen3:8b",
+  ]);
+});

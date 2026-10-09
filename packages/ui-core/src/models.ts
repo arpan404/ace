@@ -1,3 +1,4 @@
+import { modelDetail } from "@ace/models/display-name";
 import { isDefaultSelection } from "@ace/models/resolve";
 import type { ModelScope } from "@ace/client";
 import { modelRequiresAuth } from "@ace/models/availability";
@@ -14,6 +15,7 @@ import { modelLabel, providerNames } from "./providers.ts";
  * and whether the person made it the default.
  */
 export interface ModelPlacement {
+  aliasKeys?: readonly string[] | undefined;
   free?: boolean | undefined;
   /** A snapshot or preview suffix ("20251001"): secondary text, never part of the name. */
   detail?: string | undefined;
@@ -40,7 +42,7 @@ function isPseudoDefault(model: CatalogModel): boolean {
 
 function snapshotDetail(model: CatalogModel): string | undefined {
   const date = /(20\d{2})-?(\d{2})-?\d{2}/.exec(model.detail ?? "");
-  if (!date) return model.detail;
+  if (!date) return modelDetail(model.detail);
   if (!isLegacy(model)) return undefined;
   const month = [
     "Jan",
@@ -61,6 +63,7 @@ function snapshotDetail(model: CatalogModel): string | undefined {
 
 function placement(model: CatalogModel, account?: AccountView): ModelPlacement {
   return {
+    aliasKeys: modelAliases(model).map((id) => modelKey(model.provider, id)),
     free: model.free,
     detail: snapshotDetail(model),
     sortKey: model.sortKey,

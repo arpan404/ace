@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, mkdir, writeFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { CommandLibrary, type ProviderInstance } from "./index.ts";
 import type { CatalogEntry, ProviderKind } from "@ace/protocol";
 const cleanups: (() => Promise<void>)[] = [];
@@ -450,3 +450,48 @@ test("Claude registry plugins expose namespaced components before startup and re
     },
   ]);
 });
+
+test.each(["claude", "pi"] as const)(
+  "%s publishes skills from one folder link inside the user's home on cold start",
+  async (provider) => {
+    const f = await fixture(provider);
+    const shared = join(f.root, ".agents/skills/clerk");
+    await f.put(
+      join(shared, "SKILL.md"),
+      "---\nname: clerk\ndescription: Set up authentication\n---\nUse the installed skill.",
+    );
+    await mkdir(join(f.home, "skills"), { recursive: true });
+    await symlink(relative(join(f.home, "skills"), shared), join(f.home, "skills/clerk"));
+    await symlink(join(f.home, "skills/clerk"), join(f.home, "skills/chained"));
+    const outside = await realpath(await mkdtemp(join(tmpdir(), "ace-outside-skills-")));
+    cleanups.push(() => rm(outside, { recursive: true, force: true }));
+    await f.put(
+      join(outside, "SKILL.md"),
+      "---\nname: outside\ndescription: Outside home\n---\nBody",
+    );
+    await symlink(outside, join(f.home, "skills/outside"));
+    await f.put(
+      join(f.root, ".agents/skills/nested/SKILL.md"),
+      "---\nname: nested\ndescription: Nested link\n---\nBody",
+    );
+    await mkdir(join(f.home, "skills/real"));
+    await symlink(join(f.root, ".agents/skills/nested"), join(f.home, "skills/real/nested"));
+    const discovered = await waitFor(f.library, (entries) =>
+      entries.some((entry) => entry.name === "clerk"),
+    );
+    expect(discovered.filter((entry) => entry.kind === "skill").map((entry) => entry.name)).toEqual(
+      ["clerk"],
+    );
+    const skill = discovered.find((entry) => entry.name === "clerk");
+    if (!skill) throw new Error("Skill missing");
+    const prepared = await f.library.prepareMentions("thread", [
+      { type: "mention", entryId: skill.id, name: "clerk", kind: "skill", arguments: "" },
+    ]);
+    if (provider === "claude")
+      expect(prepared).toMatchObject([{ type: "text", text: expect.stringContaining("clerk") }]);
+    else
+      expect(prepared).toMatchObject([
+        { type: "mention", invocation: { type: "slash", name: "skill:clerk" } },
+      ]);
+  },
+);

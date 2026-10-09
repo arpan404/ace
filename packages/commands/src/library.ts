@@ -92,7 +92,7 @@ export class CommandLibrary implements CommandService {
     const instance = this.readInstances().find(
       (i) => i.id === ctx.instance && i.provider === ctx.provider,
     );
-    const key = `${ctx.workspace}\0${ctx.provider}\0${ctx.instance}\0${instance?.home ?? ""}`;
+    const key = `${ctx.workspace}\0${ctx.provider}\0${ctx.instance}\0${instance?.home ?? ""}\0${instance?.skillsHome ?? ""}`;
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= 8) {

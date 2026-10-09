@@ -7,6 +7,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
   catalogModelNames,
+  catalogModelIds,
   formatApiPrice,
   formatTokens,
   formatUsd,
@@ -134,36 +135,52 @@ export function UsageSection() {
   const byAccount = useAccountUsage(span, group === "account");
   const accounts = useAccountViews();
   const catalog = useModelCatalog();
+  const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const reported = useReportedCosts(span);
   const sessionCosts = reported.data?.sessions.byProvider;
   const grouped = group === "model" ? byModel : byAccount;
   const models = useMemo<ModelRow[]>(() => {
     const labels = new Map(accounts.data?.map((account) => [account.id, account.label]));
-    return (grouped.data?.rows ?? []).map((row) => {
-      const cost = usageCost([row]);
+    const groupedRows = new Map<string, NonNullable<typeof grouped.data>["rows"]>();
+    for (const row of grouped.data?.rows ?? []) {
+      const id =
+        group === "model"
+          ? modelId(row.dimensions.provider ?? "", row.dimensions.model)
+          : row.dimensions.account;
+      const key = `${row.dimensions.provider ?? ""}\0${id ?? ""}`;
+      const rows = groupedRows.get(key) ?? [];
+      rows.push(row);
+      groupedRows.set(key, rows);
+    }
+    return [...groupedRows.values()].flatMap((rows) => {
+      const row = rows[0];
+      if (!row) return [];
+      const cost = usageCost(rows);
       const provider = row.dimensions.provider ?? null;
       const account = row.dimensions.account;
-      return {
-        model:
-          group === "model"
-            ? modelName(provider ?? "", row.dimensions.model)
-            : account
-              ? (labels.get(account) ?? "Other account")
-              : "Not attributed",
-        provider: providerLabel(provider),
-        providerId: provider,
-        tokens: formatTokens(cost.tokens),
-        reported:
-          cost.perStep > 0
-            ? formatUsd(cost.perStep)
-            : sessionCosts?.get(provider)?.count
-              ? "Per session"
-              : "–",
-        apiPrice: formatApiPrice(cost.apiPrice),
-      };
+      return [
+        {
+          model:
+            group === "model"
+              ? modelName(provider ?? "", row.dimensions.model)
+              : account
+                ? (labels.get(account) ?? "Other account")
+                : "Not attributed",
+          provider: providerLabel(provider),
+          providerId: provider,
+          tokens: formatTokens(cost.tokens),
+          reported:
+            cost.perStep > 0
+              ? formatUsd(cost.perStep)
+              : sessionCosts?.get(provider)?.count
+                ? "Per session"
+                : "–",
+          apiPrice: formatApiPrice(cost.apiPrice),
+        },
+      ];
     });
-  }, [grouped.data, group, accounts.data, sessionCosts, modelName]);
+  }, [grouped.data, group, accounts.data, sessionCosts, modelName, modelId]);
   const rows = daily.data?.rows ?? [];
   const total = rows.reduce((sum, row) => sum + tokens(row.totals), 0);
   const subscription = rows.reduce((sum, row) => sum + row.totals.subscriptionTokens, 0);
@@ -216,10 +233,12 @@ export function UsageSection() {
                       .join(". ")
               }
             />
-            <Stat
-              label="On subscriptions"
-              value={daily.data && (total ? `${Math.round((subscription / total) * 100)}%` : "–")}
-            />
+            {subscription > 0 && (
+              <Stat
+                label="On subscriptions"
+                value={`${Math.round((subscription / total) * 100)}%`}
+              />
+            )}
           </dl>
           <DailyBars rows={rows} />
           {reported.isError && (

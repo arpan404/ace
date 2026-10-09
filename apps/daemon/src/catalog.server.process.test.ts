@@ -124,3 +124,92 @@ test("an authenticated subscriber receives file catalog replacements scoped to i
     await h.close();
   }
 });
+
+test("cold composer and Skills subscribers receive discovery without another list request", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    provider: "cursor",
+  });
+  const root = await realpath(h.home);
+  const metadata = Promise.withResolvers<import("@ace/protocol").CatalogEntry[]>();
+  const library = new CommandLibrary({
+    aceHome: root,
+    instances: [{ id: "cursor-personal", provider: "cursor", home: join(root, "provider") }],
+    context: () => ({ workspace: root, provider: "cursor", instance: "cursor-personal" }),
+    now: () => h.clock.now(),
+    extras: () => metadata.promise,
+  });
+  const server = await startServer({
+    port: 0,
+    token,
+    hostId: "cold-catalog",
+    store: h.store,
+    handler: h.engine.handler,
+    engine: h.engine,
+    commands: library,
+  });
+  const client = new Client(server.url);
+  try {
+    await once(client.socket, "open");
+    const threadId = await h.create();
+    const workspaceId = h.store.getThread(threadId)?.workspaceId;
+    if (!workspaceId) throw new Error("Missing workspace");
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("cold-reader"),
+      token,
+    });
+    await client.next();
+    for (const requestId of ["composer", "skills"]) {
+      client.send({
+        type: "catalog.list",
+        requestId,
+        query: "",
+        subscribe: true,
+        limit: 100,
+        ...(requestId === "composer"
+          ? { threadId }
+          : { workspace: { workspaceId, provider: "cursor" as const } }),
+      });
+      for (;;) {
+        const reply = await client.next();
+        if (reply.type !== "catalog.list.result" || reply.requestId !== requestId) continue;
+        expect(reply.stale).toBe(true);
+        expect(reply.entries.some((entry) => entry.name === "Review changes")).toBe(false);
+        break;
+      }
+    }
+    metadata.resolve([
+      {
+        id: "review",
+        kind: "skill",
+        name: "Review changes",
+        description: "Review project changes",
+        source: { provider: "cursor", scope: "global" },
+        invocation: {
+          type: "skill",
+          name: "review",
+          path: join(root, "provider/skills/review/SKILL.md"),
+        },
+      },
+    ]);
+    const completed = new Set<string>();
+    while (completed.size < 2) {
+      const reply = await client.next();
+      if (
+        reply.type === "catalog.changed" &&
+        !reply.stale &&
+        reply.entries.some((entry) => entry.name === "Review changes")
+      )
+        completed.add(reply.requestId);
+    }
+    expect([...completed].toSorted()).toEqual(["composer", "skills"]);
+  } finally {
+    metadata.resolve([]);
+    await client.close();
+    await server.close();
+    await library.close();
+    await h.close();
+  }
+});

@@ -400,3 +400,67 @@ test("a rejected OpenCode discovery logs one instance failure with elapsed time 
   ]);
   expect(JSON.stringify([failures, catalog.list()])).not.toContain("private-provider-error");
 });
+
+test("a restarted catalog repairs legacy Pi service names and splits cloud routes before discovery completes", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const config = instance("pi");
+  const path = join(work.path, "legacy-pi.sqlite");
+  const rows = [
+    {
+      id: "openai-codex/gpt-6.1-sol",
+      source: { id: "openai-codex", label: "openai-codex", kind: "other" },
+    },
+    { id: "ollama/qwen3:cloud", source: { id: "ollama", label: "Ollama", kind: "local" } },
+    { id: "ollama/qwen3:8b", source: { id: "ollama", label: "Ollama", kind: "local" } },
+  ];
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE model_catalog(instance TEXT PRIMARY KEY, payload TEXT NOT NULL)");
+  db.prepare("INSERT INTO model_catalog VALUES (?,?)").run(
+    config.id,
+    JSON.stringify({
+      schemaVersion: 2,
+      provider: "pi",
+      instance: config.id,
+      revision: config.loginRevision,
+      refreshedAt: 1000,
+      models: rows.map((row) =>
+        Object.assign({}, codex()[0], row, {
+          provider: "pi",
+          instance: config.id,
+          displayName: row.id,
+          nativeModelId: row.id,
+          nativeProviderId: row.source.id,
+        }),
+      ),
+      sources: [
+        { source: rows[0]?.source, status: "fresh" },
+        { source: rows[1]?.source, status: "fresh" },
+      ],
+    }),
+  );
+  db.close();
+  const replacement = deferred<readonly CatalogModel[]>();
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(path),
+    instances: [config],
+    discover: () => replacement.promise,
+    now: () => 1000,
+    deadline: () => () => {},
+  });
+  cleanups.push(() => catalog.close());
+  const listed = catalog.list();
+  expect(listed.models.map((model) => [model.id, model.source?.label, model.source?.kind])).toEqual(
+    expect.arrayContaining([
+      ["openai-codex/gpt-6.1-sol", "ChatGPT / Codex", "subscription"],
+      ["ollama/qwen3:cloud", "Ollama Cloud", "api_key"],
+      ["ollama/qwen3:8b", "Ollama", "local"],
+    ]),
+  );
+  expect(listed.instances[0]?.sources?.map((status) => status.source.label)).toEqual([
+    "ChatGPT / Codex",
+    "Ollama Cloud",
+    "Ollama",
+  ]);
+  replacement.resolve([]);
+});

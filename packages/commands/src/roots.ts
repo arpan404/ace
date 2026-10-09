@@ -8,6 +8,7 @@ export interface DiscoveryRoot {
   scope: "user" | "workspace";
   instance?: string | undefined;
   skill?: boolean | undefined;
+  skillLinkHome?: string | undefined;
   kind?: import("@ace/protocol").CatalogKind | undefined;
   plugin?: string | undefined;
   trustedRoot?: string | undefined;
@@ -73,6 +74,9 @@ export function discoveryRoots(
             scope: scope.scope,
             instance: instance.id,
             skill: folder === "skills",
+            ...(scope.scope === "user" && instance.skillsHome
+              ? { skillLinkHome: instance.skillsHome }
+              : {}),
           });
       }
     if (instance.provider === "codex" || instance.provider === "opencode") {
@@ -84,6 +88,9 @@ export function discoveryRoots(
           scope: scope.scope,
           instance: instance.id,
           skill: true,
+          ...(scope.scope === "user" && instance.skillsHome
+            ? { skillLinkHome: instance.skillsHome }
+            : {}),
         });
       roots.push({
         path: join(workspace, ".agents/skills"),
@@ -101,6 +108,7 @@ export function discoveryRoots(
           scope: "user",
           instance: instance.id,
           skill: true,
+          skillLinkHome: instance.skillsHome,
         });
     }
     if (instance.provider === "claude")
@@ -119,6 +127,9 @@ export function discoveryRoots(
           instance: instance.id,
           trustedRoot: scope.scope === "workspace" ? workspace : instance.home,
           skill: true,
+          ...(scope.scope === "user" && instance.skillsHome
+            ? { skillLinkHome: instance.skillsHome }
+            : {}),
         });
       }
     else if (instance.provider === "codex")

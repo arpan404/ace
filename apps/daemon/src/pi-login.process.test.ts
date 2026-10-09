@@ -137,7 +137,7 @@ test.each(["0.85.1", "1.1.0"])(
     expect(selection.choices?.map((choice) => choice.label)).toEqual([
       "GitHub Copilot",
       "ChatGPT / Codex",
-      "Claude",
+      "Anthropic",
       "Other provider",
     ]);
     await f.choose("openai-codex");

@@ -14,9 +14,12 @@ export function watchCatalog(
 ): () => void {
   const requestId = crypto.randomUUID();
   const controller = new AbortController();
+  let receivedPush = false;
   const stop = client.onMessage((message) => {
-    if (message.type === "catalog.changed" && message.requestId === requestId)
+    if (message.type === "catalog.changed" && message.requestId === requestId) {
+      receivedPush = true;
       receive(message.entries);
+    }
   });
   void client
     .request(
@@ -25,7 +28,7 @@ export function watchCatalog(
     )
     .then(
       (reply) => {
-        if (!controller.signal.aborted) receive(reply.entries);
+        if (!controller.signal.aborted && !receivedPush) receive(reply.entries);
       },
       () => {
         if (!controller.signal.aborted) failed();

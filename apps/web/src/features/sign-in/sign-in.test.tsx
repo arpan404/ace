@@ -101,7 +101,7 @@ test("connecting OpenCode lists its services with what each means; a choice then
     within(choices)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label")),
-  ).toEqual(["GitHub Copilot", "OpenAI / ChatGPT", "Claude", "OpenCode Go", "OpenCode Zen"]);
+  ).toEqual(["GitHub Copilot", "OpenAI", "Anthropic", "OpenCode Go", "OpenCode Zen"]);
   expect(within(choices).getByRole("img", { name: "GitHub Copilot" })).toBeTruthy();
   await userEvent.click(within(choices).getByRole("button", { name: "GitHub Copilot" }));
   expect(await within(dialog).findByText("Press Enter to continue.")).toBeTruthy();
@@ -292,7 +292,7 @@ test("Pi service selection shows known marks and leads to browser sign-in withou
   const choices = await within(dialog).findByRole("group", {
     name: "Which service do you want to connect?",
   });
-  for (const name of ["GitHub Copilot", "ChatGPT / Codex", "Claude"])
+  for (const name of ["GitHub Copilot", "ChatGPT / Codex", "Anthropic"])
     expect(within(choices).getByRole("img", { name })).toBeTruthy();
   expect(within(dialog).queryByText(/could not be completed/)).toBeNull();
   await userEvent.click(within(choices).getByRole("button", { name: "ChatGPT / Codex" }));
