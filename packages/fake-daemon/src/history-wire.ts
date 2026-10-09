@@ -13,6 +13,10 @@ export class FakeHistory {
   private transcripts: Record<string, { role: "user" | "assistant"; text: string; at?: number }[]> =
     {};
   private imported = new Map<string, ThreadId>();
+  private scan: import("@ace/protocol").HistoryScanStatus | undefined;
+  seedScan(scan: import("@ace/protocol").HistoryScanStatus): void {
+    this.scan = scan;
+  }
   private host: FakeServiceContext;
   constructor(host: FakeServiceContext) {
     this.host = host;
@@ -22,7 +26,7 @@ export class FakeHistory {
     this.transcripts = transcripts;
   }
   handle(message: ClientMessage, send: (message: ServerMessage) => void): boolean {
-    const scan = {
+    const scan = this.scan ?? {
       state: "ready" as const,
       stats: { files: this.sessions.length, reads: 0, bytes: 0, skipped: this.sessions.length },
       unsupported: [],
@@ -125,6 +129,23 @@ export class FakeHistory {
             entry.at ?? session.lastActivity,
           ),
         );
+        const view = this.host.thread(id);
+        if (view?.thread.rootAgentId)
+          this.host.update(id, {
+            type: "agent.status",
+            agentId: view.thread.rootAgentId,
+            status: { state: "idle" },
+          });
+        this.host.update(id, { type: "thread.updated", status: { state: "done" } });
+        this.host.update(id, {
+          type: "thread.client.updated",
+          changes: {
+            settledAt: this.host.now(),
+            settledReason: "manual",
+            unread: false,
+            readAt: this.host.now(),
+          },
+        });
       }
       progress("completed");
       send({

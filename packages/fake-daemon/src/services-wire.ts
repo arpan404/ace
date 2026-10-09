@@ -33,6 +33,7 @@ export interface ServicesSeed extends AutomationSeed {
   >;
   historyTranscripts?: Record<string, { role: "user" | "assistant"; text: string; at?: number }[]>;
   history?: import("@ace/protocol").HistorySession[];
+  historyScan?: import("@ace/protocol").HistoryScanStatus;
   /** Seed the small PNG fixture for scoped client attachment reads. */
   notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
@@ -98,6 +99,7 @@ export class FakeServicesWire {
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
     if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);
+    if (seed.historyScan) this.history.seedScan(seed.historyScan);
     this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
