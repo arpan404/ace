@@ -173,15 +173,15 @@ test("finished work shows Done until it is read, then its age, quietly", () => {
 
 test("trouble and requests keep their pill whether read or not", () => {
   const read = { readAt: now, unread: false };
-  for (const [status, label] of [
-    [{ state: "needs_you", interactions: 1 }, "Needs you"],
-    [{ state: "failed" }, "Failed"],
-    [{ state: "limited" }, "Limited"],
-    [{ state: "waiting", on: "rate_limit" }, "Waiting"],
+  for (const [status, label, quiet] of [
+    [{ state: "needs_you", interactions: 1 }, "Needs you", false],
+    [{ state: "failed" }, "Failed", false],
+    [{ state: "limited" }, "Limited", true],
+    [{ state: "waiting", on: "rate_limit" }, "Waiting", true],
   ] as const) {
     const card = threadCard(input({ entry: entry("t", status, now - 1000, read) }));
     expect(card.pill?.label).toBe(label);
-    expect(card.dimmed).toBe(status.state === "limited" || status.state === "waiting");
+    expect(card.dimmed).toBe(quiet);
   }
 });
 
