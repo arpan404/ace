@@ -171,7 +171,7 @@ export async function runTour(options: Tour) {
   const tabs = await page.getByRole("tablist", { name: "Model sources" }).getByRole("tab").all();
   for (const [index, tab] of tabs.entries())
     await step(`model-provider-${index + 1}`, async () => {
-      if ((await tab.getAttribute("aria-disabled")) !== "true") {
+      if (await tab.isEnabled()) {
         await tab.click();
         await expect(tab).toHaveAttribute("aria-selected", "true");
       }
