@@ -1,3 +1,4 @@
+import { logFields } from "@ace/diagnostics";
 import { createAcpInstance } from "@ace/accounts";
 import { registryInstaller } from "../provider-install/registry.ts";
 import { homedir } from "node:os";
@@ -61,7 +62,7 @@ export function startProviderInstalls(context: ServiceContext): void {
         return () => clearTimeout(timer);
       },
       log(command) {
-        context.log.log("info", "Provider installer", { command });
+        context.log.log("info", "Provider installer", logFields([["command", command]]));
       },
       async changed(plan, version) {
         if (plan.action !== "uninstall") {

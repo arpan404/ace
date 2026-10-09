@@ -21,6 +21,7 @@ export type HistoryRequest = Extract<
   { type: "history.scan" | "history.list" | "history.import" | "history.continue" }
 >;
 export interface DaemonHistoryOptions {
+  onError?(error: unknown, operation: string): void;
   signal?: AbortSignal;
   spawnWorker?: Parameters<typeof openHistory>[1];
   historyRuntime?: HistoryRuntime;
@@ -92,6 +93,7 @@ export class DaemonHistory {
   private dataDir: string;
   private indexPath: string;
   private now: () => number;
+  private onError: DaemonHistoryOptions["onError"];
   private nextId: () => string;
   private lifetime = new AbortController();
   private externalSignal: AbortSignal | undefined;
@@ -162,6 +164,7 @@ export class DaemonHistory {
           this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });
         },
         (error: unknown) => {
+          if (!signal.aborted) this.onError?.(error, "history.scan");
           this.publishScan({
             ...this.scanState,
             state: signal.aborted ? "idle" : "failed",
@@ -192,6 +195,7 @@ export class DaemonHistory {
     indexPath: string,
     options: DaemonHistoryOptions,
   ) {
+    this.onError = options.onError;
     this.externalSignal = options.signal;
     this.store = store;
     this.service = service;
@@ -215,6 +219,18 @@ export class DaemonHistory {
     );
   }
   async handle(
+    request: HistoryRequest,
+    signal: AbortSignal,
+    progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
+  ): Promise<ServerMessage> {
+    try {
+      return await this.handleRequest(request, signal, progress);
+    } catch (error) {
+      if (!signal.aborted) this.onError?.(error, request.type);
+      throw error;
+    }
+  }
+  private async handleRequest(
     request: HistoryRequest,
     signal: AbortSignal,
     progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},

@@ -1,3 +1,4 @@
+import { logError, logFields } from "@ace/diagnostics";
 import { openDaemonHistory } from "../history.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startHistory(context: ServiceContext): Promise<void> {
@@ -10,6 +11,17 @@ export async function startHistory(context: ServiceContext): Promise<void> {
       ? { adapters: options.history.adapters ?? services.historyAdapters }
       : {}),
     signal: context.signal,
+    onError(error, operation) {
+      context.log.log(
+        "warn",
+        "Past sessions operation failed",
+        logFields([
+          ["operation", operation],
+          ["error", logError(error)],
+        ]),
+      );
+      options.history?.onError?.(error, operation);
+    },
   });
   resources.own(() => history.close());
   services.history = history;
