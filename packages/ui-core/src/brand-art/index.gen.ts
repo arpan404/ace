@@ -3,7 +3,7 @@
 import type { BrandArt } from "../brand-art-types.ts";
 
 /** Every brand ace has a mark for. */
-export type Brand = "amp" | "antigravity" | "claude" | "cline" | "codebuddy" | "cursor" | "deepseek" | "devin" | "gemini" | "geminicli" | "gemma" | "githubcopilot" | "goose" | "grok" | "junie" | "kilocode" | "kimi" | "langchain" | "meta" | "minimax" | "mistral" | "openai" | "opencode" | "openrouter" | "pi" | "qoder" | "qwen" | "snowflake" | "zai";
+export type Brand = "amp" | "antigravity" | "claude" | "cline" | "codebuddy" | "cursor" | "deepseek" | "devin" | "gemini" | "geminicli" | "gemma" | "githubcopilot" | "goose" | "grok" | "junie" | "kilocode" | "kimi" | "langchain" | "meta" | "minimax" | "mistral" | "ollama" | "openai" | "opencode" | "openrouter" | "pi" | "qoder" | "qwen" | "snowflake" | "zai";
 
 /** Loads one brand's mark; each is its own chunk. */
 export const brandArt: Record<Brand, () => Promise<BrandArt>> = {
@@ -28,6 +28,7 @@ export const brandArt: Record<Brand, () => Promise<BrandArt>> = {
   meta: () => import("./meta.gen.ts").then((m) => m.art),
   minimax: () => import("./minimax.gen.ts").then((m) => m.art),
   mistral: () => import("./mistral.gen.ts").then((m) => m.art),
+  ollama: () => import("./ollama.gen.ts").then((m) => m.art),
   openai: () => import("./openai.gen.ts").then((m) => m.art),
   opencode: () => import("./opencode.gen.ts").then((m) => m.art),
   openrouter: () => import("./openrouter.gen.ts").then((m) => m.art),

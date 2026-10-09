@@ -62,6 +62,10 @@ export function parseCodexAuth(text: string): AuthStatus {
   };
 }
 
+function configuredServices(count: number): string {
+  return `${count} service${count === 1 ? "" : "s"} configured`;
+}
+
 export function parseOpenCodeAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
   if (clean.startsWith("[")) {
@@ -85,7 +89,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
         : {
             auth: "unknown",
             authEvidence: "credentials_configured",
-            authDetail: `${count} configured connections; entitlement unverified`,
+            authDetail: configuredServices(count),
           };
     } catch {
       return unknown;
@@ -114,7 +118,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
   return {
     auth: "unknown",
     authEvidence: "credentials_configured",
-    authDetail: connected.length ? connected.join(", ") : `${Number(count)} configured credentials`,
+    authDetail: connected.length ? connected.join(", ") : configuredServices(Number(count)),
   };
 }
 

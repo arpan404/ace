@@ -54,7 +54,7 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   const list = await openModelPicker(popover);
   await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
   const zen = within(list).getByRole("group", { name: "OpenCode Zen" });
-  expect(within(zen).getAllByText("Free")).toHaveLength(3);
+  expect(within(zen).getAllByText("Free")).toHaveLength(1);
   const model = within(zen).getByRole("option", { name: /^Big Pickle, Free/ });
   expect(model.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(model);

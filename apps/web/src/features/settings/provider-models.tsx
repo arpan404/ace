@@ -2,6 +2,7 @@ import { pluralCount } from "@ace/ui-core";
 import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
 import {
   modelKey,
+  freeModelMarker,
   unavailableSelection,
   modelName,
   unavailablePickerModel,
@@ -146,7 +147,9 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
       {model.source?.label && (
         <span className="text-xs text-muted-foreground">{model.source.label}</span>
       )}
-      {model.free && <span className="text-xs text-muted-foreground">Free</span>}
+      {freeModelMarker({ free: model.free, label }) && (
+        <span className="text-xs text-muted-foreground">Free</span>
+      )}
       {model.deprecated && <span className="text-xs text-muted-foreground">Deprecated</span>}
       {model.custom && <span className="text-xs text-muted-foreground">Custom</span>}
       <IconButton
