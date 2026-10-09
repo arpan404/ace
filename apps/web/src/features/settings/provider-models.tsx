@@ -48,14 +48,19 @@ export function ProviderModels(props: { provider: ProviderKind }) {
   return (
     <>
       {groups.flatMap((group) =>
-        group.problems.map((problem, index) => (
-          <GroupProblem
-            key={`${group.id}-${problem.code}-${problem.message}`}
-            id={`${group.id}-${index}`}
-            provider={props.provider}
-            problem={problem}
-          />
-        )),
+        group.problems
+          .filter(
+            (problem) =>
+              problem.code !== "no_models" || !["opencode", "pi"].includes(props.provider),
+          )
+          .map((problem, index) => (
+            <GroupProblem
+              key={`${group.id}-${problem.code}-${problem.message}`}
+              id={`${group.id}-${index}`}
+              provider={props.provider}
+              problem={problem}
+            />
+          )),
       )}
       <DefaultModel
         provider={props.provider}

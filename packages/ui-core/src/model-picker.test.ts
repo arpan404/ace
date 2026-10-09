@@ -114,3 +114,25 @@ test("the model chip's tooltip names the provider once, the default included", (
     "Opus 4.1, personal, High effort",
   );
 });
+
+test("an opus alias favourite survives a catalog refresh and stays listed once", () => {
+  const rows = pickerModelsFromChoices(
+    [
+      choice({
+        provider: "claude",
+        modelId: "claude-opus-5-5",
+        model: "Opus 5.5",
+        key: modelKey("claude", "claude-opus-5-5"),
+        aliases: ["opus"],
+        aliasKeys: [modelKey("claude", "opus")],
+      }),
+    ],
+    limit,
+  );
+  expect(
+    pickerList(rows, {
+      query: "",
+      favorites: [modelKey("claude", "opus"), modelKey("claude", "claude-opus-5-5")],
+    }).rows.map((row) => row.label),
+  ).toEqual(["Opus 5.5"]);
+});

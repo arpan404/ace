@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button.tsx";
+import { useRefreshModels } from "@/features/model-picker/index.ts";
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
 import { PlusIcon } from "@phosphor-icons/react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
@@ -13,6 +15,7 @@ import { preloadSignIn, SignInButton, useSignIn } from "@/features/sign-in/index
  */
 export function ProviderServices(props: { provider: ProviderKind; name: string }) {
   const signIn = useSignIn();
+  const refresh = useRefreshModels();
   const instances = useModelInstances();
   const sources = new Map<string, ModelSourceStatus>();
   const local = new Set<string>();
@@ -44,18 +47,29 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               <span className="truncate font-medium">{source.label}</span>
               <span className="shrink-0 text-sm text-muted-foreground">
                 <StatusLine
-                  tone={error ? "problem" : "ready"}
+                  tone={error && error.code !== "no_models" ? "problem" : "ready"}
                   text={
-                    error
-                      ? "Needs attention"
-                      : source.requiresAuth === false
-                        ? "Free models available"
-                        : "Connected"
+                    error?.code === "no_models"
+                      ? "No models enabled"
+                      : error
+                        ? "Needs attention"
+                        : source.requiresAuth === false
+                          ? "Free models available"
+                          : "Connected"
                   }
                 />
               </span>
             </div>
-            {error ? (
+            {error?.code === "no_models" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={refresh.pending || Boolean(refresh.reason)}
+                onClick={() => refresh.refresh(props.provider)}
+              >
+                Refresh
+              </Button>
+            ) : error ? (
               <SignInButton
                 label={`Reconnect ${source.label}`}
                 target={{ provider: props.provider, choice: source.id, service: source.label }}

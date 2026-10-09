@@ -6,6 +6,7 @@ import { providerNames } from "./providers.ts";
 
 /** One model on one account (or source) as the model picker lists it. */
 export interface PickerModel {
+  aliasKeys?: readonly string[] | undefined;
   free?: boolean | undefined;
   /** `modelKey(provider, id)`: what favorites store and what choosing one hands back. */
   key: string;
@@ -94,9 +95,14 @@ export function pickerList(
     });
   } else {
     const byKey = new Map(distinct.map((model) => [model.key, model]));
+    for (const model of distinct)
+      for (const alias of model.aliasKeys ?? []) if (!byKey.has(alias)) byKey.set(alias, model);
+    const seen = new Set<string>();
     found = input.favorites.flatMap((key) => {
       const model = byKey.get(key);
-      return model ? [model] : [];
+      if (!model || seen.has(model.key)) return [];
+      seen.add(model.key);
+      return [model];
     });
   }
   const current = found.filter((model) => !model.legacy);
@@ -271,6 +277,7 @@ export function pickerModel(
 ): PickerModel {
   return {
     key: row.key,
+    aliasKeys: row.aliasKeys,
     provider: row.provider,
     label,
     detail: row.detail,

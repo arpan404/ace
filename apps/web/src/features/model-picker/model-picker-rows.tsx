@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button.tsx";
+import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { ModelProblem, PickerGroup, PickerModel } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
@@ -210,12 +212,8 @@ export function GroupHeader(props: { group: PickerGroup }) {
   );
 }
 
-/** Discovery problems that signing in fixes: not set up, signed out, nothing entitled. */
-const fixedBySignIn = new Set<ModelProblem["code"]>([
-  "not_configured",
-  "auth_expired",
-  "no_models",
-]);
+/** Discovery problems that signing in fixes: not set up or signed out. */
+const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_expired"]);
 
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
@@ -224,6 +222,7 @@ const fixedBySignIn = new Set<ModelProblem["code"]>([
  */
 export function GroupProblem(props: { problem: ModelProblem; id: string; provider: ProviderKind }) {
   const { problem } = props;
+  const refresh = useRefreshModels();
   return (
     <p
       id={props.id}
@@ -236,16 +235,27 @@ export function GroupProblem(props: { problem: ModelProblem; id: string; provide
       <span className="flex-1">
         <span className="text-foreground">{problem.message}</span> {problem.hint}
       </span>
-      {(problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
-        <SignInButton
-          className="-my-0.5 shrink-0"
-          target={{
-            provider: props.provider,
-            ...(problem.source ? { choice: problem.source } : {}),
-          }}
+      {problem.code === "no_models" ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={refresh.pending || Boolean(refresh.reason)}
+          onClick={() => refresh.refresh(props.provider)}
         >
-          Sign in
-        </SignInButton>
+          Refresh
+        </Button>
+      ) : (
+        (problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
+          <SignInButton
+            className="-my-0.5 shrink-0"
+            target={{
+              provider: props.provider,
+              ...(problem.source ? { choice: problem.source } : {}),
+            }}
+          >
+            Sign in
+          </SignInButton>
+        )
       )}
     </p>
   );
