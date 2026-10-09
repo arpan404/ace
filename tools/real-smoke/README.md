@@ -61,6 +61,9 @@ the owner's normal Claude, Codex, OpenCode and Pi homes read-only. ace asks the
 installed CLI for metadata and auth readiness; the tool never reads its credentials.
 CLI probes that need to write to their normal profiles can fail under this protection.
 Their warnings fail the smoke run and must be distinguished from UI bugs.
+Installed ace plugin files are outside the safe-copy allowlist and remain absent
+from scratch. An empty Skills page still fails the requested strict check; that
+finding alone does not establish a UI regression on the owner's live home.
 
 Copied settings disable automations and remote access. The daemon's session-context
 boundary refuses every provider conversation session, including automatic restart

@@ -76,6 +76,7 @@ export function pageFacts(options: Pick<PageFacts, "catalogsReady" | "expected">
     ),
     alerts: [
       ...texts('[role="alert"], [role="alertdialog"], [data-slot="toast-root"]'),
+      ...texts('[class~="group/toast"]:has(.text-status-failed)').map((text) => `error: ${text}`),
       ...(window.aceSmokeAlerts ?? []),
     ],
     icons,

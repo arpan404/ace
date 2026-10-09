@@ -78,8 +78,9 @@ test("the DOM collector ignores JSON code examples and secrets are hidden for sc
     await page.evaluate(observeSurfaces);
     await page.evaluate(() => {
       const toast = document.createElement("div");
-      toast.setAttribute("role", "alert");
-      toast.textContent = "Import failed";
+      toast.className = "group/toast";
+      toast.innerHTML =
+        '<svg class="text-status-failed"></svg><span>This action needs attention</span>';
       document.body.append(toast);
       toast.remove();
     });
