@@ -7,7 +7,11 @@ import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { reactPlugins } from "./react-plugins.ts";
-import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
+import {
+  zodWithoutJsonSchema,
+  workerZodWithoutJsonSchema,
+  zodWithoutMetadata,
+} from "./zod-json-schema.ts";
 import {
   droppedWorkerZodMethods,
   droppedPerfWorkerZodMethods,
@@ -52,7 +56,7 @@ export default defineConfig(({ mode }) => ({
   worker: {
     format: "es",
     plugins: () => [
-      zodWithoutJsonSchema(),
+      workerZodWithoutJsonSchema(),
       zodWithoutMetadata(),
       zodWithoutUnusedMethods(
         mode === "perf" ? droppedPerfWorkerZodMethods : droppedWorkerZodMethods,

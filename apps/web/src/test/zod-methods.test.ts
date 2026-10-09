@@ -4,7 +4,11 @@ import { gzipSync } from "node:zlib";
 import { beforeAll, describe, expect, it } from "vitest";
 import { build, type Plugin, type Rolldown } from "vite";
 import type { z } from "zod";
-import { zodWithoutJsonSchema, zodWithoutMetadata } from "../../zod-json-schema.ts";
+import {
+  zodWithoutJsonSchema,
+  workerZodWithoutJsonSchema,
+  zodWithoutMetadata,
+} from "../../zod-json-schema.ts";
 import {
   droppedZodMethods,
   droppedWorkerZodMethods,
@@ -283,6 +287,7 @@ beforeAll(async () => {
   ]);
   const workerCode = await bundle(
     [
+      workerZodWithoutJsonSchema(),
       zodWithoutMetadata(),
       zodWithoutUnusedMethods(droppedWorkerZodMethods),
       zodPureSchemas(),
@@ -381,6 +386,7 @@ describe("zodWithoutUnusedMethods", () => {
   it("names unsupported worker methods while preserving validation issues", () => {
     const owners: Record<string, () => object> = {
       ZodType: () => worker.string(),
+      $ZodType: () => worker.string(),
       ZodString: () => worker.string(),
       _ZodString: () => worker.string(),
       ZodNumber: () => worker.number(),
