@@ -8,6 +8,7 @@
   "dependencies": {
     "@ace/daemon": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
+    "@ace/native-session": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/redaction": "workspace:*",
     "@playwright/test": "1.63.0",
