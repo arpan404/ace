@@ -49,8 +49,14 @@ test("tasks show project and status above the title, with branch, changes and pr
     const task = nav.getByRole("link", { name: new RegExp(`^${title}`) });
     await expect(task.getByText(title, { exact: true })).toBeVisible();
     await expect(task.getByText("OpenForge", { exact: true })).toBeVisible();
-    if (title === "Hi bro")
-      await expect(task.getByText("Build server", { exact: true })).toBeVisible();
+    if (title === "Hi bro") {
+      const machine = task.getByText("Build server", { exact: true });
+      await expect(machine).toBeHidden();
+      await task.hover();
+      await expect(machine).toBeVisible();
+      await row.hover();
+      await expect(machine).toBeHidden();
+    }
     await expect(
       task.getByRole("img", { name: title === "greeting" ? "Claude Code" : "Codex" }),
     ).toBeVisible();
