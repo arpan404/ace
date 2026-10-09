@@ -575,7 +575,7 @@ export class Store {
           if (!existing) throw new Error("Unknown thread");
           thread = existing;
         }
-        const liveChange = liveMetadataChange(this.db, thread, event.payload);
+        const liveChange = liveMetadataChange(this.db, thread, event.payload, event.at);
         if (liveChange) followup = liveChange;
         updateThread(thread, event);
         if (

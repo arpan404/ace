@@ -134,3 +134,58 @@ test("old empty and synthetic-only threads stay drafts while retained history pr
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("working elapsed time survives activity, agent-count changes and a restart", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-working-since-"));
+  const path = join(home, "store.sqlite");
+  let store = new Store(path);
+  try {
+    const workspaceId = store.createWorkspace("/tmp/synthetic-project", "Project", 1);
+    const thread = Thread.parse({
+      id: "timer",
+      workspaceId,
+      title: "Build replay",
+      provider: "codex",
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    store.appendEvents(thread.id, [{ type: "thread.created", thread }], 1);
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
+      1000,
+    );
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", title: "Build replay recovery" }],
+      2000,
+    );
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", status: { state: "working", agents: 3 } }],
+      3000,
+    );
+    expect(store.getThread(thread.id)?.live?.workingSince).toBe(1000);
+    const activitySeq = store.getThread(thread.id)?.activitySeq;
+    await store.close();
+    store = new Store(path);
+    expect(store.getThread(thread.id)?.live?.workingSince).toBe(1000);
+    expect(store.getThread(thread.id)?.activitySeq).toBe(activitySeq);
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
+      4000,
+    );
+    expect(store.getThread(thread.id)?.live?.workingSince).toBeUndefined();
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
+      5000,
+    );
+    expect(store.getThread(thread.id)?.live?.workingSince).toBe(5000);
+  } finally {
+    await store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});

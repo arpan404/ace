@@ -71,6 +71,11 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "runningSubagentCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "step": {
       "enum": [
         "tests"
@@ -106,6 +111,9 @@
       },
       "maxItems": 8,
       "type": "array"
+    },
+    "workingSince": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     }
   },
   "type": "object"

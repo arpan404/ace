@@ -593,7 +593,11 @@ export class FakeDaemon implements Host {
       const metadata = liveMetadata(
         host.view.thread,
         payload,
-        payload.type === "agent.created" ? host.view.agents[payload.agent.id] : undefined,
+        payload.type === "agent.created"
+          ? host.view.agents[payload.agent.id]
+          : payload.type === "agent.status"
+            ? host.view.agents[payload.agentId]
+            : undefined,
         payload.type === "background_task.started"
           ? host.view.backgroundTasks[payload.task.id]
           : payload.type === "background_task.updated"
@@ -602,6 +606,7 @@ export class FakeDaemon implements Host {
         step?.type === "tool_call" && step.call.detail.kind === "shell"
           ? step.call.detail.command
           : undefined,
+        now,
       );
       if (metadata) followups.push(metadata);
       // The daemon turns a provider's context sample into the agent's replaceable meter.

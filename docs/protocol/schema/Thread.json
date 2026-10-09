@@ -13,6 +13,11 @@
     "activityAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "activitySeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "archivedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

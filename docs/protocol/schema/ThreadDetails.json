@@ -70,6 +70,9 @@
       "anyOf": [
         {
           "properties": {
+            "draft": {
+              "type": "boolean"
+            },
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,

@@ -30,22 +30,19 @@ Example:
 
 ```json
 {
-  "concurrency": 10,
-  "enabled": false,
+  "concurrency": 6,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 3,
-  "missedRun": "run_once",
-  "model": "example",
+  "jitterMs": 8,
+  "missedRun": "skip",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "event": "review_comment",
-    "kind": "github",
-    "label": "example",
-    "pollIntervalMs": 60009,
-    "pullRequest": 10,
-    "repository": "7U-X/uduE90yyiH"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": true
@@ -83,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": 6,
+  "before": 9,
   "runs": []
 }
 ```
@@ -101,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 4,
+  "at": 7,
   "message": "example"
 }
 ```
@@ -123,11 +120,12 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 6,
-    "enabled": true,
+    "concurrency": 3,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 7,
-    "missedRun": "run_once",
+    "jitterMs": 8,
+    "missedRun": "skip",
+    "permissionMode": "example",
     "prompt": "example",
     "provider": "pi",
     "title": "example",
@@ -216,7 +214,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "automationId": "example",
+  "limit": 7,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -241,11 +240,6 @@ Example:
 
 ```json
 {
-  "error": "example",
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
   "ok": false,
   "requestId": "example",
   "type": "automation.result"
@@ -276,11 +270,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "result": "example",
-  "startedAt": 1,
-  "status": "succeeded",
+  "startedAt": 5,
+  "status": "failed",
+  "threadId": "example",
   "title": "example",
-  "trigger": "github"
+  "trigger": "file"
 }
 ```
 
@@ -338,7 +332,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -360,11 +354,10 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "ci_failed",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60009,
-  "repository": "rkZeBkPNEGq/tCiz"
+  "pollIntervalMs": 60008,
+  "repository": "9qC5v10Kdn/xAa6xhMvy"
 }
 ```
 
