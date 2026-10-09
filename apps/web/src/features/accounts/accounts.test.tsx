@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -78,9 +79,10 @@ test("the run-out policy is the daemon's setting and is kept when you come back"
     expect(app.daemon.services.settings.get("threads.limitPolicy")).toBe("resume_at_reset"),
   );
   // Away through the sidebar, and back through the profile menu, its one way in.
-  const sidebar = screen.getByRole("navigation", { name: "App" });
-  await userEvent.click(within(sidebar).getByRole("link", { name: "Skills" }));
+  await openProfileView("Skills");
   await screen.findByRole("complementary", { name: "Skills" });
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
   await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
 

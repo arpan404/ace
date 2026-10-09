@@ -67,18 +67,11 @@ const threads = <ThreadsSidebar />;
 const status = <ComputerUseIndicator />;
 
 /**
- * The sidebar with what other slices own: the thread list, Add project for an empty world,
+ * The sidebar with what other slices own: the thread list
  * and the sign of computer use at its foot.
  */
 function ShellSidebar() {
-  const projects = useProjectDialogs();
-  return (
-    <AppSidebar
-      threads={threads}
-      status={status}
-      onAddProject={() => projects.open({ kind: "add", tab: "open" })}
-    />
-  );
+  return <AppSidebar threads={threads} status={status} />;
 }
 
 function ShellHotkeys() {

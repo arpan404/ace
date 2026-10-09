@@ -16,6 +16,8 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
+import { Icon } from "@/components/icon.tsx";
+import { menuViews } from "./views.ts";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
 import { cn } from "@/lib/cn.ts";
 import { useProfileName } from "@/lib/profile.ts";
@@ -55,6 +57,16 @@ export function AccountMenuContent() {
         <UserIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{name || "You"}</span>
       </div>
+      <MenuSeparator />
+      {menuViews.map((view) => (
+        <MenuItem
+          key={view.id}
+          icon={<Icon icon={view.icon} />}
+          onClick={() => void navigate({ to: view.to })}
+        >
+          {view.label}
+        </MenuItem>
+      ))}
       <MenuSeparator />
       <MenuSub>
         <MenuSubTrigger icon={<MoonIcon aria-hidden />}>Appearance</MenuSubTrigger>

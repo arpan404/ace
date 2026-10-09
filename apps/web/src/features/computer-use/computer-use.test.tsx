@@ -231,6 +231,7 @@ test("the profile counts the same live apps as Settings after human takeover", a
   const sessions = await screen.findByRole("list", { name: "Live sessions" });
   await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
   expect(await within(sessions).findByText("You're in control")).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   const indicator = await screen.findByRole(
     "button",
     { name: "Computer use is active in 2 apps" },

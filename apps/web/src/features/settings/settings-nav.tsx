@@ -64,7 +64,6 @@ export function SettingsNav() {
     .map((page) => page.to);
   return (
     <ViewSidebar
-      title="Settings"
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
           <SearchField

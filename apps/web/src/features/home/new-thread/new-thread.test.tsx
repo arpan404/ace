@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -262,22 +263,14 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
     await screen.findByRole("button", { name: "Project filter: All projects" }),
   );
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: "Automations",
-    }),
-  );
+  await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
   await screen.findByRole("button", { name: "Project: relay" });
 
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: "Automations",
-    }),
-  );
+  await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   await screen.findByRole("button", { name: "Project: relay" });
 });
 

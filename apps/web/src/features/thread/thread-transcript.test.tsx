@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { coldStartReplay, facts, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -165,11 +166,7 @@ test("returning to a thread marks where the new activity starts", async () => {
   );
 
   // Leave the thread while more activity arrives.
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: "Automations",
-    }),
-  );
+  await openProfileView("Automations");
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 

@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import type { ProviderKind, ProviderStatus } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -90,8 +91,7 @@ test("Skip for now goes on to adding a project, and Home doesn't send this devic
   expect(await dismissedOnDaemon(app)).toBe(true);
 
   // Home again: it stays Home.
-  const sidebar = screen.getByRole("navigation", { name: "App" });
-  await userEvent.click(within(sidebar).getByRole("link", { name: "Automations" }));
+  await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(await screen.findByRole("heading", { name: "Add your first project" })).toBeTruthy();

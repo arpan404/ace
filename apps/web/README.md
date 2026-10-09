@@ -73,17 +73,22 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
 
 - **Top** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
   pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
-  palette's "Search all threads for …" opens it too). Then New thread (⌘N; Add project while
-  there is none), Automations (`g u`) and Skills (`g s`), listed in `features/shell/views.ts`.
+  palette's "Search all threads for …" opens it too). Automations (`g u`) and Skills (`g s`)
+  live in the profile dropdown, with their entries defined in `features/shell/views.ts`.
   Activity is available through the command palette and its `g a` shortcut.
-- **Body**: the thread list (`ThreadsSidebar`), the only part that scrolls. A view's list is the
+- **Body**: a compact toolbar has the project filter on the left and the icon-only New thread
+  action on the right, with its label and shortcut in the tooltip. With no projects, Add project
+  replaces the filter and New thread is hidden. Below is the thread list (`ThreadsSidebar`), the
+  only part that scrolls. A view's list is the
   `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
-  keep the thread list), `sidebar` (Settings' pages take the body, through a portal, so they keep
-  the route's providers) or `pane` (Automations, Skills and Activity draw their list at
-  the start of their own column).
+  keep the thread list) or `sidebar` (Settings, Automations, Skills and Activity take the body
+  through a portal, keeping the route's providers).
 - **Foot**: the profile, full width (initials, name, the connection dot; its menu holds
-  Appearance, Keyboard shortcuts and Usage & accounts, the only way to `/accounts`), the sign of
-  computer use while agents hold an app, and the Settings gear (⌘,).
+  Automations, Skills, Appearance, Keyboard shortcuts, Usage & accounts and Archived threads), the sign of
+  computer use while agents hold an app, and the Settings gear (⌘,). In Settings, Automations
+  and Skills, app navigation, the header menu, global Search, sidebar title and profile are hidden.
+  Back to app sits above the section's list and opens New thread. The task list has no Threads heading.
+  Its project filter is always visible; with no projects, Add project takes its place.
 - Old addresses still land (route redirects and `lib/legacy-paths.ts`): `/deck…`, `/offsets…` and `/offshifts…` → Home, `/more` and
   `/more/accounts` → `/accounts`, `/more/files` → Home (Files is a pinned tab of each thread's
   side panel), `/more/search?q=` → the search dialog over Home.

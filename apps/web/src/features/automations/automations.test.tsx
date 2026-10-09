@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -200,7 +201,8 @@ test("Run now is off, and says why, while automations are off on this machine", 
   await userEvent.click(screen.getByRole("link", { name: "Turn on Run automations" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
   await waitFor(() => expect(app.daemon.services.settings.get("automations.enabled")).toBe(true));
-  await userEvent.click(screen.getByRole("link", { name: "Automations" }));
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openProfileView("Automations");
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   const list = within(await within(aside).findByRole("list", { name: "Automations" }));
   await userEvent.click(await list.findByRole("link", { name: /Nightly dependency audit/ }));
