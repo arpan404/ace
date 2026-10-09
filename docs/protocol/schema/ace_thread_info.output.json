@@ -624,6 +624,41 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "icon": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "color": {
+                      "enum": [
+                        "default",
+                        "blue",
+                        "green",
+                        "purple",
+                        "orange"
+                      ],
+                      "type": "string"
+                    },
+                    "emoji": {
+                      "maxLength": 16,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "laptop",
+                        "desktop",
+                        "server",
+                        "cloud",
+                        "phone",
+                        "emoji"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                },
                 "name": {
                   "maxLength": 256,
                   "type": "string"
@@ -1295,6 +1330,9 @@
             "bytes"
           ],
           "type": "object"
+        },
+        "hasSentMessage": {
+          "type": "boolean"
         },
         "id": {
           "minLength": 1,

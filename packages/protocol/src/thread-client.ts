@@ -1,3 +1,4 @@
+import { MachineIcon } from "./host-identity.ts";
 import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
@@ -68,7 +69,13 @@ export const ThreadDetails = z.object({
     })
     .nullable()
     .optional(),
-  machine: z.object({ host: z.string().min(1).max(256), name: z.string().max(256) }).optional(),
+  machine: z
+    .object({
+      host: z.string().min(1).max(256),
+      name: z.string().max(256),
+      icon: MachineIcon.optional(),
+    })
+    .optional(),
   diff: z
     .object({
       files: z.number().int().nonnegative(),
@@ -116,6 +123,8 @@ export const ThreadRunMetadata = z.object({
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
 export const ThreadClientFields = ThreadOrganization.extend({
+  /** Sticky after the first admitted user message, independent of title and status. */
+  hasSentMessage: z.boolean().optional(),
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
 });

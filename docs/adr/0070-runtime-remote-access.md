@@ -32,9 +32,14 @@ configured web client to complete pairing without opening cross-origin access
 to arbitrary sites. No cookies or URL tokens authenticate requests. Browsers use
 trusted HTTPS; native Node clients retain the existing public-key pinning boundary.
 
-`host.displayName` is a global administrator setting. Machines and pickers use
+`host.displayName` and `host.icon` are global administrator settings. Machines and pickers use
 the authenticated host identity instead of URL hostnames. Clearing the name
-restores the hostname. Device rows display stored scopes; Projects and Accounts
+restores the macOS computer name, or a readable hostname on other systems. The
+icon is a built-in shape with an optional colour, or an emoji. Settings > Remote
+devices edits the identity on the chosen connected host; the client directory
+caches it for offline labels. Thread metadata retains the stable host ID, and
+shared machine labels resolve the current name and icon. The legacy OS hostname
+is an identity alias for old local threads, never their display name. Device rows display stored scopes; Projects and Accounts
 remain independent grants under Advanced access even with administrator access.
 
 ## Relay boundary

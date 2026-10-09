@@ -87,6 +87,9 @@
       ],
       "type": "object"
     },
+    "hasSentMessage": {
+      "type": "boolean"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

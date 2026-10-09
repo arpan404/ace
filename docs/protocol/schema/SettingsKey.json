@@ -4,6 +4,7 @@
   "enum": [
     "providers.configuration",
     "host.displayName",
+    "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
     "threads.continueAfterRestart",

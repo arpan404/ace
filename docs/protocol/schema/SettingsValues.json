@@ -43,14 +43,24 @@
       "type": "string"
     },
     "clients.keybindings": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
     },
     "clients.theme": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
     },
     "host.displayName": {
       "maxLength": 256,
       "type": "string"
+    },
+    "host.icon": {
+      "allOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/MachineIcon.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+        }
+      ]
     },
     "permissions.defaultMode": {
       "anyOf": [
@@ -249,6 +259,7 @@
   "required": [
     "providers.configuration",
     "host.displayName",
+    "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
     "threads.continueAfterRestart",

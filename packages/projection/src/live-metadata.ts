@@ -70,6 +70,14 @@ export function liveMetadata(
   command?: string,
 ): EventPayload | undefined {
   if (
+    payload.type === "item.created" &&
+    payload.item.type === "message" &&
+    payload.item.role === "user" &&
+    !payload.item.synthetic &&
+    !thread.hasSentMessage
+  )
+    return { type: "thread.client.updated", changes: { hasSentMessage: true } };
+  if (
     payload.type === "thread.updated" &&
     payload.status &&
     payload.status.state !== "done" &&

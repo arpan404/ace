@@ -14,6 +14,9 @@
     "details": {
       "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
     },
+    "hasSentMessage": {
+      "type": "boolean"
+    },
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
     },

@@ -35,6 +35,7 @@ const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
 
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
+import { computerName } from "./computer-name.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -49,6 +50,7 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string | undefined;
   close(): Promise<void>;
 }> {
+  options.hostName ??= await computerName();
   const runtime = {
     ...systemDeliveryRuntime,
     ...options.runtime,

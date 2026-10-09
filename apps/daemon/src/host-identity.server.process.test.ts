@@ -6,7 +6,7 @@ import { SettingsService, fileIO } from "@ace/settings";
 import { fixture } from "./socket-test-support.ts";
 
 // Public socket results guard the identity service, settings resolution and authorization.
-test("authenticated identity uses the hostname until the global display name is edited", async () => {
+test("authenticated identity uses the computer name until the global display name is edited", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-host-identity-"));
   const settings = new SettingsService({
     dataDir: home,
@@ -34,16 +34,36 @@ test("authenticated identity uses the hostname until the global display name is 
       requestId: "rename",
       ok: true,
     });
+    client.send({
+      type: "settings.set",
+      requestId: "icon",
+      key: "host.icon",
+      value: { kind: "server", color: "purple" },
+      layer: { kind: "global" },
+    });
+    expect(await client.next()).toMatchObject({
+      type: "settings.result",
+      requestId: "icon",
+      ok: true,
+    });
     client.send({ type: "host.identity", requestId: "renamed" });
     expect(await client.next()).toMatchObject({
-      identity: { hostId: "host", displayName: "Office" },
+      identity: {
+        hostId: "host",
+        displayName: "Office",
+        icon: { kind: "server", color: "purple" },
+      },
     });
     await client.close();
     const again = await f.connect();
     await again.next();
     again.send({ type: "host.identity", requestId: "reconnect" });
     expect(await again.next()).toMatchObject({
-      identity: { hostId: "host", displayName: "Office" },
+      identity: {
+        hostId: "host",
+        displayName: "Office",
+        icon: { kind: "server", color: "purple" },
+      },
     });
   } finally {
     await f.close();

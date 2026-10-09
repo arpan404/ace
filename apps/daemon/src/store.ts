@@ -1,3 +1,4 @@
+import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
@@ -144,6 +145,7 @@ export class Store {
         return thread?.deletedAt === undefined ? thread : undefined;
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
+      this.atomic(seedSentMessages);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,

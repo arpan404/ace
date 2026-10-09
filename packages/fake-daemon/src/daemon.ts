@@ -1,3 +1,4 @@
+import { MachineIcon } from "@ace/protocol";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -128,6 +129,9 @@ export class FakeDaemon implements Host {
   get displayName(): string {
     const name = this.services.settings.get("host.displayName");
     return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
+  }
+  get icon() {
+    return MachineIcon.parse(this.services.settings.get("host.icon") ?? { kind: "laptop" });
   }
   readonly version: string;
   /** Fault injection: deliver every event frame twice. */
@@ -470,6 +474,7 @@ export class FakeDaemon implements Host {
         ),
         pending: false,
       },
+      hasSentMessage: false,
       activityAt: now,
       status: { state: "new" as const },
       createdAt: now,

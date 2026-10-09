@@ -87,6 +87,7 @@ export function createEngineThread(
       ...(lineage ? { lineage } : {}),
     },
   });
+  thread.hasSentMessage = false;
   repo.save(state, [{ type: "thread.created", thread }], at);
   if (unprepared)
     repo.createUnpreparedSession(
