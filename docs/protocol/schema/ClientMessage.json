@@ -783,6 +783,9 @@
           "maxLength": 128,
           "type": "string"
         },
+        "shortLabel": {
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
+        },
         "type": {
           "const": "accounts.add",
           "type": "string"
@@ -822,7 +825,7 @@
           "type": "string"
         },
         "shortLabel": {
-          "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
         },
         "type": {
           "const": "accounts.rename",
@@ -1043,6 +1046,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "shortLabel": {
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
+        },
         "type": {
           "const": "provider.accounts.add",
           "type": "string"
@@ -1090,7 +1096,7 @@
           "type": "string"
         },
         "shortLabel": {
-          "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
         },
         "type": {
           "const": "provider.accounts.rename",
@@ -2177,6 +2183,32 @@
         "collection",
         "before",
         "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "before": {
+          "$ref": "https://ace.local/protocol/v1/ThreadListCursor.json"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "threads.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "subscriptionId",
+        "before"
       ],
       "type": "object"
     },

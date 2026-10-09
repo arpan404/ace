@@ -4,6 +4,16 @@
   "oneOf": [
     {
       "properties": {
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/ProjectName.json"
         },
@@ -39,6 +49,16 @@
           "maxLength": 65536,
           "type": "string"
         },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/ProjectName.json"
         },
@@ -61,6 +81,16 @@
     },
     {
       "properties": {
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/ProjectName.json"
         },
@@ -84,6 +114,36 @@
         "parent",
         "name",
         "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/ProjectName.json"
+        },
+        "type": {
+          "const": "workspace.update",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "name"
       ],
       "type": "object"
     },

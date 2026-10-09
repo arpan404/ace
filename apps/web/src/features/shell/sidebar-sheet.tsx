@@ -17,7 +17,7 @@ export function SidebarSheet(props: {
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="w-[min(320px,88vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
+        className="sidebar-scroll w-[min(320px,88vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
         // Following any link in it is a choice of where to go, even the page already open.
         onClickCapture={(event) => {
           const link = (event.target as Element).closest("a[href]");

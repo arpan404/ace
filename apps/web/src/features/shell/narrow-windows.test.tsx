@@ -120,7 +120,7 @@ test("on a phone the header keeps one ⋯ for its tools and the thread menu, and
   expect(screen.getByRole("menuitem", { name: /^Search this thread/ })).toBeTruthy();
 });
 
-test("on a phone the header is a back caret to the list, the title, its status and one ⋯; the tools are in the ⋯", async () => {
+test("on a phone the header keeps a back caret, title and one ⋯ with no status; tools are in the ⋯", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
@@ -129,8 +129,8 @@ test("on a phone the header is a back caret to the list, the title, its status a
       .getAllByRole("button")
       .map((button) => button.ariaLabel),
   ).toEqual(["Back to threads", "More actions"]);
-  // The agent is still at work on this thread, waiting on the subagents it started.
-  expect(within(header).getByRole("img", { name: "Waiting on 2 subagents" })).toBeTruthy();
+  expect(within(header).queryByRole("img", { name: "Waiting on 2 subagents" })).toBeNull();
+  expect(within(header).queryByRole("status")).toBeNull();
 
   const tools = ["Work card", "Right panel"];
   for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();

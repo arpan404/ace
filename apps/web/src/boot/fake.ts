@@ -94,8 +94,8 @@ export function bootFake(): {
     credential: async () => daemon.token,
     storage: memoryStorage(),
   });
-  // This device last read the five-day migration after checkpoint 20, so opening it shows
-  // what happened since (the catch-up card).
+  // This device last read the five-day migration after checkpoint 20, so its transcript can
+  // show the new-activity divider while preserving the per-device read cursor.
   if (!empty && !["real-thread-state", "cold-start-state"].includes(world ?? ""))
     daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
   // The hero thread was last read before reconnect-audit's finding arrived ("New activity").

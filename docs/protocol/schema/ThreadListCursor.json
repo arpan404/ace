@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadListCursor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "at",
+    "id"
+  ],
+  "type": "object"
+}

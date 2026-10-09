@@ -10,12 +10,13 @@ import {
   type QueuedMessage,
 } from "@ace/protocol";
 import { queueMoveAfter, type QueueAction } from "@ace/ui-core";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
+import { draftOf, restoreReturnedDraft } from "./returned-draft.ts";
 
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
@@ -37,6 +38,7 @@ function withText(input: readonly ContentPart[], text: string): ContentPart[] {
  */
 export type QueueEdit =
   | { kind: "gone"; revision: number; settled: boolean }
+  | { kind: "delivering"; revision: number; settled: boolean }
   | { kind: "text"; text: string; revision: number; settled: boolean }
   | { kind: "order"; order: readonly string[]; revision: number; settled: boolean };
 
@@ -81,6 +83,8 @@ export interface QueueControls {
   acting: boolean;
   refresh(): void;
   remove(message: QueuedMessage): void;
+  /** Remove on the daemon first, then restore the message alongside the person's draft. */
+  takeBack(message: QueuedMessage): void;
   resend(message: QueuedMessage): void;
   move(index: number, step: -1 | 1): void;
   /** Deliver into the running turn now instead of waiting. */
@@ -103,6 +107,7 @@ export function useQueue(threadId: string): QueueControls {
   const { page, failed, refresh } = useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
+  const inFlight = useRef(new Set<string>());
   const revision = page?.revision ?? 0;
   const target = page && {
     threadId: ThreadId.parse(threadId),
@@ -122,19 +127,22 @@ export function useQueue(threadId: string): QueueControls {
     payload: CommandPayload | undefined,
     failure: string,
   ) => {
-    if (!payload) return false;
+    if (!payload || inFlight.current.has(id)) return false;
+    inFlight.current.add(id);
     put(id, edit);
-    try {
-      await runCommand(client, payload, crypto.randomUUID());
-      // Shown until a page read after this revision lists the result.
-      put(id, { ...edit, revision: edit.revision + 1, settled: true });
-      return true;
-    } catch (error) {
-      put(id, undefined);
-      toast.add({ title: `Couldn't ${failure}`, description: failureMessage(error) });
-      refresh();
-      return false;
-    }
+    return runCommand(client, payload, crypto.randomUUID())
+      .then(() => {
+        // Shown until a page read after this revision lists the result.
+        put(id, { ...edit, revision: edit.revision + 1, settled: true });
+        return true;
+      })
+      .catch((error: unknown) => {
+        put(id, undefined);
+        toast.add({ title: `Couldn't ${failure}`, description: failureMessage(error) });
+        refresh();
+        return false;
+      })
+      .finally(() => inFlight.current.delete(id));
   };
   const messages = useMemo(
     () => overlayQueue(page?.messages ?? [], edits, revision),
@@ -169,6 +177,26 @@ export function useQueue(threadId: string): QueueControls {
         // daemon has removed it; a refused removal leaves it to be delivered and shown.
         if (removed) dismissSend(storage, message.id);
       }),
+    takeBack: (message) =>
+      void change(
+        message.id,
+        { kind: "delivering", revision, settled: false },
+        target && { type: "queue.remove", ...target, messageId: message.id },
+        "take back the message",
+      ).then((removed) => {
+        if (!removed) return;
+        dismissSend(storage, message.id);
+        restoreReturnedDraft(
+          storage,
+          `thread:${threadId}`,
+          draftOf({
+            type: "thread.send",
+            threadId: ThreadId.parse(threadId),
+            input: message.input,
+            ...(message.context ? { context: message.context } : {}),
+          }),
+        );
+      }),
     move: (index, step) => {
       const message = messages[index];
       const after = queueMoveAfter(ids, index, step);
@@ -191,7 +219,7 @@ export function useQueue(threadId: string): QueueControls {
     sendNow: (message) =>
       void change(
         message.id,
-        { kind: "gone", revision, settled: false },
+        { kind: "delivering", revision, settled: false },
         target && {
           type: "queue.edit",
           ...target,

@@ -19,6 +19,7 @@ export interface SignInTarget {
   provider: ProviderKind;
   /** Create a named account and authenticate it in one daemon-owned operation. */
   newAccount?: string | undefined;
+  shortLabel?: string | undefined;
   name?: string | undefined;
   /** A managed ace account; omitted for the CLI's normal profile. */
   instance?: string | undefined;
@@ -194,6 +195,7 @@ export class LoginController {
             type: "provider.accounts.add",
             provider: NativeAccountProvider.parse(provider),
             label: newAccount,
+            ...(this.target.shortLabel ? { shortLabel: this.target.shortLabel } : {}),
             method: method ?? "login",
             ...(upstream ? { upstream } : {}),
           })

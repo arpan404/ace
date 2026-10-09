@@ -25,6 +25,8 @@ export function projectCalls(client: ProjectsClient): ProjectCalls {
         { timeoutMs: 600_000, ...options },
         id,
       ),
+    update: (input, options, id) =>
+      client.command(ProjectCommand.parse({ type: "workspace.update", ...input }), options, id),
     rename: (input, options, id) =>
       client.command(ProjectCommand.parse({ type: "workspace.rename", ...input }), options, id),
     remove: (input, options, id) =>

@@ -3,7 +3,7 @@ import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
 import { ProjectPermissionsDialog } from "./project-permissions.tsx";
-import { RemoveProjectDialog, RenameProjectDialog } from "./manage-dialogs.tsx";
+import { RemoveProjectDialog, EditProjectDialog } from "./manage-dialogs.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import type { AddTab, FolderAttempt, ProjectRequest } from "./requests.ts";
 import { useCloneRun } from "./use-clone-run.ts";
@@ -94,10 +94,15 @@ export default function ProjectDialogs(props: {
         onOpenChange={onOpenChange}
       />
     );
-  if (request.kind === "rename")
-    return (
-      <RenameProjectDialog projectId={request.projectId} open={open} onOpenChange={onOpenChange} />
-    );
+  if (request.kind === "edit")
+    return open ? (
+      <EditProjectDialog
+        key={request.projectId}
+        projectId={request.projectId}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    ) : null;
   if (request.kind === "remove")
     return (
       <RemoveProjectDialog projectId={request.projectId} open={open} onOpenChange={onOpenChange} />

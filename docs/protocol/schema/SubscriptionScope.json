@@ -7,6 +7,26 @@
         "kind": {
           "const": "threads",
           "type": "string"
+        },
+        "window": {
+          "properties": {
+            "archived": {
+              "type": "boolean"
+            },
+            "limit": {
+              "maximum": 20,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "project": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "limit"
+          ],
+          "type": "object"
         }
       },
       "required": [

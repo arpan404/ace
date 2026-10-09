@@ -40,7 +40,7 @@ export function AddProjectItem() {
   );
 }
 
-/** Editor handoff, Rename and Remove for one project, in its menu. */
+/** Editor handoff, Edit and Remove for one project, in its menu. */
 export function ManageProjectItems(props: { projectId: string; name: string }) {
   const projects = useProjectDialogs();
   return (
@@ -63,10 +63,10 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
       </MenuItem>
       <MenuItem
         icon={<Icon icon={PencilSimpleIcon} className="text-muted-foreground" />}
-        onClick={() => projects.open({ kind: "rename", projectId: props.projectId })}
+        onClick={() => projects.open({ kind: "edit", projectId: props.projectId })}
         onPointerEnter={projects.preload}
       >
-        Rename {props.name}…
+        Edit project…
       </MenuItem>
       <MenuItem
         icon={<Icon icon={TrashIcon} />}
@@ -74,7 +74,7 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
         onClick={() => projects.open({ kind: "remove", projectId: props.projectId })}
         onPointerEnter={projects.preload}
       >
-        Remove {props.name}…
+        Remove…
       </MenuItem>
     </>
   );

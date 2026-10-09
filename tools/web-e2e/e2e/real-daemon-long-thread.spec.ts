@@ -8,7 +8,6 @@ import {
   longAsk,
   longTitle,
   longTurns,
-  scriptedReply,
 } from "../src/real-daemon-config.ts";
 import { scrollToRow } from "./fake/thread-list.ts";
 import { openTurns } from "./thread-header.ts";
@@ -16,7 +15,7 @@ import { openTurns } from "./thread-header.ts";
 /**
  * A long thread on a real apps/daemon with scripted providers (src/real-daemon.ts seeds 110
  * turns, past the 200-item snapshot): the daemon's turn index, item windows, SQLite FTS
- * search, catch-up digest and per-device read cursor, through the web app.
+ * search and per-device read cursor, through the web app.
  */
 
 const url = `ws://127.0.0.1:${daemonPort}/`;
@@ -103,21 +102,13 @@ test("jump to an early turn, search for one, and catch up after another device's
     "e2e-other-device",
   );
   await page.goto(`/t/${threadId}`);
-  const card = page.getByRole("region", { name: "While you were away" });
-  await expect(card).toContainText(/2 turns finished/, { timeout: 20_000 });
-  await expect(card).toContainText(`Latest: ${scriptedReply}`);
+  await expect(feed.getByText("Checkpoint 112: report what changed.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Summarise", exact: true })).toHaveCount(0);
 
-  // Summarise asks the agent in an ordinary message; nothing else was sent.
-  await card.getByRole("button", { name: "Summarise" }).click();
-  await expect(
-    feed.getByText(/^Summarise what happened in this thread since I was last here/),
-  ).toBeVisible();
-  await expect(card).toHaveCount(0);
-
-  // The read cursor is this device's and survives a reload: nothing new, no card.
+  // The read cursor remains independent of the removed panel and survives a reload.
   await page.waitForTimeout(1_500);
   await page.reload();
-  await expect(feed.getByText(/^Summarise what happened in this thread/)).toBeVisible();
-  await page.waitForTimeout(1_000);
-  await expect(card).toHaveCount(0);
+  await expect(feed.getByText("Checkpoint 112: report what changed.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
 });

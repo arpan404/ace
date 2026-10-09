@@ -9,14 +9,54 @@ test("Send now steers a queued message into the running turn", async ({ page }) 
   const queue = page.getByRole("list", { name: "Queued messages" });
   await expect(queue.getByRole("listitem")).toHaveCount(1);
 
-  await page
-    .getByRole("button", { name: "Queued message options: Also check the iOS cold-start path" })
-    .click();
-  await page.getByRole("menuitem", { name: "Send now" }).click();
+  await queue.getByRole("button", { name: "Send now", exact: true }).click();
 
   await expect(queue).toHaveCount(0);
   await expect(
     page.getByRole("feed", { name: "Transcript" }).getByText("Also check the iOS cold-start path"),
+  ).toBeVisible();
+});
+
+test("pending bubbles remain visible at the live tail and take back files alongside an existing draft", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 650 });
+  await page.goto("/t/thread-replay-cursor");
+  const message = page.getByRole("combobox", { name: "Message", exact: true });
+  await page.getByLabel("Files to attach").setInputFiles({
+    name: "trace.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("retry trace"),
+  });
+  await message.fill("Check the iOS path\nPreserve its retry trace");
+  await message.press("Enter");
+  const queue = page.getByRole("list", { name: "Queued messages" });
+  await expect(queue.getByRole("button", { name: "Take back to composer" })).toBeVisible();
+  const viewport = page.locator("[data-thread-column] [data-virtual-viewport]");
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+  await expect(async () => {
+    const bubbles = await queue.boundingBox();
+    const dock = await page.locator("[data-composer-dock]").boundingBox();
+    if (!bubbles || !dock) throw new Error("pending bubble layout missing");
+    expect(bubbles.y + bubbles.height).toBeLessThanOrEqual(dock.y);
+  }).toPass();
+  await message.fill("Keep my current draft");
+  const takeBack = queue.getByRole("button", { name: "Take back to composer" });
+  await takeBack.focus();
+  await expect(page.getByRole("tooltip", { name: /Take back to composer/ })).toBeVisible();
+  await takeBack.click();
+  await expect(queue).toHaveCount(0);
+  await expect(message).toHaveText(
+    "Keep my current draft\n\nCheck the iOS path\nPreserve its retry trace",
+  );
+  await expect(
+    page.getByRole("list", { name: "Attachments" }).getByText("trace.txt"),
   ).toBeVisible();
 });
 

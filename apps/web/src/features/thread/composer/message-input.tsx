@@ -69,6 +69,7 @@ export function MessageInput({
         aria-disabled={disabled || undefined}
         aria-placeholder={placeholder}
         data-placeholder={placeholder}
+        data-empty={text.trim().length === 0 ? "true" : undefined}
         onInput={(event) =>
           onChange(editorText(event.currentTarget), editorCaret(event.currentTarget))
         }

@@ -13,7 +13,11 @@ async function below(page: Page, strip: Locator) {
   const box = await composerBox(page);
   const environment = await strip.boundingBox();
   if (!environment) throw new Error("The environment isn't visible");
-  expect(environment.y).toBeGreaterThanOrEqual(box.y + box.height);
+  // Its top edge tucks behind the composer; its controls remain entirely below the input box.
+  expect(environment.y).toBeGreaterThanOrEqual(box.y + box.height - 16);
+  const controls = strip.getByRole("button");
+  const control = (await controls.count()) ? await controls.first().boundingBox() : null;
+  if (control) expect(control.y).toBeGreaterThanOrEqual(box.y + box.height);
   await expect(strip).toBeInViewport({ ratio: 1 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }

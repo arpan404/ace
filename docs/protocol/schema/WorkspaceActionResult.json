@@ -213,25 +213,7 @@
             },
             "workspaces": {
               "items": {
-                "properties": {
-                  "id": {
-                    "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
-                  },
-                  "name": {
-                    "maxLength": 256,
-                    "type": "string"
-                  },
-                  "path": {
-                    "maxLength": 4096,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "name",
-                  "path"
-                ],
-                "type": "object"
+                "$ref": "https://ace.local/protocol/v1/Project.json"
               },
               "maxItems": 100,
               "type": "array"

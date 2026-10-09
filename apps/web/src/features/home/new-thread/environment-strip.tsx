@@ -5,7 +5,13 @@ import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { composerStrip, composerStripRow, useComposerCompact } from "@/features/thread/index.ts";
+import {
+  composerEnvironmentSurface,
+  composerStrip,
+  composerEnvironmentRow,
+  ComposerSettingsControls,
+  useComposerCompact,
+} from "@/features/thread/index.ts";
 import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
@@ -34,24 +40,27 @@ export function NewThreadEnvironment(props: {
 }) {
   const compact = useComposerCompact();
   return (
-    <section aria-label="Where this thread runs">
-      {compact ? (
-        <Popover>
-          <PopoverTrigger className={composerStrip}>
-            Environment <CaretDownIcon aria-hidden size={12} />
-          </PopoverTrigger>
-          <PopoverContent
-            side="top"
-            align="start"
-            aria-label="Environment"
-            className="w-80 max-w-[calc(100vw-2rem)] p-2"
-          >
-            <EnvironmentControls {...props} compact />
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <EnvironmentControls {...props} compact={false} />
-      )}
+    <section aria-label="Where this thread runs" className={composerEnvironmentSurface}>
+      <div className={cn(composerEnvironmentRow, "flex-wrap h-auto min-h-7")}>
+        {compact ? (
+          <Popover>
+            <PopoverTrigger className={composerStrip}>
+              Environment <CaretDownIcon aria-hidden size={12} />
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              aria-label="Environment"
+              className="w-80 max-w-[calc(100vw-2rem)] p-2"
+            >
+              <EnvironmentControls {...props} compact />
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <EnvironmentControls {...props} compact={false} />
+        )}
+        <ComposerSettingsControls />
+      </div>
     </section>
   );
 }
@@ -64,7 +73,7 @@ function EnvironmentControls(
   const worktree = props.mode === "worktree";
   const base = props.base ? baseName(props.base) : "the current branch";
   return (
-    <div className={cn(composerStripRow, props.compact && "h-auto flex-wrap")}>
+    <div className={cn("flex min-w-0 flex-1 items-center gap-1", props.compact && "flex-wrap")}>
       <ProjectPicker
         projects={props.projects}
         projectName={props.projectName}

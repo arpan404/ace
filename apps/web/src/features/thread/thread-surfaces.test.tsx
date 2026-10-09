@@ -64,7 +64,7 @@ test("a streaming answer keeps one live work timer until the answer completes", 
   expect(within(feed).getAllByRole("button", { name: /^Working for/ })).toHaveLength(1);
 });
 
-test("the usage pause, header and queue share the account reset when the turn has none", async () => {
+test("the usage pause and queue show the account reset while the header stays status-free", async () => {
   const now = new Date(2036, 0, 1, 12).getTime();
   vi.useFakeTimers({ toFake: ["Date"], now });
   const app = harness({ clock: () => now });
@@ -85,6 +85,8 @@ test("the usage pause, header and queue share the account reset when the turn ha
       describeWake(reset, now),
     ),
   );
-  expect(within(screen.getByRole("banner")).getByText("Limited")).toBeTruthy();
+  const header = within(screen.getByRole("banner"));
+  expect(header.queryByText("Limited")).toBeNull();
+  expect(header.queryByRole("status")).toBeNull();
   expect(screen.queryByText(/reset time unknown/)).toBeNull();
 });

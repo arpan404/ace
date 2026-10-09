@@ -4,6 +4,53 @@
   "oneOf": [
     {
       "properties": {
+        "removed": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+          },
+          "type": "array"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "threads": {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/ThreadListEntry.json"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object",
+          "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+        },
+        "type": {
+          "const": "threads.patch",
+          "type": "string"
+        },
+        "window": {
+          "$ref": "https://ace.local/protocol/v1/ThreadListWindow.json"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "seq",
+        "threads",
+        "removed",
+        "window"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "data": {
           "maxLength": 131072,
           "type": "string"

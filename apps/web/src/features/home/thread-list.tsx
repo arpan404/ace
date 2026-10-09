@@ -1,3 +1,4 @@
+import { useTheme } from "@/theme/theme-provider.tsx";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { useSidebarStore } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -36,11 +37,11 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 77,
+  pinned: 88,
   "pinned-end": 9,
-  thread: 77,
+  thread: 88,
   "settled-header": 37,
-  settled: 33,
+  settled: 38,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -81,7 +82,9 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  * list or moves through it by keyboard, rows keep their places (`useHeldRows`); the Pinned
  * group, being theirs to order, never holds.
  */
-export function ThreadList(props: { list: HomeList }) {
+export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
+  const { appearance } = useTheme();
+  const compact = appearance.density === "compact";
   const { pinned, active, recent, settled } = props.list;
   const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
@@ -108,7 +111,12 @@ export function ThreadList(props: { list: HomeList }) {
   const virtualizer = useVirtualizer({
     count: drawn.length,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => estimates[drawn[index]?.item.kind ?? "thread"],
+    estimateSize: (index) => {
+      const kind = drawn[index]?.item.kind ?? "thread";
+      if (compact && (kind === "thread" || kind === "pinned")) return 76;
+      if (compact && kind === "settled") return 34;
+      return estimates[kind];
+    },
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
@@ -324,7 +332,12 @@ export function ThreadList(props: { list: HomeList }) {
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  "absolute inset-x-0 top-0 pb-px",
+                  "absolute inset-x-0 top-0",
+                  row.kind === "thread" || row.kind === "pinned"
+                    ? "pb-2 compact:pb-1"
+                    : row.kind === "settled"
+                      ? "pb-1.5 compact:pb-0.5"
+                      : "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-[rgb(var(--sidebar-rgb))]",
@@ -337,9 +350,11 @@ export function ThreadList(props: { list: HomeList }) {
               >
                 <div className={rowMotion(entry.phase)}>
                   {(row.kind === "thread" || row.kind === "pinned") && (
-                    <ThreadRow threadId={row.id} settled={false} />
+                    <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                   )}
-                  {row.kind === "settled" && <ThreadRow threadId={row.id} settled />}
+                  {row.kind === "settled" && (
+                    <ThreadRow threadId={row.id} settled leaving={leaving} />
+                  )}
                   {row.kind === "pinned-end" && (
                     <div className="mx-2 my-1 h-px bg-sidebar-border" />
                   )}
@@ -360,7 +375,7 @@ export function ThreadList(props: { list: HomeList }) {
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
                       className={cn(header, "hover:text-muted-foreground")}
                     >
-                      <HeadingText label="Settled" count={row.count} />
+                      <HeadingText label="Settled" count={props.settledTotal ?? row.count} />
                       <CaretDownIcon
                         aria-hidden
                         size={12}

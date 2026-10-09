@@ -12,7 +12,7 @@ import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHistoryNav } from "@/lib/history-nav.ts";
-import { useViewFrame } from "./sidebar-frame.tsx";
+import { useViewFrame, useSidebarToggleRegistration } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
   /** 14px semibold. Rendered as the view's h1. */
@@ -37,6 +37,7 @@ export interface HeaderProps {
  */
 export function HeaderNav() {
   const frame = useViewFrame();
+  const registerSidebarToggle = useSidebarToggleRegistration();
   const nav = useHistoryNav();
   // A phone leaves history to the system.
   const phone = usePhone();
@@ -50,6 +51,7 @@ export function HeaderNav() {
         (phone && !frame.sidebarShown ? (
           // A phone's list is the sidebar sheet: going back to it is the header's first control.
           <IconButton
+            ref={registerSidebarToggle}
             icon={CaretLeftIcon}
             label="Back to threads"
             shortcut="toggleSidebar"
@@ -57,6 +59,7 @@ export function HeaderNav() {
           />
         ) : (
           <IconButton
+            ref={registerSidebarToggle}
             icon={SidebarSimpleIcon}
             label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
             shortcut="toggleSidebar"

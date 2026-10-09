@@ -55,6 +55,10 @@ test("a clone names its folder after the repository, shows Git's progress and op
   const { made, step } = stepped();
   await openClone(made);
   await userEvent.type(await address(), "git@github.com:acme/weather-app.git");
+  await userEvent.type(
+    screen.getByRole("textbox", { name: "Icon URL" }),
+    "https://example.com/weather.png",
+  );
   expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty(
     "value",
     "weather-app",
@@ -71,6 +75,7 @@ test("a clone names its folder after the repository, shows Git's progress and op
 
   await screen.findByRole("button", { name: "Project: weather-app" });
   expect(registered(made)).toEqual([`${home}/weather-app`]);
+  expect(made.daemon.projects.list().workspaces[0]?.icon).toBe("https://example.com/weather.png");
 });
 
 test("Cancel stops a clone and nothing is added", async () => {

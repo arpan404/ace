@@ -13,12 +13,58 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return this.failure;
   }
   reject(id: string, error: ClientError): void {
-    if (id !== this.wire) return;
+    if (id !== this.wire && id !== this.archiveWire) return;
     this.failure = error;
-    this.wire = undefined;
+    if (id === this.archiveWire) this.archiveWire = undefined;
+    else this.wire = undefined;
     this.notifications.emit(["error"]);
   }
   private view: ThreadListView | undefined;
+  private home: ThreadListView | undefined;
+  private archive: ThreadListView | undefined;
+  private archiveWire: string | undefined;
+  private filter: { project?: string | undefined; archived?: boolean | undefined } = {};
+  get homeWindow() {
+    return this.home?.window;
+  }
+  get window() {
+    return this.filter.archived ? this.archive?.window : this.home?.window;
+  }
+  private merge(): void {
+    if (!this.home) {
+      this.view = undefined;
+      this.order = [];
+      return;
+    }
+    this.view = {
+      ...this.home,
+      threads: { ...this.home.threads, ...this.archive?.threads },
+      ...(this.window ? { window: this.window } : {}),
+    };
+    this.order = Object.keys(this.view.threads);
+  }
+  configure(input: { project?: string | undefined; archived?: boolean | undefined }): void {
+    if (input.project === this.filter.project && !!input.archived === !!this.filter.archived)
+      return;
+    const projectChanged = input.project !== this.filter.project;
+    this.filter = { ...input };
+    if (this.archiveWire) this.send({ type: "unsubscribe", subscriptionId: this.archiveWire });
+    this.archiveWire = undefined;
+    this.archive = undefined;
+    if (projectChanged) {
+      if (this.wire) this.send({ type: "unsubscribe", subscriptionId: this.wire });
+      this.wire = undefined;
+      this.home = undefined;
+      if (this.refs && this.ready()) this.subscribe();
+    } else if (input.archived && this.refs && this.ready()) this.subscribeArchive();
+    this.merge();
+    this.notifications.emitAll();
+  }
+  pageRequest() {
+    const wire = this.filter.archived ? this.archiveWire : this.wire;
+    if (!wire || !this.window?.before) return undefined;
+    return { type: "threads.page" as const, subscriptionId: wire, before: this.window.before };
+  }
   private order: readonly string[] = [];
   private notifications: Notifications;
   private limits: Limits;
@@ -27,7 +73,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   private ready: () => boolean;
   private wire: string | undefined;
   private refs = 0;
-  private snapshotAllowed = true;
+  private homeSnapshotAllowed = true;
+  private archiveSnapshotAllowed = true;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
@@ -44,7 +91,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return this.order;
   }
   get loaded(): boolean {
-    return this.view !== undefined;
+    return this.filter.archived ? this.archive !== undefined : this.home !== undefined;
   }
   thread(id: string): ThreadListEntry | undefined {
     return this.view && Object.hasOwn(this.view.threads, id) ? this.view.threads[id] : undefined;
@@ -64,6 +111,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return {
       error: failure && { code: failure.code, message: failure.message },
       view: this.view,
+      homeWindow: this.home?.window,
+      loaded: this.loaded,
       ids: this.order,
     };
   }
@@ -78,18 +127,41 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         if (--this.refs === 0 && this.wire) {
           this.send({ type: "unsubscribe", subscriptionId: this.wire });
           this.wire = undefined;
+          if (this.archiveWire)
+            this.send({ type: "unsubscribe", subscriptionId: this.archiveWire });
+          this.archiveWire = undefined;
         }
       },
     };
   }
   private subscribe(): void {
-    this.snapshotAllowed = true;
+    this.homeSnapshotAllowed = true;
     this.wire = this.id();
     this.send({
       type: "subscribe",
       subscriptionId: this.wire,
-      scope: { kind: "threads" },
+      scope: {
+        kind: "threads",
+        window: { limit: 20, ...(this.filter.project ? { project: this.filter.project } : {}) },
+      },
       ...(this.view ? { afterSeq: this.view.seq } : {}),
+    });
+    if (this.filter.archived) this.subscribeArchive();
+  }
+  private subscribeArchive(): void {
+    this.archiveSnapshotAllowed = true;
+    this.archiveWire = this.id();
+    this.send({
+      type: "subscribe",
+      subscriptionId: this.archiveWire,
+      scope: {
+        kind: "threads",
+        window: {
+          limit: 20,
+          archived: true,
+          ...(this.filter.project ? { project: this.filter.project } : {}),
+        },
+      },
     });
   }
   reconnect(): void {
@@ -97,17 +169,49 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   disconnect(): void {
     this.wire = undefined;
+    this.archiveWire = undefined;
   }
   receive(message: ServerMessage): void {
     if (
-      (message.type !== "snapshot" && message.type !== "events" && message.type !== "progress") ||
-      message.subscriptionId !== this.wire
+      (message.type !== "snapshot" &&
+        message.type !== "threads.patch" &&
+        message.type !== "events" &&
+        message.type !== "progress") ||
+      (message.subscriptionId !== this.wire && message.subscriptionId !== this.archiveWire)
     )
       return;
+    if (message.type === "threads.patch") {
+      const previous = message.subscriptionId === this.archiveWire ? this.archive : this.home;
+      if (!previous || message.seq < previous.seq) return;
+      const threads = { ...previous.threads, ...message.threads };
+      for (const id of message.removed) delete threads[id];
+      const ids = Object.keys(threads);
+      if (ids.length > this.limits.entities) {
+        this.reject(message.subscriptionId, new ClientError("limit"));
+        return;
+      }
+      const next = { ...previous, seq: message.seq, threads, window: message.window };
+      if (message.subscriptionId === this.archiveWire) this.archive = next;
+      else this.home = next;
+      this.merge();
+      this.notifications.emit([
+        "ids",
+        "threads",
+        "window",
+        "homeWindow",
+        ...Object.keys(message.threads).map((id) => `thread:${id}`),
+        ...message.removed.map((id) => `thread:${id}`),
+      ]);
+      return;
+    }
     if (message.type === "snapshot") {
       if (message.view.kind !== "threads") throw new ClientError("protocol");
-      if (!this.snapshotAllowed || (this.view && message.seq < this.view.seq)) return;
-      this.snapshotAllowed = false;
+      const archived = message.subscriptionId === this.archiveWire;
+      if (!(archived ? this.archiveSnapshotAllowed : this.homeSnapshotAllowed)) return;
+      const previous = archived ? this.archive : this.home;
+      if (previous && message.seq < previous.seq) return;
+      if (archived) this.archiveSnapshotAllowed = false;
+      else this.homeSnapshotAllowed = false;
       const ids = Object.keys(message.view.threads);
       if (ids.length > this.limits.entities) {
         this.send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
@@ -115,12 +219,14 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         return;
       }
       this.failure = undefined;
-      this.view = message.view;
-      this.order = ids;
+      if (message.subscriptionId === this.archiveWire) this.archive = message.view;
+      else this.home = message.view;
+      this.merge();
       this.notifications.emitAll();
       return;
     }
-    this.snapshotAllowed = false;
+    if (message.subscriptionId === this.archiveWire) this.archiveSnapshotAllowed = false;
+    else this.homeSnapshotAllowed = false;
     const view = this.view;
     if (view && message.throughSeq <= view.seq) return;
     if (!view || message.afterSeq !== view.seq) {
@@ -159,8 +265,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   private resync(): void {
     if (this.wire) this.send({ type: "unsubscribe", subscriptionId: this.wire });
-    this.snapshotAllowed = true;
-    this.wire = this.id();
-    this.send({ type: "subscribe", subscriptionId: this.wire, scope: { kind: "threads" } });
+    if (this.archiveWire) this.send({ type: "unsubscribe", subscriptionId: this.archiveWire });
+    this.subscribe();
   }
 }

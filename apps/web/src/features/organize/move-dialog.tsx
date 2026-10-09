@@ -1,3 +1,4 @@
+import { ProjectImage } from "@/components/project-image.tsx";
 import { FolderSimpleIcon } from "@phosphor-icons/react";
 import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
@@ -17,6 +18,7 @@ import type { MoveRequest } from "./mover.ts";
 import { useThreadActions } from "./use-thread-actions.ts";
 
 interface Choice {
+  icon?: string | null;
   id: string;
   name: string;
   path: string;
@@ -38,7 +40,14 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
     const items = directory.projects.flatMap((project): Choice[] =>
       project.id === from
         ? []
-        : [{ id: project.id, name: directory.name(project.id), path: project.path }],
+        : [
+            {
+              id: project.id,
+              name: directory.name(project.id),
+              path: project.path,
+              icon: project.icon ?? project.defaultIcon ?? null,
+            },
+          ],
     );
     return [{ value: "Projects", items }];
   }, [directory, from]);
@@ -76,9 +85,14 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
               <CommandCollection>
                 {(choice: Choice) => (
                   <CommandItem key={choice.id} value={choice} onClick={() => pick(choice)}>
-                    <FolderSimpleIcon
-                      aria-hidden
-                      style={{ color: `var(--project-${projectTint(choice.id)})` }}
+                    <ProjectImage
+                      icon={choice.icon}
+                      fallback={
+                        <FolderSimpleIcon
+                          aria-hidden
+                          style={{ color: `var(--project-${projectTint(choice.id)})` }}
+                        />
+                      }
                     />
                     <span className="shrink-0 truncate">{choice.name}</span>
                     <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">

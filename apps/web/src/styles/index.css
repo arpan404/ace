@@ -241,6 +241,15 @@
       0 0 0 0.5px var(--glass-edge),
       0 -12px 32px -20px rgb(0 0 0 / 0.5);
   }
+  /* Search keeps the screen's colours behind it, without a heavy modal dimmer. The same
+     Appearance intensity and OS preference still make the surface fully opaque when needed. */
+  .search-glass {
+    background: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * 1.16 * var(--glass-k)));
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
+      saturate(calc(100% + 50% * var(--glass-k)));
+    backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
+      saturate(calc(100% + 50% * var(--glass-k)));
+  }
   /* The sidebar and reading column blur the wallpaper behind them. */
   .vibrancy {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
@@ -248,6 +257,7 @@
   }
   @media (prefers-reduced-transparency: reduce) {
     .glass,
+    .search-glass,
     .vibrancy {
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
@@ -327,7 +337,8 @@
   --hit: 14px;
 }
 
-.message-input:empty::before {
+.message-input:empty::before,
+.message-input[data-empty="true"]::before {
   content: attr(data-placeholder);
   color: var(--subtle-foreground);
   pointer-events: none;
@@ -336,4 +347,14 @@
 /* Confirmations wait behind open popovers, including translucent surfaces. */
 body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] {
   visibility: hidden;
+}
+
+/* Hide sidebar scroll tracks without changing native wheel, touch or keyboard scrolling. */
+.sidebar-scroll,
+.sidebar-scroll * {
+  scrollbar-width: none;
+}
+.sidebar-scroll::-webkit-scrollbar,
+.sidebar-scroll *::-webkit-scrollbar {
+  display: none;
 }

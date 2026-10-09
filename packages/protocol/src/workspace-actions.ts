@@ -1,3 +1,4 @@
+import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgePrStatus } from "./forge.ts";
@@ -106,15 +107,7 @@ export const WorkspaceActionResult = z.object({
     }),
     z.object({
       kind: z.literal("workspaces"),
-      workspaces: z
-        .array(
-          z.object({
-            id: WorkspaceId,
-            name: z.string().max(256),
-            path: z.string().max(4096),
-          }),
-        )
-        .max(100),
+      workspaces: z.array(Project).max(100),
       next: id.optional(),
     }),
     z.object({ kind: z.literal("error"), code: z.string().max(128) }),

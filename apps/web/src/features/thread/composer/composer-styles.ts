@@ -29,14 +29,21 @@ export const pillControl = `${control} shrink-0 gap-1 pr-2.5 pl-3.5`;
  */
 export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`;
 
-/**
- * The surface a card attached to the composer sits on: tucked behind its top edge, narrower,
- * one step quieter than the composer itself.
- */
-export const attachedSurface = "glass glass-behind rounded-xl";
+/** One material for the input and its attached panels. Cast shadows would tint the footer. */
+export const composerSurface =
+  "glass shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge)]";
+
+/** The same glass, tucked behind the input's edge on a narrower panel. */
+export const attachedSurface = `${composerSurface} rounded-xl`;
+
+/** The matching lower flap: its top edge sits behind the input surface. */
+export const environmentSurface = `${attachedSurface} relative z-0 mx-4 -mt-4 pt-4`;
 
 /** A one-line tab's row: 36px, the composer's text size, a step quieter than the message. */
-export const stripRow = "flex h-9 min-w-0 items-center gap-1 px-2 text-ui text-muted-foreground";
+const stripRowLayout = "flex min-w-0 items-center gap-1 px-2 text-ui text-muted-foreground";
+export const stripRow = `${stripRowLayout} h-9`;
+/** Environment stays shorter than the attached status and plan rows. */
+export const environmentRow = `${stripRowLayout} h-7`;
 
 /** A control on a tab's row: a 28px pill, quiet until hovered or open. */
 export const stripControl =

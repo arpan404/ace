@@ -2,6 +2,17 @@ import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/pro
 import { createThreadListView, isSidebarEvent } from "@ace/projection";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { Store } from "./store.ts";
+import { sidebarSubscription } from "./sidebar-subscription.ts";
+const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
+export function pageSubscription(
+  stop: () => void,
+  before: import("@ace/protocol").ThreadListCursor,
+  requestId: string,
+): void {
+  const window = windows.get(stop);
+  if (!window) throw new Error("Subscription is not paginated");
+  window.page(before, requestId);
+}
 
 export type SubscriptionStore = Pick<
   Store,
@@ -12,6 +23,7 @@ export type SubscriptionStore = Pick<
   | "acquireThread"
   | "releaseThread"
   | "listThreads"
+  | "sidebarPage"
   | "readEvents"
 >;
 
@@ -50,6 +62,13 @@ export function subscribe(
   schedule: DeliveryRuntime["delay"] = systemDeliveryRuntime.delay,
   paced = false,
 ): () => void {
+  if (scope.kind === "threads" && scope.window) {
+    const window = sidebarSubscription(store, id, scope.window, send);
+    const stop = () => window.stop();
+    windows.set(stop, window);
+    if (paced) send({ type: "subscription.ready", subscriptionId: id, seq: store.headSeq() });
+    return stop;
+  }
   let cursor = afterSeq ?? 0;
   let initializing = true;
   let queued: Event[] = [];

@@ -1,3 +1,4 @@
+import { ProjectIconField, projectIconProblem } from "./project-icon-field.tsx";
 import { childFolder, displayPath, projectNameProblem } from "@ace/ui-core";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -34,6 +35,8 @@ export function CreateProjectTab(props: {
   const place = useLocation({ machine, machines: props.machines });
   const gitId = useId();
   const [name, setName] = useState("");
+  const [icon, setIcon] = useState<string | null>();
+  const [iconBusy, setIconBusy] = useState(false);
   const [touched, setTouched] = useState(false);
   const [git, setGit] = useState(true);
   const [branch, setBranch] = useState("");
@@ -47,7 +50,8 @@ export function CreateProjectTab(props: {
 
   const create = async () => {
     setTouched(true);
-    if (!parent || nameProblem || branchIssue || creating) return;
+    if (!parent || nameProblem || branchIssue || creating || iconBusy || projectIconProblem(icon))
+      return;
     setCreating(true);
     setProblem(undefined);
     const ignore = git ? gitignoreText(template) : undefined;
@@ -56,6 +60,7 @@ export function CreateProjectTab(props: {
         await commands.create({
           parent,
           name,
+          ...(icon === undefined ? {} : { icon }),
           ...(git ? { git: branch.trim() ? { initialBranch: branch.trim() } : {} } : {}),
           ...(ignore ? { gitignore: ignore } : {}),
         }),
@@ -99,6 +104,13 @@ export function CreateProjectTab(props: {
             : undefined
         }
       />
+      <ProjectIconField
+        name={name}
+        value={icon}
+        onChange={setIcon}
+        onBusy={setIconBusy}
+        disabled={creating}
+      />
       <LocationField state={place} several={props.machines.length > 1} disabled={creating} />
       <div className="grid gap-3 rounded-md bg-secondary p-3">
         <div className="flex items-center gap-3">
@@ -132,7 +144,11 @@ export function CreateProjectTab(props: {
       </div>
       {problem && <Problem>{problem}</Problem>}
       <Footer>
-        <Button type="submit" variant="primary" disabled={creating || offline || !parent}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={creating || offline || !parent || iconBusy || !!projectIconProblem(icon)}
+        >
           {creating ? "Creating…" : "Create project"}
           {!creating && <Kbd aria-hidden keys="mod+enter" variant="on-primary" />}
         </Button>

@@ -1082,6 +1082,7 @@ export class FakeDaemon implements Host {
         "workspace.create",
         "workspace.clone",
         "workspace.rename",
+        "workspace.update",
         "workspace.remove",
       ].includes(payload.type) &&
       !this.canManageProjects(command.deviceId)

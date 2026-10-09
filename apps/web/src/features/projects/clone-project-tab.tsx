@@ -1,3 +1,4 @@
+import { ProjectIconField, projectIconProblem } from "./project-icon-field.tsx";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { ArrowClockwiseIcon, KeyIcon } from "@phosphor-icons/react";
 import {
@@ -69,6 +70,8 @@ export function CloneProjectTab(props: {
   const previous = run.status === "failed" ? run.input : undefined;
   const [url, setUrl] = useState(previous?.url ?? "");
   const [name, setName] = useState<string>();
+  const [icon, setIcon] = useState<string | null | undefined>(previous?.icon);
+  const [iconBusy, setIconBusy] = useState(false);
   const [touched, setTouched] = useState(false);
   const only = useMemo(() => [machine], [machine]);
   const latest = useRecentFolders(only).folders[0];
@@ -92,9 +95,13 @@ export function CloneProjectTab(props: {
 
   const submit = () => {
     setTouched(true);
-    if (!parent || urlProblem || nameProblem || running) return;
+    if (!parent || urlProblem || nameProblem || running || iconBusy || projectIconProblem(icon))
+      return;
     clone.dismiss();
-    clone.start({ parent, name: folder, url: address }, machine);
+    clone.start(
+      { parent, name: folder, url: address, ...(icon === undefined ? {} : { icon }) },
+      machine,
+    );
   };
 
   return (
@@ -144,6 +151,13 @@ export function CloneProjectTab(props: {
             : undefined
         }
       />
+      <ProjectIconField
+        name={folder}
+        value={running ? run.input.icon : icon}
+        onChange={setIcon}
+        onBusy={setIconBusy}
+        disabled={running}
+      />
       {!running && <LocationField state={place} several={props.machines.length > 1} />}
       {running ? (
         <>
@@ -182,7 +196,13 @@ export function CloneProjectTab(props: {
         <Button
           type="submit"
           variant="primary"
-          disabled={running || machine.client === undefined || !parent}
+          disabled={
+            running ||
+            machine.client === undefined ||
+            !parent ||
+            iconBusy ||
+            !!projectIconProblem(icon)
+          }
         >
           {running ? "Cloning…" : "Clone"}
           {!running && <Kbd aria-hidden keys="mod+enter" variant="on-primary" />}

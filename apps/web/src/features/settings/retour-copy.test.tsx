@@ -45,7 +45,7 @@ test("an inline account login uses the same provider and account wording as a di
   await harness().open("/settings/providers/codex");
   await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
   const form = within(await screen.findByRole("form", { name: "Add account" }));
-  await userEvent.type(form.getByRole("textbox"), "Work2");
+  await userEvent.type(form.getByRole("textbox", { name: "Account name" }), "Work2");
   await userEvent.click(form.getByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
   await userEvent.click(form.getByRole("button", { name: "Add and sign in" }));

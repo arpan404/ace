@@ -116,7 +116,7 @@ export type ProjectsResult = z.infer<typeof ProjectsResult>;
 export const WorkspaceChanged = z.object({
   type: z.literal("workspace.changed"),
   workspaceId: WorkspaceId,
-  change: z.enum(["added", "renamed", "removed"]),
+  change: z.enum(["added", "renamed", "updated", "removed"]),
   workspace: Project.optional(),
 });
 export type WorkspaceChanged = z.infer<typeof WorkspaceChanged>;

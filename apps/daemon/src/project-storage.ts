@@ -8,12 +8,21 @@ const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().non
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
 
 export function migrateProjects(db: DatabaseSync): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS workspace_unregistered (
+  db.exec(`CREATE TABLE IF NOT EXISTS workspace_metadata (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), icon TEXT, default_icon TEXT
+  ); CREATE TABLE IF NOT EXISTS workspace_unregistered (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), removed_at INTEGER NOT NULL
   ); CREATE TABLE IF NOT EXISTS workspace_recent (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), opened_at INTEGER NOT NULL
   ); CREATE INDEX IF NOT EXISTS threads_project_order ON threads(workspace_id, id);
   CREATE INDEX IF NOT EXISTS workspace_recent_order ON workspace_recent(opened_at DESC, workspace_id);`);
+  if (
+    !db
+      .prepare("PRAGMA table_info(workspace_metadata)")
+      .all()
+      .some((column) => column.name === "default_icon")
+  )
+    db.exec("ALTER TABLE workspace_metadata ADD COLUMN default_icon TEXT");
 }
 export class ProjectStorage {
   private store: Store;
@@ -42,14 +51,14 @@ export class ProjectStorage {
     return this.store.atomic((db) => {
       const row = db
         .prepare(
-          "SELECT id,name,path FROM workspaces WHERE id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id)",
+          "SELECT id,name,path,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id)",
         )
         .get(id);
       if (!row) throw new ProjectError("workspace_not_found");
-      return Project.parse(row);
+      return decodeProjectRow(row);
     });
   }
-  register(path: string, name: string): Project {
+  register(path: string, name: string, icon?: string | null, defaultIcon?: string | null): Project {
     let added = false;
     const workspace = this.store.atomic((db) => {
       const existing = db
@@ -65,6 +74,8 @@ export class ProjectStorage {
         );
       const id = existingId ?? this.store.createWorkspace(path, name, this.now());
       db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(path, id);
+      if (icon !== undefined || defaultIcon !== undefined)
+        this.saveMetadata(db, id, icon, defaultIcon);
       db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
       db.prepare(
         "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=excluded.opened_at",
@@ -78,16 +89,18 @@ export class ProjectStorage {
         workspaceId: workspace.id,
         workspace,
       });
+    if (!added && (icon !== undefined || defaultIcon !== undefined))
+      return this.update(workspace.id, workspace.name, icon, "updated", defaultIcon);
     return workspace;
   }
   recent(limit: number): Project[] {
     return this.store.atomic((db) =>
       db
-        .prepare(`SELECT w.id,w.name,w.path FROM workspace_recent r JOIN workspaces w ON w.id=r.workspace_id
+        .prepare(`SELECT w.id,w.name,w.path,(SELECT icon FROM workspace_metadata WHERE workspace_id=w.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=w.id) AS defaultIcon FROM workspace_recent r JOIN workspaces w ON w.id=r.workspace_id
       WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
       ORDER BY r.opened_at DESC,w.id LIMIT ?`)
         .all(limit)
-        .map((row) => Project.parse(row)),
+        .map(decodeProjectRow),
     );
   }
   recentHints(limit: number) {
@@ -122,10 +135,37 @@ export class ProjectStorage {
       ...(decoded?.opened_at == null ? {} : { lastOpened: decoded.opened_at }),
     };
   }
+  private saveMetadata(
+    db: DatabaseSync,
+    id: WorkspaceId,
+    icon?: string | null,
+    defaultIcon?: string | null,
+  ): void {
+    db.prepare(
+      "INSERT INTO workspace_metadata(workspace_id,icon,default_icon) VALUES (?,?,?) ON CONFLICT(workspace_id) DO UPDATE SET icon=CASE WHEN ? THEN excluded.icon ELSE workspace_metadata.icon END,default_icon=CASE WHEN ? THEN excluded.default_icon ELSE workspace_metadata.default_icon END",
+    ).run(
+      id,
+      icon ?? null,
+      defaultIcon ?? null,
+      Number(icon !== undefined),
+      Number(defaultIcon !== undefined),
+    );
+  }
   rename(id: WorkspaceId, name: string): Project {
+    return this.update(id, name, undefined, "renamed");
+  }
+  update(
+    id: WorkspaceId,
+    name: string,
+    icon?: string | null,
+    change: "updated" | "renamed" = "updated",
+    defaultIcon?: string | null,
+  ): Project {
     const workspace = this.store.atomic((db) => {
       this.get(id);
       db.prepare("UPDATE workspaces SET name=? WHERE id=?").run(name, id);
+      if (icon !== undefined || defaultIcon !== undefined)
+        this.saveMetadata(db, id, icon, defaultIcon);
       this.forThreads(id, (threadId) => {
         const thread = this.store.getThread(threadId);
         const details = thread?.details;
@@ -135,7 +175,17 @@ export class ProjectStorage {
             [
               {
                 type: "thread.client.updated",
-                changes: { details: { ...details, workspace: { ...details.workspace, name } } },
+                changes: {
+                  details: {
+                    ...details,
+                    workspace: {
+                      ...details.workspace,
+                      name,
+                      ...(icon === undefined ? {} : { icon }),
+                      ...(defaultIcon === undefined ? {} : { defaultIcon }),
+                    },
+                  },
+                },
               },
             ],
             this.now(),
@@ -143,7 +193,7 @@ export class ProjectStorage {
       });
       return this.get(id);
     });
-    this.emit({ type: "workspace.changed", change: "renamed", workspaceId: id, workspace });
+    this.emit({ type: "workspace.changed", change, workspaceId: id, workspace });
     return workspace;
   }
   remove(id: WorkspaceId, archiveThreads: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
@@ -187,4 +237,12 @@ export class ProjectStorage {
       }
     }
   }
+}
+
+/** Old projects omit the optional icon rather than adding null fields to their wire shape. */
+export function decodeProjectRow(row: unknown): Project {
+  const project = Project.parse(row);
+  if (project.icon === null) delete project.icon;
+  if (project.defaultIcon === null) delete project.defaultIcon;
+  return project;
 }

@@ -1,4 +1,4 @@
-import { threadAttention } from "@ace/projection";
+import { sidebarSettled } from "@ace/projection";
 import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
@@ -8,7 +8,7 @@ import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
 
 /** In the Settled section. A thread that needs you is never shown settled. */
 export function isSettled(entry: ThreadListEntry): boolean {
-  return entry.settledAt !== undefined && entry.status.state === "done" && !threadAttention(entry);
+  return sidebarSettled(entry);
 }
 
 /** Snoozed until a moment still ahead. The daemon clears it once it passes. */

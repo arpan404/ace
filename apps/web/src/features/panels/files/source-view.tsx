@@ -1,7 +1,6 @@
 // oxlint-disable react/no-array-index-key -- tokens and text runs have no identity; position is it.
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import type { CodeToken } from "@/components/markdown/highlight.ts";
-import { tokenTone } from "@/components/markdown/code-block.tsx";
+import { CodeTokens } from "@/components/markdown/code-tokens.tsx";
 import { useCodeLines } from "@/components/markdown/use-code-lines.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -57,14 +56,6 @@ function Marked(props: { text: string; query: string; current: number | undefine
 function reveal(box: HTMLElement | null, handle: VirtualRowsHandle | null, index: number) {
   if (handle) return handle.scrollToIndex(index);
   box?.querySelector(`[data-line="${index}"]`)?.scrollIntoView?.({ block: "center" });
-}
-
-function Tokens(props: { tokens: readonly CodeToken[] }) {
-  return props.tokens.map((token, index) => (
-    <span key={index} className={tokenTone[token.kind]}>
-      {token.text}
-    </span>
-  ));
 }
 
 export const sourceGutter = (lines: number) => Math.max(48, String(lines).length * 8 + 24);
@@ -147,7 +138,7 @@ export function SourceView(props: {
                     current={hit?.line === index ? hit.column : undefined}
                   />
                 ) : tokens ? (
-                  <Tokens tokens={tokens} />
+                  <CodeTokens tokens={tokens} />
                 ) : (
                   text
                 )}

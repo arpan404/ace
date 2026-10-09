@@ -1,9 +1,11 @@
+import type { CSSProperties } from "react";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
+import { accountBadge, accountBadgeStyle } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -15,11 +17,12 @@ export const accountColors: Record<AccountBadgeColor, string> = {
   violet: "var(--project-10)",
 };
 
-/** Provider glyph and a separate account dot, only when there are accounts to distinguish. */
+/** Provider glyph and readable account mark, when accounts need distinguishing. */
 export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
     account?: AccountView | undefined;
+    accountLabel?: boolean;
   },
 ) {
   const accounts = useAccountViews();
@@ -37,11 +40,12 @@ export function ProviderAccountIcon(
   return (
     <span
       className={cn("inline-flex shrink-0 items-center gap-0.5", props.className)}
-      title={name}
+      title={account?.shortLabel ? `${name} · ${account.shortLabel}` : name}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
       <ProviderIcon
         {...props}
+        size={props.size ?? 12}
         acpAgentId={props.acpAgentId ?? account?.acpAgentId}
         className={undefined}
         decorative
@@ -49,11 +53,15 @@ export function ProviderAccountIcon(
       {multiple && account && (
         <span
           role="img"
-          aria-label={`${account.label} account`}
           title={`${account.label} account`}
-          style={{ background: accountColors[account.badgeColor ?? "neutral"] }}
-          className="size-1 shrink-0 rounded-full"
-        />
+          aria-label={`${account.label} account`}
+          style={
+            { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
+          }
+          className={accountBadgeStyle}
+        >
+          {accountBadge(account.label, account.shortLabel)}
+        </span>
       )}
     </span>
   );

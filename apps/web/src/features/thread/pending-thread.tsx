@@ -14,7 +14,13 @@ import { GitForkIcon, ShieldIcon, WarningCircleIcon } from "@phosphor-icons/reac
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { chipControl, iconControl, stripRow } from "./composer/composer-styles.ts";
+import {
+  chipControl,
+  iconControl,
+  environmentRow,
+  environmentSurface,
+} from "./composer/composer-styles.ts";
+import { ComposerSettingsControls } from "./composer/composer-settings.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -213,10 +219,14 @@ function PendingComposer({
           </Tip>
         }
         environment={
-          <section aria-label="Environment">
-            <p role="status" className={stripRow}>
-              <GitForkIcon aria-hidden size={14} /> {worktreeTabLabel(progress)}
-            </p>
+          <section aria-label="Environment" className={environmentSurface}>
+            <div className={environmentRow}>
+              <p role="status" className="flex min-w-0 flex-1 items-center gap-1">
+                <GitForkIcon aria-hidden size={14} className="shrink-0" />
+                <span className="truncate">{worktreeTabLabel(progress)}</span>
+              </p>
+              <ComposerSettingsControls />
+            </div>
           </section>
         }
         placeholder="Draft your next message while the worktree is prepared"

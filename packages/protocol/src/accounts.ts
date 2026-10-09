@@ -7,7 +7,26 @@ export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
 export const AccountBadgeColor = z.enum(["neutral", "blue", "green", "amber", "rose", "violet"]);
 export type AccountBadgeColor = z.infer<typeof AccountBadgeColor>;
-export const AccountShortLabel = z.string().regex(/^\S{1,3}$/u);
+/** New badge input: at most two text graphemes, or one emoji/icon grapheme. */
+export const AccountBadgeInput = z
+  .string()
+  .min(1)
+  .max(64)
+  .refine((value) => {
+    if (/\s|\p{Cc}/u.test(value)) return false;
+    const count = Array.from(
+      new Intl.Segmenter("en", { granularity: "grapheme" }).segment(value),
+    ).length;
+    const emoji = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value);
+    return emoji ? count === 1 : count <= 2 && !/\p{Cf}/u.test(value);
+  })
+  .meta({
+    "x-ace-constraint":
+      "One or two non-whitespace text graphemes, or one emoji/icon grapheme, at most 64 UTF-16 code units.",
+    examples: ["AB", "👩‍💻"],
+  });
+/** Older stored three-letter badges remain readable; mutations use AccountBadgeInput. */
+export const AccountShortLabel = z.union([AccountBadgeInput, z.string().regex(/^\S{1,3}$/u)]);
 
 export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor", "pi"]);
 export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
@@ -192,13 +211,14 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
     requestId: z.string().max(128),
     provider: NativeAccountProvider,
     label: z.string().min(1).max(128).regex(/\S/),
+    shortLabel: AccountBadgeInput.optional(),
   }),
   z.object({
     type: z.literal("accounts.rename"),
     requestId: z.string().max(128),
     instanceId: AccountInstanceId,
     label: z.string().min(1).max(128).regex(/\S/),
-    shortLabel: AccountShortLabel.optional(),
+    shortLabel: AccountBadgeInput.optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
   }),
   z.object({

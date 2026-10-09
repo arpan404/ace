@@ -20,22 +20,31 @@ export function useStayPinned(
   useEffect(() => {
     const el = viewport.current;
     if (!el || typeof ResizeObserver === "undefined") return;
+    const content = el.firstElementChild;
     let height = el.clientHeight;
+    let width = el.clientWidth;
+    let clearance = content ? getComputedStyle(content).paddingBottom : "";
     const observer = new ResizeObserver(() => {
       const next = el.clientHeight;
-      if (next === height) return;
+      const nextWidth = el.clientWidth;
+      const nextClearance = content ? getComputedStyle(content).paddingBottom : "";
+      if (next === height && nextWidth === width && nextClearance === clearance) return;
       height = next;
+      width = nextWidth;
+      clearance = nextClearance;
       if (!pinned.current) return;
       // The glide's own scroll events must not read as the reader scrolling away.
       glidingUntil.current = performance.now() + 800;
       glideToEnd(el, true);
     });
     observer.observe(el);
+    // Its bottom padding changes when the overlaid composer grows, including a deferred mount.
+    if (content) observer.observe(content);
     return () => observer.disconnect();
   }, [viewport, pinned, glidingUntil]);
 }
 
-/** An inline catch-up summary changes the live end, without moving an older reading position. */
+/** Pending messages change the live end without moving an older reading position. */
 export function useDockShift(
   dock: RefObject<HTMLElement | null>,
   viewport: RefObject<HTMLElement | null>,

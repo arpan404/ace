@@ -25,9 +25,13 @@ const row =
   "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
 /** Tasks show project and status, title, then context; settled work stays compact. */
-export function ThreadRow(props: { threadId: string; settled: boolean }) {
+export function ThreadRow(props: {
+  threadId: string;
+  settled: boolean;
+  leaving?: boolean | undefined;
+}) {
   const { settled } = props;
-  const data = useThreadCard(props.threadId, settled);
+  const data = useThreadCard(props.threadId, settled, props.leaving);
   const [editing, setRenaming] = useState(false);
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
@@ -56,11 +60,11 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
           <div
             className={cn(
               row,
-              settled ? "h-8" : "h-19 py-2.5",
+              settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
               "flex-row items-center gap-2 bg-sidebar-accent",
             )}
           >
-            <ProjectMark badge={card.badge} />
+            <ProjectMark badge={card.badge} icon={data.icon} />
             <RenameField
               entry={entry}
               title={refused ?? card.title}
@@ -90,25 +94,25 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
               draggable={false}
               className={cn(
                 row,
-                settled ? "h-8" : "h-19 py-2.5",
-                "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
-                selected && "bg-foreground/8",
+                settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
+                "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
+                selected && "bg-foreground/5",
                 handle && "pointer-coarse:pr-11",
               )}
             >
               <span
                 className={cn(
                   "flex min-w-0 w-full",
-                  settled ? "items-center gap-2" : "flex-col gap-0.5",
+                  settled ? "items-center gap-2" : "flex-col gap-1 compact:gap-0.5",
                 )}
               >
                 {settled ? (
-                  <ProjectMark badge={card.badge} />
+                  <ProjectMark badge={card.badge} icon={data.icon} />
                 ) : (
                   <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-                    <ProjectMark badge={card.badge} />
+                    <ProjectMark badge={card.badge} icon={data.icon} />
                     <span className="min-w-0 flex-1 truncate">{card.project}</span>
-                    <span className="contents group-focus-within/row:hidden group-hover/row:hidden">
+                    <span className="contents group-focus-within/row:hidden group-hover/row:hidden group-has-[[data-popup-open]]/row:hidden">
                       <RowStatus card={card} selected={highlighted} />
                     </span>
                   </span>
@@ -118,7 +122,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate",
-                      settled ? "text-ui leading-4" : "text-base leading-5",
+                      settled ? "text-ui leading-4" : "text-ui leading-5",
                       titleTone(card, highlighted),
                     )}
                   >
@@ -157,7 +161,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
             <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
           </button>
         )}
-        {!renaming && <RowActions entry={entry} settled={settled} />}
+        {!renaming && <RowActions entry={entry} settled={settled} snoozed={card.flags.snoozed} />}
       </div>
     </ThreadMenu>
   );

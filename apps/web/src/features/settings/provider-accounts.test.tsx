@@ -22,7 +22,7 @@ test("Add account names it and starts its sign-in straight away; it joins the li
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   expect(within(form).getByRole("alert").textContent).toBe("Give the account a name, like Work.");
-  await userEvent.type(within(form).getByRole("textbox"), "Side project");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Side project");
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
 
   // The new account's own sign-in, at once.
@@ -96,7 +96,7 @@ test("cancelling browser sign-in never leaves a named account behind", async () 
   await app.open("/settings/providers/claude");
   await userEvent.click(within(await accounts()).getByRole("button", { name: "Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.type(within(form).getByRole("textbox"), "Client");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Client");
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   await userEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }));

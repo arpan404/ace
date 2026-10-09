@@ -70,7 +70,16 @@ export const ThreadView = z.object({
 export type ThreadView = z.infer<typeof ThreadView>;
 export const ThreadListEntry = Thread.omit({ rootAgentId: true });
 export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
+export const ThreadListCursor = z.object({ at: z.number().int().nonnegative(), id: ThreadId });
+export type ThreadListCursor = z.infer<typeof ThreadListCursor>;
+export const ThreadListWindow = z.object({
+  before: ThreadListCursor.nullable(),
+  total: z.number().int().nonnegative(),
+  counts: z.array(z.object({ id: z.string(), threads: z.number().int().nonnegative() })),
+});
+export type ThreadListWindow = z.infer<typeof ThreadListWindow>;
 export const ThreadListView = z.object({
+  window: ThreadListWindow.optional(),
   kind: z.literal("threads"),
   seq,
   threads: records(ThreadListEntry),
@@ -78,7 +87,16 @@ export const ThreadListView = z.object({
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);
 export const SubscriptionScope = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("threads") }),
+  z.object({
+    kind: z.literal("threads"),
+    window: z
+      .object({
+        limit: z.number().int().min(1).max(20),
+        project: z.string().min(1).optional(),
+        archived: z.boolean().optional(),
+      })
+      .optional(),
+  }),
   z.object({ kind: z.literal("thread"), threadId: ThreadId }),
 ]);
 export type SubscriptionScope = z.infer<typeof SubscriptionScope>;
@@ -191,11 +209,26 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     before: seq.positive(),
     limit: seq.positive().max(200),
   }),
+  z.object({
+    type: z.literal("threads.page"),
+    requestId: z.string().min(1),
+    subscriptionId: z.string().min(1),
+    before: ThreadListCursor,
+  }),
   z.object({ type: z.literal("ping") }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
 export const CoreServerMessage = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("threads.patch"),
+    subscriptionId: z.string(),
+    requestId: z.string().optional(),
+    seq,
+    threads: records(ThreadListEntry),
+    removed: z.array(ThreadId),
+    window: ThreadListWindow,
+  }),
   z.object({
     type: z.literal("entities.page.part"),
     requestId: z.string().min(1),
@@ -295,12 +328,14 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "command",
   "output.read",
   "items.page",
+  "threads.page",
   "entities.page",
   "ping",
 ]);
 /** `type` of every core server message. */
 export const coreServerTypes: ReadonlySet<string> = new Set([
   "welcome",
+  "threads.patch",
   "snapshot",
   "snapshot.part",
   "subscription.ready",
@@ -310,6 +345,7 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "error",
   "output.data",
   "items.page",
+  "threads.page",
   "entities.page",
   "entities.page.part",
   "pong",

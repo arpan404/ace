@@ -16,8 +16,6 @@ import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
-import { LiveBadge } from "./header/live-badge.tsx";
-import { ThreadStatusDot } from "./header/status-dot.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
 import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
@@ -50,8 +48,6 @@ import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredAgentComposer,
-  DeferredCatchUpSlot,
-  DeferredLimitBadge,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
@@ -60,7 +56,6 @@ import {
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredRequestStack } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
@@ -116,7 +111,7 @@ export interface ThreadTarget {
  * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
  * menu, the work card's button (project, git, actions, editors, sources) and the side panel's
  * toggle; and its side panel of tabs (Changes, Agents, terminals, Files, Browser, …). A long
- * thread adds its turns, search and a catch-up card for the reader who was away.
+ * thread adds its turns and search.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
@@ -138,7 +133,6 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
 
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
-  const connection = useLiveConnection();
   const meta = useThreadMeta(props.threadId);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
@@ -188,16 +182,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           )
         }
         title={error ? "Thread unavailable" : (title ?? "Loading thread…")}
-        subtitle={
-          connection.fresh && meta?.status.state === "limited" ? (
-            <Suspense fallback={null}>
-              <DeferredLimitBadge.Component threadId={id} />
-            </Suspense>
-          ) : (
-            meta && <LiveBadge threadId={id} />
-          )
-        }
-        status={meta && <ThreadStatusDot thread={meta} />}
         menu={
           thread && (
             <Suspense fallback={null}>
@@ -231,7 +215,11 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           <TranscriptSkeleton />
         ) : (
           <ForkOpener value={setForking}>
-            <div className="relative flex h-full min-h-0 flex-col" {...drop.handlers}>
+            <div
+              data-thread-column
+              className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
+              {...drop.handlers}
+            >
               {drop.overlay}
               {thread && card.mounted && (
                 <Suspense fallback={null}>
@@ -247,15 +235,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   <DeferredTurnsPanel.Component nav={nav} />
                 </Suspense>
               )}
-              <div className="min-h-0 flex-1">
-                <Transcript
-                  threadId={id}
-                  overlay={
-                    <Suspense fallback={null}>
-                      <DeferredCatchUpSlot.Component threadId={id} />
-                    </Suspense>
-                  }
-                />
+              <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                <Transcript threadId={id} />
               </div>
               <TargetJump target={props.target} />
               {thread && (

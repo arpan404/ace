@@ -1,3 +1,4 @@
+import { ProjectImage } from "@/components/project-image.tsx";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { GitPullRequestIcon, GitMergeIcon } from "@phosphor-icons/react";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
@@ -42,15 +43,21 @@ export function threadDetails(card: ThreadCard): string[] {
  * The project's two letters on a quiet tile. The tile takes the project's tint
  * (`--project-<n>`, AA on every surface); only the variable is inline, the rule is shared.
  */
-export function ProjectMark(props: { badge: ProjectBadge }) {
+export function ProjectMark(props: { badge: ProjectBadge; icon?: string | null | undefined }) {
   return (
-    <span
-      aria-hidden
-      style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
-      className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-(--tint)/12 text-[9px] leading-none font-semibold text-(--tint)"
-    >
-      {props.badge.initials}
-    </span>
+    <ProjectImage
+      icon={props.icon}
+      className="h-4 w-5 shrink-0 rounded-xs object-contain"
+      fallback={
+        <span
+          aria-hidden
+          style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
+          className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-(--tint)/12 text-[9px] leading-none font-semibold text-(--tint)"
+        >
+          {props.badge.initials}
+        </span>
+      }
+    />
   );
 }
 
@@ -188,7 +195,8 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
         instance={props.instance}
         provider={card.provider}
         acpAgentId={card.acpAgentId}
-        size={14}
+        size={12}
+        accountLabel
         decorative
       />
     </span>
@@ -199,7 +207,7 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
 export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-subtle-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         {card.branch && <span className="truncate">{card.branch.name}</span>}
         {card.machine && (
@@ -210,7 +218,9 @@ export function RowDetail(props: { card: ThreadCard; instance?: string | undefin
         )}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <ChangeMark card={card} />
+        <span className="hidden items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
+          <ChangeMark card={card} />
+        </span>
         <ProviderMark card={card} instance={props.instance} />
       </span>
     </span>

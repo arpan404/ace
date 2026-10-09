@@ -300,6 +300,15 @@ export class RemoteClient implements ClientApi {
       () => new MirrorThread(this.listeners),
     );
   }
+  threadsWindow(input: {
+    project?: string | undefined;
+    archived?: boolean | undefined;
+  }): Promise<void> {
+    return this.invoke<void>("threadsWindow", [input]);
+  }
+  threadsMore(options: RequestOptions = {}): Promise<void> {
+    return this.invoke<void>("threadsMore", [timeout(options)], options.signal);
+  }
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
   }

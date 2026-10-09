@@ -16,6 +16,7 @@ import {
 import type { FakeServiceContext } from "./service-context.ts";
 
 type Directory = {
+  favicon?: string;
   empty: boolean;
   git: boolean;
   modifiedAt: number;
@@ -25,6 +26,7 @@ type Directory = {
 /** A folder on the fake host, for `seedFolders`. */
 export interface FolderSeed {
   path: string;
+  favicon?: string;
   /** A repository root (a `.git` inside). */
   git?: boolean;
   modifiedAt?: number;
@@ -134,6 +136,7 @@ export class FakeProjects {
         ensure(`${top}/${relative.slice(0, depth).join("/")}`);
       ensure(folder.path, {
         git: folder.git ?? false,
+        ...(folder.favicon === undefined ? {} : { favicon: folder.favicon }),
         ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
       });
     }
@@ -186,6 +189,7 @@ export class FakeProjects {
       .toSorted(([a], [b]) => b.length - a.length)[0];
     return ProjectInspection.parse({
       path: selected,
+      defaultIcon: this.directories.get(selected)?.favicon,
       git: root
         ? {
             root: root[0],
@@ -205,22 +209,26 @@ export class FakeProjects {
       if (!this.projects.has(id) && !this.retained.has(id)) return id;
     }
   }
-  private register(path: string, name: string) {
+  private register(path: string, name: string, icon?: string | null) {
     const existing = [...this.projects.values(), ...this.retained.values()].find(
       (p) => p.path === path,
     );
     const id = existing?.id ?? this.allocateId();
-    const project = existing ?? Project.parse({ id, name, path });
+    const project = Project.parse({
+      ...(existing ?? { id, name, path }),
+      ...(icon === undefined ? {} : { icon }),
+      defaultIcon: this.directories.get(path)?.favicon,
+    });
     const added = !this.projects.has(id);
     this.projects.delete(id);
     this.projects.set(id, project);
     this.opened.set(path, this.context.now());
     this.removed.delete(id);
-    if (added)
+    if (added || icon !== undefined)
       this.emit({
         type: "workspace.changed",
         workspaceId: id,
-        change: "added",
+        change: added ? "added" : "updated",
         workspace: project,
       });
     return { ok: true, workspace: project, inspection: this.inspection(path) };
@@ -233,7 +241,7 @@ export class FakeProjects {
     try {
       if (p.type === "workspace.add") {
         const info = this.inspection(p.path);
-        return this.register(info.path, p.name ?? info.path.split("/").at(-1) ?? "Project");
+        return this.register(info.path, p.name ?? info.path.split("/").at(-1) ?? "Project", p.icon);
       }
       if (p.type === "workspace.create") {
         const parent = this.checked(p.parent);
@@ -249,15 +257,16 @@ export class FakeProjects {
           initialBranch: p.git?.initialBranch ?? "main",
           modifiedAt: this.context.now(),
         });
-        return this.register(path, p.name);
+        return this.register(path, p.name, p.icon);
       }
       const project = this.projects.get(p.workspaceId);
       if (!project) throw new Error("workspace_not_found");
       const threads = this.context
         .threads()
         .filter((t) => t.workspaceId === project.id && t.deletedAt === undefined);
-      if (p.type === "workspace.rename") {
-        const workspace = { ...project, name: p.name };
+      if (p.type === "workspace.rename" || p.type === "workspace.update") {
+        const icon = p.type === "workspace.update" ? p.icon : undefined;
+        const workspace = { ...project, name: p.name, ...(icon === undefined ? {} : { icon }) };
         this.projects.set(project.id, workspace);
         for (const thread of threads)
           if (thread.details?.workspace)
@@ -266,14 +275,19 @@ export class FakeProjects {
               changes: {
                 details: {
                   ...thread.details,
-                  workspace: { ...thread.details.workspace, name: p.name },
+                  workspace: {
+                    ...thread.details.workspace,
+                    name: p.name,
+                    ...(icon === undefined ? {} : { icon }),
+                    defaultIcon: workspace.defaultIcon,
+                  },
                 },
               },
             });
         this.emit({
           type: "workspace.changed",
           workspaceId: project.id,
-          change: "renamed",
+          change: p.type === "workspace.rename" ? "renamed" : "updated",
           workspace,
         });
         return { ok: true, workspace };
@@ -373,7 +387,7 @@ export class FakeProjects {
         modifiedAt: this.context.now(),
       });
       flight.committed = true;
-      const result = this.register(path, input.name);
+      const result = this.register(path, input.name, input.icon);
       progress("completed", 100);
       return result;
     } catch (error) {

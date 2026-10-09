@@ -137,6 +137,26 @@
     },
     "workspace": {
       "properties": {
+        "defaultIcon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "minLength": 1,
           "type": "string"

@@ -35,3 +35,35 @@ test("Snooze and Pin are available from the task context menu", async () => {
   });
   expect(await screen.findByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
+
+test("the quick Snooze control opens presets without navigation and can wake the thread", async () => {
+  await openHome();
+  const heading = screen.getByRole("heading", { level: 1 });
+  const before = heading.textContent;
+  await userEvent.click(await screen.findByRole("button", { name: `Snooze ${title}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: /^Dedupe.*Snoozed until tomorrow/ })).toBeTruthy(),
+  );
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(before);
+  await userEvent.click(screen.getByRole("button", { name: `Snooze ${title}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Wake now" }));
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: /^Dedupe/ }).getAttribute("aria-label")).not.toContain(
+      "Snoozed",
+    ),
+  );
+});
+
+test("Snooze has one tooltip that dismisses while its menu is open", async () => {
+  await openHome();
+  const trigger = await screen.findByRole("button", { name: `Snooze ${title}` });
+  await userEvent.hover(trigger);
+  await screen.findByRole("tooltip", { name: "Snooze…" });
+  expect(trigger.hasAttribute("title")).toBe(false);
+  await userEvent.click(trigger);
+  await screen.findByRole("menuitem", { name: /^Tomorrow/ });
+  await waitFor(() => expect(screen.queryByRole("tooltip", { name: "Snooze…" })).toBeNull());
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});

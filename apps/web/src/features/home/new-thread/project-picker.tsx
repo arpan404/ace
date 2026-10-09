@@ -1,3 +1,5 @@
+import { ProjectImage } from "@/components/project-image.tsx";
+import { useProjectIcon } from "@/lib/projects.ts";
 import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import {
   Menu,
@@ -23,6 +25,7 @@ export function ProjectPicker(props: {
   project: string | undefined;
   onProject(project: string): void;
 }) {
+  const iconFor = useProjectIcon();
   const value = props.project === undefined ? "a project" : props.projectName(props.project);
   return (
     <Menu>
@@ -30,7 +33,12 @@ export function ProjectPicker(props: {
         aria-label={`Project: ${props.project === undefined ? "Choose a project" : value}`}
         className={`${composerStrip} shrink-0 text-foreground`}
       >
-        <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+        <ProjectImage
+          icon={props.project ? iconFor(props.project) : undefined}
+          fallback={
+            <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+          }
+        />
         <span className="max-w-32 truncate">{value}</span>
         <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </MenuTrigger>
@@ -43,7 +51,13 @@ export function ProjectPicker(props: {
           >
             {props.projects.map((id) => (
               <MenuRadioItem closeOnClick key={id} value={id} aria-label={props.projectName(id)}>
-                {props.projectName(id)}
+                <span className="flex items-center gap-2">
+                  <ProjectImage
+                    icon={iconFor(id)}
+                    fallback={<FolderSimpleIcon aria-hidden size={14} />}
+                  />
+                  {props.projectName(id)}
+                </span>
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>

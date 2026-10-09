@@ -174,8 +174,9 @@ test("disconnecting forgets the token and returns to the connection screen", asy
   await connectWith(token);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(local.getItem("ace.daemon.token")).toBe(token);
-  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
-  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
+  // Disconnect is in the profile menu's Connection submenu.
+  await userEvent.click(await screen.findByRole("button", { name: /, account/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Connection" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to ace" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
@@ -187,8 +188,9 @@ test("a client that loads on demand connects once it arrives, and disconnecting 
   await connectWith(token);
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(await screen.findByRole("button", { name: /, account$/ })).toBeTruthy();
-  // Disconnect is in the daemon's menu, the sidebar's "ace ▾".
-  await userEvent.click(await screen.findByRole("button", { name: "ace menu" }));
+  // Disconnect is in the profile menu's Connection submenu.
+  await userEvent.click(await screen.findByRole("button", { name: /, account/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Connection" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
   await screen.findByRole("heading", { name: "Connect to ace" });
   expect(local.getItem("ace.daemon.token")).toBeNull();

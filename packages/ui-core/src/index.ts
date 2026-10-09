@@ -68,7 +68,6 @@ export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
 export * from "./jump-window.ts";
 export * from "./search-snippet.ts";
-export * from "./catch-up.ts";
 export * from "./why.ts";
 export * from "./work-log.ts";
 export * from "./browser-address.ts";

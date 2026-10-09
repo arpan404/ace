@@ -122,11 +122,18 @@ export class AccountManagement {
         void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
   }
-  async addPending(provider: ProviderInstance["provider"], label: string): Promise<string> {
+  async addPending(
+    provider: ProviderInstance["provider"],
+    label: string,
+    shortLabel?: string,
+  ): Promise<string> {
     const id = `account-${this.options.id()}`;
     const instance = await createManagedHome(this.options.dataDir, id, provider, label);
     try {
-      await this.options.registry.registerPending(instance);
+      await this.options.registry.registerPending({
+        ...instance,
+        ...(shortLabel === undefined ? {} : { shortLabel }),
+      });
     } catch (error) {
       await deleteManagedHome(this.options.dataDir, instance);
       throw error;
@@ -190,7 +197,10 @@ export class AccountManagement {
         request.label,
       );
       try {
-        await registry.register(instance);
+        await registry.register({
+          ...instance,
+          ...(request.shortLabel === undefined ? {} : { shortLabel: request.shortLabel }),
+        });
       } catch (error) {
         await deleteManagedHome(this.options.dataDir, instance);
         throw error;

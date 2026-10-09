@@ -34,19 +34,54 @@ export const ProjectGit = z.object({
     )
     .max(64),
 });
-export const Project = z.object({ id: WorkspaceId, name: z.string().max(256), path });
+const iconUrl = z.url();
+/** Small raster uploads or explicitly selected remote icons. SVG and executable schemes are excluded. */
+export const ProjectIcon = z.union([
+  z
+    .string()
+    .max(4096)
+    .regex(/^(?![\s\S]*[\t\r\n])[hH][tT][tT][pP][sS]?:\/\/[\s\S]*[^\s]$/)
+    .refine((value) => iconUrl.safeParse(value).success)
+    .meta({
+      format: "ace-whatwg-url",
+      "x-ace-url-maxLength": 4096,
+      "x-ace-constraint":
+        "Absolute HTTP or HTTPS WHATWG URL, without ASCII tabs, CR, LF or trailing whitespace; at most 4096 UTF-16 code units. Install the ace-whatwg-url format validator or enforce URL parsing in application code.",
+      examples: ["https://example.invalid/icon.png", "HTTPS://例え.テスト/icon.png"],
+    }),
+  z
+    .string()
+    .max(131072)
+    .regex(
+      /^data:image\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$/,
+    ),
+]);
+export const Project = z.object({
+  id: WorkspaceId,
+  name: z.string().max(256),
+  path,
+  icon: ProjectIcon.nullable().optional(),
+  defaultIcon: ProjectIcon.nullable().optional(),
+});
 export type Project = z.infer<typeof Project>;
 export const ProjectInspection = z.object({
   path,
+  defaultIcon: ProjectIcon.nullable().optional(),
   git: ProjectGit.nullable(),
   suggestedRepoRoot: path.optional(),
 });
 export const ProjectCommands = [
-  z.object({ type: z.literal("workspace.add"), path, name: ProjectName.optional() }),
+  z.object({
+    type: z.literal("workspace.add"),
+    path,
+    name: ProjectName.optional(),
+    icon: ProjectIcon.nullable().optional(),
+  }),
   z.object({
     type: z.literal("workspace.create"),
     parent: path,
     name: ProjectName,
+    icon: ProjectIcon.nullable().optional(),
     git: z.object({ initialBranch: z.string().min(1).max(1024).optional() }).optional(),
     gitignore: z.string().max(65536).optional(),
   }),
@@ -54,7 +89,14 @@ export const ProjectCommands = [
     type: z.literal("workspace.clone"),
     parent: path,
     name: ProjectName,
+    icon: ProjectIcon.nullable().optional(),
     url: z.string().min(1).max(4096),
+  }),
+  z.object({
+    type: z.literal("workspace.update"),
+    workspaceId: WorkspaceId,
+    name: ProjectName,
+    icon: ProjectIcon.nullable().optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
   z.object({

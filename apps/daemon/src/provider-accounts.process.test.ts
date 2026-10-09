@@ -182,6 +182,7 @@ test("provider account actions add and start isolated sign-in, label, select, re
       requestId: "add",
       provider: "codex",
       label: "Work",
+      shortLabel: "💼",
       method: "api_key",
     });
     if (added.type !== "provider.accounts.result" || !added.result.ok || !added.result.progress)
@@ -216,6 +217,7 @@ test("provider account actions add and start isolated sign-in, label, select, re
             authMethod: "api_key",
             status: "available",
             label: "Work",
+            shortLabel: "💼",
           }),
         ]),
       },

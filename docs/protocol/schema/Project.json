@@ -2,6 +2,26 @@
   "$id": "https://ace.local/protocol/v1/Project.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "defaultIcon": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "icon": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
     },

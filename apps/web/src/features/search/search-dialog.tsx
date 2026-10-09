@@ -88,6 +88,9 @@ export default function SearchDialog(props: {
       open={props.open}
       onOpenChange={(open) => !open && props.onClose()}
       title="Search"
+      className="search-glass"
+      overlayClassName="bg-black/15"
+      overlayStyle={{ backgroundColor: "rgb(0 0 0 / 15%)" }}
     >
       {props.open && <SearchBody initial={props.query} onClose={props.onClose} />}
     </CommandDialog>

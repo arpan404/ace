@@ -31,17 +31,15 @@ export const DeferredThreadHotkeys = deferredComponent(() =>
 export const DeferredWorkCard = deferredComponent(() =>
   import("./header/work-card.tsx").then((module) => module.WorkCard),
 );
-/** "Limited until 15:20" after the title in the header, while the thread is held at a limit. */
-export const DeferredLimitBadge = deferredComponent(() =>
-  import("./header/limit-badge.tsx").then((module) => module.LimitBadge),
-);
-
 /**
  * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
- * search within the thread and the catch-up card (ADR 0056: off the route's first paint).
+ * search within the thread (ADR 0056: off the route's first paint).
  */
 export const DeferredTurnsPanel = deferredComponent(() =>
   import("./long/timeline.tsx").then((module) => module.TurnsPanel),
+);
+export const DeferredTurnRail = deferredComponent(() =>
+  import("./long/turn-rail.tsx").then((module) => module.TurnRail),
 );
 export const DeferredSearchBar = deferredComponent(() =>
   import("./long/search-bar.tsx").then((module) => module.SearchBar),
@@ -72,10 +70,6 @@ export const DeferredOpenTurnHead = deferredComponent(() =>
 export const DeferredTurnKeys = deferredComponent(() =>
   import("./long/turn-keys.tsx").then((module) => module.TurnKeys),
 );
-/** The catch-up check, its card and the read cursor that advances while the reader follows. */
-export const DeferredCatchUpSlot = deferredComponent(() =>
-  import("./long/catch-up-slot.tsx").then((module) => module.CatchUpSlot),
-);
 
 /** The Agents panel's follow-up composer; loads while idle, after the thread paints. */
 export const DeferredAgentComposer = deferredComponent(() =>
@@ -98,6 +92,7 @@ export function preloadDeferred(): Promise<unknown> {
     preloadComposerParts(),
     preloadComposerCards(),
     DeferredTurnsPanel.preload(),
+    DeferredTurnRail.preload(),
     DeferredSearchBar.preload(),
     DeferredJumpBar.preload(),
     DeferredGapRow.preload(),
@@ -105,7 +100,6 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredLivePill.preload(),
     DeferredFoldedTurn.preload(),
     DeferredOpenTurnHead.preload(),
-    DeferredCatchUpSlot.preload(),
     DeferredTurnKeys.preload(),
     preloadJump(),
     // Thumbnails and file chips: their shell, then their tiles.

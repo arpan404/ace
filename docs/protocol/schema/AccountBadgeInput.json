@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountBadgeInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "AB",
+    "👩‍💻"
+  ],
+  "maxLength": 64,
+  "minLength": 1,
+  "type": "string",
+  "x-ace-constraint": "One or two non-whitespace text graphemes, or one emoji/icon grapheme, at most 64 UTF-16 code units."
+}

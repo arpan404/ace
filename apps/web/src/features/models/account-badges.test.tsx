@@ -98,6 +98,9 @@ test("arrow keys and Tab move between account rail and models, then Enter picks 
   const chip = await screen.findByRole("button", { name: /^Model: Sonnet 5.5, Work/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Work" })).toBeTruthy();
   expect(
+    within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByText("W"),
+  ).toBeTruthy();
+  expect(
     within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByTitle("Work account"),
   ).toBeTruthy();
 });
@@ -130,6 +133,8 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.click(await screen.findByRole("option", { name: "Violet" }));
   await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
   await within(accounts).findByRole("img", { name: "Claude Code · Studio" });
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
   await waitFor(() =>
@@ -143,7 +148,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio" })).toBeTruthy();
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
-  await userEvent.hover(row);
+  expect(within(row).getByText("ST")).toBeTruthy();
   expect(within(row).getByTitle("Studio account")).toBeTruthy();
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
@@ -164,4 +169,27 @@ test("editing an account label updates its composer, thread row, picker, search 
       }),
     ).toBeTruthy(),
   );
+});
+
+test("account badges accept a complete emoji and reject more than two text characters", async () => {
+  const app = harness();
+  await app.open("/settings/providers/claude");
+  const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
+  const form = within(screen.getByRole("form", { name: "Edit account label" }));
+  const badge = form.getByRole("textbox", { name: "Short label" });
+  await userEvent.clear(badge);
+  await userEvent.type(badge, "ABC");
+  expect(form.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  expect(form.getByText("Use up to two characters or one emoji.")).toBeTruthy();
+  await userEvent.clear(badge);
+  await userEvent.type(badge, "👩‍💻");
+  expect(badge).toHaveProperty("value", "👩‍💻");
+  await userEvent.click(form.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("form", { name: "Edit account label" })).toBeNull(),
+  );
+  const saved = await app.client.request({ type: "accounts.list" });
+  expect(saved.accounts.find((account) => account.id === "claude-personal")?.shortLabel).toBe("👩‍💻");
 });

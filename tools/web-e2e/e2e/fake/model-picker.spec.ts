@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /*
- * The model chip's popover in a real browser, where layout exists: it opens above the composer
- * rather than over the message, and the picker keeps one size while its content changes.
+ * The model chip's popover in a real browser: it tracks its trigger through pane resizes,
+ * and the picker keeps one size while its content changes.
  */
 
 interface Box {
@@ -25,16 +25,33 @@ async function openPicker(page: Page) {
   await expect(page.getByRole("combobox", { name: "Search models" })).toBeFocused();
 }
 
-test("the model popover opens above the composer, lined up with the chip", async ({ page }) => {
-  await page.goto("/t/thread-replay-cursor");
+test("the model popover stays anchored to the chip with an approval and Files pane", async ({
+  page,
+}) => {
+  await page.goto("/t/thread-refund-tax");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await page
+    .getByRole("region", { name: "Thread panel" })
+    .getByRole("tab", { name: "Files", exact: true })
+    .click();
   const chip = page.getByRole("button", { name: /^Model: / });
   await chip.click();
-  await expect(page.getByRole("slider", { name: "Effort" })).toBeVisible();
-  const popover = await box(page, "[data-slot=popover-content]");
-  const composer = await box(page, "[data-slot=composer]");
-  const chipBox = await chip.boundingBox();
-  expect(popover.y + popover.height).toBeLessThanOrEqual(composer.y);
-  expect(Math.abs(popover.x - (chipBox?.x ?? 0))).toBeLessThanOrEqual(1);
+  const anchored = async () => {
+    const popup = await box(page, '[data-slot=popover-content][aria-label="Model and effort"]');
+    const trigger = await chip.boundingBox();
+    if (!trigger) throw new Error("model trigger missing");
+    expect(Math.abs(trigger.y - popup.y - popup.height - 8)).toBeLessThanOrEqual(1);
+    expect(popup.x).toBeGreaterThanOrEqual(0);
+    expect(popup.x + popup.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    const column = await box(page, "[data-thread-column]");
+    expect(popup.x).toBeGreaterThanOrEqual(column.x);
+    expect(popup.x + popup.width).toBeLessThanOrEqual(column.x + column.width);
+    expect(trigger.x + trigger.width).toBeGreaterThan(popup.x);
+    expect(trigger.x).toBeLessThan(popup.x + popup.width);
+  };
+  await expect(anchored).toPass();
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(anchored).toPass();
 });
 
 test("the picker keeps its size and its search in place across tabs, a search and a star", async ({

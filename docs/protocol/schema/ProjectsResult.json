@@ -11,6 +11,16 @@
       "oneOf": [
         {
           "properties": {
+            "defaultIcon": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "git": {
               "anyOf": [
                 {

@@ -1,7 +1,6 @@
 import { TurnDigest } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { z } from "zod";
-import { catchUpHasNews, catchUpView } from "./catch-up.ts";
 import { digestFacts, turnHeadline, turnSpan } from "./turn-digest.ts";
 
 const digest = (patch: Partial<z.input<typeof TurnDigest>> = {}): TurnDigest =>
@@ -96,48 +95,4 @@ test("a turn's headline is its ask on one line, else what the agent said", () =>
   expect(turnHeadline({ initiatingMessagePreview: " ", latestAgentMessagePreview: "" })).toBe(
     "Automatic turn",
   );
-});
-
-test("catch-up lists failed commands and the first files, and counts the rest", () => {
-  const view = catchUpView({
-    turnsCompleted: 3,
-    status: { state: "needs_you", interactions: 1 },
-    latestAgentMessagePreview: "Checkpoint 12\ncompleted.",
-    digest: digest({
-      files: Array.from({ length: 7 }, (_, n) => ({ path: `src/f${n}.ts`, added: n, removed: 0 })),
-      commands: [
-        { itemId: "c1", command: "bun run test", failed: false, exitCode: 0 },
-        { itemId: "c2", command: "git diff --check", failed: true, exitCode: 1 },
-      ],
-      commandsRun: 2,
-      commandsFailed: 1,
-      subagentsStarted: 3,
-      subagentsFinished: 2,
-      approvalsPending: 1,
-    }),
-  });
-  expect(view.headline).toBe("3 turns finished");
-  expect(view.files.map((file) => file.path)).toEqual([
-    "src/f0.ts",
-    "src/f1.ts",
-    "src/f2.ts",
-    "src/f3.ts",
-  ]);
-  expect(view.moreFiles).toBe(3);
-  expect(view.failedCommands).toEqual([{ itemId: "c2", command: "git diff --check", exitCode: 1 }]);
-  expect(view.commandLine).toBe("Ran 2 commands, 1 failed");
-  expect(view.subagentLine).toBe("2 of 3 subagents finished");
-  expect(view.latestMessage).toBe("Checkpoint 12 completed.");
-  expect(view.pendingApprovals).toBe(1);
-});
-
-test("catch-up has news only when something happened or waits on the person", () => {
-  const quiet = {
-    turnsCompleted: 0,
-    status: { state: "done" as const },
-    latestAgentMessagePreview: "",
-  };
-  expect(catchUpHasNews({ ...quiet, digest: digest() })).toBe(false);
-  expect(catchUpHasNews({ ...quiet, digest: digest({ approvalsPending: 1 }) })).toBe(true);
-  expect(catchUpHasNews({ ...quiet, turnsCompleted: 1, digest: digest() })).toBe(true);
 });

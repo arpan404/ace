@@ -86,6 +86,8 @@ import { CoreClientMessage, CoreServerMessage } from "./wire-core.ts";
 // The core stream lives in wire-core.ts so a client can decode it alone and load the service
 // families later.
 export {
+  ThreadListCursor,
+  ThreadListWindow,
   CommandResult,
   CoreClientMessage,
   CoreServerMessage,

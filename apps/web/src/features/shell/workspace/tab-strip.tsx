@@ -2,7 +2,14 @@ import { CaretDownIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuGroup,
+  MenuItem,
+  MenuLabel,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 import type {
   ScopeWorkspace,
   WorkspaceActions,
@@ -180,19 +187,21 @@ export function TabStrip(props: {
             align="end"
             className="max-h-[min(420px,var(--available-height))] overflow-y-auto"
           >
-            <MenuLabel>Open tabs</MenuLabel>
-            {state.tabs.map((tab) => (
-              <MenuItem
-                key={tab.key}
-                icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} />}
-                onClick={() => actions.activate(tab.key)}
-              >
-                <span className="flex items-center gap-2">
-                  <span className="truncate">{definition.title(tab)}</span>
-                  {tab.key === shown && <CheckIcon role="img" aria-label="Showing" size={12} />}
-                </span>
-              </MenuItem>
-            ))}
+            <MenuGroup>
+              <MenuLabel>Open tabs</MenuLabel>
+              {state.tabs.map((tab) => (
+                <MenuItem
+                  key={tab.key}
+                  icon={<Icon icon={definition.kind(tab.kind)?.icon ?? PlusIcon} />}
+                  onClick={() => actions.activate(tab.key)}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="truncate">{definition.title(tab)}</span>
+                    {tab.key === shown && <CheckIcon role="img" aria-label="Showing" size={12} />}
+                  </span>
+                </MenuItem>
+              ))}
+            </MenuGroup>
           </MenuContent>
         </Menu>
       )}

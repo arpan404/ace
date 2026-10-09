@@ -385,4 +385,6 @@ export { digestFromCounters, digestContributions, mergeTurnDigests } from "./lon
 
 export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-move.ts";
 
+export { sidebarSettled, sidebarVisible, sidebarPage } from "./sidebar-page.ts";
+
 export { distinctRetainedInputs } from "./retained-inputs.ts";

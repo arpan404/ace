@@ -205,7 +205,7 @@ test("OpenAI key entry stays inline in an OpenCode account and cancels without s
   expect(within(form).getByText("Add an OpenCode account")).toBeTruthy();
   await userEvent.click(within(form).getByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.type(within(form).getByRole("textbox"), "Research");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Research");
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   const field = await within(list).findByLabelText("OpenAI API key");
   expect(screen.queryByRole("dialog")).toBeNull();

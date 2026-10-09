@@ -3,7 +3,7 @@ import {
   AccountSummary,
   NativeAccountProvider,
   AccountId,
-  AccountShortLabel,
+  AccountBadgeInput,
   AccountBadgeColor,
 } from "./accounts.ts";
 import { ProviderLoginProgress } from "./provider-login.ts";
@@ -26,6 +26,7 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     requestId: id,
     provider: NativeAccountProvider,
     label: label.optional(),
+    shortLabel: AccountBadgeInput.optional(),
     method: AccountLoginMethod,
     upstream: ApiKeyUpstream.optional(),
   }),
@@ -34,7 +35,7 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     requestId: id,
     ...target,
     label,
-    shortLabel: AccountShortLabel.optional(),
+    shortLabel: AccountBadgeInput.optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
   }),
   z.strictObject({ type: z.literal("provider.accounts.setDefault"), requestId: id, ...target }),

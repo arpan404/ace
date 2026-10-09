@@ -85,9 +85,10 @@ test("the header keeps only navigation, the title, its ⋯, the work card and th
   expect(within(header()).getByRole("heading", { level: 1 }).textContent).toBe(
     "Replay cursor resets on every resume",
   );
+  expect(within(header()).queryByRole("status")).toBeNull();
 });
 
-test("a thread held at a usage limit says Limited after its title", async () => {
+test("a usage limit remains on the sidebar and leaves the thread title clear", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/t/thread-limit-flags");
@@ -95,9 +96,7 @@ test("a thread held at a usage limit says Limited after its title", async () => 
   const list = screen.getByRole("navigation", { name: "Threads" });
   const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
   expect(row.getAttribute("aria-label")).toContain("Limited");
-  const status = await within(header()).findByRole("status");
-  expect(status.textContent).toMatch(/^Limited/);
-  expect(within(header()).getAllByRole("status")).toHaveLength(1);
+  expect(within(header()).queryByRole("status")).toBeNull();
 });
 
 test("search and turns live in the ⋯ menu, and their shortcuts still work", async () => {

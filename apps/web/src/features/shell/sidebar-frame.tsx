@@ -1,6 +1,17 @@
+import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { useRouterState } from "@tanstack/react-router";
-import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useMemo,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode, CSSProperties } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -27,6 +38,14 @@ interface FrameValue {
   claimBody(): () => void;
 }
 const noop = () => {};
+/** An imperative focus destination, read only by events that remove their own control. */
+class SidebarToggleFocus {
+  private node: HTMLButtonElement | null = null;
+  register = (element: HTMLButtonElement | null) => {
+    this.node = element;
+  };
+  focus = () => this.node?.focus();
+}
 const FrameContext = createContext<FrameValue>({
   hasSidebar: false,
   sheet: false,
@@ -39,8 +58,14 @@ const FrameContext = createContext<FrameValue>({
   claimBody: () => noop,
 });
 export const useViewFrame = () => useContext(FrameContext);
+const SidebarToggleContext = createContext<(element: HTMLButtonElement | null) => void>(noop);
+export const useSidebarToggleRegistration = () => useContext(SidebarToggleContext);
 
 /** The sheet: only narrow windows use it, so its code loads when one does. */
+const SidebarResize = lazy(() =>
+  import("./sidebar-resize.tsx").then((module) => ({ default: module.SidebarResize })),
+);
+
 const SidebarSheet = lazy(() =>
   import("./sidebar-sheet.tsx").then((module) => ({ default: module.SidebarSheet })),
 );
@@ -53,8 +78,11 @@ const SidebarSheet = lazy(() =>
  * app's life; Home and Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen, hideRightPanel, rightPanelShown } = useLayout();
+  const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
   const wide = useSidebarInline();
+  const sidebar = useRef<HTMLDivElement>(null);
+  const [sidebarToggle] = useState(() => new SidebarToggleFocus());
+  const setSidebarToggle = sidebarToggle.register;
   const crowded = useMediaQuery(crowdedQuery, false);
   const overlay = useMediaQuery(overlayPanelsQuery, false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -75,6 +103,9 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
   const yielded = crowded && !overlay && rightPanelShown;
   const inline = layout.sidebarOpen && !yielded;
+  useLayoutEffect(() => {
+    if (inline && wide) sidebar.current?.style.removeProperty("width");
+  }, [inline, wide]);
   const shown = wide ? inline : sheetOpen;
   // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from
   // the left when shown and fades before the column takes its space back when hidden.
@@ -103,33 +134,65 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   useHotkey(keymap.toggleSidebar.keys, value.sidebarShown ? value.hideSidebar : value.showSidebar);
   return (
     <FrameContext.Provider value={value}>
-      <div
-        // Read by the desktop app's title bar rules: what sits under the traffic lights.
-        data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
-        className="relative z-[1] flex min-h-0 min-w-0 flex-1"
-      >
-        {wide ? (
-          <div
-            hidden={!presence.mounted}
-            inert={presence.phase === "exit"}
-            data-edge="left"
-            className={cn(
-              "vibrancy flex w-(--sidebar-w) min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
-              panelMotion(presence),
-            )}
-          >
-            {props.sidebar}
-          </div>
-        ) : (
-          // Closed until asked for, so it renders nothing while its code arrives.
-          <Suspense fallback={null}>
-            <SidebarSheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <SidebarToggleContext.Provider value={setSidebarToggle}>
+        <div
+          // Read by the desktop app's title bar rules: what sits under the traffic lights.
+          data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
+          className="relative z-[1] flex min-h-0 min-w-0 flex-1"
+        >
+          {wide ? (
+            <div
+              ref={sidebar}
+              style={{ "--sidebar-w": `${layout.sidebarWidth}px` } as CSSProperties}
+              hidden={!presence.mounted}
+              inert={presence.phase === "exit"}
+              data-edge="left"
+              className={cn(
+                "sidebar-scroll vibrancy relative flex w-[clamp(220px,var(--sidebar-w),min(480px,40vw))] min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+                panelMotion(presence),
+              )}
+            >
               {props.sidebar}
-            </SidebarSheet>
-          </Suspense>
-        )}
-        {props.children}
-      </div>
+              {inline && (
+                <Suspense fallback={null}>
+                  <SidebarResize
+                    sidebar={sidebar}
+                    width={layout.sidebarWidth}
+                    onWidth={setSidebarWidth}
+                    onCollapse={() => {
+                      value.hideSidebar();
+                      sidebarToggle.focus();
+                    }}
+                  />
+                </Suspense>
+              )}
+            </div>
+          ) : (
+            // Closed until asked for, so it renders nothing while its code arrives.
+            <Suspense fallback={null}>
+              <SidebarSheet open={sheetOpen} onOpenChange={setSheetOpen}>
+                {props.sidebar}
+              </SidebarSheet>
+            </Suspense>
+          )}
+          {wide && !inline && (
+            <button
+              type="button"
+              aria-label="Reopen sidebar"
+              onClick={() => {
+                value.showSidebar();
+                sidebarToggle.focus();
+              }}
+              className="group/restore absolute inset-y-0 left-0 z-30 w-3 bg-transparent outline-none hover:bg-sidebar/80 focus-visible:bg-sidebar [-webkit-app-region:no-drag]"
+            >
+              <span className="absolute top-1/2 left-0 grid size-7 -translate-y-1/2 place-items-center rounded-r-md bg-sidebar text-muted-foreground opacity-0 transition-opacity group-hover/restore:opacity-100 group-focus-visible/restore:opacity-100 motion-reduce:transition-none">
+                <SidebarSimpleIcon aria-hidden size={16} />
+              </span>
+            </button>
+          )}
+          {props.children}
+        </div>
+      </SidebarToggleContext.Provider>
     </FrameContext.Provider>
   );
 }

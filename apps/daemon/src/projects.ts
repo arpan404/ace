@@ -1,3 +1,4 @@
+import { discoverProjectFavicon } from "./project-favicon.ts";
 import { parseCloneUrl } from "@ace/project-picker";
 import type { PickerFilesystem } from "./project-picker-filesystem.ts";
 import { ProjectPicker } from "./project-picker.ts";
@@ -15,6 +16,7 @@ import {
 } from "@ace/git";
 import {
   ProjectCommand,
+  WorkspaceId,
   ProjectInspection,
   ProjectsRequest,
   type Command,
@@ -49,6 +51,7 @@ type CloneFlight = {
 };
 export class Projects {
   readonly catalog: ProjectStorage;
+  readonly ready: Promise<void>;
   private paths: ProjectPaths;
   private picker: ProjectPicker;
   private git: GitService;
@@ -76,6 +79,55 @@ export class Projects {
     );
     this.commands = new AsyncCommands(store);
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
+    this.ready = this.restoreIcons().catch(() => undefined);
+  }
+  /** Backfill persisted defaults once per daemon start; it never blocks service readiness. */
+  private async restoreIcons(): Promise<void> {
+    let after = "";
+    while (!this.closed) {
+      const rows = this.store
+        .statement(
+          "SELECT id,path FROM workspaces WHERE id>? AND NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id LIMIT 64",
+        )
+        .all(after);
+      if (!rows.length) return;
+      for (const row of rows) {
+        if (this.closed) return;
+        const id = WorkspaceId.parse(row.id);
+        after = id;
+        let directory: ProjectDirectory | undefined;
+        try {
+          directory = await ProjectDirectory.open(this.paths, String(row.path));
+          const defaultIcon = await discoverProjectFavicon(directory.handle);
+          if (this.closed) return;
+          directory.verify();
+          const project = this.catalog.get(id);
+          if (
+            defaultIcon !== undefined &&
+            project.path === directory.path &&
+            (project.defaultIcon ?? null) !== defaultIcon
+          )
+            this.catalog.update(id, project.name, undefined, "updated", defaultIcon);
+        } catch {
+          /* A missing favicon or changed project path never prevents daemon startup. */
+        } finally {
+          await directory?.close();
+        }
+      }
+    }
+  }
+  private async favicon(path: string): Promise<string | null | undefined> {
+    let directory: ProjectDirectory | undefined;
+    try {
+      directory = await ProjectDirectory.open(this.paths, path);
+      const icon = await discoverProjectFavicon(directory.handle);
+      directory.verify();
+      return icon;
+    } catch {
+      return undefined;
+    } finally {
+      await directory?.close();
+    }
   }
   subscribe(listener: (change: WorkspaceChanged) => void): () => void {
     return this.catalog.subscribe(listener);
@@ -130,9 +182,11 @@ export class Projects {
       )
         throw error;
     }
+    const defaultIcon = await discoverProjectFavicon(directory.handle);
     directory.verify();
     return ProjectInspection.parse({
       path,
+      ...(defaultIcon == null ? {} : { defaultIcon }),
       git,
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
     });
@@ -160,16 +214,30 @@ export class Projects {
             const workspace = this.catalog.register(
               directory.path,
               p.name ?? basename(directory.path).slice(0, 256),
+              p.icon,
+              inspection.defaultIcon,
             );
             return { ok: true, workspace, inspection };
           } finally {
             await directory.close();
           }
         }
-        if (p.type === "workspace.rename" || p.type === "workspace.remove") {
+        if (
+          p.type === "workspace.rename" ||
+          p.type === "workspace.update" ||
+          p.type === "workspace.remove"
+        ) {
           const project = this.catalog.get(p.workspaceId);
           assertProjectPath(project.path, await this.paths.roots());
           this.check(allowed);
+          if (p.type === "workspace.update") {
+            const defaultIcon = await this.favicon(project.path);
+            this.check(allowed);
+            return {
+              ok: true,
+              workspace: this.catalog.update(p.workspaceId, p.name, p.icon, "updated", defaultIcon),
+            };
+          }
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
           this.catalog.remove(
@@ -250,7 +318,12 @@ export class Projects {
           // Commit is synchronous. Cancellation may not contradict pushes emitted by registration.
           const clone = this.clones.get(input.id);
           if (clone) clone.committed = true;
-          const workspace = this.catalog.register(directory.path, p.name);
+          const workspace = this.catalog.register(
+            directory.path,
+            p.name,
+            p.icon,
+            inspection.defaultIcon,
+          );
           if (p.type === "workspace.clone") {
             this.progress(input.deviceId, {
               type: "workspace.clone.progress",
@@ -374,7 +447,7 @@ export class Projects {
     this.closed = true;
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();
-    await Promise.all([this.git.close(), this.commands.drained()]);
+    await Promise.all([this.git.close(), this.commands.drained(), this.ready]);
   }
 }
 export function projectErrorCode(error: unknown): string {

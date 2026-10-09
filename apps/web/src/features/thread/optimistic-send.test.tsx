@@ -145,9 +145,10 @@ test("removing a queued message takes its pill away at once", async () => {
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: "Remove from queue" })).toBeTruthy(),
+    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
   );
-  await userEvent.click(within(queue).getByRole("button", { name: "Remove from queue" }));
+  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 });
@@ -157,10 +158,11 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: "Remove from queue" })).toBeTruthy(),
+    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
   );
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
-  await userEvent.click(within(queue).getByRole("button", { name: "Remove from queue" }));
+  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
   expect(await screen.findByText("Couldn't remove the message")).toBeTruthy();
   app.daemon.restoreRequests();
   expect(

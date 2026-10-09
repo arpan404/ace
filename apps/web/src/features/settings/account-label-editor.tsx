@@ -1,9 +1,10 @@
+import { AccountBadgeField, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { accountColors, ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { accountColors } from "@/components/ui/provider-account-icon.tsx";
 import { Select } from "@/components/ui/select.tsx";
 
 const colors: AccountBadgeColor[] = ["neutral", "blue", "green", "amber", "rose", "violet"];
@@ -18,7 +19,7 @@ export function AccountLabelEditor(props: {
   const [color, setColor] = useState<AccountBadgeColor>(props.account.badgeColor ?? "neutral");
   const save = (event: FormEvent) => {
     event.preventDefault();
-    if (name.trim() && shortLabel.trim())
+    if (name.trim() && !accountBadgeProblem(shortLabel))
       props.onSave(name.trim(), {
         shortLabel: shortLabel.trim(),
         badgeColor: color === "neutral" ? null : color,
@@ -30,15 +31,6 @@ export function AccountLabelEditor(props: {
       onSubmit={save}
       className="flex min-w-0 flex-wrap items-center gap-2 py-1"
     >
-      <ProviderAccountIcon
-        provider={props.account.provider}
-        account={{
-          ...props.account,
-          shortLabel,
-          badgeColor: color === "neutral" ? undefined : color,
-        }}
-        size={20}
-      />
       <Input
         aria-label="Account name"
         value={name}
@@ -46,13 +38,11 @@ export function AccountLabelEditor(props: {
         onChange={(event) => setName(event.target.value)}
         className="h-8 w-28"
       />
-      <Input
-        aria-label="Short label"
-        autoFocus
+      <AccountBadgeField
+        provider={props.account.provider}
         value={shortLabel}
-        maxLength={3}
-        onChange={(event) => setLabel(event.target.value.replace(/\s/g, ""))}
-        className="h-8 w-14"
+        onChange={setLabel}
+        name={name}
       />
       <Select
         label="Label colour"
@@ -69,7 +59,7 @@ export function AccountLabelEditor(props: {
       <span aria-hidden style={{ color: accountColors[color] }}>
         ●
       </span>
-      <Button type="submit" size="sm" disabled={!name.trim() || !shortLabel.trim()}>
+      <Button type="submit" size="sm" disabled={!name.trim() || !!accountBadgeProblem(shortLabel)}>
         Save
       </Button>
       <Button type="button" size="sm" variant="ghost" onClick={props.onCancel}>
