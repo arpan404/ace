@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineIcon.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "color": {
+      "enum": [
+        "default",
+        "blue",
+        "green",
+        "purple",
+        "orange"
+      ],
+      "type": "string"
+    },
+    "emoji": {
+      "maxLength": 16,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "laptop",
+        "desktop",
+        "server",
+        "cloud",
+        "phone",
+        "emoji"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

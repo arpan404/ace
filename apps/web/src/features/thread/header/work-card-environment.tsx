@@ -1,3 +1,5 @@
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
 import {
@@ -177,10 +179,16 @@ function EnvironmentMenu(props: {
 export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
+  const machine = useMachineIdentity(meta?.details?.machine);
   return (
     <>
       <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
         <h2 className="min-w-0 flex-1 truncate text-ui text-subtle-foreground">{project}</h2>
+        <MachineLabel
+          name={machine.name}
+          icon={machine.icon}
+          className="max-w-40 text-xs text-muted-foreground"
+        />
         <EnvironmentMenu
           thread={props.thread}
           move={props.move}

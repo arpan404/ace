@@ -63,6 +63,7 @@ export class WorkspaceForge {
     const linkedPr = {
       number: status.ref.number,
       state: status.state === "draft" ? ("open" as const) : status.state,
+      draft: status.state === "draft",
       url: status.url,
     };
     if (JSON.stringify(thread.details?.linkedPr) === JSON.stringify(linkedPr)) return;

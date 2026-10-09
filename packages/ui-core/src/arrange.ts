@@ -12,9 +12,18 @@ export function isRemoved(entry: ThreadListEntry): boolean {
   return entry.archivedAt !== undefined || entry.deletedAt !== undefined;
 }
 
+/** Older named threads stay compatible; a recorded empty draft never becomes a task by rename. */
+function isDraft(entry: ThreadListEntry): boolean {
+  return (
+    entry.hasSentMessage === false ||
+    (entry.hasSentMessage === undefined &&
+      entry.status.state === "new" &&
+      entry.title === "New thread")
+  );
+}
+
 /**
- * Needs you, then moving, then trouble, then the rest; a snooze sinks a thread to the end. The
- * first three are the work in hand; the rest (done, new, snoozed) is at rest: see `restingRank`.
+ * Requests first, working next, then everything else by recency. Snoozed work stays last.
  */
 export function rank(entry: ThreadListEntry, now: number): number {
   if (isSnoozed(entry, now)) return 4;
@@ -22,26 +31,21 @@ export function rank(entry: ThreadListEntry, now: number): number {
     case "needs_you":
       return 0;
     case "working":
-    case "waiting":
-    case "limited":
       return 1;
-    case "failed":
-    case "unresponsive":
-      return 2;
     default:
-      return 3;
+      return 2;
   }
 }
 
-/** From this rank on a thread is at rest (done, new or snoozed) and Home lists it as Recent. */
-const restingRank = 3;
+/** From this rank on Home orders threads only by recency. */
+const restingRank = 2;
 
 export interface Arrangement {
   /** Pinned threads in the person's own order, settled or not: they put them there. */
   pinned: string[];
-  /** Work in hand: needs you, moving, then trouble. */
+  /** Requests and working threads. */
   active: string[];
-  /** At rest and not yet settled: done, new, then snoozed. */
+  /** Other threads by recency, with snoozed work last. */
   recent: string[];
   settled: string[];
 }
@@ -64,7 +68,7 @@ export function arrange(
   for (const entry of entries) {
     if (isRemoved(entry)) continue;
     // An untouched composer is not a task; sent input gives it a title or live state.
-    if (entry.status.state === "new" && entry.title === "New thread") continue;
+    if (isDraft(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (entry.pinned === true) pinned.push(entry);
     else if (isSettled(entry)) settled.push(entry);
@@ -100,6 +104,7 @@ export function archivedOrder(
     .filter(
       (entry) =>
         entry.archivedAt !== undefined &&
+        !isDraft(entry) &&
         entry.deletedAt === undefined &&
         (state.project === null || entry.workspaceId === state.project),
     )
@@ -116,7 +121,8 @@ export interface ProjectCount {
 export function projectCounts(entries: readonly ThreadListEntry[]): ProjectCount[] {
   const counts = new Map<string, number>();
   for (const entry of entries)
-    if (!isRemoved(entry)) counts.set(entry.workspaceId, (counts.get(entry.workspaceId) ?? 0) + 1);
+    if (!isRemoved(entry) && !isDraft(entry))
+      counts.set(entry.workspaceId, (counts.get(entry.workspaceId) ?? 0) + 1);
   return [...counts]
     .map(([id, threads]) => ({ id, threads }))
     .toSorted((a, b) => a.id.localeCompare(b.id));

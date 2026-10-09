@@ -17,6 +17,7 @@ import type { FakeWireSession } from "./services-wire.ts";
 export interface Host {
   readonly hostId: HostId;
   readonly displayName?: string;
+  readonly icon?: import("@ace/protocol").MachineIcon;
   readonly version?: string;
   readonly head: number;
   readonly duplicateEvents: boolean;
@@ -139,6 +140,7 @@ export class Connection {
           identity: {
             hostId: this.host.hostId,
             displayName: this.host.displayName ?? "Fake machine",
+            icon: this.host.icon ?? { kind: "laptop" },
             version: this.host.version ?? "fake",
           },
         });

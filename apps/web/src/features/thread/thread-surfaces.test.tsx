@@ -85,6 +85,6 @@ test("the usage pause, header and queue share the account reset when the turn ha
       describeWake(reset, now),
     ),
   );
-  expect(screen.getByText("Limited")).toBeTruthy();
+  expect(within(screen.getByRole("banner")).getByText("Limited")).toBeTruthy();
   expect(screen.queryByText(/reset time unknown/)).toBeNull();
 });

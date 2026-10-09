@@ -35,19 +35,19 @@ test("active tasks show their branch, changes and provider on a second line with
   await expect(row.getByRole("img", { name: "Claude Code" })).toBeVisible();
   const taskTitle = row.getByText("Audit Console Feature Gaps", { exact: true });
   expect((await branch.boundingBox())?.y).toBeGreaterThan((await taskTitle.boundingBox())?.y ?? 0);
-  expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(48);
+  expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(32);
+  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(36);
   await expect(nav.getByText("Recent", { exact: true })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: /^New thread/ })).toHaveCount(0);
   for (const title of ["yo!", "greeting", "Hi bro"]) {
     const task = nav.getByRole("link", { name: new RegExp(`^${title}`) });
     await expect(task.getByText(title, { exact: true })).toBeVisible();
+    await expect(task.getByText("OpenForge", { exact: true })).toBeVisible();
+    if (title === "Hi bro")
+      await expect(task.getByText("Build server", { exact: true })).toBeVisible();
     await expect(
-      task.getByText(title === "Hi bro" ? "OpenForge · Build server" : "OpenForge", {
-        exact: true,
-      }),
+      task.getByRole("img", { name: title === "greeting" ? "Claude Code" : "Codex" }),
     ).toBeVisible();
-    await expect(task.getByRole("img")).toBeVisible();
   }
   await nav.getByRole("button", { name: "Settled 1" }).click();
   const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
@@ -55,7 +55,8 @@ test("active tasks show their branch, changes and provider on a second line with
   await expect(settled.getByText("feat/agent-state", { exact: true })).toHaveCount(0);
   expect((await settled.boundingBox())?.height).toBeLessThanOrEqual(36);
   await row.hover();
-  await expect(row.getByRole("img")).toBeHidden();
+  await expect(row.getByText("Working", { exact: true })).toBeHidden();
+  await expect(row.getByText("+3", { exact: true })).toBeVisible();
   await expect(
     nav.getByRole("button", { name: "Settle Audit Console Feature Gaps" }),
   ).toBeVisible();

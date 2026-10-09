@@ -877,7 +877,7 @@ Example:
 
 ```json
 {
-  "key": "providers.coder.model",
+  "key": "providers.coder.provider",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"

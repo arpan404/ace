@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
@@ -11,6 +12,7 @@ import {
   ProjectMark,
   RowDetail,
   RowMeta,
+  RowStatus,
   threadDetails,
   titleTone,
   StatusMark,
@@ -50,7 +52,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
           <div
             className={cn(
               row,
-              settled ? "h-8" : "h-[46px]",
+              settled ? "h-8" : "h-9",
               "flex-row items-center gap-2 bg-sidebar-accent",
             )}
           >
@@ -84,8 +86,8 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
               draggable={false}
               className={cn(
                 row,
-                settled ? "h-8" : "h-[46px]",
-                "group/link focus-visible:shadow-[inset_0_0_0_1px_var(--sidebar-border)] group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
+                settled ? "h-8" : "h-9",
+                "group/link focus-visible:shadow-[inset_0_0_0_1px_var(--sidebar-border)] focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
                 selected && "bg-foreground/8",
                 handle && "pointer-coarse:pr-11",
               )}
@@ -98,12 +100,13 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
               >
                 {settled && <ProjectMark badge={card.badge} />}
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
                   <span className={cn("min-w-0 flex-1 truncate leading-4", titleTone(card))}>
                     {card.title}
                   </span>
                   {!settled && (
-                    <span aria-hidden>
-                      <StatusMark card={card} />
+                    <span className="contents group-focus-within/row:hidden group-hover/row:hidden">
+                      <RowStatus card={card} />
                     </span>
                   )}
                 </span>

@@ -1,5 +1,5 @@
 import { threadAttention } from "@ace/projection";
-import type { ThreadListEntry } from "@ace/protocol";
+import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
  * What a thread list entry says about the thread on its own: settled, snoozed, when it last
@@ -20,12 +20,20 @@ export function isSnoozed(entry: ThreadListEntry, now: number): boolean {
 export const activityOf = (entry: ThreadListEntry): number => entry.activityAt ?? entry.updatedAt;
 
 /**
- * New activity the person hasn't opened. Working threads move constantly, so only finished
- * work (done, failed) newer than the last read, or a thread marked unread by hand, counts.
- * Threads never read anywhere compare against this device's first launch.
+ * Device read cursors compare execution sequences. Explicit read/unread choices win.
+ * Older snapshots without sequence facts fall back to finished activity newer than the read
+ * time, or this device's first launch when it has never read the thread.
  */
-export function isUnread(entry: ThreadListEntry, baseline: number): boolean {
+export function isUnread(
+  entry: ThreadListEntry,
+  baseline: number,
+  read?: ThreadReadStateResponse,
+): boolean {
   if (entry.unread === true) return true;
+  if (read?.updatedAt != null && entry.activitySeq !== undefined) {
+    if (entry.readAt !== undefined && entry.readAt >= activityOf(entry)) return false;
+    return entry.activitySeq > read.lastSeenSeq;
+  }
   if (entry.status.state !== "done" && entry.status.state !== "failed") return false;
   return activityOf(entry) > (entry.readAt ?? baseline);
 }

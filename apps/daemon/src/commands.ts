@@ -112,6 +112,7 @@ export function createDevThread(
     workspaceId,
     title,
     provider,
+    hasSentMessage: false,
     status: { state: "new" },
     createdAt: at,
     updatedAt: at,

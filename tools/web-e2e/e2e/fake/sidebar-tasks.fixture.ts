@@ -30,7 +30,7 @@ export async function stageSidebarTasks(page: Page, theme = "dark") {
               details: {
                 workspace: { id: "openforge", name: "OpenForge", path: "/tmp/fake/openforge" },
                 machine: {
-                  host: index === 2 ? "build-server" : "this-mac",
+                  host: index === 2 ? "build-server" : daemon.hostId,
                   name: index === 2 ? "Build server" : "This Mac",
                 },
                 ...(index === 3

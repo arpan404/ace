@@ -1,4 +1,5 @@
-import { useHostName } from "@/lib/host-name.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -19,13 +20,14 @@ export function DaemonSettings() {
   const connection = useDaemonConnection();
   const state = useConnectionState();
   const [editing, setEditing] = useState(false);
-  const host = useHostName() ?? "This machine";
+  const identity = useHostIdentity();
+  const host = identity?.displayName ?? "This machine";
   const fake = connection.mode === "fake";
   return (
     <SettingSection label="Connection" scope="device">
       <SettingRow
         id="daemon.connection"
-        title={host}
+        title={<MachineLabel name={host} icon={identity?.icon} />}
         description={`${stateLabels[state]}${fake ? " · Demo connection" : ""}`}
       >
         {!fake && (

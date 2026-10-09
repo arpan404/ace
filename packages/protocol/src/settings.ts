@@ -1,3 +1,4 @@
+import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
 import { BrowserOrigin } from "./browser.ts";
 import { PermissionMode } from "./permissions.ts";
@@ -11,6 +12,7 @@ const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "x
 export const SettingsValues = z.object({
   "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),
+  "host.icon": MachineIcon.and(z.json()),
   "projects.roots": z.array(z.string().min(1).max(4096)).max(32),
   "threads.followUpBehavior": z.enum(["steer", "queue"]),
   "threads.continueAfterRestart": z.boolean(),

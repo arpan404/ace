@@ -20,7 +20,15 @@ function crashingBuild(): Scenario {
       provider: "codex",
     },
     steps: [
-      { kind: "facts", label: "working", facts: [facts.rootAgent("codex"), facts.turn("root")] },
+      {
+        kind: "facts",
+        label: "working",
+        facts: [
+          facts.rootAgent("codex"),
+          facts.turn("root"),
+          facts.message("root", "request", "user", "Cut the 0.9 release build"),
+        ],
+      },
       {
         kind: "facts",
         label: "failed",

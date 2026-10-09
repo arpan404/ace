@@ -56,7 +56,7 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.needsYou, b.needsYou);
 
 /**
- * Pinned threads in the person's order, then Home order (needs you, moving, trouble, the rest,
+ * Pinned threads in the person's order, then Home order (requests, working, then the rest,
  * most recent first in each; settled apart), across every project the filter lets through. Only
  * ids are selected, so a status change re-renders its own row and moves rows only when the
  * order changes.

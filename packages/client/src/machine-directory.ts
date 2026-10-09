@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceCredential, DeviceId, HostIdentity, HostId } from "@ace/protocol";
+import { DeviceCredential, DeviceId, HostIdentity, HostId, MachineIcon } from "@ace/protocol";
 import type { Storage } from "./types.ts";
 import { ClientError } from "./errors.ts";
 
@@ -35,6 +35,7 @@ export const MachineTarget = z.discriminatedUnion("kind", [
 export const MachineEntry = z.strictObject({
   hostId: z.string().min(1).max(256).pipe(HostId),
   displayName: z.string().min(1).max(256),
+  icon: MachineIcon.optional(),
   target: MachineTarget,
   deviceId: z.string().min(1).max(256).pipe(DeviceId),
 });
@@ -107,6 +108,7 @@ export class MachineDirectory {
       const entry = MachineEntry.parse({
         hostId: identity.hostId,
         displayName: identity.displayName,
+        icon: identity.icon,
         target: paired.target,
         deviceId: paired.deviceId,
       });
@@ -135,11 +137,11 @@ export class MachineDirectory {
   ): Promise<MachineEntry> {
     return this.add(await redeem(link));
   }
-  rename(hostId: string, displayName: string): Promise<void> {
+  rename(hostId: string, displayName: string, icon?: MachineIcon): Promise<void> {
     return this.serialize(async () => {
       const entry = this.entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) throw new ClientError("offline", "Unknown machine");
-      const renamed = MachineEntry.parse({ ...entry, displayName });
+      const renamed = MachineEntry.parse({ ...entry, displayName, ...(icon ? { icon } : {}) });
       await this.save(this.entries.map((old) => (old.hostId === hostId ? renamed : old)));
     });
   }

@@ -105,6 +105,10 @@ test("a worktree's steps advance under the first message, with checkout's percen
 
 test("once made, the card folds to one line that opens on its steps and log", async () => {
   const made = app();
+  made.daemon.services.settings.seed({
+    "host.displayName": "Workshop Mac",
+    "host.icon": { kind: "desktop" },
+  });
   await startWorktree(made, "Profile the relay startup");
   await userEvent.type(
     screen.getByRole("combobox", { name: "Message" }),
@@ -122,6 +126,9 @@ test("once made, the card folds to one line that opens on its steps and log", as
   // The real thread opens; its first message keeps how the worktree was made, folded.
   const line = await screen.findByRole("button", { name: /^Worktree ready · ace\/[\w-]+ · \d+s$/ });
   expect(screen.queryByRole("region", { name: "Creating a worktree" })).toBeNull();
+  const transcript = screen.getByRole("feed", { name: "Transcript" });
+  expect(await within(transcript).findByText("Workshop Mac")).toBeTruthy();
+  expect(within(transcript).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
   expect(line.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(line);
   const steps = screen.getByRole("list", { name: "Steps" });

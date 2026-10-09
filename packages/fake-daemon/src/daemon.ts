@@ -1,3 +1,4 @@
+import { MachineIcon } from "@ace/protocol";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -128,6 +129,9 @@ export class FakeDaemon implements Host {
   get displayName(): string {
     const name = this.services.settings.get("host.displayName");
     return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
+  }
+  get icon() {
+    return MachineIcon.parse(this.services.settings.get("host.icon") ?? { kind: "laptop" });
   }
   readonly version: string;
   /** Fault injection: deliver every event frame twice. */
@@ -470,6 +474,7 @@ export class FakeDaemon implements Host {
         ),
         pending: false,
       },
+      hasSentMessage: false,
       activityAt: now,
       status: { state: "new" as const },
       createdAt: now,
@@ -588,7 +593,11 @@ export class FakeDaemon implements Host {
       const metadata = liveMetadata(
         host.view.thread,
         payload,
-        payload.type === "agent.created" ? host.view.agents[payload.agent.id] : undefined,
+        payload.type === "agent.created"
+          ? host.view.agents[payload.agent.id]
+          : payload.type === "agent.status"
+            ? host.view.agents[payload.agentId]
+            : undefined,
         payload.type === "background_task.started"
           ? host.view.backgroundTasks[payload.task.id]
           : payload.type === "background_task.updated"
@@ -597,6 +606,7 @@ export class FakeDaemon implements Host {
         step?.type === "tool_call" && step.call.detail.kind === "shell"
           ? step.call.detail.command
           : undefined,
+        now,
       );
       if (metadata) followups.push(metadata);
       // The daemon turns a provider's context sample into the agent's replaceable meter.

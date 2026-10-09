@@ -1,3 +1,4 @@
+import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -123,7 +124,7 @@ test("threads opened lately come first with an empty query, the open one aside",
 test("threads and projects read by the project's name, never its id", async () => {
   const app = harness();
   const id = "a003e031-2390-44d2-b0a7-4a5fd727d463";
-  app.daemon.createThread({
+  createIdleTask(app.daemon, {
     id: "thread-scratch",
     workspaceId: id,
     title: "QA Codex lifecycle",

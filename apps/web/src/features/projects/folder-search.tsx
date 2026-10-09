@@ -1,6 +1,6 @@
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import {
   ArrowElbowDownLeftIcon,
-  DesktopTowerIcon,
   FolderOpenIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
@@ -393,7 +393,13 @@ function FolderOption(props: {
       {row.self && <Badge icon={ArrowElbowDownLeftIcon}>Open</Badge>}
       {row.project && !row.self && <Badge>Project</Badge>}
       {row.git && <Badge icon={GitBranchIcon}>Git</Badge>}
-      {props.several && <Badge icon={DesktopTowerIcon}>{row.machine.name}</Badge>}
+      {props.several && (
+        <MachineLabel
+          name={row.machine.name}
+          icon={row.machine.icon}
+          className="text-xs text-subtle-foreground"
+        />
+      )}
     </div>
   );
 }

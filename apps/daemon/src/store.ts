@@ -1,3 +1,4 @@
+import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
@@ -144,6 +145,7 @@ export class Store {
         return thread?.deletedAt === undefined ? thread : undefined;
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
+      this.atomic(seedSentMessages);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -573,7 +575,7 @@ export class Store {
           if (!existing) throw new Error("Unknown thread");
           thread = existing;
         }
-        const liveChange = liveMetadataChange(this.db, thread, event.payload);
+        const liveChange = liveMetadataChange(this.db, thread, event.payload, event.at);
         if (liveChange) followup = liveChange;
         updateThread(thread, event);
         if (

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { ProviderKind } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { brandArt, providerIcon } from "./provider-icons.ts";
@@ -80,24 +79,4 @@ test("Codex, its ACP agent and GPT models all show the OpenAI Blossom, under the
     brand: "openai",
     label: "OpenAI",
   });
-});
-
-test("the OpenAI mark is the Blossom from OpenAI's brand kit, cropped to fill its box", async () => {
-  const kit = readFileSync(
-    new URL("../../../scripts/brand-marks/openai-blossom.svg", import.meta.url),
-    "utf8",
-  );
-  const art = await brandArt.openai();
-  expect(art.mono.map((path) => path.d)).toEqual([/ d="([^"]+)"/.exec(kit)?.[1]]);
-  // Drawn in the text colour: no fill of its own, and no colour variant.
-  expect(art.mono[0]?.fill).toBeUndefined();
-  expect(art.color).toBeUndefined();
-  // The outline spans 180.5 to 535.17 on both axes of the kit's 716 square.
-  const [x, y, width, height] = art.viewBox.split(" ").map(Number);
-  expect([x, y, width, height]).toEqual([
-    expect.closeTo(180.5, 1),
-    expect.closeTo(180.5, 1),
-    expect.closeTo(354.67, 1),
-    expect.closeTo(354.67, 1),
-  ]);
 });

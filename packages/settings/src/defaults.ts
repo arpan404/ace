@@ -2,6 +2,7 @@ import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
   "providers.configuration": [],
   "host.displayName": "",
+  "host.icon": { kind: "laptop" },
   "projects.roots": [],
   "threads.followUpBehavior": "queue",
   "threads.continueAfterRestart": false,
