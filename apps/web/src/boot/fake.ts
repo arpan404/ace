@@ -6,6 +6,7 @@ import {
   fakeTransport,
   hostFolders,
   seedPanels,
+  seedRealCatalogs,
   turnStatuses,
   workbenchServices,
 } from "@ace/fake-daemon";
@@ -77,6 +78,7 @@ export function bootFake(): {
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
   if (world === "computer-use") seedComputerUse(daemon);
+  if (world === "real-catalogs") seedRealCatalogs(daemon, Date.now());
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

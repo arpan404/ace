@@ -1,3 +1,4 @@
+import { settleLegacyImports } from "./history-migration.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects } from "./project-storage.ts";
@@ -170,6 +171,15 @@ export class Store {
           }
         },
         () => this.historyWriting || this.search.hasPendingWrites(),
+      );
+      this.atomic((db) =>
+        settleLegacyImports(
+          db,
+          (id) => this.getThread(id),
+          (id, payloads, at) => {
+            this.appendEvents(id, payloads, at);
+          },
+        ),
       );
     } catch (error) {
       this.db.close();

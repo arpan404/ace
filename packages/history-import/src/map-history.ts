@@ -17,7 +17,7 @@ export type Mapped = { item: Item; message: boolean };
 export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapped> {
   const r = object(value);
   const p = ctx.provider === "codex" && r.type === "response_item" ? object(r.payload) : r;
-  const message = ctx.provider === "claude" ? object(p.message) : p;
+  const message = ctx.provider === "claude" || ctx.provider === "pi" ? object(p.message) : p;
   const role =
     string(message.role) ?? (p.type === "user" || p.type === "assistant" ? p.type : undefined);
   const at = timestamp(r.timestamp) ?? timestamp(object(p.time).created) ?? ctx.at;
@@ -113,7 +113,26 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
       message: false,
     };
   };
+  const rawOnly = (): Mapped => ({
+    item: Item.parse({
+      ...base(),
+      type: "notice",
+      level: "info",
+      code: "history.raw-only",
+      text: "",
+      raw: raw(),
+    }),
+    message: false,
+  });
+  if (ctx.provider === "pi" && r.type !== "message") {
+    yield rawOnly();
+    return;
+  }
   if (ctx.provider === "codex") {
+    if (["event_msg", "turn_context", "session_meta"].includes(String(r.type))) {
+      yield rawOnly();
+      return;
+    }
     if (p.type === "function_call" || p.type === "custom_tool_call") {
       yield tool(p);
       return;
@@ -127,11 +146,15 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
       return;
     }
     if (p.type === "reasoning") {
+      let readable = false;
       for (const part of Array.isArray(p.summary) ? p.summary : []) {
         const text = string(object(part).text);
-        if (text) yield* texts("reasoning", text, false);
+        if (text) {
+          readable = true;
+          yield* texts("reasoning", text, false);
+        }
       }
-      yield notice("Native reasoning record");
+      if (!readable) yield rawOnly();
       return;
     }
     if (r.type === "compacted") {

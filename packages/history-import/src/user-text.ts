@@ -48,7 +48,10 @@ export function sanitizeUserText(value: string): string {
   text = text
     .replace(contextBlocks, "")
     .replace(/^\/(?:[\w-]+)(?:\s|$)/, "")
-    .replace(/\[(?:Image|Attachment)\s*\d+(?:[^\]]*)\]/gi, "")
+    .replace(/\[(?:Image|Attachment)(?:\s*\d+|\s*:)[^\]]*\]/gi, "")
+    .replace(/\[Attached (?:image|file|screenshot)\b[^\]]*(?:saved at|saved to):?[^\]]*\]/gi, "")
+    .replace(/^\s*(?:name|fileName):[^\n]*\n(?=\s*(?:mimeType|sizeBytes|attachmentId):)/gim, "")
+    .replace(/^\s*(?:mimeType|sizeBytes|attachmentId):[^\n]*(?:\n|$)/gim, "")
     .replace(/^\s*(?:\[?Attached (?:image|file|screenshot)[^\n]*|<image>)[\n]?/gi, "")
     .trim();
   return text;

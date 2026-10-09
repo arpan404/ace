@@ -54,6 +54,11 @@ export async function prepareHistory(
           leaf = uuid;
         }
       }
+      const piId = string(r.id);
+      if (instance.provider === "pi" && piId && Object.hasOwn(r, "parentId")) {
+        node.run(ordinal, piId, string(r.parentId) ?? null);
+        leaf = piId;
+      }
       for (const completion of nativeCompletions(record.value, instance.provider))
         result.run(completion.id, ordinal, JSON.stringify(completion));
     }
@@ -68,7 +73,7 @@ export async function prepareHistory(
       signal.throwIfAborted();
       const row = get.get(leaf);
       if (!row) break;
-      if (Number(row.selected)) throw new Error("Cyclic Claude conversation ancestry");
+      if (Number(row.selected)) throw new Error("Cyclic native conversation ancestry");
       select.run(leaf);
       leaf = string(row.parent);
     }

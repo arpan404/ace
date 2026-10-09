@@ -90,7 +90,10 @@ export function catalogSignal(
   const failing = new Set(
     own.flatMap((status) =>
       (status.sources ?? []).flatMap((entry) =>
-        entry.error && entry.source.kind !== "account" && entry.source.kind !== "local"
+        entry.error &&
+        entry.error.code !== "no_models" &&
+        entry.source.kind !== "account" &&
+        entry.source.kind !== "local"
           ? [entry.source.id]
           : [],
       ),

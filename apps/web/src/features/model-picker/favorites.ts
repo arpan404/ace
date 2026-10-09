@@ -1,9 +1,9 @@
 import { useClient } from "@ace/client-react";
 import { ProviderConfiguration, ProviderKind } from "@ace/protocol";
-import { modelKey, readJson, toggleFavorite } from "@ace/ui-core";
+import { catalogModelIds, modelKey, readJson, toggleFavorite } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
-import { catalogKey } from "@/lib/model-catalog.ts";
-import { useEffect } from "react";
+import { catalogKey, useModelCatalog } from "@/lib/model-catalog.ts";
+import { useEffect, useMemo } from "react";
 import * as z from "zod/mini";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -25,6 +25,8 @@ export function useFavoriteModels(): {
   const [rows] = useDaemonSetting("providers.configuration");
   const toast = useToast();
   const query = useQueryClient();
+  const catalog = useModelCatalog();
+  const canonical = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
   useEffect(() => {
     if (!rows || !storage || !storage.getItem(favoritesKey) || migrations.has(storage)) return;
     const old = readJson(storage, favoritesKey, Favorites, []);
@@ -53,7 +55,9 @@ export function useFavoriteModels(): {
   return {
     favorites: (rows ?? []).flatMap((row) =>
       row.instance === undefined
-        ? (row.favourites ?? []).map((id) => modelKey(row.provider, id))
+        ? (row.favourites ?? []).map((id) =>
+            modelKey(row.provider, canonical(row.provider, id) ?? id),
+          )
         : [],
     ),
     toggle(key) {
@@ -64,7 +68,14 @@ export function useFavoriteModels(): {
       void editProviderConfiguration(client, (before) =>
         changeProvider(before, provider.data, (row) => ({
           ...row,
-          favourites: toggleFavorite(row.favourites ?? [], id),
+          favourites: toggleFavorite(
+            [
+              ...new Set(
+                (row.favourites ?? []).map((saved) => canonical(provider.data, saved) ?? saved),
+              ),
+            ],
+            id,
+          ),
         })),
       )
         .then(() => query.invalidateQueries({ queryKey: catalogKey }))

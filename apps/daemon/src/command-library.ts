@@ -40,7 +40,12 @@ export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstanc
   const home = homedir(),
     settings = homes.parse(env);
   return [
-    { id: "claude", provider: "claude", home: settings.CLAUDE_CONFIG_DIR ?? join(home, ".claude") },
+    {
+      id: "claude",
+      provider: "claude",
+      home: settings.CLAUDE_CONFIG_DIR ?? join(home, ".claude"),
+      skillsHome: home,
+    },
     {
       id: "codex",
       provider: "codex",
@@ -55,7 +60,7 @@ export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstanc
         join(settings.XDG_CONFIG_HOME ?? join(home, ".config"), "opencode"),
     },
     { id: "cursor", provider: "cursor", home: join(home, ".cursor") },
-    { id: "pi", provider: "pi", home: join(home, ".pi/agent") },
+    { id: "pi", provider: "pi", home: join(home, ".pi/agent"), skillsHome: home },
     ...(["antigravity", "acp"] as const).map((provider) => ({
       id: provider,
       provider,

@@ -4,7 +4,7 @@ import { ThreadId, WorkspaceId, Timestamp } from "./ids.ts";
 
 export { ImportedProvenance } from "./imported-provenance.ts";
 
-export const HistoryProvider = z.enum(["claude", "codex", "opencode", "cursor"]);
+export const HistoryProvider = z.enum(["claude", "codex", "opencode", "cursor", "pi"]);
 export type HistoryProvider = z.infer<typeof HistoryProvider>;
 export const HistorySession = z.object({
   id: z.string().min(1),

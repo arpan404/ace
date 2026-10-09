@@ -46,7 +46,7 @@ export interface AccountView {
 }
 
 const known: [RegExp, string, number][] = [
-  [/^(five_hour|5h|session)$|:primary$|^primary$/, "5-hour", 0],
+  [/^(five_hour|5h|session)$/, "5-hour", 0],
   [/^(daily|one_day|day)$/, "Daily", 1],
   [/^(seven_day|weekly|week)$|:secondary$|^secondary$/, "Weekly", 2],
   [/^seven_day_opus$/, "Weekly Opus", 3],
@@ -55,7 +55,30 @@ const known: [RegExp, string, number][] = [
   [/^default$/, "Usage", 5],
 ];
 
-function classify(name: string): { label: string; rank: number } {
+function classify(
+  name: string,
+  window?: { windowDurationMins?: number | undefined; resetsAt: number | null },
+  observedAt = 0,
+): { label: string; rank: number } {
+  // Named model-specific windows keep their useful distinction from the shared weekly limit.
+  if (/^seven_day_(opus|sonnet)$/.test(name)) {
+    const named = known.find(([pattern]) => pattern.test(name));
+    if (named) return { label: named[1], rank: named[2] };
+  }
+  if (window?.windowDurationMins !== undefined) {
+    const mins = window.windowDurationMins;
+    if (mins >= 28 * 1440) return { label: "Monthly", rank: 4 };
+    if (mins > 1440) return { label: "Weekly", rank: 2 };
+    if (mins === 1440) return { label: "Daily", rank: 1 };
+    if (mins === 300) return { label: "5-hour", rank: 0 };
+    return { label: `${mins / 60}-hour`, rank: 0 };
+  }
+  if (/^(?:codex:)?primary$/.test(name))
+    return window?.resetsAt !== null &&
+      window?.resetsAt !== undefined &&
+      window.resetsAt - observedAt > 86400000
+      ? { label: "Weekly", rank: 2 }
+      : { label: "Usage", rank: 5 };
   for (const [pattern, label, rank] of known) if (pattern.test(name)) return { label, rank };
   const words = name.replace(/[_:-]+/g, " ").trim();
   return { label: words.charAt(0).toUpperCase() + words.slice(1), rank: 6 };
@@ -89,7 +112,7 @@ export function accountDisplayName(
 export function accountView(summary: Summary): AccountView {
   const ranked: (QuotaWindowView & { rank: number })[] = [];
   for (const [id, window] of Object.entries(summary.quota.windows)) {
-    const { label, rank } = classify(id);
+    const { label, rank } = classify(id, window, summary.quota.observedAt);
     const usedPercent = Math.round(Math.min(100, Math.max(0, window.usedPercent)));
     ranked.push({ id, label, rank, usedPercent, resetsAt: window.resetsAt });
   }

@@ -269,10 +269,9 @@ test("missing, malformed, paid or disabled Zen pricing cannot unlock models, and
       ],
     }),
   })(instance, new AbortController().signal);
-  expect(rows.map((row) => row.id)).toEqual([
-    "custom-local/local-model",
-    "opencode/new-free-model",
-  ]);
+  expect(rows.map((row) => row.id).toSorted()).toEqual(
+    ["custom-local/local-model", "opencode/new-free-model", ...freeIds].toSorted(),
+  );
 });
 
 test("free Zen models survive restart and unchanged connection polling does not refresh them", async ({

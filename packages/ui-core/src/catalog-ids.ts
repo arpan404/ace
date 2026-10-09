@@ -27,3 +27,20 @@ export function selectionInputs(
       (model.id === named || modelAliases(model).includes(named)),
   )?.inputModalities;
 }
+
+/** Canonical identities for historical rows, including unambiguous bare OpenCode selectors. */
+export function catalogModelIds(models: readonly CatalogModel[]) {
+  const ids = new Map<string, string | null>();
+  for (const model of models) {
+    const aliases = [model.id, ...modelAliases(model)];
+    if (model.provider === "opencode" && model.id.includes("/"))
+      aliases.push(model.id.slice(model.id.indexOf("/") + 1));
+    for (const alias of aliases) {
+      const key = `${model.provider}\0${alias}`;
+      const previous = ids.get(key);
+      ids.set(key, previous === undefined || previous === model.id ? model.id : null);
+    }
+  }
+  return (provider: string, id: string | null | undefined) =>
+    id ? (ids.get(`${provider}\0${id}`) ?? id) : null;
+}

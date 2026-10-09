@@ -1,3 +1,4 @@
+import { nativeReference } from "./native-reference.ts";
 import { z } from "zod";
 import { parentPort, workerData } from "node:worker_threads";
 import { mkdir, chmod, open, lstat } from "node:fs/promises";
@@ -109,7 +110,10 @@ port.on("message", async (value: unknown) => {
       );
     } else if (request.op === "list") result = catalog.list(request.request);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;
-    else if (request.op === "import.persist") {
+    else if (request.op === "reference") {
+      const source = catalog.get(request.id);
+      result = source ? nativeReference(source).nativeId : null;
+    } else if (request.op === "import.persist") {
       controller = new AbortController();
       result = await persistImport(request.init);
     } else if (request.op === "import") {

@@ -1,4 +1,4 @@
-import { catalogDisplay, blockedDescendant } from "./catalog-display.ts";
+import { catalogDisplay, blockedDescendant, preferredDuplicate } from "./catalog-display.ts";
 import { contains } from "@ace/native-session";
 import { setImmediate } from "node:timers/promises";
 import type { ProviderHome } from "./contracts.ts";
@@ -53,10 +53,10 @@ export class Catalog {
       "CREATE TABLE IF NOT EXISTS native_titles(instance TEXT,native TEXT,title TEXT,origin TEXT NOT NULL,PRIMARY KEY(instance,native))",
     );
     if (
-      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "2"
+      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "3"
     ) {
       this.db.exec(
-        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','2')",
+        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','3')",
       );
     }
     this.updates = new ScanUpdates(this.db);
@@ -331,7 +331,7 @@ export class Catalog {
     const { cwd, limit, before, search, openableOnly } = HistoryListRequest.parse(input);
     const cursor = before ? " AND (activity<? OR (activity=? AND id<?))" : "";
     const rows = this.readStatement(
-      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl'))${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
+      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND NOT EXISTS (${preferredDuplicate("sources")})${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
     ).all(
       cwd,
       openableOnly ? 1 : 0,
@@ -360,7 +360,9 @@ export class Catalog {
     });
   }
   children(instance: string, native: string): Source[] {
-    return this.statement("SELECT id FROM sources WHERE instance=? AND parent=? LIMIT 513")
+    return this.statement(
+      `SELECT id FROM visible_sources sources WHERE instance=? AND parent=? AND NOT EXISTS (${preferredDuplicate("sources")}) LIMIT 513`,
+    )
       .all(instance, native)
       .map((r) => this.get(String(r.id)))
       .filter((s): s is Source => s !== undefined);

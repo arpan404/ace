@@ -1,3 +1,4 @@
+import { providerSource, modelSource } from "./model-source.ts";
 import { connectedOpenCodeProviders } from "./opencode-connections.ts";
 import { parseVersion } from "@ace/provider-kit/discovery";
 import { z } from "zod";
@@ -60,7 +61,6 @@ export async function discoverOpenCodeCatalog(
     sourceFailures = details.sourceFailures ?? sourceFailures;
     diagnostic?.(details);
   });
-  if (!report.missingMetadata.length) return report;
   diagnostic?.({ stage: "model-ids" });
   const missingMetadata = new Set(report.missingMetadata);
   const rows: CatalogModel[] = [];
@@ -78,7 +78,9 @@ export async function discoverOpenCodeCatalog(
   };
   signal.addEventListener("abort", abort, { once: true });
   let failure: unknown;
-  const seen = new Set<string>();
+  // ID-only output may fill absent metadata, never override rejected native records.
+  const seen = new Set(report.metadataIds);
+  const sources = new Map(report.sources.map((status) => [status.source.id, status]));
   proc.stdout.on("line", (line: string) => {
     if (failure || !line.trim()) return;
     try {
@@ -88,16 +90,28 @@ export async function discoverOpenCodeCatalog(
         .max(256)
         .regex(/^[^\s/]+\/\S+$/)
         .parse(line.trim());
-      if (!missingMetadata.has(id.slice(0, id.indexOf("/"))) || seen.has(id)) return;
+      if (seen.has(id)) return;
+      const provider = id.slice(0, id.indexOf("/"));
+      const listed = sources.get(provider);
+      if (listed?.error && listed.error.code !== "no_models") return;
+      const known = connected.get(provider);
+      const inferred = providerSource(provider);
+      const free =
+        ["opencode", "opencode-zen"].includes(provider) &&
+        /(?:-free$|^big-pickle$)/.test(id.slice(id.indexOf("/") + 1));
+      if (!known && inferred.kind !== "local" && !free) return;
+      const source = modelSource(provider, id, known ?? { ...inferred, requiresAuth: false });
       if (rows.length >= 512 - report.models.length) throw new Error("Too many models");
       const separator = id.indexOf("/");
       rows.push(
         CatalogModel.parse({
           ...base(instance, id, id, { id }),
           nativeProviderId: id.slice(0, separator),
-          source: connected.get(id.slice(0, separator)),
+          source,
+          ...(free ? { free: true } : {}),
         }),
       );
+      sources.set(source.id, { source, status: "fresh" });
       seen.add(id);
     } catch (error) {
       failure = error;
@@ -112,11 +126,7 @@ export async function discoverOpenCodeCatalog(
     if (exit.reason !== "exit" || exit.code !== 0) throw new Error("OpenCode model listing failed");
     return {
       models: [...report.models, ...rows],
-      sources: report.sources.map((status) =>
-        rows.some((row) => row.source?.id === status.source.id)
-          ? { source: status.source, status: "fresh" }
-          : status,
-      ),
+      sources: [...sources.values()],
     };
   } catch (error) {
     signal.throwIfAborted();
@@ -128,6 +138,7 @@ export async function discoverOpenCodeCatalog(
           ? [...missingMetadata].map((source) => ({
               source,
               reason: discoveryFailureReason(error, { env: instance.env }),
+              stage: "model-ids" as const,
             }))
           : []),
       ],

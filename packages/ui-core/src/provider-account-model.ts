@@ -70,13 +70,14 @@ export function providerAccountModel(input: {
   const accounts: AccountView[] = [];
   for (const stored of own) {
     const signal = input.catalogForAccount?.(stored.id);
-    const serviceStatus = signal?.serviceProblems
-      ? {
-          tone: "problem" as const,
-          text: "Connection needs attention",
-          canRun: signal.connected > 0 || Boolean(signal.withoutAuth),
-        }
-      : undefined;
+    const serviceStatus =
+      signal?.serviceProblems && !signal.connected && !signal.withoutAuth
+        ? {
+            tone: "problem" as const,
+            text: "Connection needs attention",
+            canRun: signal.connected > 0 || Boolean(signal.withoutAuth),
+          }
+        : undefined;
     const account = {
       ...stored,
       version: input.row?.version ?? stored.version,

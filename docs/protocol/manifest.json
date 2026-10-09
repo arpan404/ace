@@ -837,8 +837,8 @@
       "sha256": "289edc929e0f66d3bbe27cb534dca0693917dcdd9ca12ff2d8aef5d899f1518d"
     },
     "schema/HistoryProvider.json": {
-      "bytes": 220,
-      "sha256": "d31dcea12c6cc2a8ce56cf7fda81f688d4ec32641e57d4122dce4adc4e6b1c6a"
+      "bytes": 230,
+      "sha256": "1694662899960d444ea8a9247da0d0df8581f18b29b185ebee5a68c45e87553b"
     },
     "schema/HistoryScanRequest.json": {
       "bytes": 479,
@@ -2837,10 +2837,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 617272,
-      "sha256": "041ff21959b00cb913bafecfb447dac8c97229ffbd807334ac704834872ddaf1"
+      "bytes": 617280,
+      "sha256": "535d6c9971be1b2c95d1bfe08fda5f3dc910838bb3938f2559e75d8b7ad3aa7a"
     }
   },
-  "input": "fe6f1105b2b0674e459f3258cfa2da694b3dd2cd8a81540a3ed62431c5a7846d",
+  "input": "4214b3247c277d77d8653c7c8018efaa8f6ba2d2eb61c72a63d02c179ca59a8a",
   "version": 1
 }

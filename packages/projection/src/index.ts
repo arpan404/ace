@@ -1,3 +1,4 @@
+export { isRawHistoryItem } from "./history-visibility.ts";
 import { usageSnapshotKey } from "./usage.ts";
 export {
   emptyTurnDigest,

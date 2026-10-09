@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ModelSource, ModelSourceStatus, CatalogModel } from "@ace/protocol";
 import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { freeOpenCodeModel } from "./opencode-free.ts";
-import { providerSource } from "./model-source.ts";
+import { providerSource, modelSource } from "./model-source.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { discoveryError } from "./discovery-errors.ts";
 import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
@@ -13,7 +13,7 @@ export function normalizeOpenCodeReport(
   instance: ModelInstance,
   connected: ReadonlyMap<string, ModelSource>,
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
-): DiscoveryReport & { missingMetadata: readonly string[] } {
+): DiscoveryReport & { missingMetadata: readonly string[]; metadataIds: readonly string[] } {
   const envelope = z
     .object({
       location: z.object({ directory: z.literal(instance.cwd) }),
@@ -26,13 +26,16 @@ export function normalizeOpenCodeReport(
     })
     .parse(payload);
   const grouped = new Map<string, unknown[]>();
+  const metadataIds = new Set<string>();
   const available = new Map(connected);
   for (const raw of envelope.data) {
+    const model = z.object({ providerID: z.string(), modelID: z.string() }).safeParse(raw);
+    if (model.success) metadataIds.add(`${model.data.providerID}/${model.data.modelID}`);
     const identity = z.object({ providerID: z.string() }).safeParse(raw);
     if (!identity.success) continue;
     const id = identity.data.providerID;
     if (!connected.has(id)) {
-      if (!freeOpenCodeModel(raw)) continue;
+      if (!freeOpenCodeModel(raw) && providerSource(id).kind !== "local") continue;
       available.set(id, { ...providerSource(id), requiresAuth: false });
     }
     const group = grouped.get(identity.data.providerID) ?? [];
@@ -42,15 +45,18 @@ export function normalizeOpenCodeReport(
   const models: CatalogModel[] = [];
   const sources: ModelSourceStatus[] = [];
   const missingMetadata: string[] = [];
-  const sourceFailures: { source: string; reason: string }[] = [];
+  const sourceFailures: { source: string; reason: string; stage: "metadata" }[] = [];
   const failedSource = (source: ModelSource, cause: unknown) => {
     const error = discoveryError(cause, "discovery_failed", { ...instance, source: source.id });
     sources.push({ source, status: "stale", error });
-    if (error.code === "discovery_failed")
-      sourceFailures.push({
-        source: source.id,
-        reason: discoveryFailureReason(cause, { env: instance.env }),
-      });
+    sourceFailures.push({
+      source: source.id,
+      reason:
+        error.code === "discovery_failed"
+          ? discoveryFailureReason(cause, { env: instance.env })
+          : error.message,
+      stage: "metadata",
+    });
   };
   for (const [id, source] of available) {
     try {
@@ -68,8 +74,14 @@ export function normalizeOpenCodeReport(
           error: discoveryError(undefined, "no_models", { ...instance, source: id }),
         });
       } else {
-        models.push(...rows.map((row) => Object.assign({}, row, { source })));
-        sources.push({ source, status: "fresh" });
+        models.push(
+          ...rows.map((row) => Object.assign({}, row, { source: modelSource(id, row.id, source) })),
+        );
+        for (const model of rows) {
+          const routed = modelSource(id, model.id, source);
+          if (!sources.some((entry) => entry.source.id === routed.id))
+            sources.push({ source: routed, status: "fresh" });
+        }
       }
     } catch (error) {
       failedSource(source, error);
@@ -77,5 +89,5 @@ export function normalizeOpenCodeReport(
   }
   diagnostic?.({ sourceFailures });
   if (models.length > 512) throw new Error("Too many connected models");
-  return { models, sources, missingMetadata };
+  return { models, sources, missingMetadata, metadataIds: [...metadataIds] };
 }

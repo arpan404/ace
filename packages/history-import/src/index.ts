@@ -184,6 +184,9 @@ export class HistoryService {
     signal?: AbortSignal,
     onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
   ) {
+    // A list started just before a scan still owns the request slot. Drain that read
+    // before claiming the scan instead of turning harmless overlap into a failure.
+    if (!this.importing && !this.scanning && this.requestDone) await this.requestDone;
     if (this.importing || this.pending || this.scanning || this.closed || this.closing)
       throw new Error("History operation already in progress or closed");
     // The authoritative scan covers already observed paths. Keep changes arriving
@@ -196,6 +199,9 @@ export class HistoryService {
     signal?: AbortSignal,
     onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
   ) {
+    // A list started just before a scan still owns the request slot. Drain that read
+    // before claiming the scan instead of turning harmless overlap into a failure.
+    if (!this.importing && !this.scanning && this.requestDone) await this.requestDone;
     if (this.importing || this.pending || this.scanning || this.closed || this.closing)
       throw new Error("History operation already in progress or closed");
     const changes = this.inventory?.take();
@@ -374,8 +380,9 @@ export class HistoryService {
     if (!s || s.support.status !== "supported") throw new Error("Session cannot be continued");
     if (s.provider === "claude" && s.parentNativeId)
       throw new Error("Claude sidechains continue through their parent session");
+    const reference = z.string().parse(await this.request({ op: "reference", id: sourceId }));
     const nativeSessionId =
-      mode === "resume" ? s.nativeId : await this.nativeFork(s.instanceId, s.nativeId, fork);
+      mode === "resume" ? reference : await this.nativeFork(s.instanceId, reference, fork);
     return {
       instanceId: s.instanceId,
       cwd: s.cwd,

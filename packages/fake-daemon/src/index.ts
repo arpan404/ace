@@ -88,3 +88,4 @@ export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";
 export { FakeScreen, type FakeScreenOptions } from "./screen.ts";
 
 export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tool-results.ts";
+export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";

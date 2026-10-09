@@ -11,6 +11,7 @@
     "bench": "node bench/scan.ts"
   },
   "dependencies": {
+    "@ace/adapter-pi": "workspace:*",
     "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",

@@ -521,6 +521,7 @@
     "packages/history-import": {
       "name": "@ace/history-import",
       "dependencies": {
+        "@ace/adapter-pi": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",

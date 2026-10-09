@@ -14,6 +14,7 @@ const rootSchema = z.object({
   scope: z.enum(["user", "workspace"]),
   instance: z.string().max(128).optional(),
   skill: z.boolean().optional(),
+  skillLinkHome: z.string().max(4096).optional(),
   kind: z
     .enum(["skill", "command", "plugin", "agent", "workflow", "mcp-tool", "builtin"])
     .optional(),
