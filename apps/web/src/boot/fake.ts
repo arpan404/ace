@@ -8,6 +8,7 @@ import {
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
+  seedColdStartState,
   turnStatuses,
   workbenchServices,
 } from "@ace/fake-daemon";
@@ -61,7 +62,9 @@ export function bootFake(): {
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
-  for (const thread of empty || world === "real-thread-state" ? [] : devWorld()) {
+  for (const thread of empty || ["real-thread-state", "cold-start-state"].includes(world ?? "")
+    ? []
+    : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
     if (thread.through) player.runThrough(thread.through);
     else if (!thread.live) player.runUntilBlocked();
@@ -81,6 +84,7 @@ export function bootFake(): {
   // browser on this Mac.
   if (world === "computer-use") seedComputerUse(daemon);
   if (world === "real-catalogs") seedRealCatalogs(daemon, Date.now());
+  if (world === "cold-start-state") seedColdStartState(daemon);
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);
@@ -92,7 +96,7 @@ export function bootFake(): {
   });
   // This device last read the five-day migration after checkpoint 20, so opening it shows
   // what happened since (the catch-up card).
-  if (!empty && world !== "real-thread-state")
+  if (!empty && !["real-thread-state", "cold-start-state"].includes(world ?? ""))
     daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
   // The hero thread was last read before reconnect-audit's finding arrived ("New activity").
   if (!empty && daemon.itemId("thread-dedupe", "relay"))

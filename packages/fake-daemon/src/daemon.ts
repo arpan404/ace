@@ -354,6 +354,15 @@ export class FakeDaemon implements Host {
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }
+  /** Fault injection: old snapshots repeated an input under two delivery states. */
+  repeatQueuedInput(threadId: string, messageId: string): void {
+    const host = this.thread(threadId);
+    const message = host.queued.find((entry) => entry.key === messageId);
+    if (!message) throw new Error("No queued input to repeat");
+    host.queued.push({ ...message, state: "queued" });
+    host.queueDirty = true;
+    this.afterChange(host, this.options.clock());
+  }
   /** Simulate a pre-delivery failure without contacting any provider. Queued input is retained. */
   sessionOpenFailed(threadId: string, reason: "model_unavailable" | "not_sent"): void {
     const host = this.thread(threadId);

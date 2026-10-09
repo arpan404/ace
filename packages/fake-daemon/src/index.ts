@@ -90,3 +90,5 @@ export { FakeScreen, type FakeScreenOptions } from "./screen.ts";
 
 export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tool-results.ts";
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
+
+export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
