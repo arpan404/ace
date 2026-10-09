@@ -9,6 +9,9 @@ afterEach(() => vi.unstubAllGlobals());
 test("Needs you lists model selection, restart holds and failed sends and removes released holds", async () => {
   const app = harness();
   seedRealThreadState(app.daemon);
+  app.daemon.updateThread("legacy-model", {
+    execution: { provider: "opencode", model: "removed/model", options: {} },
+  });
   await app.open("/activity");
   const main = await screen.findByRole("main");
   expect(

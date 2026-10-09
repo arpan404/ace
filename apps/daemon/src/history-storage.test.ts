@@ -85,10 +85,9 @@ test("cancelled engine publication rolls back history and sequences before a lat
       "base64",
     ).toString(),
   ).toBe(output);
-  const notice = Object.values(snapshot.items).find(
-    (i) => i.type === "notice" && i.text.includes("oversized"),
-  );
-  const raw = notice?.type === "notice" ? notice.raw[0] : undefined;
+  const raw = Object.values(snapshot.items)
+    .flatMap((item) => (item.type === "notice" ? item.raw : []))
+    .find((record) => "blobRef" in record && record.size === Buffer.byteLength(opaque));
   if (!raw || !("blobRef" in raw)) throw new Error("Missing native blob");
   const hash = createHash("sha256");
   for (let offset = 0; offset < raw.size; offset += 256 * 1024)
