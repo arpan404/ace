@@ -14,7 +14,7 @@ import {
   type MachineThreadRef,
   type PairedMachine,
 } from "@ace/client/machines";
-import type { CommandPayload, HostIdentity } from "@ace/protocol";
+import type { CommandPayload, HostIdentity, MachineIcon } from "@ace/protocol";
 import { RemoteClient, type RemoteOptions } from "./remote.ts";
 import type { PortLike } from "./wire.ts";
 
@@ -118,10 +118,10 @@ export class MachinePool {
   ): Promise<MachineEntry> {
     return this.add(await redeem(link));
   }
-  async rename(hostId: string, displayName: string): Promise<void> {
+  async rename(hostId: string, displayName: string, icon?: MachineIcon): Promise<void> {
     await this.start();
     this.assertOpen();
-    await this.options.directory.rename(hostId, displayName);
+    await this.options.directory.rename(hostId, displayName, icon);
     const entry = this.options.directory.machines.find((candidate) => candidate.hostId === hostId);
     const live = this.live.get(hostId);
     if (!entry || !live) return;
@@ -299,14 +299,16 @@ export class MachinePool {
             this.stopWorker(live);
             return;
           }
-          this.publish(live, {
-            entry: live.state.entry,
-            status: "online",
-            identity: reply.identity,
-          });
-          if (!live.attached) {
+          const entry = {
+            ...live.state.entry,
+            displayName: reply.identity.displayName,
+            icon: reply.identity.icon,
+          };
+          this.publish(live, { entry, status: "online", identity: reply.identity });
+          if (live.attached) this.threads.rename(entry);
+          else {
             live.attached = true;
-            this.threads.attach(live.state.entry, client.threads());
+            this.threads.attach(entry, client.threads());
           }
         },
         (error: unknown) => {

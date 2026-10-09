@@ -71,6 +71,7 @@ export const droppedWorkerZodMethods = {
   ZodType: [
     ...(droppedZodMethods["ZodType"] ?? []),
     "or",
+    "~standard",
     "parseAsync",
     "safeParseAsync",
     "catch",
@@ -85,6 +86,8 @@ export const droppedWorkerZodMethods = {
     "register",
     "apply",
   ],
+  // Workers use parse/safeParse directly, with no Standard Schema consumers.
+  $ZodType: ["~standard"],
   ZodObject: [...(droppedZodMethods["ZodObject"] ?? []), "merge", "loose", "strip"],
   ZodNumber: [
     ...(droppedZodMethods["ZodNumber"] ?? []),
@@ -131,6 +134,7 @@ export const droppedPerfWorkerZodMethods = {
 };
 
 const classicSchemas = /zod\/v4\/classic\/schemas\.js$/;
+const coreSchemas = /zod\/v4\/core\/schemas\.js$/;
 const classicErrors = /zod\/v4\/classic\/errors\.js$/;
 const stub = "__aceDroppedZodMethod";
 
@@ -209,7 +213,9 @@ export function zodWithoutUnusedMethods(
         );
         return { code: out.toString(), map: out.generateMap({ hires: true, source: id }) };
       }
-      if (!classicSchemas.test(id.split("?")[0] ?? id)) return null;
+      const path = id.split("?")[0] ?? id;
+      if (!classicSchemas.test(path) && !(coreSchemas.test(path) && dropped["$ZodType"]))
+        return null;
       const out = new MagicString(code);
       let changed = false;
       for (const declarator of declarators(this.parse(code) as unknown as Node)) {
@@ -250,12 +256,16 @@ export function zodWithoutUnusedMethods(
           if (!first) continue;
           // A shared factory keeps every unsupported method's diagnostic while avoiding a
           // repeated function body for each prototype entry.
-          out.overwrite(
-            first.node.start,
-            first.node.end,
-            `.../* @__PURE__ */ ${stub}Methods(${JSON.stringify(removed.map(({ name }) => name).join(" "))})`,
-          );
-          for (const { node } of removed.slice(1)) {
+          // Classic wrappers install the unsupported Standard Schema method themselves.
+          // The shadowed core descriptors don't need another set of stubs.
+          const core = found[0] === "$ZodType";
+          if (!core)
+            out.overwrite(
+              first.node.start,
+              first.node.end,
+              `.../* @__PURE__ */ ${stub}Methods(${JSON.stringify(removed.map(({ name }) => name).join(" "))})`,
+            );
+          for (const { node } of core ? removed : removed.slice(1)) {
             let end = node.end;
             while (/\s/.test(code[end] ?? "")) end++;
             out.remove(node.start, code[end] === "," ? end + 1 : node.end);

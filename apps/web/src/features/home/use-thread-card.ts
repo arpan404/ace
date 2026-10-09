@@ -3,6 +3,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, type ThreadCard } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useCardDetails } from "./thread-details.ts";
 import { useOrganizer, useOverlaidEntry } from "@/features/organize/index.ts";
 
@@ -16,6 +17,15 @@ export function useThreadCard(
   settled: boolean,
 ): { entry: ThreadListEntry; card: ThreadCard } | undefined {
   const entry = useOverlaidEntry(useSidebarThread(threadId));
+  // Only mounted rows read one cursor, once per execution/read change. No history or polling.
+  const read = useDaemonQuery({
+    queryKey: ["sidebar-thread-read", threadId, entry?.activitySeq, entry?.readAt],
+    read: (client, signal) => client.threadReadState({ threadId }, { signal }),
+    enabled: entry?.activitySeq !== undefined && !settled,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
   const details = useCardDetails(entry);
   const organizer = useOrganizer();
   const now = useNow();
@@ -32,6 +42,7 @@ export function useThreadCard(
       settled,
       now,
       projectName: projectName(entry.workspaceId),
+      readState: read.data,
     }),
   };
 }

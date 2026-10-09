@@ -29,7 +29,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
       request.type === "settings.set" &&
       (request.key === "projects.roots" ||
         request.key === "providers.configuration" ||
-        request.key === "host.displayName" ||
+        request.key.startsWith("host.") ||
         request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&
           authorize("admin") &&

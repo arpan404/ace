@@ -32,6 +32,7 @@ export type LimitPolicy = z.infer<typeof LimitPolicy>;
  */
 export const settingKeys = {
   hostName: setting("host.displayName", SettingsValues.shape["host.displayName"], ""),
+  hostIcon: setting("host.icon", SettingsValues.shape["host.icon"], { kind: "laptop" }),
   remoteEnabled: setting("remote.enabled", z.boolean(), false),
   remoteTransport: setting("remote.transport", SettingsValues.shape["remote.transport"], "local"),
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),

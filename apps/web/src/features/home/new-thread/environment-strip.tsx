@@ -1,6 +1,6 @@
 import type { WorktreeBase } from "@ace/protocol";
 import { baseName } from "@ace/ui-core";
-import { CaretDownIcon, GitBranchIcon, LaptopIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, GitBranchIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -13,7 +13,8 @@ import {
 } from "@/features/thread/index.ts";
 import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
-import { useHostName } from "@/lib/host-name.ts";
+import { useMachineIdentity } from "@/lib/machine-identity.ts";
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
 import { ProjectPicker } from "./project-picker.tsx";
@@ -63,7 +64,7 @@ export function NewThreadEnvironment(props: {
 function EnvironmentControls(
   props: Parameters<typeof NewThreadEnvironment>[0] & { compact: boolean },
 ) {
-  const host = useHostName() ?? "This machine";
+  const host = useMachineIdentity();
   const [choosing, setChoosing] = useState(false);
   const worktree = props.mode === "worktree";
   const base = props.base ? baseName(props.base) : "the current branch";
@@ -75,10 +76,9 @@ function EnvironmentControls(
         project={props.project}
         onProject={props.onProject}
       />
-      <Tip label={`Runs on ${host}`} side="top">
+      <Tip label={`Runs on ${host.name}`} side="top">
         <span className="flex h-7 min-w-0 items-center gap-1.5 px-2">
-          <LaptopIcon aria-hidden size={14} className="shrink-0" />
-          <span className="truncate">{host}</span>
+          <MachineLabel name={host.name} icon={host.icon} />
         </span>
       </Tip>
       <span className="flex-1" />

@@ -13,7 +13,7 @@ const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   ...patch,
 });
 
-test("Home puts threads that need you first, then moving ones, then trouble; finished ones rest in Recent", () => {
+test("Home puts requests first, working next, then every other task by recency", () => {
   const entries = [
     entry("done", { state: "done" }, now - hour),
     entry("failed", { state: "failed" }, now - hour),
@@ -21,17 +21,17 @@ test("Home puts threads that need you first, then moving ones, then trouble; fin
     entry("asks", { state: "needs_you", interactions: 1 }, now - 2 * hour),
   ];
   const order = arrange(entries, state(), now);
-  expect(order.active).toEqual(["asks", "working", "failed"]);
-  expect(order.recent).toEqual(["done"]);
+  expect(order.active).toEqual(["asks", "working"]);
+  expect(order.recent).toEqual(["done", "failed"]);
 });
 
-test("a thread held by a provider limit stays with the moving ones, above trouble", () => {
+test("waiting and failed tasks follow working tasks by recency", () => {
   const entries = [
     entry("failed", { state: "failed" }, now - hour),
     entry("done", { state: "done" }, now - hour),
     entry("limited", { state: "limited", until: now + hour }, now - 2 * hour),
   ];
-  expect(arrange(entries, state(), now).active).toEqual(["limited", "failed"]);
+  expect(arrange(entries, state(), now).recent).toEqual(["failed", "done", "limited"]);
 });
 
 test("pinned threads leave Home order for their own, in the place the person gave each", () => {
@@ -138,9 +138,19 @@ test("an untouched New thread draft stays out of the task list, while named new 
   const draft = entry("draft", { state: "new" }, now, { title: "New thread" });
   const task = entry("sent", { state: "working", agents: 1 }, now, { title: "New thread" });
   const named = entry("named", { state: "new" }, now, { title: "Plan rollout" });
-  const list = arrange([draft, task, named], state(), now);
+  const renamedDraft = entry("renamed", { state: "new" }, now, {
+    title: "Renamed draft",
+    hasSentMessage: false,
+  });
+  const sentNew = entry("admitted", { state: "new" }, now, {
+    title: "New thread",
+    hasSentMessage: true,
+  });
+  const list = arrange([draft, renamedDraft, task, named, sentNew], state(), now);
   expect([...list.pinned, ...list.active, ...list.recent, ...list.settled]).toEqual([
     "sent",
     "named",
+    "admitted",
   ]);
+  expect(projectCounts([draft, renamedDraft])).toEqual([]);
 });

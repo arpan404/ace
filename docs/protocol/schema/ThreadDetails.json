@@ -70,6 +70,9 @@
       "anyOf": [
         {
           "properties": {
+            "draft": {
+              "type": "boolean"
+            },
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,
@@ -107,6 +110,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "icon": {
+          "$ref": "https://ace.local/protocol/v1/MachineIcon.json"
         },
         "name": {
           "maxLength": 256,

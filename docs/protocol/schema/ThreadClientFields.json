@@ -5,6 +5,11 @@
     "activityAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "activitySeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "autoSettleAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
@@ -13,6 +18,9 @@
     },
     "details": {
       "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
+    },
+    "hasSentMessage": {
+      "type": "boolean"
     },
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"

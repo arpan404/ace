@@ -1,3 +1,5 @@
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useSidebarThread } from "@ace/client-react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { CheckIcon } from "@phosphor-icons/react";
@@ -34,6 +36,7 @@ export function FeedRow(props: {
 }) {
   const arrival = useArrival();
   const thread = useSidebarThread(props.threadId ?? "");
+  const machine = useMachineIdentity(thread?.details?.machine);
   const button = (
     <button
       type="button"
@@ -76,6 +79,13 @@ export function FeedRow(props: {
             thread.execution?.instanceId
           }
           size={14}
+        />
+      )}
+      {!machine.primary && (
+        <MachineLabel
+          name={machine.name}
+          icon={machine.icon}
+          className="max-w-32 text-xs text-muted-foreground"
         />
       )}
       <span className="min-w-0 flex-1">

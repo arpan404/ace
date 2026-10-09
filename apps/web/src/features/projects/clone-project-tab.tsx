@@ -1,3 +1,4 @@
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { ArrowClockwiseIcon, KeyIcon } from "@phosphor-icons/react";
 import {
   childFolder,
@@ -151,7 +152,7 @@ export function CloneProjectTab(props: {
             percent={run.percent}
             cancelling={run.cancelling}
             onCancel={clone.cancel}
-            machine={props.machines.length > 1 ? run.machine.name : undefined}
+            machine={props.machines.length > 1 ? run.machine : undefined}
           />
           {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
         </>
@@ -196,7 +197,7 @@ function CloneProgress(props: {
   percent: number | undefined;
   cancelling: boolean;
   onCancel(): void;
-  machine: string | undefined;
+  machine: Machine | undefined;
 }) {
   const { label, value } = cloneProgress(props.phase, props.percent);
   return (
@@ -205,7 +206,12 @@ function CloneProgress(props: {
         <Spinner />
         <span className="flex-1 text-foreground" aria-live="polite">
           {props.cancelling ? "Cancelling…" : label}
-          {props.machine && <span className="text-subtle-foreground"> · on {props.machine}</span>}
+          {props.machine && (
+            <span className="text-subtle-foreground">
+              {" "}
+              · on <MachineLabel name={props.machine.name} icon={props.machine.icon} />
+            </span>
+          )}
         </span>
         {value !== undefined && (
           <span className="text-sm text-muted-foreground tabular-nums">{value}%</span>

@@ -73,7 +73,12 @@ export async function fakeMachinePool(
   await pool.start();
   for (const daemon of daemons)
     await pool.add({
-      identity: { hostId: daemon.hostId, displayName: daemon.displayName, version: "0.0.0-fake" },
+      identity: {
+        hostId: daemon.hostId,
+        displayName: daemon.displayName,
+        icon: daemon.icon,
+        version: "0.0.0-fake",
+      },
       target: { kind: "direct", url: `ws://${daemon.hostId}.local:4242` },
       deviceId: "web-fake-device",
       token,

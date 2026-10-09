@@ -20,7 +20,6 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
-import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
 import type { HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
@@ -37,9 +36,9 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 47,
+  pinned: 37,
   "pinned-end": 9,
-  thread: 47,
+  thread: 37,
   "settled-header": 37,
   settled: 33,
 };
@@ -86,7 +85,6 @@ export function ThreadList(props: { list: HomeList }) {
   const { pinned, active, recent, settled } = props.list;
   const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
-  const home = useHomeMachine();
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = useMemo(
     () =>
@@ -281,7 +279,7 @@ export function ThreadList(props: { list: HomeList }) {
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
   return (
-    <HomeMachine value={home}>
+    <>
       <div
         ref={viewport}
         {...hold.handlers}
@@ -295,6 +293,7 @@ export function ThreadList(props: { list: HomeList }) {
         <div
           ref={listRef}
           role="list"
+          aria-label="Threads"
           onKeyDownCapture={onKeyDownCapture}
           onKeyDown={onKeyDown}
           onBlur={(event) => {
@@ -386,7 +385,7 @@ export function ThreadList(props: { list: HomeList }) {
           <BulkBar.Component />
         </Suspense>
       )}
-    </HomeMachine>
+    </>
   );
 }
 

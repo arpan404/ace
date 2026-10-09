@@ -80,14 +80,31 @@ process.on("message", (input: unknown) => {
       if (request.op === "idle-store") {
         for (let index = 0; index < 16; index++) {
           const thread = await create();
-          const message = daemon.store
-            .readEvents({ threadId: ThreadId.parse(thread), afterSeq: 0, limit: 16 })
-            .find(
-              (event) =>
-                event.payload.type === "item.created" &&
-                event.payload.item.type === "message" &&
-                event.payload.item.role === "assistant",
-            );
+          // Metadata is additive. Walk bounded pages instead of assuming the answer is
+          // among the first 16 events, before later projection facts were introduced.
+          const message = (() => {
+            let afterSeq = 0;
+            const head = daemon.store.headSeq();
+            while (afterSeq < head) {
+              const page = daemon.store.readEvents({
+                threadId: ThreadId.parse(thread),
+                afterSeq,
+                limit: 32,
+                byteLimit: 1_048_576,
+              });
+              const found = page.find(
+                (event) =>
+                  event.payload.type === "item.created" &&
+                  event.payload.item.type === "message" &&
+                  event.payload.item.role === "assistant",
+              );
+              if (found) return found;
+              const last = page.at(-1);
+              if (!last) break;
+              afterSeq = last.seq;
+            }
+            return undefined;
+          })();
           if (!message || message.payload.type !== "item.created")
             throw new Error("Missing seeded message");
           const item = message.payload.item;

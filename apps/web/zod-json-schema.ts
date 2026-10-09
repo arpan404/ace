@@ -50,6 +50,21 @@ export function zodWithoutJsonSchema(): Plugin {
   };
 }
 
+/** Workers never generate JSON Schema; don't install closures for the omitted processors. */
+export function workerZodWithoutJsonSchema(): Plugin {
+  return {
+    ...zodWithoutJsonSchema(),
+    name: "ace:worker-zod-without-json-schema",
+    transform(code, id) {
+      if (!(id.split("?")[0] ?? id).endsWith("zod/v4/classic/schemas.js")) return null;
+      const out = code.replace(/^\s*inst\._zod\.processJSONSchema =[^\n]*;$/gm, (line) =>
+        line.replace(/[^\n]/g, " "),
+      );
+      return out === code ? null : { code: out, map: null };
+    },
+  };
+}
+
 /** Protocol sources, whose `.meta()` annotations exist only for the generated protocol docs. */
 const protocolSource = /\/packages\/protocol\/src\/[^?]*\.ts(?:\?|$)/;
 
@@ -65,14 +80,16 @@ const isNode = (value: unknown): value is Node =>
 
 /** A metadata or description annotation, from the receiver's end to the closing parenthesis. */
 function metaCall(node: Node): [number, number] | undefined {
-  if (node.type !== "CallExpression" || (node["arguments"] as unknown[]).length !== 1) return;
+  if (node.type !== "CallExpression") return;
   const callee = node["callee"];
   if (!isNode(callee) || callee.type !== "MemberExpression" || callee["computed"]) return;
   const property = callee["property"];
   const object = callee["object"];
   if (
     !isNode(property) ||
-    !["meta", "describe"].includes(String(property["name"])) ||
+    !(["meta", "describe"].includes(String(property["name"]))
+      ? (node["arguments"] as unknown[]).length === 1
+      : property["name"] === "brand" && (node["arguments"] as unknown[]).length === 0) ||
     !isNode(object)
   )
     return;
@@ -82,8 +99,8 @@ function metaCall(node: Node): [number, number] | undefined {
 /**
  * Schema annotations (`.meta({...})`: constraint prose, examples, JSON Schema keywords) only
  * feed JSON Schema generation, which browser builds don't bundle (see above), and parsing never
- * reads them. They are several kilobytes of prose in the client worker, so browser builds drop
- * each `.meta(annotations)` and `.describe(text)` call from protocol sources. The call returns a registered copy of
+ * reads them. Browser builds drop these annotations and type-only `.brand()` calls, which
+ * return the receiver unchanged. The call returns a registered copy of
  * its receiver, so the receiver alone parses identically. Removed spans become whitespace, so
  * every other position, and the sourcemap, is unchanged. The unused registry is stubbed too,
  * so metadata reads return undefined and attempts to register new metadata fail explicitly.
@@ -103,7 +120,10 @@ export function zodWithoutMetadata(): Plugin {
       `;
     },
     transform(code, id) {
-      if (!protocolSource.test(id) || (!code.includes(".meta(") && !code.includes(".describe(")))
+      if (
+        !protocolSource.test(id) ||
+        (!code.includes(".meta(") && !code.includes(".describe(") && !code.includes(".brand"))
+      )
         return null;
       const spans: [number, number][] = [];
       const visit = (value: unknown): void => {
