@@ -1,3 +1,4 @@
+import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -27,7 +28,7 @@ function listed(app: App, id: string) {
   return view?.kind === "threads" ? view.threads[id] : undefined;
 }
 
-/** Home with two new threads that nothing runs in, so the daemon lets them be deleted. */
+/** Home with two completed tasks, so the daemon lets them be deleted. */
 async function openWithIdle() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -35,7 +36,7 @@ async function openWithIdle() {
     ["thread-readme", "Tidy the README"],
     ["thread-docs-index", "Sketch the docs index"],
   ] as const)
-    app.daemon.createThread({ id, workspaceId: "relay", title, provider: "codex" });
+    createIdleTask(app.daemon, { id, workspaceId: "relay", title, provider: "codex" });
   await app.open("/");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   return app;
@@ -61,20 +62,24 @@ test("⌘-click picks rows without opening them, Shift-click takes the rows betw
   await pick(/^Approval sheet/, "{Meta>}");
   await pick(/^Backpressure/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  expect(await screen.findByText("3 selected")).toBeTruthy();
+  expect(await screen.findByText("5 selected")).toBeTruthy();
   expect(card(/^Retry budget.*, selected/)).toBeTruthy();
   expect(
     within(threads()).queryByRole("link", { name: /^Partial refunds.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
-  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 3 threads" }));
+  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 5 threads" }));
   await waitFor(() =>
     expect(
-      ["thread-sheet-rotate", "thread-retry-budget", "thread-fan-out"].map(
-        (id) => listed(app, id)?.pinned,
-      ),
-    ).toEqual([true, true, true]),
+      [
+        "thread-sheet-rotate",
+        "thread-retry-budget",
+        "thread-dedupe",
+        "thread-install-page",
+        "thread-fan-out",
+      ].map((id) => listed(app, id)?.pinned),
+    ).toEqual([true, true, true, true, true]),
   );
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });

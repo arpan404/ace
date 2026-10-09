@@ -137,7 +137,12 @@ test("a clone runs on the chosen machine with its progress, and Cancel stops it 
   await screen.findByText("Clones into ~/big-repo");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   const bar = await screen.findByRole("progressbar", { name: "Clone progress" });
-  expect(screen.getByText(/on Build server/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      (text, element) =>
+        text.includes("· on") && element?.textContent?.includes("Build server") === true,
+    ),
+  ).toBeTruthy();
   await waitFor(() => expect(stages.length).toBeGreaterThan(0));
   stages.shift()?.();
   await waitFor(() => expect(bar.getAttribute("aria-valuetext")).toBe("Receiving objects, 24%"));

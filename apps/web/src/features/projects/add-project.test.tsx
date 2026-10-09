@@ -1,3 +1,4 @@
+import { createIdleTask } from "@/test/tasks.ts";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -226,7 +227,7 @@ test("Enter opens a project with threads at its threads; ⌘Enter starts a new t
   const made = firstRun();
   const added = await addProject(made, { path: `${home}/code/weather` });
   const projectId = added.workspace?.id ?? "";
-  made.daemon.createThread({
+  createIdleTask(made.daemon, {
     id: "thread-forecast",
     workspaceId: projectId,
     title: "Fix the forecast",

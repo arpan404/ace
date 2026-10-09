@@ -1,3 +1,4 @@
+import { createIdleTask } from "@/test/tasks.ts";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -49,11 +50,11 @@ const asks: Facts = [
   },
 ];
 
-/** One project with three new threads, newest first. */
+/** One project with three completed tasks, newest first. */
 async function openHome() {
   const app = harness();
   for (const name of names)
-    app.daemon.createThread({
+    createIdleTask(app.daemon, {
       id: `thread-${name.toLowerCase()}`,
       workspaceId: "hold",
       title: `${name} thread`,

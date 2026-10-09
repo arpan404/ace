@@ -1,3 +1,4 @@
+import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -128,7 +129,7 @@ test("a move the daemon refuses puts the row back, with the daemon's reason", as
 
 test("a thread in its own worktree is refused with what to do instead", async () => {
   const app = await openApp("/", ({ daemon }) =>
-    daemon.createThread({
+    createIdleTask(daemon, {
       id: "thread-isolated",
       workspaceId: "relay",
       title: "Isolated experiment",
@@ -195,9 +196,9 @@ test("⌘K moves the open thread to another project", async () => {
 });
 
 test("picked threads move together from the selection bar, with one Undo", async () => {
-  // A new thread nothing runs in, beside a failed one from another project.
+  // A completed task, beside a failed one from another project.
   const app = await openApp("/", ({ daemon }) =>
-    daemon.createThread({
+    createIdleTask(daemon, {
       id: "thread-readme",
       workspaceId: "ace",
       title: "Tidy the README",
