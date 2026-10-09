@@ -62,18 +62,19 @@ bun run check   # merge gate only: includes tests
 Every development command runs its processes side by side with prefixed logs (`daemon │`,
 `web │`, `desktop │`). Ctrl-C stops all of them; a second Ctrl-C kills them.
 
-| Command                          | What runs                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `bun run dev`                    | The daemon in watch mode, the web Vite server, and Electron on the Vite URL (renderer HMR; main restarts)   |
-| `bun run dev:web`                | The daemon and the web app in your browser; prints a `#token=` link for the dev daemon                      |
-| `bun run dev:fake`               | The web app against the in-page fake daemon. No daemon, no providers                                        |
-| `bun run dev:desktop:fake`       | Electron against the fake daemon                                                                            |
-| `bun run daemon`                 | Only the daemon, in watch mode                                                                              |
-| `bun run doctor`                 | The daemon's doctor checks against the dev data dir                                                         |
-| `bun run desktop:build`          | An unsigned (ad-hoc signed) local app for this machine: macOS `.app` and dmg in `apps/desktop/dist/release` |
-| `bun run desktop:package`        | The full platform package (see Packaging)                                                                   |
-| `bun run desktop:rebuild-native` | node-pty compiled for Electron with `@electron/rebuild`                                                     |
-| `bun run desktop:e2e`            | Playwright-for-Electron smoke test against the fake daemon (`ACE_E2E_ELECTRON=1`)                           |
+| Command                          | What runs                                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`                    | The daemon in watch mode, the web Vite server, and Electron on the Vite URL (renderer HMR; main restarts)             |
+| `bun run dev:web`                | The daemon and the web app in your browser; prints a `#token=` link for the dev daemon                                |
+| `bun run dev:fake`               | The web app against the in-page fake daemon. No daemon, no providers                                                  |
+| `bun run dev:desktop:fake`       | Electron against the fake daemon                                                                                      |
+| `bun run daemon`                 | Only the daemon, in watch mode                                                                                        |
+| `bun run doctor`                 | The daemon's doctor checks against the dev data dir                                                                   |
+| `bun run desktop:build`          | An unsigned (ad-hoc signed) local app for this machine: macOS `.app` and dmg in `apps/desktop/dist/release`           |
+| `bun run desktop:package`        | The full platform package (see Packaging)                                                                             |
+| `bun run desktop:rebuild-native` | node-pty compiled for Electron with `@electron/rebuild`                                                               |
+| `bun run desktop:e2e`            | Playwright-for-Electron smoke test against the fake daemon (`ACE_E2E_ELECTRON=1`)                                     |
+| `bun run smoke:real`             | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
 
 **Dev data is isolated.** The dev daemon uses `ACE_HOME=.ace-dev/home` on port 4343, and
 Electron keeps its window state, sessions and settings in `.ace-dev/electron`. Both are
