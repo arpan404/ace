@@ -90,6 +90,8 @@ export async function harness(
   frames: ReturnType<typeof scriptFrames>,
   options: {
     models?: EngineOptions["models"];
+    waitForProvider?: EngineOptions["waitForProvider"];
+    onModelUnavailable?: EngineOptions["onModelUnavailable"];
     onCommandEvent?: EngineOptions["onCommandEvent"];
     limits?: EngineOptions["limits"];
     recovery?: EngineOptions["recovery"];
@@ -168,6 +170,8 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
+    ...(options.onModelUnavailable ? { onModelUnavailable: options.onModelUnavailable } : {}),
     ...(options.models ? { models: options.models } : {}),
     ...(options.providerEnabled ? { providerEnabled: options.providerEnabled } : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),

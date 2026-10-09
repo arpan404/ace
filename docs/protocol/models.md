@@ -57,29 +57,28 @@ Example:
 
 ```json
 {
-  "contextWindow": 10,
-  "custom": false,
   "defaultSource": "built-in",
-  "deprecated": false,
+  "deprecated": true,
   "displayName": "example",
-  "group": "legacy",
-  "hidden": true,
+  "family": "example",
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
   "instanceId": "example",
   "isDefault": true,
   "legacy": true,
-  "modelConfigId": "example",
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "pi",
+  "provider": "codex",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
+  "resolvedModelId": "example",
   "serviceTiers": [],
+  "tier": "legacy",
   "visibilityReason": "model_hidden"
 }
 ```
@@ -100,7 +99,7 @@ Example:
 
 ```json
 {
-  "code": "persistence_failed",
+  "code": "unreachable",
   "hint": "example",
   "message": "example"
 }
@@ -121,7 +120,12 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "acpAgentId": "example",
+  "installationId": "example",
+  "instanceId": "example",
+  "provider": "cursor"
+}
 ```
 
 ## ModelInstanceStatus
@@ -150,10 +154,10 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "enabled": false,
+  "error": "discovery_failed",
   "instance": "example",
-  "instanceId": "example",
-  "provider": "opencode",
+  "provider": "codex",
   "refreshing": true,
   "stale": true
 }
@@ -176,7 +180,10 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "offset": 6,
+  "provider": "cursor"
+}
 ```
 
 ## ModelListResult
@@ -217,46 +224,34 @@ Example:
 
 ```json
 {
+  "effort": "example",
   "model": {
-    "aliases": [],
-    "custom": true,
+    "acpAgentId": "example",
+    "custom": false,
+    "defaultEffort": "example",
+    "defaultSource": "built-in",
+    "defaultTier": "example",
     "deprecated": false,
+    "detail": "example",
     "displayName": "example",
-    "free": true,
-    "group": "current",
-    "hidden": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": false,
-    "legacy": true,
-    "modelConfigId": "example",
     "nativeModelId": "example",
+    "nativeProviderId": "example",
     "provider": "antigravity",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
-    "selectorMethod": "session/set_model",
-    "serviceTiers": [],
-    "source": {
-      "id": "example",
-      "kind": "subscription",
-      "label": "example",
-      "service": "opencode_zen"
-    },
-    "version": "example",
-    "visibilityReason": "provider_disabled"
+    "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true,
-  "tier": {
-    "id": "example",
-    "name": "example",
-    "parameters": {}
-  }
+  "stale": false
 }
 ```
 
@@ -300,9 +295,9 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "provider": "cursor",
+  "imageInput": true,
   "role": "example",
-  "selection": "default"
+  "tier": "example"
 }
 ```
 
@@ -320,10 +315,8 @@ Example:
 ```json
 {
   "filter": {
-    "acpAgentId": "example",
-    "instance": "example",
-    "instanceId": "example",
-    "provider": "opencode"
+    "installationId": "example",
+    "instanceId": "example"
   },
   "type": "models.changed"
 }
@@ -365,8 +358,9 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "other",
-  "label": "example"
+  "kind": "subscription",
+  "label": "example",
+  "service": "opencode_go"
 }
 ```
 
@@ -385,12 +379,10 @@ Example:
 
 ```json
 {
-  "lastRefreshedAt": 8,
   "source": {
     "id": "example",
-    "kind": "account",
-    "label": "example",
-    "service": "opencode_zen"
+    "kind": "subscription",
+    "label": "example"
   },
   "status": "refreshing"
 }
@@ -431,11 +423,14 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
+    "acpAgentId": "example",
     "effort": "example",
+    "installationId": "example",
+    "instance": "example",
     "instanceId": "example",
-    "provider": "antigravity",
+    "model": "example",
     "role": "example",
-    "tier": "example"
+    "selection": "default"
   },
   "type": "models.resolve"
 }
@@ -457,8 +452,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": []
   },
   "type": "models.result"
 }
@@ -480,7 +475,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "speed": "fast"
+  "name": "example"
 }
 ```

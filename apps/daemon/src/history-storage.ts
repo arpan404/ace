@@ -12,7 +12,16 @@ export function installArchive(
   const check = () => {
     if (cancelled()) throw new Error("History publication cancelled");
   };
-  append({ type: "thread.created", thread: archive.thread });
+  append({
+    type: "thread.created",
+    thread: {
+      ...archive.thread,
+      status: { state: "done" },
+      settledAt: archive.thread.updatedAt,
+      settledReason: "manual",
+      unread: false,
+    },
+  });
   for (const agent of archive.agents()) {
     check();
     append({ type: "agent.created", agent });

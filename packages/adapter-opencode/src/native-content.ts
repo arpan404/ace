@@ -200,7 +200,8 @@ export function projected(state: NativeState, session: string, value: unknown): 
           : [];
     });
   }
-  if (p.type === "user" || p.type === "synthetic" || p.type === "system")
+  if (p.type === "system") return [];
+  if (p.type === "user" || p.type === "synthetic")
     return [
       ...(p.type === "synthetic"
         ? state.completion(object(p.metadata), number(object(p.time).created, -1))

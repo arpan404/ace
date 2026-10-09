@@ -488,6 +488,7 @@ export class Store {
             handoff: true,
             permission: true,
             titleSource: true,
+            queue: true,
           }).parse(JSON.parse(String(row.provider_metadata)))),
       ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
       status: JSON.parse(String(row.status)),
@@ -595,6 +596,7 @@ export class Store {
               handoff: thread.handoff,
               permission: thread.permission,
               titleSource: thread.titleSource,
+              queue: thread.queue,
             }),
             thread.id,
           );

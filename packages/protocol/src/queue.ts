@@ -22,6 +22,7 @@ export const QueuedMessage = z.object({
 });
 export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const QueueState = z.object({
+  pendingCount: z.number().int().nonnegative().optional(),
   revision: z.number().int().nonnegative(),
   paused: z.boolean(),
   reason: z

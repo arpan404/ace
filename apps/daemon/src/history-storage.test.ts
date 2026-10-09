@@ -68,6 +68,28 @@ test("cancelled engine publication rolls back history and sequences before a lat
   expect(store.readEvents({ afterSeq: 0, limit: 100 })).toEqual([]);
   store.installHistory(reader, 123, () => false);
   expect(store.getThread(threadId)?.imported?.instanceId).toBe("account");
+  expect(store.getThread(threadId)).toMatchObject({
+    status: { state: "done" },
+    settledAt: 123,
+    settledReason: "manual",
+    unread: false,
+  });
+  // Before this upgrade old imports had no settlement metadata and could be labelled new.
+  store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE threads SET status='{\"state\":\"new\"}', client=json_remove(client,'$.settledAt','$.settledReason') WHERE id=?",
+      )
+      .run(threadId),
+  );
+  const { Engine, AdapterRegistry } = await import("@ace/daemon");
+  const migrated = new Engine(store, {
+    registry: new AdapterRegistry(),
+    clock: { now: () => 124, setTimer: () => () => {} },
+  });
+  await migrated.ready();
+  expect(store.getThread(threadId)).toMatchObject({ status: { state: "done" }, settledAt: 123 });
+  await migrated.close();
   const snapshot = store.snapshotThread(threadId);
   const call = Object.values(snapshot.items).find((i) => i.type === "tool_call");
   if (call?.type !== "tool_call" || call.call.detail.kind !== "shell" || !call.call.detail.output)

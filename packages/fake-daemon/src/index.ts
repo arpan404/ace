@@ -1,3 +1,4 @@
+export { seedRealThreadState, legacyHandoff } from "./real-thread-state.ts";
 export { FakeDaemon } from "./daemon.ts";
 export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";
 export { fakeTransport } from "./transport.ts";

@@ -1,3 +1,4 @@
+import { provisionalTitle } from "./thread-title.ts";
 import { z } from "zod";
 import type { ContentPart, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -12,15 +13,31 @@ export function indexTitleInputs(store: Store): void {
     ),
   );
 }
-/** Seek the oldest qualifying item; hydrate one bounded page, never the whole transcript. */
+/** Seek the first real prose input, skipping empty attachment or handoff envelopes in bounded pages. */
 export function oldestTitleInput(store: Store, id: ThreadId): ContentPart[] | undefined {
-  const row = store
-    .statement(
-      `SELECT created_seq FROM items WHERE thread_id=? AND ${person} ORDER BY created_seq LIMIT 1`,
-    )
-    .get(id);
-  if (!row) return undefined;
-  const seq = z.number().int().nonnegative().parse(row.created_seq);
-  const item = store.readItemPage(id, seq + 1, 1, 256 * 1024).items[0];
-  return item?.type === "message" ? item.parts : undefined;
+  for (const row of store
+    .statement(`SELECT created_seq FROM items WHERE thread_id=? AND ${person} ORDER BY created_seq`)
+    .iterate(id)) {
+    const seq = z.number().int().nonnegative().parse(row.created_seq);
+    const item = store.readItemPage(id, seq + 1, 1, 256 * 1024).items[0];
+    if (item?.type === "message" && provisionalTitle(item.parts) !== "New thread")
+      return item.parts;
+  }
+  return undefined;
+}
+
+/** Upgrade old placeholder titles once, preserving every recorded author choice. */
+export function backfillThreadTitles(store: Store, at: number): void {
+  for (const thread of store.listThreads()) {
+    if (thread.title !== "New thread" || thread.titleSource || thread.deletedAt !== undefined)
+      continue;
+    const parts = oldestTitleInput(store, thread.id);
+    const title = parts && provisionalTitle(parts);
+    if (title && title !== "New thread")
+      store.appendEvents(
+        thread.id,
+        [{ type: "thread.updated", title, titleSource: "provisional" }],
+        at,
+      );
+  }
 }

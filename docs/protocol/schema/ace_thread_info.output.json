@@ -1665,6 +1665,63 @@
           ],
           "type": "string"
         },
+        "queue": {
+          "additionalProperties": false,
+          "properties": {
+            "paused": {
+              "type": "boolean"
+            },
+            "pendingCount": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "restart",
+                    "limit",
+                    "snooze",
+                    "uncertain",
+                    "stopped",
+                    "not_sent",
+                    "model_unavailable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resumeAt": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "paused",
+            "reason",
+            "resumeAt"
+          ],
+          "type": "object"
+        },
         "readAt": {
           "maximum": 9007199254740991,
           "minimum": 0,

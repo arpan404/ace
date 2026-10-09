@@ -23,7 +23,16 @@ export class EngineModels {
   private catalog: ModelCatalogApi | undefined;
   private repo: EngineRepository;
   private now: () => number;
-  constructor(repo: EngineRepository, now: () => number, catalog?: ModelCatalogApi) {
+  private rejected:
+    | ((provider: ProviderKind, model: string, instance?: string) => void)
+    | undefined;
+  constructor(
+    repo: EngineRepository,
+    now: () => number,
+    catalog?: ModelCatalogApi,
+    rejected?: (provider: ProviderKind, model: string, instance?: string) => void,
+  ) {
+    this.rejected = rejected;
     this.repo = repo;
     this.now = now;
     this.catalog = catalog;
@@ -65,7 +74,10 @@ export class EngineModels {
     if (!this.catalog) return isDefaultSelection(model) ? undefined : model;
     const filter = selectionModelFilter(provider, instance, identity);
     if (!filter) {
-      if (model && !isDefaultSelection(model)) throw new ModelSelectionError();
+      if (model && !isDefaultSelection(model)) {
+        this.rejected?.(provider, model, instance);
+        throw new ModelSelectionError();
+      }
       return undefined;
     }
     const resolution = this.catalog.resolve({
@@ -74,7 +86,10 @@ export class EngineModels {
       ...(model && !isDefaultSelection(model) ? { model } : {}),
     });
     if (!resolution.ok) {
-      if (model && !isDefaultSelection(model)) throw new ModelSelectionError();
+      if (model && !isDefaultSelection(model)) {
+        this.rejected?.(provider, model, instance);
+        throw new ModelSelectionError();
+      }
       return undefined;
     }
     return executionModelId(resolution.model);
@@ -138,7 +153,17 @@ export class EngineModels {
     for (const state of this.repo.states()) {
       const metadata = this.repo.session(state.threadId);
       const selection = this.repo.transitions.get(state.threadId).selection;
-      if (!isDefaultSelection(metadata.model) && !isDefaultSelection(selection?.model)) continue;
+      const legacyOpenCode =
+        state.config.provider === "opencode" &&
+        [metadata.model, selection?.model].some(
+          (model) => !!model && !isDefaultSelection(model) && !model.includes("/"),
+        );
+      if (
+        !isDefaultSelection(metadata.model) &&
+        !isDefaultSelection(selection?.model) &&
+        !legacyOpenCode
+      )
+        continue;
       const previous = selection ?? { provider: state.config.provider, options: {}, ...metadata };
       // Startup only uses already-known choices. Discovery belongs to session opening.
       const filter = selectionModelFilter(
@@ -152,6 +177,7 @@ export class EngineModels {
         ...filter,
         ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
       });
+      if (legacyOpenCode && !resolution.ok) continue;
       const model = resolution.ok ? executionModelId(resolution.model) : undefined;
       // With no cached choice, restore an implicit selection. Resume discovers it later.
       const { model: _oldModel, ...rest } = previous;

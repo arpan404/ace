@@ -8,6 +8,7 @@ const Intent = z.object({
   state: z.enum(["saving", "pending", "acked", "failed"]),
   error: z.string().optional(),
   delivered: z.boolean().optional(),
+  acknowledged: z.boolean().optional(),
   threadId: z.string().optional(),
   waiting: z.boolean().optional(),
   localFailure: z.boolean().optional(),
@@ -237,11 +238,11 @@ export class Intents {
   }
   deliveryFailed(id: string, error: string): Promise<void> {
     const current = this.records.get(id);
-    if (!current || (current.state === "failed" && current.error === error))
+    if (!current || current.acknowledged || (current.state === "failed" && current.error === error))
       return Promise.resolve();
     return this.serialize(async () => {
       const previous = this.records.get(id);
-      if (!previous) return;
+      if (!previous || previous.acknowledged) return;
       const next: Intent = { ...previous, state: "failed", localFailure: true, error };
       this.put(id, next);
       try {
@@ -271,12 +272,17 @@ export class Intents {
     this.options.changed(id);
   }
   /** The admission item replaced the optimistic bubble. Release its persisted payload. */
-  observe(id: string): Promise<void> {
-    if (!this.records.has(id) || this.records.get(id)?.delivered) return Promise.resolve();
+  observe(id: string, acknowledged = false): Promise<void> {
+    const current = this.records.get(id);
+    if (!current || (current.delivered && (!acknowledged || current.acknowledged)))
+      return Promise.resolve();
     return this.serialize(async () => {
       const previous = this.records.get(id);
-      if (!previous || previous.delivered) return;
-      const next = { ...previous, delivered: true };
+      if (!previous || (previous.delivered && (!acknowledged || previous.acknowledged))) return;
+      const { error: _error, localFailure: _local, ...rest } = previous;
+      const next: Intent = acknowledged
+        ? { ...rest, state: "acked", delivered: true, acknowledged: true }
+        : { ...previous, delivered: true };
       this.put(id, next);
       try {
         await this.persist(next, []);

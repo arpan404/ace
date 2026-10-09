@@ -1,3 +1,4 @@
+import { threadAttention } from "./thread-attention.ts";
 import {
   type Command,
   type Thread,
@@ -46,7 +47,7 @@ export function organizationDecision(
     case "thread.read":
       return { type: "thread.client.updated", changes: { unread: p.unread, readAt: at } };
     case "thread.settle":
-      if (thread.status.state !== "done") return "thread_not_done";
+      if (thread.status.state !== "done" || threadAttention(thread)) return "thread_not_done";
       return {
         type: "thread.client.updated",
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
@@ -78,7 +79,7 @@ export function settleDecision(
 ): ThreadClientUpdated["changes"] {
   const expired =
     thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
-  if (thread.deletedAt !== undefined || thread.status.state !== "done")
+  if (thread.deletedAt !== undefined || thread.status.state !== "done" || threadAttention(thread))
     return { ...expired, autoSettleAt: null, settledAt: null, settledReason: null };
   if (thread.archivedAt !== undefined || thread.pinned) return { ...expired, autoSettleAt: null };
   if (thread.settledAt !== undefined) return { ...expired, autoSettleAt: null };
