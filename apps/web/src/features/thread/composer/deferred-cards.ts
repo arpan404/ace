@@ -19,21 +19,15 @@ export const DeferredPlanTab = deferredComponent(() =>
 export const DeferredStatusStrip = deferredComponent(() =>
   import("./status-strip.tsx").then((module) => module.StatusStrip),
 );
-/** Branch and machine, while the agent is idle. */
+/** Branch and machine below the composer. */
 export const DeferredEnvironmentStrip = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.EnvironmentStrip),
 );
-/** Where the thread runs, in detail, raised from the environment strip. */
-export const DeferredThreadEnvironment = deferredComponent(() =>
-  import("./thread-environment.tsx").then((module) => module.ThreadEnvironmentCard),
-);
-
 export function preloadComposerCards(): Promise<unknown> {
   return Promise.all([
     DeferredRequestStack.preload(),
     DeferredPlanTab.preload(),
     DeferredStatusStrip.preload(),
     DeferredEnvironmentStrip.preload(),
-    DeferredThreadEnvironment.preload(),
   ]);
 }

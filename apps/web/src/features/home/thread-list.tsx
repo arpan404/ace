@@ -36,9 +36,9 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 37,
+  pinned: 77,
   "pinned-end": 9,
-  thread: 37,
+  thread: 77,
   "settled-header": 37,
   settled: 33,
 };

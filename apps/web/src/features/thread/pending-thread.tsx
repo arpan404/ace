@@ -1,5 +1,5 @@
 import type { PendingSend } from "@ace/client";
-import type { PermissionMode } from "@ace/protocol";
+import type { PermissionMode, WorktreeCreationProgress } from "@ace/protocol";
 import { usePermissionCapabilities } from "@/lib/use-permission-modes.ts";
 import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@ace/client-react";
 import {
@@ -8,12 +8,13 @@ import {
   provisionalTitle,
   providerNames,
   type TurnActivity,
+  worktreeTabLabel,
 } from "@ace/ui-core";
-import { ShieldIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { GitForkIcon, ShieldIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { chipControl, iconControl } from "./composer/composer-styles.ts";
+import { chipControl, iconControl, stripRow } from "./composer/composer-styles.ts";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -138,6 +139,7 @@ export function PendingThreadView(props: {
             composer={composer}
             model={payload.model}
             permission={payload.permissionMode}
+            progress={progress}
           />
         )}
       </div>
@@ -162,12 +164,14 @@ function PendingComposer({
   draftKey,
   model,
   permission,
+  progress,
 }: {
   thread: ThreadRef;
   draftKey: string;
   composer: Ref<ComposerHandle>;
   model: string | undefined;
   permission: PermissionMode | undefined;
+  progress: WorktreeCreationProgress | undefined;
 }) {
   const reason = useId();
   const { capabilities } = usePermissionCapabilities(thread.provider, undefined, thread.instanceId);
@@ -207,6 +211,13 @@ function PendingComposer({
               {model ? modelLabel(model) : "Provider default"}
             </button>
           </Tip>
+        }
+        environment={
+          <section aria-label="Environment">
+            <p role="status" className={stripRow}>
+              <GitForkIcon aria-hidden size={14} /> {worktreeTabLabel(progress)}
+            </p>
+          </section>
         }
         placeholder="Draft your next message while the worktree is prepared"
         shortPlaceholder="Draft your next message"
