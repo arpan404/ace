@@ -13,7 +13,7 @@ export function normalizeOpenCodeReport(
   instance: ModelInstance,
   connected: ReadonlyMap<string, ModelSource>,
   diagnostic?: (metadata: DiscoveryDiagnostics) => void,
-): DiscoveryReport & { missingMetadata: readonly string[] } {
+): DiscoveryReport & { missingMetadata: readonly string[]; metadataIds: readonly string[] } {
   const envelope = z
     .object({
       location: z.object({ directory: z.literal(instance.cwd) }),
@@ -26,8 +26,11 @@ export function normalizeOpenCodeReport(
     })
     .parse(payload);
   const grouped = new Map<string, unknown[]>();
+  const metadataIds = new Set<string>();
   const available = new Map(connected);
   for (const raw of envelope.data) {
+    const model = z.object({ providerID: z.string(), modelID: z.string() }).safeParse(raw);
+    if (model.success) metadataIds.add(`${model.data.providerID}/${model.data.modelID}`);
     const identity = z.object({ providerID: z.string() }).safeParse(raw);
     if (!identity.success) continue;
     const id = identity.data.providerID;
@@ -42,15 +45,18 @@ export function normalizeOpenCodeReport(
   const models: CatalogModel[] = [];
   const sources: ModelSourceStatus[] = [];
   const missingMetadata: string[] = [];
-  const sourceFailures: { source: string; reason: string }[] = [];
+  const sourceFailures: { source: string; reason: string; stage: "metadata" }[] = [];
   const failedSource = (source: ModelSource, cause: unknown) => {
     const error = discoveryError(cause, "discovery_failed", { ...instance, source: source.id });
     sources.push({ source, status: "stale", error });
-    if (error.code === "discovery_failed")
-      sourceFailures.push({
-        source: source.id,
-        reason: discoveryFailureReason(cause, { env: instance.env }),
-      });
+    sourceFailures.push({
+      source: source.id,
+      reason:
+        error.code === "discovery_failed"
+          ? discoveryFailureReason(cause, { env: instance.env })
+          : error.message,
+      stage: "metadata",
+    });
   };
   for (const [id, source] of available) {
     try {
@@ -83,5 +89,5 @@ export function normalizeOpenCodeReport(
   }
   diagnostic?.({ sourceFailures });
   if (models.length > 512) throw new Error("Too many connected models");
-  return { models, sources, missingMetadata };
+  return { models, sources, missingMetadata, metadataIds: [...metadataIds] };
 }

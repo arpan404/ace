@@ -21,7 +21,10 @@ import {
 const account = (
   id: string,
   provider: ProviderKind,
-  windows: Record<string, { usedPercent: number; resetsAt: number | null }>,
+  windows: Record<
+    string,
+    { usedPercent: number; resetsAt: number | null; windowDurationMins?: number }
+  >,
   availability: "available" | "exhausted" | "logged_out" = "available",
 ) =>
   accountView(
@@ -62,7 +65,7 @@ test("quota windows read in words and the shortest window comes first", () => {
   });
   const codex = account("codex-team", "codex", {
     "codex:secondary": { usedPercent: 12, resetsAt: null },
-    "codex:primary": { usedPercent: 100, resetsAt: 3 },
+    "codex:primary": { usedPercent: 100, resetsAt: 3, windowDurationMins: 300 },
   });
 
   expect(claude.windows.map((w) => [w.label, w.usedPercent])).toEqual([

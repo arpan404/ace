@@ -53,7 +53,11 @@ export type DiscoveryDiagnostics = {
   /** Bounded fixed reasons for skipped SDK rows. Local logger only, never cache/wire. */
   rejectedModels?: readonly { index: number; reason: string }[];
   /** Attempt-local sanitized text. Never part of a catalog row or cache entry. */
-  sourceFailures?: readonly { source: string; reason: string }[];
+  sourceFailures?: readonly {
+    source: string;
+    reason: string;
+    stage?: "metadata" | "model-ids";
+  }[];
   sources?: readonly ModelSource[];
 };
 /** Must settle after abort, once all owned I/O resources have been released. */

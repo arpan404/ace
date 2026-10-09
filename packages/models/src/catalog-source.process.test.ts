@@ -308,3 +308,35 @@ test("Pi names ChatGPT and keeps Ollama cloud models out of the local group", as
     "qwen3:8b",
   ]);
 });
+
+test.each([
+  ["disabled", { enabled: false, cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }],
+  ["paid", { cost: [{ input: 0, output: 1, cache: { read: 0, write: 0 } }] }],
+  ["missing-price", {}],
+  ["malformed-price", { cost: [{ input: "0", output: 0 }] }],
+] as const)(
+  "OpenCode ID fallback cannot restore %s Zen metadata as credential-free",
+  async (reason, metadata) => {
+    const work = await workspace();
+    cleanups.push(work.close);
+    const id = `${reason}-free`;
+    const config = {
+      ...instance("opencode"),
+      cwd: work.path,
+      args: [await fakeCli(work.path)],
+      env: {
+        HOME: work.path,
+        FAKE_PROVIDER: "opencode",
+        FAKE_MODEL_IDS: `opencode/${id}`,
+        FAKE_CONNECTIONS: "[]",
+      },
+    };
+    const models = await createModelDiscovery({
+      opencode: async () => ({
+        location: { directory: config.cwd },
+        data: [{ ...native("opencode", id), ...metadata }],
+      }),
+    })(config, new AbortController().signal);
+    expect(models.map((model) => model.id)).toEqual([]);
+  },
+);

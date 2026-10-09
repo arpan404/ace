@@ -78,7 +78,8 @@ export async function discoverOpenCodeCatalog(
   };
   signal.addEventListener("abort", abort, { once: true });
   let failure: unknown;
-  const seen = new Set(report.models.map((model) => model.id));
+  // ID-only output may fill absent metadata, never override rejected native records.
+  const seen = new Set(report.metadataIds);
   const sources = new Map(report.sources.map((status) => [status.source.id, status]));
   proc.stdout.on("line", (line: string) => {
     if (failure || !line.trim()) return;
@@ -137,6 +138,7 @@ export async function discoverOpenCodeCatalog(
           ? [...missingMetadata].map((source) => ({
               source,
               reason: discoveryFailureReason(error, { env: instance.env }),
+              stage: "model-ids" as const,
             }))
           : []),
       ],

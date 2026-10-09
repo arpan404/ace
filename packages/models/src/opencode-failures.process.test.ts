@@ -203,7 +203,7 @@ async function setup(
         { id: "opencode-go", connections: [{ type: "credential" }] },
         {
           id: "github-copilot",
-          name: "Copilot reconnected",
+          local: true,
           connections: [{ type: "credential" }],
         },
       ]);

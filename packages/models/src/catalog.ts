@@ -299,22 +299,22 @@ export class ModelCatalog implements ModelCatalogApi {
       ...state.config,
       ...(source ? { source: source.id } : {}),
     });
+    const failure = source
+      ? diagnostic.sourceFailures?.find((entry) => entry.source === source.id)
+      : undefined;
+    const stage = failure?.stage ?? diagnostic.stage;
     const reason =
       detail.code === "discovery_failed" && (cause !== undefined || source)
-        ? discoveryFailureReason(
-            source
-              ? (diagnostic.sourceFailures?.find((failure) => failure.source === source.id)
-                  ?.reason ?? cause)
-              : cause,
-            { env: state.config.env },
-          ).slice(0, 200)
+        ? discoveryFailureReason(source ? (failure?.reason ?? cause) : cause, {
+            env: state.config.env,
+          }).slice(0, 200)
         : undefined;
     this.#options.onError?.(state.config.provider, state.config.id, detail, source?.id, {
       ...schedule,
       durationMs: Math.max(0, this.#options.now() - startedAt),
       ...(cliVersion ? { cliVersion } : {}),
       ...(source ? { sourceLabel: source.label } : {}),
-      ...(diagnostic.stage ? { stage: diagnostic.stage } : {}),
+      ...(stage ? { stage } : {}),
       ...(reason ? { reason } : {}),
     });
   }
