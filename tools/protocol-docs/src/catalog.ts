@@ -1,3 +1,4 @@
+import * as entities from "@ace/protocol/entities";
 import * as ids from "@ace/protocol/ids";
 import * as notifications from "@ace/protocol/notifications";
 import * as threadStatus from "@ace/protocol/thread-status";
@@ -31,6 +32,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
 >([
   [".", protocol],
   ["./ids", ids],
+  ["./entities", entities],
   ["./notifications", notifications],
   ["./thread-status", threadStatus],
   ["./agent-status", agentStatus],

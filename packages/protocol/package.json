@@ -22,7 +22,8 @@
     "./notifications": "./src/notifications.ts",
     "./thread-status": "./src/thread-status.ts",
     "./background": "./src/background.ts",
-    "./agent-status": "./src/agent-status.ts"
+    "./agent-status": "./src/agent-status.ts",
+    "./entities": "./src/entities.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

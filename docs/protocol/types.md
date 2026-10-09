@@ -9132,7 +9132,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| state | yes | ["idle","scanning","ready","failed"] |  |
+| state | yes | ["idle","scanning","retrying","ready","failed"] |  |
 | stats | yes | [HistoryScanStats.json](schema/HistoryScanStats.json) |  |
 | unsupported | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"instanceId":{"type":"string"},"reason":{"type":"string"}},"required":["instanceId","reason"]}} |
 | error | no | string | {"maxLength":8192} |
@@ -9141,7 +9141,7 @@ Example:
 
 ```json
 {
-  "state": "scanning",
+  "state": "retrying",
   "stats": {
     "bytes": 5,
     "files": 5,
@@ -9167,7 +9167,7 @@ Example:
 {
   "scan": {
     "error": "example",
-    "state": "idle",
+    "state": "scanning",
     "stats": {
       "bytes": 4,
       "files": 6,
