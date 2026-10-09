@@ -82,7 +82,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(refund.textContent).toContain("77");
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
-  expect(within(refund).queryByText("billing-api")).toBeNull();
+  expect(within(refund).getByText("billing-api")).toBeTruthy();
 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);

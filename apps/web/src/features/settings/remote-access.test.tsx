@@ -10,8 +10,10 @@ test("remote access and transport choices are saved and machine renaming is show
   await waitFor(() => expect(control.hasAttribute("disabled")).toBe(false));
   await userEvent.click(control);
   await waitFor(() => expect(app.daemon.services.settings.get("remote.enabled")).toBe(false));
-  await userEvent.click(await screen.findByRole("combobox", { name: "Transport" }));
-  await userEvent.click(screen.getByRole("option", { name: "LAN" }));
+  const transport = await screen.findByRole("combobox", { name: "Transport" });
+  await waitFor(() => expect(transport.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(transport);
+  await userEvent.click(await screen.findByRole("option", { name: "LAN" }));
   await waitFor(() => expect(app.daemon.services.settings.get("remote.transport")).toBe("lan"));
   expect(
     await screen.findByText(/Browsers must trust this computer's HTTPS certificate/),

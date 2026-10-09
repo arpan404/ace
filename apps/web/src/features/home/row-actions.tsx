@@ -8,7 +8,9 @@ export function RowActions(props: { entry: ThreadListEntry; settled: boolean }) 
   const actions = useThreadActions();
   const { entry, settled } = props;
   return (
-    <div className="absolute top-0 right-1 hidden items-center group-focus-within/row:flex group-hover/row:flex group-data-popup-open/row:invisible">
+    <div
+      className={`absolute ${settled ? "top-0" : "top-1"} right-1 hidden items-center group-focus-within/row:flex group-hover/row:flex group-data-popup-open/row:invisible`}
+    >
       <IconButton
         icon={settled ? ArrowUUpLeftIcon : CheckIcon}
         size="sm"

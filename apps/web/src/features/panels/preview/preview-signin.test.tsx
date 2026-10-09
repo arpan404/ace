@@ -101,7 +101,7 @@ test("a frame whose sign-in doesn't stick signs in once more, then says the brow
 
   gatewayRefuses(first, 401, "signed_out");
   await waitFor(() => expect(within(panel).getByTitle(frameTitle)).not.toBe(first));
-  expect(within(panel).queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
 
   gatewayRefuses(within(panel).getByTitle(frameTitle), 401, "signed_out");
   const failure = await within(panel).findByRole("alert");

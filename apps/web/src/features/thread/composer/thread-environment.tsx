@@ -15,10 +15,9 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCheckout } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { AttachedCard } from "./attached-card.tsx";
 
 /**
- * Where a thread runs, attached to the composer: its own worktree or the local checkout, the
+ * Where a thread runs, opened from the strip below the composer: its own worktree or the local checkout, the
  * branch and how far it is from its upstream, what a worktree started from (and whether the
  * remote could be reached then), the path and the machine. The daemon fixes the place
  * when the thread starts, so this reports it; the path can be copied.
@@ -51,8 +50,8 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
     props.onClose();
   };
   return (
-    <AttachedCard label="Where this thread runs" cardKey="environment" onKeyDown={onKeyDown}>
-      <div id={props.id} className="px-4 pt-3">
+    <section aria-label="Where this thread runs" onKeyDownCapture={onKeyDown}>
+      <div id={props.id}>
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
             {worktree ? (
@@ -135,7 +134,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
           )}
         </dl>
       </div>
-    </AttachedCard>
+    </section>
   );
 }
 

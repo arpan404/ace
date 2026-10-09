@@ -37,7 +37,7 @@ import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
-/** Where the thread runs, on the tab attached to the composer. */
+/** Where the thread runs, below the composer. */
 const DeferredEnvironment = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.NewThreadEnvironment),
 );
@@ -206,7 +206,7 @@ export function NewThreadPage(props: {
             autoFocus
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
             shortPlaceholder="Describe a change or a bug"
-            attached={
+            environment={
               <Suspense fallback={null}>
                 <DeferredEnvironment.Component
                   projects={projects}

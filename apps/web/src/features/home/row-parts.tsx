@@ -104,15 +104,13 @@ export function RowStatus(props: { card: ThreadCard }) {
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && card.status.since !== undefined);
   if (card.flags.settled || card.status.tone === "done" || card.status.tone === "idle")
-    return (
-      <span className="shrink-0 text-2xs text-subtle-foreground tabular-nums">{card.age}</span>
-    );
+    return <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{card.age}</span>;
   return (
     <StatusLabel
       tone={card.status.tone}
       label={card.status.compact ?? card.pill?.label ?? card.status.label}
       mark={<StatusMark card={card} />}
-      className="min-w-0 max-w-[48%] gap-1 text-2xs"
+      className="min-w-0 max-w-[60%] shrink-0 gap-1 text-xs"
     >
       {card.status.since !== undefined && fresh && (
         <span className="tabular-nums">· {formatSpan(card.status.since, now)}</span>
@@ -136,13 +134,13 @@ export function RowMeta(props: { card: ThreadCard }) {
 }
 
 /**
- * The title: medium and bright when it needs you or has news, quiet once the work is behind you,
+ * The title: bold when unread, bright when it needs you, quiet once the work is behind you,
  * quieter still once settled.
  */
 export function titleTone(card: ThreadCard): string {
   if (card.flags.settled) return "text-subtle-foreground";
   if (card.flags.unread) return "font-semibold text-foreground";
-  if (card.emphasis) return "font-medium text-foreground";
+  if (card.emphasis) return "text-foreground";
   return card.dimmed ? "text-muted-foreground" : "text-sidebar-foreground";
 }
 
@@ -181,14 +179,13 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
   );
 }
 
-/** Task context stays visible while the first-line status gives way to the hover action. */
+/** Task context stays visible while the project-line status gives way to the hover action. */
 export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-2xs leading-3 text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <ProjectMark badge={card.badge} />
-        <span className="truncate">{card.branch?.name ?? card.project}</span>
+        {card.branch && <span className="truncate">{card.branch.name}</span>}
         {card.machine && (
           <>
             {" "}

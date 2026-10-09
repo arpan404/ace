@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stageInformativeSidebar } from "./informative-sidebar.fixture.ts";
 
-const shots = "/tmp/ace-orch/shots/feat-machine-identity";
+const shots = "/tmp/ace-orch/shots/ui-task-rows-env-below";
 for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
   for (const width of [1440, 390])
     test(`informative task rows in ${theme} at ${width}`, async ({ page }) => {
@@ -52,21 +52,9 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
             ),
         )
         .toBe(true);
+      await nav.locator("[data-virtual-viewport]").evaluate((element) => element.scrollTo(0, 0));
       await page.mouse.move(width - 2, 840);
       await page.screenshot({ path: `${shots}/tasks-${theme}-${width}.png` });
-      if (width === 1440 && (theme === "light" || theme === "dark")) {
-        await nav.screenshot({ path: `${shots}/density-default-${theme}.png` });
-        for (const [density, height] of [
-          ["denser", 32],
-          ["roomier", 40],
-        ] as const) {
-          const style = await page.addStyleTag({
-            content: `nav[aria-label="Threads"] a[data-row-focus] {height:${height}px}`,
-          });
-          await nav.screenshot({ path: `${shots}/density-${density}-${theme}.png` });
-          await style.evaluate((element) => element.parentNode?.removeChild(element));
-        }
-      }
       const work = row("Build replay recovery");
       await work.hover();
       await expect(nav.getByRole("button", { name: "Settle Build replay recovery" })).toBeVisible();

@@ -109,11 +109,13 @@ export function Composer({
   /** Right of the footer, before the primary action: the model. */
   trailing?: ReactNode;
   /**
-   * The tab attached to the composer (where it runs, what the agents are doing, their plan, an
+   * The tab attached to the composer (what the agents are doing, their plan, an
    * agent's question): drawn above it, narrower and tucked behind its top edge. It reads
    * `useComposerCompact()` too.
    */
   attached?: ReactNode;
+  /** Quiet environment controls below the box, sharing its compact-width context. */
+  environment?: ReactNode;
   /**
    * The question card above: while it asks, the primary action and Enter answer it ("Answer",
    * "Submit", "Next"), and where it takes a typed answer the message is that answer.
@@ -744,6 +746,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             />
           </div>
         </div>
+        {props.environment}
       </ComposerCompact>
     </div>
   );

@@ -13,7 +13,7 @@ import { AddProjectItem } from "@/features/projects/index.ts";
 import { composerStrip } from "@/features/thread/index.ts";
 
 /**
- * The project a new thread starts in, first on the composer's environment tab: its name opens a
+ * The project a new thread starts in, on the environment strip below the composer: its name opens a
  * menu of the registered projects, with Add project at its foot.
  */
 export function ProjectPicker(props: {
