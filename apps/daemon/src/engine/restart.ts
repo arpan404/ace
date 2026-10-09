@@ -50,6 +50,28 @@ export function recoverEngine(
           ],
           clock.now(),
         );
+      const unsent = repo.pending.undelivered(state.threadId);
+      if (unsent) {
+        repo.pending.defer(unsent);
+        repo.queue.track(unsent.id, state.threadId, unsent.command);
+        repo.admitInput(unsent.command, state.threadId, clock.now());
+        repo.queue.set(state.threadId, { paused: true, reason: "not_sent" }, clock.now());
+      }
+      const queue = repo.queue.get(state.threadId);
+      if (
+        (queue.trigger === "restart" || queue.reason === "restart") &&
+        !Object.keys(state.runs).length
+      )
+        repo.queue.set(
+          state.threadId,
+          {
+            continuation: null,
+            trigger: null,
+            paused: repo.queue.count(state.threadId) > 0,
+            reason: repo.queue.count(state.threadId) ? "not_sent" : null,
+          },
+          clock.now(),
+        );
       recovery.capture(state.threadId);
       // A stopped provider no longer owns an admitted continuation. Native history
       // remains the source for a new restart continuation, never the old input.
@@ -157,7 +179,9 @@ export function recoverEngine(
               ? "uncertain"
               : queue.limited
                 ? "limit"
-                : "restart",
+                : queue.continuation
+                  ? "restart"
+                  : "not_sent",
         },
         clock.now(),
       );

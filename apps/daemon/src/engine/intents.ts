@@ -80,6 +80,7 @@ export class IntentStore {
         db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
       db.exec(`CREATE INDEX IF NOT EXISTS intents_submission_generation ON intents(thread_id,submitted_generation);
         CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
+        CREATE INDEX IF NOT EXISTS intents_latest_inputs ON intents(thread_id,id DESC) WHERE kind IN ('thread.send','thread.create');
         CREATE INDEX IF NOT EXISTS intents_running ON intents(thread_id) WHERE status='running';`);
     });
   }
@@ -176,6 +177,23 @@ export class IntentStore {
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN (${deliveryKinds}) AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
     ).get(id);
     return row ? header(row) : undefined;
+  }
+  /** Recover only the latest input that provably never reached a provider. */
+  undelivered(id: ThreadId): Intent | undefined {
+    const row = this.sql(
+      `SELECT ${columns},payload,error,uncertain FROM intents WHERE thread_id=? AND kind IN ('thread.send','thread.create') ORDER BY id DESC LIMIT 1`,
+    ).get(id);
+    if (
+      !row ||
+      row.status !== "failed" ||
+      row.acknowledged === 1 ||
+      row.uncertain === 1 ||
+      row.submitted_generation != null ||
+      typeof row.error !== "string" ||
+      !/model_unavailable|session opening failed|delivery failed/i.test(row.error)
+    )
+      return undefined;
+    return { ...header(row), command: Command.parse(JSON.parse(String(row.payload))) };
   }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(

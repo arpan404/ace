@@ -13,6 +13,7 @@
     "bench:children": "node bench/children.ts"
   },
   "dependencies": {
-    "@ace/protocol": "workspace:*"
+    "@ace/protocol": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

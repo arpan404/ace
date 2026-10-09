@@ -2,7 +2,7 @@ import { SkillSource } from "./skill-source.tsx";
 import { ArrowsClockwiseIcon, CubeIcon, TrashIcon } from "@phosphor-icons/react";
 import { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -42,6 +42,8 @@ import { useSetAvailability, useSkills } from "./skills-source.ts";
 export function SkillPage(props: { skillId: string }) {
   const skills = useSkills();
   const skill = skills.data?.find((entry) => entry.id === props.skillId);
+  if (!skill && skills.data && props.skillId.startsWith("discovered~"))
+    return <Navigate to="/skills" replace />;
   if (!skill)
     return (
       <Screen title="Skills">

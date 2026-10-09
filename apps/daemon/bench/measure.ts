@@ -17,6 +17,8 @@ const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const idleOnly = process.argv.includes("--idle-only");
+const historyFixture = argument("history-instances", "");
+const historyInstances = historyFixture ? await readFile(resolve(historyFixture), "utf8") : "[]";
 const idleMs = z.coerce.number().int().min(3000).parse(argument("idle-ms", "60000"));
 const count = z.coerce.number().int().min(1).max(64).parse(argument("sessions", "16"));
 const events = z.coerce.number().int().min(100).max(100000).parse(argument("events", "1000"));
@@ -54,7 +56,7 @@ const child = fork(
       USERPROFILE: home,
       PATH: "",
       ACE_HOME: home,
-      ACE_HISTORY_INSTANCES: "[]",
+      ACE_HISTORY_INSTANCES: historyInstances,
       ACE_MODEL_INSTANCES: "[]",
       ...(idleOnly ? { ACE_LOG_LEVEL: "silent" } : {}),
       ACE_PORT: "0",

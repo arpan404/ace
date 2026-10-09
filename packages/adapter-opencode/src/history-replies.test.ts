@@ -119,3 +119,57 @@ test("history after a new input updates the streamed answer even when reasoning 
     parts: [{ type: "text", text: "Delegation summary" }],
   });
 });
+
+test("permission, instruction and system schema records never become conversation items", () => {
+  const h = harness();
+  const frames = historyReplyFrames();
+  for (const frame of frames.initial) h.feed(frame);
+  const before = Object.values(h.view.items);
+  let seq = 100;
+  for (const type of ["session.permissions", "session.instructions.updated"])
+    h.feed({
+      seq: ++seq,
+      t: seq,
+      dir: "recv",
+      channel: "sse",
+      data: {
+        id: `event-${seq}`,
+        type,
+        data: { sessionID: "native-1", instructions: "Internal tool schemas" },
+      },
+    });
+  h.feed({
+    seq: ++seq,
+    t: seq,
+    dir: "recv",
+    channel: "snapshot.message",
+    data: {
+      sessionID: "native-1",
+      message: { id: "system", type: "system", text: "Tool schemas: read, write, bash" },
+    },
+  });
+  expect(Object.values(h.view.items)).toEqual(before);
+  h.feed({
+    seq: ++seq,
+    t: seq,
+    dir: "recv",
+    channel: "sse",
+    data: {
+      id: `event-${seq}`,
+      type: "session.text.ended",
+      data: {
+        sessionID: "native-1",
+        assistantMessageID: "after-bookkeeping",
+        ordinal: 0,
+        text: "The task is complete.",
+      },
+    },
+  });
+  expect(Object.values(h.view.items)).toContainEqual(
+    expect.objectContaining({
+      type: "message",
+      role: "assistant",
+      parts: [{ type: "text", text: "The task is complete." }],
+    }),
+  );
+});

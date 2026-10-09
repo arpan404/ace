@@ -59,7 +59,7 @@ describe("CLI auth parsing", () => {
     ).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
     expect(parseOpenCodeAuth("●  private@example.test api\n└  1 credential")).toEqual({
       auth: "unknown",
-      authDetail: "1 configured credentials",
+      authDetail: "1 service configured",
       authEvidence: "credentials_configured",
     });
   });
@@ -95,7 +95,7 @@ it("OpenCode v2 version prefixes and connection counts remain non-secret evidenc
   ).toEqual({
     auth: "unknown",
     authEvidence: "credentials_configured",
-    authDetail: "2 configured connections; entitlement unverified",
+    authDetail: "2 services configured",
   });
   expect(parseOpenCodeAuth("[]")).toEqual({ auth: "logged_out" });
   expect(

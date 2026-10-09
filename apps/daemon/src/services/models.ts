@@ -160,11 +160,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
       new Set(sdkInstance ? ["cursor"] : []),
       services.providerConfigurations?.current() ?? [],
     );
-    services.modelsReady = admission;
-    resources.own(() => admission);
+    services.modelsReady = admission.then(() => {
+      models.revalidate();
+    });
+    resources.own(() => services.modelsReady);
     void admission.catch((error: unknown) =>
       context.log.log("warn", "Default model admission failed", logError(error)),
     );
+  } else {
+    models.revalidate();
   }
 }
 

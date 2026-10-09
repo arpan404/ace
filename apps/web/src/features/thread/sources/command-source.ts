@@ -6,7 +6,7 @@ import type { ThreadRef } from "./workspace-source.ts";
 export interface CommandSource {
   watch(
     thread: ThreadRef,
-    receive: (entries: readonly CatalogEntry[]) => void,
+    receive: (entries: readonly CatalogEntry[], stale: boolean) => void,
     failed: () => void,
   ): () => void;
 }

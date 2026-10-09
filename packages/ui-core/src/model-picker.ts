@@ -361,3 +361,8 @@ export function reconcileNextOptions(input: {
   }
   return { options: nextOptions(input.base, input.base, patch), dropped };
 }
+
+/** A free marker adds information only when the name does not already say Free. */
+export function freeModelMarker(model: Pick<PickerModel, "free" | "label">): boolean {
+  return !!model.free && !/\bfree\b/i.test(model.label);
+}

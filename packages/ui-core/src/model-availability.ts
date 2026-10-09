@@ -1,6 +1,6 @@
 import { isDefaultSelection, matchesModel } from "@ace/models/resolve";
 import { modelDisplayName } from "@ace/models/display-name";
-import type { CatalogModel, ExecutionSelection } from "@ace/protocol";
+import type { CatalogModel, ExecutionSelection, ModelInstanceStatus } from "@ace/protocol";
 import type { PickerModel } from "./model-picker.ts";
 import { providerNames } from "./providers.ts";
 
@@ -8,9 +8,25 @@ import { providerNames } from "./providers.ts";
 export function unavailableSelection(
   models: readonly CatalogModel[] | undefined,
   selection: Pick<ExecutionSelection, "provider" | "model" | "instanceId"> | undefined,
+  instances: readonly ModelInstanceStatus[] = [],
 ) {
   if (!models || !selection?.model || isDefaultSelection(selection.model)) return undefined;
   const serving = servingModels(models, selection);
+  if (
+    !serving.length &&
+    !instances.some(
+      (status) =>
+        status.provider === selection.provider &&
+        (!selection.instanceId ||
+          status.instance === selection.instanceId ||
+          status.instanceId === selection.instanceId) &&
+        (status.status === "fresh" ||
+          status.refreshedAt !== undefined ||
+          status.errorDetail?.code === "no_models" ||
+          status.errorDetail?.code === "not_configured"),
+    )
+  )
+    return undefined;
   const matching = serving.filter((model) => matchesModel(model, selection.model ?? ""));
   if (matching.length && new Set(matching.map((model) => model.id)).size === 1) return undefined;
   return {

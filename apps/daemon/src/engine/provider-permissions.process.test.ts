@@ -69,3 +69,19 @@ test.each(providers)(
     }
   },
 );
+
+test("Pi's native no-mode permission metadata remains readable before its adapter is admitted", async () => {
+  const h = await harness([], scriptFrames());
+  try {
+    const client = await h.connect("preview");
+    client.send({ type: "permissions.capabilities", requestId: "pi-native", provider: "pi" });
+    const reply = await client.next();
+    expect(reply).toMatchObject({
+      type: "permissions.capabilities.result",
+      ok: true,
+      permissions: { permissionModes: [], modes: [] },
+    });
+  } finally {
+    await h.close();
+  }
+});

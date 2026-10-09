@@ -28,6 +28,7 @@ import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
   promptFiles?: readonly PromptSeed[];
+  catalogLoading?: readonly import("@ace/protocol").ProviderKind[];
   extensionCatalogs?: Partial<
     Record<import("@ace/protocol").ProviderKind, import("@ace/protocol").CatalogEntry[]>
   >;
@@ -97,7 +98,7 @@ export class FakeServicesWire {
   }
   seed(seed: ServicesSeed): void {
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
-    if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs);
+    if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
     if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);
     if (seed.historyScan) this.history.seedScan(seed.historyScan);
     this.notificationPublicKey = seed.notificationPublicKey ?? null;

@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { ModelProblem, PickerGroup, PickerModel } from "@ace/ui-core";
-import { providerNames } from "@ace/ui-core";
+import { providerNames, freeModelMarker } from "@ace/ui-core";
 import {
   CaretRightIcon,
   CheckIcon,
@@ -69,7 +69,7 @@ export function ModelRow(props: {
     .join(" · ");
   const name = [
     model.label,
-    model.free ? "Free" : undefined,
+    freeModelMarker(model) ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
     props.mixed ? undefined : model.unavailable,
@@ -121,7 +121,9 @@ export function ModelRow(props: {
                 NEW
               </span>
             )}
-            {model.free && <span className="shrink-0 text-xs text-subtle-foreground">Free</span>}
+            {freeModelMarker(model) && (
+              <span className="shrink-0 text-xs text-subtle-foreground">Free</span>
+            )}
           </span>
           {subtitle && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
