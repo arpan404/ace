@@ -5,7 +5,7 @@ import { sessionTitle } from "./user-text.ts";
 /** Prefer a readable native source, then full file history, recency and a stable tie-break. */
 export function preferredDuplicate(source: "sources" | "child"): string {
   return `SELECT 1 FROM visible_sources preferred
-  WHERE preferred.instance=${source}.instance AND preferred.native=${source}.native AND preferred.cwd=${source}.cwd AND preferred.hidden=0
+  WHERE preferred.instance=${source}.instance AND preferred.native=${source}.native AND preferred.hidden=0
   AND (CASE WHEN json_extract(preferred.summary,'$.support.status')='supported' THEN 0 ELSE 1 END,
        CASE preferred.kind WHEN 'jsonl' THEN 0 WHEN 'storage' THEN 1 ELSE 2 END,-preferred.activity,preferred.id)
     < (CASE WHEN json_extract(${source}.summary,'$.support.status')='supported' THEN 0 ELSE 1 END,

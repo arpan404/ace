@@ -302,11 +302,14 @@ test("malformed SQLite records survive in a raw blob without hiding other messag
   await service.importSession(init(s.id));
   const items = (await service.itemsPage({ threadId: init(s.id).threadId })).items;
   expect(text(items)).toContain("OpenCode answer");
-  const entry = items.find((i) => i.type === "notice" && i.text.includes("incomplete JSON"));
-  const raw = entry?.type === "notice" ? object(entry.raw[0]) : {};
+  expect(items.flatMap((i) => (i.type === "notice" ? [i.text] : [])).join(" ")).not.toContain(
+    "incomplete JSON",
+  );
+  const raw = items.flatMap((i) => (i.type === "notice" ? i.raw : [])).find((r) => "blobRef" in r);
+  if (!raw || !("blobRef" in raw)) throw new Error("Missing retained malformed record");
   expect(
     Buffer.from(
-      (await service.readBlob({ id: String(raw.blobRef), offset: 0, limit: 100 })).bytes,
+      (await service.readBlob({ id: raw.blobRef, offset: 0, limit: 100 })).bytes,
     ).toString(),
   ).toBe('{"future":');
 });

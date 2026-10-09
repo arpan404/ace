@@ -1,3 +1,4 @@
+import { distinctRetainedInputs } from "@ace/projection";
 import { composerInput, editComposerTokens, tokensFromInput } from "@ace/ui-core";
 import { useClient } from "@ace/client-react";
 import {
@@ -49,7 +50,7 @@ export function overlayQueue(
   revision: number,
 ): QueuedMessage[] {
   const live = [...edits].filter(([, edit]) => !edit.settled || edit.revision > revision);
-  let shown = messages.filter(
+  let shown = distinctRetainedInputs(messages).filter(
     (message) => !live.some(([id, edit]) => id === message.id && edit.kind === "gone"),
   );
   shown = shown.map((message) => {

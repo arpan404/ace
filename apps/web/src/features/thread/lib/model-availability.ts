@@ -1,17 +1,14 @@
-import { useThread, useThreadMeta } from "@ace/client-react";
-import type { ThreadReader } from "@ace/client";
-import { unavailableSelection, modelLabel, modelReplacement } from "@ace/ui-core";
-import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useThreadMeta } from "@ace/client-react";
+import { unavailableSelection } from "@ace/ui-core";
+import { useModelCatalog, useModelInstances } from "@/lib/model-catalog.ts";
 import { runsOn } from "../composer/execution.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
-
-const holdOf = (reader: ThreadReader) => reader.queue;
 
 /** A saved selection cannot silently become another model when discovery changes. */
 export function useThreadModelAvailability(threadId: string) {
   const meta = useThreadMeta(threadId);
   const models = useModelCatalog();
-  const queue = useThread(threadId, ["queue"], holdOf);
+  const instances = useModelInstances();
   const saved = runsOn(meta);
   const accounts = useAccountViews({ enabled: !!saved && saved.instanceId === undefined });
   const defaults = accounts.data?.filter(
@@ -22,19 +19,7 @@ export function useThreadModelAvailability(threadId: string) {
     saved && saved.instanceId === undefined && instance
       ? { ...saved, instanceId: instance }
       : saved;
-  const missing = unavailableSelection(models, selection);
-  const failed = queue?.reason === "model_unavailable" && meta?.switch?.state !== "queued";
-  const unavailable =
-    missing ??
-    (failed && selection?.model
-      ? {
-          provider: selection.provider,
-          model: selection.model,
-          label: modelLabel(selection.model),
-          instance: selection.instanceId,
-          replacement: modelReplacement(models, selection),
-        }
-      : undefined);
+  const unavailable = unavailableSelection(models, selection, instances);
   // Availability resolves a legacy default route; pending effort keeps the recorded identity.
   return { selection: saved, unavailable };
 }

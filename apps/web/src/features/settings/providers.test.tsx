@@ -101,9 +101,8 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
 
 test("Connect a service on Pi's page opens the CLI's own choices", async () => {
   await harness().open("/settings/providers/pi");
-  // Pi doesn't report its own sign-in; its page says so, quietly, with the terminal recipe.
+  // The native terminal recipe remains available alongside working catalog readiness.
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
-  expect(await within(about).findByText(/Not reported by this CLI/)).toBeTruthy();
   expect(about.textContent).toContain("Run pi, then type /login");
   await userEvent.click(screen.getByRole("button", { name: "Connect a service" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Pi" });

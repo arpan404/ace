@@ -276,32 +276,11 @@
     animation: ace-spin 1s linear infinite;
   }
   /* Streaming status line only. */
-  .shimmer {
-    background: linear-gradient(
-        90deg,
-        var(--muted-foreground) 30%,
-        var(--foreground) 50%,
-        var(--muted-foreground) 70%
-      )
-      0 0 / 220% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: ace-shimmer 2.2s linear infinite;
-  }
 }
 
 @keyframes ace-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-@keyframes ace-shimmer {
-  from {
-    background-position: 120% 0;
-  }
-  to {
-    background-position: -100% 0;
   }
 }
 

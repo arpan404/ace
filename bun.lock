@@ -625,6 +625,7 @@
       "name": "@ace/projection",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/protocol": {

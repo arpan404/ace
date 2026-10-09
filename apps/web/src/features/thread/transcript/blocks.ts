@@ -1,4 +1,4 @@
-import { isRawHistoryItem } from "@ace/projection";
+import { visibleHistoryOrder } from "@ace/projection";
 import { executionOrder } from "./execution-order.ts";
 import type { Item, Run } from "@ace/protocol";
 import {
@@ -258,7 +258,7 @@ function lastWorkOf(
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   const anchors = anchorQuestions(source);
-  const order = executionOrder(source).filter((id) => !isRawHistoryItem(source.item(id)));
+  const order = visibleHistoryOrder(executionOrder(source), source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];

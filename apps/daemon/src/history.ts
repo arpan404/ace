@@ -114,6 +114,8 @@ export class DaemonHistory {
   private nextChangeScanAt = 0;
   private scheduleScan: NonNullable<DaemonHistoryOptions["scheduleScan"]>;
   private unsubscribeChanges: () => void;
+  private unsubscribeRecovery: () => void;
+  private retrying = false;
   private scanState: HistoryScanStatus = {
     state: "idle",
     stats: { files: 0, reads: 0, bytes: 0, skipped: 0 },
@@ -184,7 +186,7 @@ export class DaemonHistory {
           if (!signal.aborted) this.reportError(error, "history.scan");
           this.publishScan({
             ...this.scanState,
-            state: signal.aborted ? "idle" : "failed",
+            state: signal.aborted ? "idle" : this.retrying ? "retrying" : "failed",
             ...(signal.aborted
               ? {}
               : {
@@ -228,6 +230,11 @@ export class DaemonHistory {
         return () => clearTimeout(timer);
       });
     this.nextId = options.nextId ?? randomUUID;
+    this.unsubscribeRecovery = service.subscribeRecovery((retrying) => {
+      this.retrying = retrying;
+      if (retrying) this.publishScan({ ...this.scanState, state: "retrying", error: undefined });
+      else if (!this.lifetime.signal.aborted) this.scheduleChanges();
+    });
     this.unsubscribeChanges = service.subscribeChanges(() => this.scheduleChanges());
     this.continuation = new HistoryContinuation(
       store,
@@ -389,15 +396,18 @@ export class DaemonHistory {
   }
   async close() {
     this.unsubscribeChanges();
+    this.unsubscribeRecovery();
     this.changeScan?.();
     this.lifetime.abort();
     await this.stopScan();
     this.listeners.clear();
-    await this.active?.catch(() => undefined);
+    // Release requests queued behind a crashed worker before draining their callers.
+    const closingHistory = this.service.close();
     try {
+      await this.active?.catch(() => undefined);
       await this.continuation.close();
     } finally {
-      await this.service.close();
+      await closingHistory;
     }
   }
 }

@@ -1,9 +1,9 @@
 import { sessionTitle } from "./user-text.ts";
 import {
-  hasOpenCodeV2,
   supportsOpenCodeV2,
-  openCodeV1Input,
-  openCodeV2Input,
+  openCodeV1InputReader,
+  openCodeV2InputReader,
+  openCodeV2Columns,
 } from "./opencode-messages.ts";
 import { copySqliteSnapshot, SnapshotChanged } from "./sqlite-snapshot.ts";
 import { pathToFileURL } from "node:url";
@@ -162,6 +162,22 @@ export function* dbSessions(
     ) > 0
   )
     throw new Error("OpenCode session metadata exceeds supported limits");
+  const v2Supported = supportsOpenCodeV2(db);
+  const v2HistoryQuery = openCodeV2Columns(db).has("session_id")
+    ? db.prepare("SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id=?) AS n")
+    : undefined;
+  const v2Input = v2Supported ? openCodeV2InputReader(db) : undefined;
+  const v1Input = v1 ? openCodeV1InputReader(db) : undefined;
+  const v2LargeQuery = v2Supported
+    ? db.prepare(
+        "SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id=? AND octet_length(data)>1048576) AS n",
+      )
+    : undefined;
+  const v2Count = v2Supported
+    ? db.prepare(
+        "SELECT COUNT(*) AS n FROM session_message WHERE session_id=? AND type IN ('user','assistant')",
+      )
+    : undefined;
   const count = v1
     ? db.prepare("SELECT COUNT(*) AS n FROM message WHERE session_id = ?")
     : undefined;
@@ -190,26 +206,17 @@ export function* dbSessions(
         /* unknown or oversized metadata remains unguessed */
       }
     }
-    const v2History = hasOpenCodeV2(db, String(row.id));
-    const v2Supported = supportsOpenCodeV2(db);
+    const v2History = Number(v2HistoryQuery?.get(String(row.id))?.n ?? 0) > 0;
     const input = v2History
       ? v2Supported
-        ? openCodeV2Input(db, String(row.id))
+        ? (v2Input?.(String(row.id)) ?? { text: "", real: false })
         : { text: "", real: false }
       : v1
-        ? openCodeV1Input(db, String(row.id))
+        ? (v1Input?.(String(row.id)) ?? { text: "", real: false })
         : { text: "", real: false };
     const largeRecord = Number(oversized?.get(String(row.id), String(row.id))?.too_large ?? 0) > 0;
     const v2Large =
-      v2History &&
-      v2Supported &&
-      Number(
-        db
-          .prepare(
-            "SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id=? AND octet_length(data)>1048576) AS n",
-          )
-          .get(String(row.id))?.n ?? 0,
-      ) > 0;
+      v2History && v2Supported && Number(v2LargeQuery?.get(String(row.id))?.n ?? 0) > 0;
     const unsupported =
       (v2History && !v2Supported) || (!v2History && !v1) || (v2History ? v2Large : largeRecord);
     yield {
@@ -227,13 +234,7 @@ export function* dbSessions(
         lastActivity: timestamp(row.time_updated) ?? 0,
         messageCount:
           v2History && v2Supported
-            ? Number(
-                db
-                  .prepare(
-                    "SELECT COUNT(*) AS n FROM session_message WHERE session_id=? AND type IN ('user','assistant')",
-                  )
-                  .get(String(row.id))?.n ?? 0,
-              )
+            ? Number(v2Count?.get(String(row.id))?.n ?? 0)
             : Number(count?.get(String(row.id))?.n ?? 0),
         countAccuracy: "exact",
         ...(model ? { model: model.slice(0, 512) } : {}),

@@ -38,7 +38,7 @@ export const HistoryScanStats = z.object({
   skipped: z.number().int().nonnegative(),
 });
 export const HistoryScanStatus = z.object({
-  state: z.enum(["idle", "scanning", "ready", "failed"]),
+  state: z.enum(["idle", "scanning", "retrying", "ready", "failed"]),
   stats: HistoryScanStats,
   unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
   error: z.string().max(8192).optional(),

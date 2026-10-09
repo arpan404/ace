@@ -8,6 +8,7 @@ import { databaseFingerprint, storageFingerprint } from "./fingerprints.ts";
 import {
   walkFiles,
   readHeadTail,
+  readJsonLines,
   fingerprint,
   object,
   string,
@@ -132,27 +133,39 @@ export async function scan(
         let input = sample.records.some(hasUserInput);
         const headInput = sample.records.slice(0, sample.headCount).some(hasUserInput);
         if (isStorage || (!sample.exact && !headInput)) {
+          let oversized = false;
           if (!isStorage) result.reads++;
           try {
-            for await (const record of sourceRecords(
-              instance,
-              {
-                summary: s,
-                path,
-                fingerprint: fp,
-                kind: isStorage ? "storage" : "jsonl",
-                instanceId: instance.id,
-                hidden: false,
-              },
-              signal,
-              catalog.scratchRoot,
-            )) {
+            for await (const record of isStorage
+              ? sourceRecords(
+                  instance,
+                  {
+                    summary: s,
+                    path,
+                    fingerprint: fp,
+                    kind: isStorage ? "storage" : "jsonl",
+                    instanceId: instance.id,
+                    hidden: false,
+                  },
+                  signal,
+                  catalog.scratchRoot,
+                )
+              : readJsonLines(instance.homeDir, path, signal, 128 * 1024)) {
               if (!isStorage) result.bytes += record.bytes;
+              if ("oversized" in record) oversized = true;
               if ("value" in record) {
                 prompt = userPrompt(record.value);
                 input = hasUserInput(record.value);
               }
               if (input) break;
+            }
+            if (!input && oversized) {
+              const reason =
+                "The first request in this saved conversation is too large to preview. Open it in its original app.";
+              s = { ...s, support: { status: "unsupported", reason } };
+              input = true;
+              if (result.unsupported.length < 256)
+                result.unsupported.push({ instanceId: instance.id, reason });
             }
           } catch (error) {
             if (signal.aborted) throw error;
@@ -215,7 +228,7 @@ export async function scan(
           ? walkFiles(root, signal, budget)
           : changedFiles(root, signal, budget)) {
           batch.push(path);
-          if (batch.length === 4) await flush();
+          if (batch.length === 2) await flush();
         }
       if (batch.length) await flush();
       // Only recognized database names in the home root are opened. No auth/config files.

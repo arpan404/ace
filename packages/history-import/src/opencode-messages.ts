@@ -35,13 +35,9 @@ function firstInput(rows: Iterable<{ data?: unknown }>) {
         text ||
         hasUserInput({
           role: "user",
-          content: [
-            p,
-            ...(Array.isArray(p.files)
-              ? p.files.map((file) => Object.assign({ type: "file" }, object(file)))
-              : []),
-          ],
-        })
+          content: [p],
+        }) ||
+        (Array.isArray(p.files) && p.files.length > 0)
       )
         return { text, real: true };
     } catch {
@@ -50,23 +46,17 @@ function firstInput(rows: Iterable<{ data?: unknown }>) {
   }
   return { text: "", real: false };
 }
-export function openCodeV2Input(db: DatabaseSync, session: string) {
-  return firstInput(
-    db
-      .prepare(
-        "SELECT data FROM session_message WHERE session_id=? AND type='user' AND octet_length(data)<=1048576 ORDER BY seq,id",
-      )
-      .iterate(session),
+export function openCodeV2InputReader(db: DatabaseSync) {
+  const query = db.prepare(
+    "SELECT data FROM session_message WHERE session_id=? AND type='user' AND octet_length(data)<=1048576 ORDER BY seq,id",
   );
+  return (session: string) => firstInput(query.iterate(session));
 }
-export function openCodeV1Input(db: DatabaseSync, session: string) {
-  return firstInput(
-    db
-      .prepare(
-        "SELECT p.data FROM message m JOIN part p ON p.message_id=m.id WHERE m.session_id=? AND octet_length(m.data)<=1048576 AND json_valid(m.data) AND json_extract(m.data,'$.role')='user' AND octet_length(p.data)<=1048576 ORDER BY m.time_created,m.id,p.id",
-      )
-      .iterate(session),
+export function openCodeV1InputReader(db: DatabaseSync) {
+  const query = db.prepare(
+    "SELECT p.data FROM message m JOIN part p ON p.message_id=m.id WHERE m.session_id=? AND octet_length(m.data)<=1048576 AND json_valid(m.data) AND json_extract(m.data,'$.role')='user' AND octet_length(p.data)<=1048576 ORDER BY m.time_created,m.id,p.id",
   );
+  return (session: string) => firstInput(query.iterate(session));
 }
 export function* openCodeV2Records(db: DatabaseSync, session: string, signal: AbortSignal) {
   const rows = db.prepare(

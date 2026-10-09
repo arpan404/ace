@@ -1,5 +1,5 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { Thread } from "@ace/protocol";
+import { Thread } from "@ace/protocol/entities";
 import { z } from "zod";
 import { ArchiveCommand, PageRequest, BlobRequest } from "./archive-contracts.ts";
 

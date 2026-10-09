@@ -45,6 +45,8 @@ const services: Record<string, ServiceInfo> = {
   zai: { brand: "zai", description: "GLM API key" },
   minimax: { brand: "minimax", description: "MiniMax API key" },
   qwen: { brand: "qwen" },
+  ollama: { brand: "ollama" },
+  "ollama-cloud": { brand: "ollama", description: "Ollama cloud models" },
 };
 
 /** What ace knows about a service by its id; empty for one it doesn't. */

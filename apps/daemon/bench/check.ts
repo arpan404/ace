@@ -98,6 +98,17 @@ try {
       }),
     );
     process.stdout.write(acceptance.stdout);
+    const historyIdle = await phase("history idle RSS", () =>
+      runTimed(
+        [
+          join(import.meta.dirname, "history-idle.ts"),
+          `--entry=${entry}`,
+          `--idle-ms=${long ? 600000 : 120000}`,
+        ],
+        { cwd: root, timeout: long ? 720000 : 240000, maxBuffer: 1024 * 1024 },
+      ),
+    );
+    process.stdout.write(historyIdle.stdout);
     await phase("daemon measurement", async () => {
       const output = join(directory, "measurement.json");
       const { raw, deadline: deadlineFailure } = await readFreshMeasurement(output, () =>

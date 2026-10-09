@@ -1,3 +1,4 @@
+import { piCapabilities } from "@ace/adapter-pi/capabilities";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Read-only preview. Registry metadata never starts a provider process. */
@@ -12,14 +13,17 @@ export function createPermissionsSession(context: SocketContext): SocketService 
       try {
         const engine = context.options.engine;
         if (!engine) throw new Error("Permission metadata unavailable");
-        let permissions = engine.capabilities(
-          message.provider,
-          message.provider === "cursor"
-            ? "cursor-sdk"
-            : message.backend === "cli"
-              ? undefined
-              : message.backend,
-        ).permissions;
+        let permissions =
+          message.provider === "pi"
+            ? piCapabilities({ installed: false, auth: "unknown", loginHint: "" }).permissions
+            : engine.capabilities(
+                message.provider,
+                message.provider === "cursor"
+                  ? "cursor-sdk"
+                  : message.backend === "cli"
+                    ? undefined
+                    : message.backend,
+              ).permissions;
         const instance =
           message.instanceId &&
           context.options.models

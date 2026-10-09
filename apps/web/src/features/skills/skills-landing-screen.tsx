@@ -1,25 +1,21 @@
 import { CubeIcon } from "@phosphor-icons/react";
 import { Navigate } from "@tanstack/react-router";
-import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { useInstallDialog } from "./install-plugin.tsx";
-import { skillsLoadError, type Skill } from "./skills-model.ts";
+import { skillsLoadError } from "./skills-model.ts";
 import { catalogOrder } from "./skills-sidebar.tsx";
 import { useSkills } from "./skills-source.ts";
 
 /**
- * Skills opens on the sidebar's first row as the catalog first loads. A catalog that was empty
- * stays on this screen when a plugin arrives: installing one opens it instead.
+ * Skills opens its first row when discovery supplies the catalog.
  */
 export function SkillsLandingScreen() {
   const skills = useSkills();
   const dialog = useInstallDialog();
-  const [firstLoad, setFirstLoad] = useState<readonly Skill[]>();
-  if (firstLoad === undefined && skills.data !== undefined) setFirstLoad(skills.data);
-  const first = firstLoad?.length ? catalogOrder(skills.data ?? [])[0] : undefined;
+  const first = catalogOrder(skills.data ?? [])[0];
   // A narrow window shows the catalog as the page; a wide one opens its first entry.
   if (first)
     return (

@@ -97,3 +97,59 @@ test("an expired isolated login does not turn off the default profile's free mod
     primary: "sign_in",
   });
 });
+
+test("connected services without a model list never ask an already signed-in person to sign in", () => {
+  for (const fields of [
+    { auth: "logged_in" as const },
+    { auth: "unknown" as const, authEvidence: "credentials_configured" as const },
+  ]) {
+    const view = readinessView(row({ provider: "opencode", ...fields }), {
+      models: false,
+      connected: 0,
+    });
+    expect(view).toMatchObject({ summary: "No models yet", ready: false });
+    expect(view.primary).not.toBe("sign_in");
+    expect(view.more).not.toContain("sign_in");
+  }
+});
+
+test("a working local service keeps OpenCode ready despite another service failing", () => {
+  const source = {
+    id: "lmstudio",
+    label: "LM Studio",
+    kind: "local" as const,
+    requiresAuth: false,
+  };
+  const signal = catalogSignal(
+    [{ provider: "opencode", instance: "default", source }],
+    [
+      {
+        provider: "opencode",
+        instance: "default",
+        enabled: true,
+        status: "stale",
+        stale: true,
+        refreshing: false,
+        sources: [
+          {
+            source: { id: "copilot", label: "GitHub Copilot", kind: "api_key", requiresAuth: true },
+            status: "stale",
+            error: { code: "auth_expired", message: "Sign-in expired", hint: "Reconnect Copilot" },
+          },
+        ],
+      },
+    ],
+    "opencode",
+  );
+  const view = readinessView(
+    row({
+      provider: "opencode",
+      auth: "unknown",
+      readiness: "needs_attention",
+      error: "Copilot sign-in expired",
+    }),
+    signal,
+  );
+  expect(view).toMatchObject({ ready: true, label: "Ready" });
+  expect(view.primary).toBeUndefined();
+});

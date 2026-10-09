@@ -60,6 +60,7 @@ export interface ReadinessView {
 export interface CatalogSignal {
   withoutAuth?: boolean | undefined;
   models: boolean;
+  working?: boolean | undefined;
   /** The catalog's own words for an expired or refused sign-in. */
   problem?: string | undefined;
   /** Upstream providers (not local runtimes) with models and no error: OpenCode Go, OpenAI… */
@@ -112,6 +113,18 @@ export function catalogSignal(
       connected.add(model.source.id);
   return {
     models: models.some((model) => model.provider === provider),
+    working: models.some(
+      (model) =>
+        !own.some(
+          (status) =>
+            status.instance === model.instance &&
+            ((status.sources ?? []).some(
+              (entry) => entry.source.id === model.source?.id && entry.error,
+            ) ||
+              (status.errorDetail?.code === "auth_expired" &&
+                !modelsAvailableWithoutAuth([model], [status]))),
+        ),
+    ),
     withoutAuth: modelsAvailableWithoutAuth(
       models.filter((model) => model.provider === provider),
       own,
@@ -171,16 +184,18 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
   const readiness =
     row.readiness ?? (row.auth === "logged_out" ? "installed_signed_out" : "signed_in");
   if (
-    row.provider === "opencode" &&
+    viaUpstreams.has(row.provider) &&
     row.installed === true &&
-    !row.error &&
-    (row.modelsAvailable || catalog?.withoutAuth)
+    (row.modelsAvailable ||
+      catalog?.withoutAuth ||
+      (catalog?.working ?? (catalog?.models && !catalog.problem && !catalog.serviceProblems)) ||
+      catalog?.connected)
   )
     return {
       state: "ready",
       ready: true,
       label: "Ready",
-      summary: "Ready",
+      summary: catalog?.connected ? `${plural(catalog.connected, "service")} connected` : "Ready",
       tone: "ready",
       more: row.auth === "logged_out" ? ["sign_in"] : ["reconnect", "sign_out"],
       upstreams: true,
@@ -205,7 +220,17 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
           upstreams: true,
           ...(row.auth === "unknown" ? { unreported: true } : {}),
         }
-      : signedOut(`Connect a service to ${name}, such as GitHub Copilot or OpenAI.`, true);
+      : row.auth === "logged_in" || row.authEvidence === "credentials_configured"
+        ? {
+            ...quiet(
+              "unconfirmed",
+              "No models yet",
+              "Refresh the model list to check your connected services.",
+            ),
+            more: ["reconnect", "sign_out"],
+            upstreams: true,
+          }
+        : signedOut(`Connect a service to ${name}, such as GitHub Copilot or OpenAI.`, true);
   switch (readiness) {
     case "not_installed":
       return quiet("not_installed", "Not installed", row.installHint);

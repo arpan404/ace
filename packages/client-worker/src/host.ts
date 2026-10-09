@@ -84,7 +84,9 @@ const internal = new Set<string>([
 ]);
 const isServicePush = (message: ServerMessage) =>
   !internal.has(message.type) &&
-  (message.type === "history.operation.progress" || !("requestId" in message && message.requestId));
+  (message.type === "catalog.changed" ||
+    message.type === "history.operation.progress" ||
+    !("requestId" in message && message.requestId));
 
 /** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
 const isChannelRequest = (input: unknown) => {

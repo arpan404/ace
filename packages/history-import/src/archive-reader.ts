@@ -1,5 +1,5 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { Thread, Agent, Item } from "@ace/protocol";
+import { Thread, Agent, Item } from "@ace/protocol/entities";
 import { z } from "zod";
 
 const BlobHeader = z.object({ id: z.string(), size: z.number().int().nonnegative() });

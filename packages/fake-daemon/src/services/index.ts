@@ -648,7 +648,7 @@ export class FakeServices {
       case "settings.unsubscribe":
         return this.settings.handle(message, push);
       case "permissions.capabilities":
-        return this.installed.has(message.provider)
+        return message.provider === "pi" || this.installed.has(message.provider)
           ? {
               type: "permissions.capabilities.result",
               requestId: message.requestId,

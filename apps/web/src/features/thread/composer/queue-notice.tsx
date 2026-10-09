@@ -60,7 +60,10 @@ export function QueueNotice(props: {
       ...(live ?? props.queue.page),
       pendingCount: live?.pendingCount ?? props.queue.page?.total ?? props.queue.messages.length,
       paused: live?.paused ?? props.queue.page?.paused ?? false,
-      reason: live?.reason ?? props.queue.page?.reason ?? null,
+      reason:
+        (live?.reason ?? props.queue.page?.reason) === "model_unavailable" && !unavailable
+          ? "not_sent"
+          : (live?.reason ?? props.queue.page?.reason ?? null),
       resumeAt: live?.resumeAt ?? props.queue.page?.resumeAt ?? null,
     },
     now,

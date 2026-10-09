@@ -10,7 +10,10 @@ export async function* readJsonLines(
   home: string,
   path: string,
   signal?: AbortSignal,
+  recordLimit = RECORD_LIMIT,
 ): AsyncGenerator<NativeRecord> {
+  if (!Number.isSafeInteger(recordLimit) || recordLimit < 1 || recordLimit > RECORD_LIMIT)
+    throw new Error("Invalid native record limit");
   const file = await safeOpen(home, path);
   try {
     const before = await file.stat();
@@ -20,7 +23,7 @@ export async function* readJsonLines(
     let length = 0;
     let chunks: Buffer[] = [];
     const record = (): NativeRecord => {
-      if (length > RECORD_LIMIT) return { oversized: true, offset: start, bytes: length };
+      if (length > recordLimit) return { oversized: true, offset: start, bytes: length };
       try {
         return {
           value: JSON.parse(Buffer.concat(chunks, length).toString("utf8")),
@@ -45,7 +48,7 @@ export async function* readJsonLines(
         const newline = buffer.indexOf(10, cursor);
         const end = newline < 0 || newline >= bytesRead ? bytesRead : newline;
         length += end - cursor;
-        if (length <= RECORD_LIMIT) chunks.push(Buffer.from(buffer.subarray(cursor, end)));
+        if (length <= recordLimit) chunks.push(Buffer.from(buffer.subarray(cursor, end)));
         else chunks = [];
         if (end < bytesRead) {
           if (length) yield record();

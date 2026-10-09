@@ -14,8 +14,9 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       );
       await page.goto("/skills/engineering~skill~code-review");
       await expect(page.getByRole("heading", { level: 1, name: "Code review" })).toBeVisible();
-      const preview = page.getByRole("region", { name: "Preview" });
-      await expect(preview.getByRole("heading", { name: "code-review" })).toBeVisible();
+      const source = page.getByRole("region", { name: "Source" });
+      await expect(source.getByText("skills/code-review/SKILL.md", { exact: true })).toBeVisible();
+      await expect(source.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
       const control = page.getByRole("switch", { name: "Enabled" });
       await expect(control).toBeVisible();
       const box = await control.boundingBox();
@@ -39,8 +40,8 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         });
       await page.getByRole("link", { name: "Use in a thread" }).click();
       await expect(page.getByRole("heading", { level: 1, name: "New thread" })).toBeVisible();
-      await expect(page.getByRole("combobox", { name: "Message" })).toHaveValue("/code-review ");
-      await expect(page.getByRole("button", { name: /^Project:/ })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "Message" })).toHaveText("/code-review");
+      await expect(page.getByRole("combobox", { name: "Message" })).toBeFocused();
       for (const toast of await page.getByRole("button", { name: "Dismiss", exact: true }).all())
         await toast.click();
       if (out && ["light", "dark"].includes(theme))
@@ -59,7 +60,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       const pluginSwitch = page.getByRole("switch", { name: "Enabled" });
       expect((await pluginSwitch.boundingBox())?.width).toBeLessThanOrEqual(40);
       const contents = page.getByRole("region", { name: "Contents" });
-      await expect(contents.getByRole("link", { name: "Test-driven development" })).toBeVisible();
+      await expect(contents.getByRole("link", { name: "Test Driven Development" })).toBeVisible();
       for (const row of await contents.getByRole("link").all())
         expect((await row.boundingBox())?.height).toBeLessThanOrEqual(36);
       if (out && ["light", "dark"].includes(theme))
