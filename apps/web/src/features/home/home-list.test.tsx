@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { facts, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
@@ -40,14 +40,14 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
 test("Home lists every project's threads as one list, in the order of what needs you", async () => {
   await openHome(workbenchApp());
   // No folders: threads from billing-api, ace-mobile, relay, ace and docs-site interleave, by
-  // what needs you, then work in motion, then trouble, then the rest.
+  // what needs you, then working tasks, then everything else by recency.
   expect(order()).toEqual([
     "Partial refunds double-count tax",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
+    "Backpressure on broadcast fan-out",
     "Invoice PDF locale fallback",
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
@@ -87,7 +87,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
-  expect(within(dedupe).getByText("2")).toBeTruthy();
+  expect(within(dedupe).getByText("⑂ 2")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
   );
@@ -343,7 +343,7 @@ test("Tab walks a task link, its single quick action, then the next task", async
   expect(document.activeElement).toBe(second);
 });
 
-test("a row's name and tooltip give its whole branch, and no branch when it is on main", async () => {
+test("a row's name and tooltip give its whole branch, including main", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "thread-on-main",
@@ -359,6 +359,13 @@ test("a row's name and tooltip give its whole branch, and no branch when it is o
     provider: "codex",
     details: { branch: "ace/33594883e2b3ea4fc70aeea5", mode: "worktree" },
   });
+  for (const id of ["thread-on-main", "thread-hash-branch"])
+    app.daemon.apply(id, [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.message("root", "sent", "user", "Tidy this project"),
+      facts.endTurn("root"),
+    ]);
   await openHome(app);
 
   const hashed = card(/^Support spare-part materials/);
@@ -371,5 +378,5 @@ test("a row's name and tooltip give its whole branch, and no branch when it is o
   );
 
   const onMain = card(/^Tidy the README/);
-  expect(onMain.textContent).not.toContain("main");
+  expect(within(onMain).getByText("main", { exact: true })).toBeTruthy();
 });

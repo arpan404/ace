@@ -1,4 +1,9 @@
-import type { MachineIcon, ProviderKind, ThreadListEntry } from "@ace/protocol";
+import type {
+  MachineIcon,
+  ProviderKind,
+  ThreadListEntry,
+  ThreadReadStateResponse,
+} from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
@@ -12,7 +17,7 @@ import {
   type ThreadMarkKind,
   type Tone,
 } from "./status.ts";
-import { formatAge } from "./time.ts";
+import { formatAge, formatClock } from "./time.ts";
 import { describeLive, liveStatusText, threadLiveFact, type LiveStatus } from "./live-status.ts";
 
 const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
@@ -38,6 +43,7 @@ function livePill(status: LiveStatus): TaskPill {
 export interface CardDetails {
   branch?: string | undefined;
   pr?: number | undefined;
+  prState?: "open" | "merged" | "closed" | "draft" | undefined;
   /** The thread runs in its own worktree rather than the project checkout. */
   worktree?: boolean | undefined;
   /** Set when the thread runs on another machine. */
@@ -57,6 +63,7 @@ export function cardDetails(entry: ThreadListEntry, home: string | undefined): C
   return {
     branch: details.branch ?? undefined,
     pr: details.linkedPr?.number,
+    prState: details.linkedPr?.draft ? "draft" : details.linkedPr?.state,
     worktree: details.mode === "worktree",
     machine: machine && home !== undefined && machine.host !== home ? machine.name : undefined,
     diff: details.diff && { added: details.diff.additions, removed: details.diff.deletions },
@@ -74,11 +81,16 @@ export interface ThreadRowFlags {
 /** How a person has organised a thread: what its menus offer (Mark read or unread, Unpin…). */
 export function threadRowFlags(
   entry: ThreadListEntry,
-  input: { baseline: number; now: number; settled: boolean },
+  input: {
+    baseline: number;
+    now: number;
+    settled: boolean;
+    readState?: ThreadReadStateResponse | undefined;
+  },
 ): ThreadRowFlags {
   return {
     settled: input.settled,
-    unread: isUnread(entry, input.baseline),
+    unread: isUnread(entry, input.baseline, input.readState),
     pinned: entry.pinned === true,
     snoozed: isSnoozed(entry, input.now),
   };
@@ -104,6 +116,7 @@ export interface ThreadCard {
   diff: { added: number; removed: number } | undefined;
   /** A linked pull request remains visible even without a feature branch. */
   pr: number | undefined;
+  prState: CardDetails["prState"];
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
   /** "tomorrow 9:00 AM" while snoozed. */
@@ -111,11 +124,17 @@ export interface ThreadCard {
   machine: string | undefined;
   machineIcon: MachineIcon | undefined;
   /**
-   * The branch, only when it says something: not the project's default branch. `label` is the
+   * The branch, including the project's default branch. `label` is the
    * name cut in the middle to fit a row; `name` is whole, for the tooltip.
    */
   branch: { name: string; label: string; pr: number | undefined; worktree: boolean } | undefined;
-  status: { label: string; tone: Tone; mark: ThreadMarkKind };
+  status: {
+    label: string;
+    tone: Tone;
+    mark: ThreadMarkKind;
+    compact?: string;
+    since?: number | undefined;
+  };
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
   acpAgentId: string | undefined;
@@ -136,14 +155,7 @@ export interface ThreadCardInput {
   locale?: string;
   /** The project's name; its id when the name isn't known. */
   projectName?: string | undefined;
-}
-
-/**
- * The branch a project's own checkout sits on, which a row doesn't need to name. The thread
- * list doesn't carry each project's default branch, so the usual names stand in for it.
- */
-export function isDefaultBranch(branch: string): boolean {
-  return branch === "main" || branch === "master";
+  readState?: ThreadReadStateResponse | undefined;
 }
 
 /** How many characters of a branch name a Home task row's last line shows beside its marks. */
@@ -168,7 +180,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const flags = threadRowFlags(entry, input);
   const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
-  const subagents = runningSubagents(entry.status);
+  const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
   const live = fact && describeLive(fact, now, input.locale);
@@ -188,12 +200,13 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       ? undefined
       : live
         ? livePill(live)
-        : taskPill(entry.status, { unread, since: activityOf(entry) }),
+        : taskPill(entry.status, { unread, since: entry.live?.workingSince ?? activityOf(entry) }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
         : undefined,
     pr: details?.pr,
+    prState: details?.prState,
     announceUnread: unread && !needsYou,
     wake:
       snoozed && entry.snoozedUntil !== undefined
@@ -201,16 +214,28 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
         : undefined,
     machine: details?.machine,
     machineIcon: details?.machineIcon,
-    branch:
-      details?.branch && !isDefaultBranch(details.branch)
-        ? {
-            name: details.branch,
-            label: middleTruncateText(details.branch, branchLabelLength),
-            pr: details.pr,
-            worktree: details.worktree === true,
-          }
-        : undefined,
-    status: { label, tone, mark: threadStatusMark(entry.status) },
+    branch: details?.branch
+      ? {
+          name: details.branch,
+          label: middleTruncateText(details.branch, branchLabelLength),
+          pr: details.pr,
+          worktree: details.worktree === true,
+        }
+      : undefined,
+    status: {
+      label,
+      tone,
+      mark: threadStatusMark(entry.status),
+      ...(entry.status.state === "working"
+        ? { since: entry.live?.workingSince ?? activityOf(entry) }
+        : {}),
+      ...(fact?.kind === "asking"
+        ? { compact: fact.request === "question" ? "Waiting for answer" : "Needs you" }
+        : {}),
+      ...(fact?.kind === "limited" && fact.until !== undefined && fact.until > now
+        ? { compact: `Limited · ${formatClock(fact.until, input.locale)}` }
+        : {}),
+    },
     provider: entry.provider,
     subagents,
     acpAgentId: entry.acpAgentId,

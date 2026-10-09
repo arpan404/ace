@@ -1,16 +1,19 @@
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon, GitMergeIcon } from "@phosphor-icons/react";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
+import { formatSpan } from "@ace/ui-core";
+import { useSeconds } from "@/lib/time.ts";
+import { useLiveConnection } from "@/lib/live-connection.ts";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 
 /*
- * Pure pieces of a Home thread row. They render a `ThreadCard` view model and know nothing about
- * the client, the organizer or routing. Everything they draw is decoration: the words for it are
- * in the row's name (`threadDetails`), which nothing hides, and in its tooltip.
+ * Shared row pieces render the card facts. RowStatus reads the shared clock for elapsed time;
+ * the row name and tooltip keep the full wording when the visible text is shortened.
  */
 
 /**
@@ -25,6 +28,7 @@ export function threadDetails(card: ThreadCard): string[] {
     card.providerLabel,
     branch && `${branch.worktree ? "Worktree" : "Branch"} ${branch.name}`,
     card.pr !== undefined && `Pull request #${card.pr}`,
+    card.prState && `${card.prState} pull request`,
     card.diff && `${card.diff.added} lines added, ${card.diff.removed} removed`,
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
@@ -34,7 +38,7 @@ export function threadDetails(card: ThreadCard): string[] {
 }
 
 /**
- * The project's two letters on a quiet tile. The open row's tile takes the project's tint
+ * The project's two letters on a quiet tile. The tile takes the project's tint
  * (`--project-<n>`, AA on every surface); only the variable is inline, the rule is shared.
  */
 export function ProjectMark(props: { badge: ProjectBadge }) {
@@ -42,7 +46,7 @@ export function ProjectMark(props: { badge: ProjectBadge }) {
     <span
       aria-hidden
       style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
-      className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-foreground/6 text-[9px] leading-none font-semibold tracking-[0.02em] text-subtle-foreground group-data-[status=active]/link:bg-(--tint)/16 group-data-[status=active]/link:text-(--tint)"
+      className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-(--tint)/12 text-[9px] leading-none font-semibold text-(--tint)"
     >
       {props.badge.initials}
     </span>
@@ -57,7 +61,11 @@ export function StatusMark(props: { card: ThreadCard }) {
   const { card } = props;
   switch (card.status.mark) {
     case "working":
-      return <LiveWorkMark />;
+      return (
+        <span className="fx-work-pulse">
+          <LiveWorkMark />
+        </span>
+      );
     case "needs-you":
     case "failed":
     case "unresponsive":
@@ -68,13 +76,48 @@ export function StatusMark(props: { card: ThreadCard }) {
   }
 }
 
-/** The pull request, as its glyph and number. */
-function PullRequest(props: { number: number }) {
+/** State is also spoken, so the PR's colour is never the only clue. */
+function PullRequest(props: { card: ThreadCard }) {
+  const { pr, prState } = props.card;
+  if (pr === undefined) return null;
+  const tones = {
+    open: "text-status-done",
+    merged: "text-status-waiting",
+    closed: "text-status-failed",
+    draft: "text-subtle-foreground",
+  };
   return (
-    <span className="inline-flex items-center gap-0.5">
-      <Icon icon={GitPullRequestIcon} size={12} />
-      {props.number}
+    <span
+      role="img"
+      aria-label={`${prState ?? "Linked"} pull request #${pr}`}
+      className={`inline-flex items-center gap-0.5 ${prState ? tones[prState] : ""}`}
+    >
+      <Icon icon={prState === "merged" ? GitMergeIcon : GitPullRequestIcon} size={12} />
+      {pr}
     </span>
+  );
+}
+
+/** Only visible working rows subscribe to the shared second clock. Offline facts stop ticking. */
+export function RowStatus(props: { card: ThreadCard }) {
+  const { card } = props;
+  const fresh = useLiveConnection().fresh;
+  const now = useSeconds(fresh && card.status.since !== undefined);
+  if (card.flags.settled || card.status.tone === "done" || card.status.tone === "idle")
+    return (
+      <span className="shrink-0 text-2xs text-subtle-foreground tabular-nums">{card.age}</span>
+    );
+  return (
+    <StatusLabel
+      tone={card.status.tone}
+      label={card.status.compact ?? card.pill?.label ?? card.status.label}
+      mark={<StatusMark card={card} />}
+      className="min-w-0 max-w-[48%] gap-1 text-2xs"
+    >
+      {card.status.since !== undefined && fresh && (
+        <span className="tabular-nums">· {formatSpan(card.status.since, now)}</span>
+      )}
+    </StatusLabel>
   );
 }
 
@@ -84,7 +127,7 @@ export function RowMeta(props: { card: ThreadCard }) {
   return (
     <span className="flex shrink-0 items-center text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
       {card.pr !== undefined ? (
-        <PullRequest number={card.pr} />
+        <PullRequest card={card} />
       ) : (
         <span className="tabular-nums">{card.age}</span>
       )}
@@ -98,20 +141,24 @@ export function RowMeta(props: { card: ThreadCard }) {
  */
 export function titleTone(card: ThreadCard): string {
   if (card.flags.settled) return "text-subtle-foreground";
+  if (card.flags.unread) return "font-semibold text-foreground";
   if (card.emphasis) return "font-medium text-foreground";
   return card.dimmed ? "text-muted-foreground" : "text-sidebar-foreground";
 }
 
-/** The diff as +added −removed in the only colours a row carries, or the pull request. */
+/** PR and diff are independent facts; neither hides the other. */
 function ChangeMark(props: { card: ThreadCard }) {
-  const { pr, diff } = props.card;
-  if (pr !== undefined) return <PullRequest number={pr} />;
-  if (!diff) return null;
+  const { diff } = props.card;
   return (
-    <span className="inline-flex items-center gap-1 tabular-nums">
-      {diff.added > 0 && <span className="text-status-done">+{diff.added}</span>}
-      {diff.removed > 0 && <span className="text-status-failed">−{diff.removed}</span>}
-    </span>
+    <>
+      <PullRequest card={props.card} />
+      {diff && (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          {diff.added > 0 && <span className="text-status-done">+{diff.added}</span>}
+          {diff.removed > 0 && <span className="text-status-failed">−{diff.removed}</span>}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -120,35 +167,41 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
   const { card } = props;
   return (
     <span role="img" aria-label={card.providerLabel} className="inline-flex items-center gap-0.5">
+      {card.subagents > 0 && (
+        <span className="text-2xs text-muted-foreground tabular-nums">⑂ {card.subagents}</span>
+      )}
       <ProviderAccountIcon
         instance={props.instance}
         provider={card.provider}
         acpAgentId={card.acpAgentId}
-        size={16}
+        size={14}
         decorative
       />
-      {card.subagents > 0 && (
-        <span className="text-2xs text-muted-foreground tabular-nums">{card.subagents}</span>
-      )}
     </span>
   );
 }
 
-/** Always-visible task context; only its right-side marks give way to the hover action. */
+/** Task context stays visible while the first-line status gives way to the hover action. */
 export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-2xs leading-3 text-muted-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <ProjectMark badge={card.badge} />
         <span className="truncate">{card.branch?.name ?? card.project}</span>
         {card.machine && (
           <>
             {" "}
-            · <MachineLabel name={card.machine} icon={card.machineIcon} />
+            ·{" "}
+            <MachineLabel
+              name={card.machine}
+              icon={card.machineIcon}
+              className="shrink-0 max-w-[60%]"
+            />
           </>
         )}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5 group-focus-within/row:invisible group-hover/row:invisible">
+      <span className="flex shrink-0 items-center gap-1.5">
         <ChangeMark card={card} />
         <ProviderMark card={card} instance={props.instance} />
       </span>

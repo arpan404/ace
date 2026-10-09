@@ -178,15 +178,29 @@ test("a paired machine's updated host identity replaces the cached label after r
   const sidebar = await screen.findByRole("list", { name: "Threads" });
   await within(sidebar).findByText("Old server");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  app.machines
-    .get("build")
-    ?.services.settings.seed({
-      "host.displayName": "Build server",
-      "host.icon": { kind: "cloud", color: "blue" },
-    });
+  app.machines.get("build")?.services.settings.seed({
+    "host.displayName": "Build server",
+    "host.icon": { kind: "cloud", color: "blue" },
+  });
   app.crashMachine("build");
   await app.pool().reconnect("build");
   expect(await within(sidebar).findByText("Build server")).toBeTruthy();
   expect(within(sidebar).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
   expect(sidebar.textContent).not.toContain("Old server");
+});
+
+test("clearing a custom machine name restores the computer name", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
+  await app.open("/settings/remote");
+  const edit = await screen.findByRole("button", { name: "Edit this machine" });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(edit);
+  const dialog = await screen.findByRole("dialog");
+  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Machine name" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(
+    await within(screen.getByRole("region", { name: "Machines" })).findByText("Fake machine"),
+  ).toBeTruthy();
 });

@@ -114,7 +114,8 @@ function MachineEditor(props: {
         layer: { kind: "global" },
       });
       if (!marked.ok) throw new Error("refused");
-      await props.onSaved(name.trim(), savedIcon);
+      const { identity } = await props.machine.client.request({ type: "host.identity" });
+      await props.onSaved(identity.displayName, identity.icon ?? savedIcon);
       props.onClose();
     } catch {
       setError(true);
@@ -199,7 +200,7 @@ function MachineEditor(props: {
           <Button variant="ghost" disabled={saving} onClick={props.onClose}>
             Cancel
           </Button>
-          <Button disabled={saving || !name.trim()} onClick={() => void save()}>
+          <Button disabled={saving} onClick={() => void save()}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>

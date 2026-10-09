@@ -110,12 +110,12 @@ test("a thread with no branch yet shows none rather than an empty one", () => {
   ).toBeUndefined();
 });
 
-test("a thread on the project's default branch names no branch", () => {
+test("a thread on the default branch still shows where it runs", () => {
   for (const branch of ["main", "master"]) {
     const local = entry("t", { state: "done" }, now, { details: { branch } });
     expect(
       threadCard(input({ entry: local, details: cardDetails(local, undefined) })).branch,
-    ).toBeUndefined();
+    ).toMatchObject({ name: branch });
   }
 });
 
@@ -243,6 +243,7 @@ test("a linked pull request stays available when the thread has no feature branc
     });
     const card = threadCard(input({ entry: local, details: cardDetails(local, undefined) }));
     expect(card.pr).toBe(18);
-    expect(card.branch).toBeUndefined();
+    if (branch) expect(card.branch?.name).toBe(branch);
+    else expect(card.branch).toBeUndefined();
   }
 });
