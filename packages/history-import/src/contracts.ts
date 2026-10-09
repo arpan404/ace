@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Agent, Item, Thread, ThreadId, WorkspaceId } from "@ace/protocol";
+import { Agent, Item, Thread, ThreadId, WorkspaceId } from "@ace/protocol/entities";
 import {
   HistoryListRequest,
   HistoryProvider,

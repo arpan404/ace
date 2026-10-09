@@ -1,9 +1,11 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
 import { Worker, type WorkerOptions } from "node:worker_threads";
-import { IdleWorker, type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
+import { type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { InventoryWatch, type WatchDirectory } from "./inventory-watch.ts";
+import { RecoveringWorker } from "./recovering-worker.ts";
+import { validateIndexPath } from "./index-path.ts";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
-import { Agent, ThreadId } from "@ace/protocol";
+import { Agent, ThreadId } from "@ace/protocol/entities";
 import {
   ArchiveCommand,
   ArchiveThread,
@@ -34,6 +36,11 @@ export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
 }
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
+const Progress = z.object({
+  progress: z.number().int().nonnegative(),
+  progressId: z.number().int(),
+  result: ScanResult,
+});
 /** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
 export async function openHistory(
   options: HistoryOptions,
@@ -41,10 +48,12 @@ export async function openHistory(
     new Worker(url, workerOptions),
   runtime: HistoryRuntime = {},
 ): Promise<HistoryService> {
-  const worker = new IdleWorker(
+  const parsed = Options.parse(options);
+  await validateIndexPath(parsed.indexPath, parsed.instances);
+  const worker = new RecoveringWorker(
     new URL("./worker.ts", import.meta.url),
     {
-      workerData: Options.parse(options),
+      workerData: parsed,
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
     },
     {
@@ -58,7 +67,7 @@ export async function openHistory(
         }),
     },
   );
-  const inventory = new InventoryWatch(Options.parse(options).instances, runtime.watch);
+  const inventory = new InventoryWatch(parsed.instances, runtime.watch);
   const service = new HistoryService(worker, inventory);
   worker.start();
   try {
@@ -73,6 +82,8 @@ export async function openHistory(
 export class HistoryService {
   private worker: HistoryWorker;
   private archiveWriting = false;
+  private recoverable = false;
+  private recoveryListeners = new Set<(retrying: boolean) => void>();
   private inventory: InventoryWatch | undefined;
   private seq = 0;
   private pending:
@@ -90,18 +101,18 @@ export class HistoryService {
   readonly ready: Promise<unknown>;
   constructor(worker: HistoryWorker, inventory?: InventoryWatch) {
     this.worker = worker;
+    this.recoverable = worker instanceof RecoveringWorker;
+    if (worker instanceof RecoveringWorker)
+      worker.on("recovery", (retrying: boolean) => {
+        if (retrying) this.inventory?.reset();
+        for (const listener of this.recoveryListeners) listener(retrying);
+      });
     this.inventory = inventory;
     this.ready = new Promise((resolve, reject) => {
       this.pending = { id: 0, resolve, reject };
     });
     worker.on("message", (value: unknown) => {
-      const progress = z
-        .object({
-          progress: z.number().int().nonnegative(),
-          progressId: z.number().int(),
-          result: ScanResult,
-        })
-        .safeParse(value).data;
+      const progress = Progress.safeParse(value).data;
       if (progress) {
         void Promise.resolve()
           .then(() => this.onProgress?.(progress.progress, progress.result))
@@ -143,22 +154,33 @@ export class HistoryService {
     worker.on("exit", () => this.fail(new Error("History worker closed")));
   }
   private fail(error: Error) {
-    this.closed = true;
-    this.pending?.reject(error);
-    this.pending = undefined;
+    if (!this.recoverable) this.closed = true;
+    if (this.pending?.id !== 0 || !this.recoverable) {
+      this.pending?.reject(error);
+      this.pending = undefined;
+    }
     for (const read of this.reads.values()) read.reject(error);
     this.reads.clear();
+  }
+  subscribeRecovery(listener: (retrying: boolean) => void): () => void {
+    this.recoveryListeners.add(listener);
+    return () => this.recoveryListeners.delete(listener);
   }
   private async request(request: z.infer<typeof Request>, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     if (this.closed || (this.closing && request.op !== "close"))
       throw new Error("History service is closed");
-    if (this.scanning && (request.op === "list" || request.op === "get")) {
+    if (request.op === "list" || request.op === "get") {
       if (this.reads.size >= 8) throw new Error("Too many history reads");
       const id = ++this.seq;
       return new Promise((resolve, reject) => {
         this.reads.set(id, { resolve, reject });
-        this.worker.postMessage({ id, request });
+        try {
+          this.worker.postMessage({ id, request });
+        } catch (error) {
+          this.reads.delete(id);
+          reject(error);
+        }
       });
     }
     if (this.pending) throw new Error("History operation already in progress");
@@ -404,17 +426,23 @@ export class HistoryService {
   }
   async close(): Promise<void> {
     this.inventory?.close();
+    this.recoveryListeners.clear();
     this.closing ??= (async () => {
       if (this.worker.started === false) {
         this.closed = true;
+        this.fail(new Error("History service is closed"));
         await this.worker.terminate();
         return;
       }
       this.worker.postMessage("cancel");
       await this.requestDone?.catch(() => undefined);
-      if (!this.closed) await this.request({ op: "close" });
-      this.closed = true;
-      await this.worker.terminate();
+      try {
+        if (!this.closed) await this.request({ op: "close" });
+      } finally {
+        this.closed = true;
+        this.fail(new Error("History service is closed"));
+        await this.worker.terminate();
+      }
     })();
     await this.closing;
   }

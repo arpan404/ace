@@ -1,6 +1,6 @@
 import { nativeReference } from "./native-reference.ts";
 import { lstat } from "node:fs/promises";
-import { Agent, AgentId, Item, ItemId, Thread, type RawPayload } from "@ace/protocol";
+import { Agent, AgentId, Item, ItemId, Thread, type RawPayload } from "@ace/protocol/entities";
 import { fingerprint, object, string } from "@ace/native-session";
 import type { Catalog, Source } from "./catalog.ts";
 import type { ImportInit, Packet, ProviderHome } from "./contracts.ts";
@@ -137,8 +137,9 @@ export async function* importHistory(
               createdAt: init.at,
               complete: true,
               type: "notice",
-              level: "warning",
-              text: "Native record retained in a blob; oversized or incomplete JSON",
+              level: "info",
+              code: "history.raw-only",
+              text: "",
               raw: [raw],
             }),
           };

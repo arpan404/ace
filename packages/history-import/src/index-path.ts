@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, lstat } from "node:fs/promises";
 import { dirname, basename, join } from "node:path";
 import { contains } from "@ace/native-session";
 import type { ProviderHome } from "./contracts.ts";
@@ -19,5 +19,12 @@ export async function validateIndexPath(path: string, instances: ProviderHome[])
   for (const instance of instances) {
     const home = await prospectivePath(instance.homeDir);
     if (contains(home, parent)) throw new Error("ace index must be outside provider homes");
+  }
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new Error("ace index must be a regular file");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
 }

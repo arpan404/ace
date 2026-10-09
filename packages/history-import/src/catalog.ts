@@ -53,10 +53,10 @@ export class Catalog {
       "CREATE TABLE IF NOT EXISTS native_titles(instance TEXT,native TEXT,title TEXT,origin TEXT NOT NULL,PRIMARY KEY(instance,native))",
     );
     if (
-      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "3"
+      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "4"
     ) {
       this.db.exec(
-        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','3')",
+        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','4')",
       );
     }
     this.updates = new ScanUpdates(this.db);

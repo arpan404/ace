@@ -1,4 +1,4 @@
-import { Item, type RawPayload } from "@ace/protocol";
+import { Item, type RawPayload } from "@ace/protocol/entities";
 import { outputStreamId, summarizeOutput } from "@ace/projection";
 import type { Completion } from "./native-tools.ts";
 import type { Packet } from "./contracts.ts";

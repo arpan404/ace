@@ -380,6 +380,10 @@ export class FakeDaemon implements Host {
 
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
+    if (seed.historyScan)
+      for (const connection of this.connections)
+        if (connection.authenticated)
+          connection.push({ type: "history.scan.updated", scan: seed.historyScan });
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     const services = this.servicesWire.session(send);
