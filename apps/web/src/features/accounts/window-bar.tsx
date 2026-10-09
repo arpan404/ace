@@ -30,7 +30,7 @@ export function WindowBar(props: { window: QuotaWindowView; now: number }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={used}
-        aria-valuetext={`${used}% used, ${resets.toLowerCase()}`}
+        aria-valuetext={`${used}% used, ${resets}`}
         className="block h-1 overflow-hidden rounded-full bg-secondary"
       >
         <span

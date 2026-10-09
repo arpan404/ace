@@ -43,5 +43,5 @@ test("administrator access still requires explicit Projects and Accounts grants"
   expect(new URLSearchParams(new URL(link.value).hash.slice(1)).get("scopes")).toBe(
     "read,operate,admin,projects",
   );
-  expect(within(dialog).getByText("Read, Operate, Administrator, Projects")).toBeTruthy();
+  expect(within(dialog).getByText("Administrator, Projects")).toBeTruthy();
 });

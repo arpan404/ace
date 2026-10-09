@@ -14,17 +14,20 @@ test("prompt files list their descriptions and diagnostics, and an edit is saved
   await open();
   const list = screen.getByRole("list", { name: "Prompt files" });
   expect(within(list).getByText("Explain a change in plain language")).toBeTruthy();
-  expect(within(list).getByText("Needs attention")).toBeTruthy();
+  expect(
+    within(list).getByText(/settings at the top of this prompt have invalid syntax/),
+  ).toBeTruthy();
+  expect(within(list).getByRole("button", { name: /unfinished.*Edit/ })).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: /unfinished/ }));
   const body = await screen.findByRole("textbox", { name: "Prompt content" });
   expect(screen.getByRole("list", { name: "Prompt diagnostics" }).textContent).toContain(
-    "Check the names and indentation.",
+    "Check the names, brackets and indentation.",
   );
   await userEvent.clear(body);
   await userEvent.type(body, "Explain the selected change.");
   await userEvent.click(screen.getByRole("button", { name: "Save prompt" }));
   await screen.findByText("Prompt saved.");
-  expect(screen.queryByText("Needs attention")).toBeNull();
+  expect(screen.queryByText(/settings at the top of this prompt have invalid syntax/)).toBeNull();
   await userEvent.click(
     within(screen.getByRole("list", { name: "Prompt files" })).getByRole("button", {
       name: /unfinished/,
@@ -56,10 +59,10 @@ test("a new project prompt is created in the chosen project and available from t
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Try /branch");
   const menu = await screen.findByRole("listbox", { name: "Add and commands" });
-  const choice = within(menu).getByRole("option", { name: /^branch / });
+  const choice = within(menu).getByRole("option", { name: /^Branch Project$/ });
   expect(within(choice).getByText("Project")).toBeTruthy();
   await userEvent.click(choice);
-  expect(message.textContent).toBe("Try branch ");
+  expect(message.textContent).toBe("Try Branch ");
 });
 test("a conflicting prompt save explains how to reload and preserves the other edit", async () => {
   const app = await open();

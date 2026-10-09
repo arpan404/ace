@@ -54,7 +54,7 @@ test("headroom names each provider's account with the most room and when the nex
   // Each ring says how long until its window resets.
   expect(
     within(work).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuetext"),
-  ).toMatch(/^57% used, resets \w+ · in 2d$/);
+  ).toMatch(/^57% used, Resets \w+ · in 2d$/);
 });
 
 /** A table row's cells: who, which provider, how many tokens. */

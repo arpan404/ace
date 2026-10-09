@@ -1,9 +1,8 @@
 import type { AutomationRun } from "@ace/protocol";
-import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
 import { runSummary } from "./labels.ts";
@@ -83,7 +82,7 @@ function RunItem(props: { run: AutomationRun; timezone?: string | undefined }) {
         className="flex h-9 w-full items-center gap-3 rounded-sm text-left focus-ring-inset hover:bg-accent"
       >
         <span className="min-w-0 flex-1 truncate text-ui">
-          {run.status === "running" ? triggers[run.trigger] : summary}
+          {open || run.status === "running" ? triggers[run.trigger] : summary}
         </span>
         <span
           className="shrink-0 text-xs text-muted-foreground tabular-nums"
@@ -102,15 +101,6 @@ function RunItem(props: { run: AutomationRun; timezone?: string | undefined }) {
           </p>
           <RunOutput run={run} />
           <div className="mt-3 flex items-center justify-end gap-2">
-            {run.threadId && (
-              <Link
-                to="/t/$threadId"
-                params={{ threadId: run.threadId }}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
-              >
-                Open thread
-              </Link>
-            )}
             <Button
               variant="ghost"
               size="sm"

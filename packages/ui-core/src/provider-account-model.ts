@@ -16,6 +16,8 @@ export interface AccountStatusView {
 
 /** Authentication and live limits in the same words on every account surface. */
 export function accountStatus(account: AccountView, now: number): AccountStatusView {
+  const quotaState = availability(account.quota, now);
+  if (quotaState === "exhausted") return { tone: "problem", text: "Limit reached", canRun: false };
   if (account.runtimeStatus && !account.runtimeStatus.canRun) return account.runtimeStatus;
   if (account.quota.auth !== "logged_in" && account.runtimeStatus?.canRun) {
     const limits = availability({ ...account.quota, auth: "logged_in" }, now);
@@ -23,14 +25,13 @@ export function accountStatus(account: AccountView, now: number): AccountStatusV
     if (limits === "near_limit") return { tone: "action", text: "Near its limit", canRun: true };
     return account.runtimeStatus;
   }
-  switch (availability(account.quota, now)) {
+  if (quotaState === "available" && account.runtimeStatus) return account.runtimeStatus;
+  switch (quotaState) {
     case "logged_out":
       return { tone: "action", text: "Signed out", canRun: false };
     case "unknown":
       if (account.runtimeStatus) return account.runtimeStatus;
       return { tone: "idle", text: "Not signed in yet", canRun: false };
-    case "exhausted":
-      return { tone: "problem", text: "Limit reached", canRun: false };
     case "near_limit":
       return { tone: "action", text: "Near its limit", canRun: true };
     case "available":
@@ -56,6 +57,7 @@ export function providerAccountModel(input: {
   accounts: readonly AccountView[] | undefined;
   row?: ProviderStatus | undefined;
   catalog?: CatalogSignal | undefined;
+  catalogForAccount?: ((id: string) => CatalogSignal | undefined) | undefined;
   now: number;
 }): ProviderAccountModel {
   const base = input.row && readinessView(input.row, input.catalog);
@@ -67,7 +69,19 @@ export function providerAccountModel(input: {
   );
   const accounts: AccountView[] = [];
   for (const stored of own) {
-    const account = { ...stored, version: input.row?.version ?? stored.version };
+    const signal = input.catalogForAccount?.(stored.id);
+    const serviceStatus = signal?.serviceProblems
+      ? {
+          tone: "problem" as const,
+          text: "Connection needs attention",
+          canRun: signal.connected > 0 || Boolean(signal.withoutAuth),
+        }
+      : undefined;
+    const account = {
+      ...stored,
+      version: input.row?.version ?? stored.version,
+      runtimeStatus: serviceStatus ?? stored.runtimeStatus,
+    };
     if (base?.state === "not_installed" || base?.state === "off") {
       accounts.push({
         ...account,
@@ -92,12 +106,13 @@ export function providerAccountModel(input: {
       quota,
       signedIn: quota.auth === "logged_in",
       runtimeStatus:
-        (quota.auth === "unknown" ||
+        serviceStatus ??
+        ((quota.auth === "unknown" ||
           base?.state === "attention" ||
           (quota.auth === "logged_out" && base?.ready && base.upstreams)) &&
         base
           ? { tone: base.tone, text: base.ready ? "Ready" : base.label, canRun: base.ready }
-          : undefined,
+          : undefined),
       availability: availability(quota, input.now),
     });
   }
@@ -116,7 +131,7 @@ export function providerAccountModel(input: {
     const selected = accounts.find((account) => account.isDefault) ?? runnable;
     const summary =
       selected?.implicit && selected.quota.auth === "logged_in" && input.row?.accountLabel
-        ? `Signed in as ${accountDisplayName(selected)}`
+        ? `Signed in as ${input.row.accountLabel}`
         : selected
           ? accounts.length === 1 && selected.implicit && selected.quota.auth === "unknown"
             ? label

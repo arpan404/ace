@@ -89,7 +89,7 @@ test("a model id two providers share starts the thread on the provider it was pi
     "false",
   );
   expect(
-    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your CLI login" }).ariaSelected,
+    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your Cursor login" }).ariaSelected,
   ).toBe("true");
   await closeModelControl();
 
@@ -405,8 +405,8 @@ test("slash commands are offered before the thread exists, for the chosen provid
   const field = await prompt();
   await userEvent.type(field, "/");
   const commands = await screen.findByRole("listbox", { name: "Add and commands" });
-  await userEvent.click(within(commands).getByRole("option", { name: /writing/ }));
-  expect(field.textContent).toBe("writing ");
+  await userEvent.click(within(commands).getByRole("option", { name: /Writing/ }));
+  expect(field.textContent).toBe("Writing ");
 });
 
 test("native approvals chosen for a new thread are the ones it starts with", async () => {

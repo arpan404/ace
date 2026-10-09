@@ -27,6 +27,11 @@
       "minLength": 1,
       "type": "string"
     },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "type": {
       "const": "mention",
       "type": "string"

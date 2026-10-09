@@ -4585,6 +4585,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | kind | yes | [CatalogKind.json](schema/CatalogKind.json) |  |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| title | no | string | {"minLength":1,"maxLength":256} |
 | description | yes | string | {"maxLength":2048} |
 | icon | no | string | {"maxLength":4096} |
 | source | yes | object | {"properties":{"provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"string","const":"ace"}]},"scope":{"type":"string","enum":["global","project","plugin","ace"]},"path":{"type":"string","maxLength":4096},"plugin":{"type":"string","maxLength":256}},"required":["provider","scope"]} |
@@ -4597,15 +4598,15 @@ Example:
   "description": "example",
   "id": "example",
   "invocation": {
-    "name": "example",
-    "path": "example",
-    "type": "skill"
+    "commandId": "example",
+    "parameters": {},
+    "type": "prompt"
   },
   "kind": "command",
   "name": "example",
   "source": {
-    "plugin": "example",
-    "provider": "ace",
+    "path": "example",
+    "provider": "opencode",
     "scope": "project"
   }
 }
@@ -4775,7 +4776,7 @@ Type: ["skill","command","plugin","agent","workflow","mcp-tool","builtin"]. See 
 Example:
 
 ```json
-"mcp-tool"
+"skill"
 ```
 
 ## CatalogList
@@ -4799,8 +4800,8 @@ Example:
 
 ```json
 {
-  "query": "example",
   "requestId": "example",
+  "subscribe": false,
   "threadId": "example",
   "type": "catalog.list"
 }
@@ -4837,6 +4838,7 @@ Example:
 | type | yes | `"mention"` |  |
 | entryId | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| title | no | string | {"minLength":1,"maxLength":256} |
 | kind | yes | [CatalogKind.json](schema/CatalogKind.json) |  |
 | icon | no | string | {"maxLength":4096} |
 | arguments | no | string | {"default":"","maxLength":16384} |
@@ -4848,9 +4850,10 @@ Example:
 ```json
 {
   "entryId": "example",
-  "kind": "mcp-tool",
+  "kind": "builtin",
   "name": "example",
-  "type": "mention"
+  "type": "mention",
+  "values": {}
 }
 ```
 
@@ -4939,7 +4942,7 @@ Example:
 ```json
 {
   "kind": "prompt",
-  "provider": "cursor",
+  "provider": "opencode",
   "text": "example"
 }
 ```
@@ -4957,7 +4960,7 @@ Example:
 
 ```json
 {
-  "action": "UyIAtbY",
+  "action": "aPoWf3.",
   "arguments": {},
   "kind": "ace",
   "positional": []
@@ -4983,7 +4986,7 @@ Example:
   "plan": {
     "kind": "native",
     "metadata": {},
-    "provider": "acp",
+    "provider": "pi",
     "text": "example"
   }
 }
@@ -5001,7 +5004,8 @@ Example:
 
 ```json
 {
-  "error": "missing_argument",
+  "argument": "example",
+  "error": "unsupported_provider",
   "ok": false
 }
 ```
@@ -5025,8 +5029,14 @@ Example:
 
 ```json
 {
+  "draft": {
+    "draftId": "example",
+    "instanceId": "example",
+    "provider": "pi",
+    "workspaceId": "example"
+  },
+  "limit": 7,
   "requestId": "example",
-  "threadId": "example",
   "type": "commands.list"
 }
 ```
@@ -5071,7 +5081,6 @@ Example:
 ```json
 {
   "commandId": "example",
-  "positional": [],
   "requestId": "example",
   "threadId": "example",
   "type": "commands.resolve"
@@ -5094,7 +5103,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "error": "unsupported_command",
+    "argument": "example",
+    "error": "limit_exceeded",
     "ok": false
   },
   "type": "commands.resolve.result"
@@ -5112,6 +5122,7 @@ Example:
 | type | yes | `"mention"` |  |
 | entryId | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| title | no | string | {"minLength":1,"maxLength":256} |
 | kind | yes | [CatalogKind.json](schema/CatalogKind.json) |  |
 | icon | no | string | {"maxLength":4096} |
 | arguments | no | string | {"default":"","maxLength":16384} |
@@ -5123,7 +5134,7 @@ Example:
 ```json
 {
   "entryId": "example",
-  "kind": "builtin",
+  "kind": "mcp-tool",
   "name": "example",
   "type": "mention",
   "values": {}
@@ -5142,6 +5153,11 @@ Example:
 
 ```json
 {
+  "source": {
+    "bytes": 5,
+    "encoding": "utf-16le",
+    "streamId": "example"
+  },
   "text": "example",
   "type": "text"
 }
@@ -5179,11 +5195,7 @@ Example:
 
 ```json
 {
-  "content": {
-    "data": "example",
-    "encoding": "text"
-  },
-  "mimeType": "example",
+  "name": "example",
   "path": "example",
   "type": "file"
 }
@@ -5203,8 +5215,9 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "message": "example"
+  "code": "unsupported",
+  "message": "example",
+  "path": "example"
 }
 ```
 
@@ -5217,7 +5230,7 @@ Type: ["invalid_request","forbidden","not_found","outside_workspace","ignored","
 Example:
 
 ```json
-"forbidden"
+"hash_mismatch"
 ```
 
 ## ContextMeter
@@ -5239,10 +5252,9 @@ Example:
 {
   "agentId": "example",
   "epoch": 8,
-  "model": "example",
-  "source": "provider",
+  "source": "unknown",
   "usedTokens": null,
-  "windowTokens": 10
+  "windowTokens": null
 }
 ```
 
@@ -5261,10 +5273,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 5,
-    "source": "unknown",
+    "epoch": 6,
+    "source": "provider",
     "usedTokens": null,
-    "windowTokens": 1
+    "windowTokens": null
   },
   "type": "context_meter.updated"
 }
@@ -5301,7 +5313,7 @@ Example:
 
 ```json
 {
-  "draftId": "pi2Td",
+  "draftId": "QmOzXTicLO",
   "op": "draft.release"
 }
 ```
@@ -5318,9 +5330,9 @@ Example:
 
 ```json
 {
-  "draftId": "r9nP9AI9b8Y",
+  "draftId": "QvgbO",
   "op": "draft.attachment.release",
-  "sha256": "7e8a36e79b6669384893d74d4065ca3404fba4aa85ae4029643344ba34a5462d"
+  "sha256": "a85ae4029643344ba34a5462d8995ecd564ccca3a65e1aca1486aaee661fa6c5"
 }
 ```
 
@@ -5339,11 +5351,12 @@ Example:
 
 ```json
 {
-  "bytes": 7,
-  "draftId": "-8UqhoRWNjj",
+  "bytes": 8,
+  "draftId": "Psf",
+  "mimeType": "example",
   "name": "example",
   "op": "draft.upload.begin",
-  "sha256": "a3a65e1aca1486aaee661fa6c5d4ebe8ea80101e9a12855359b49850016fcb13"
+  "sha256": "8ea80101e9a12855359b49850016fcb13617539e8f994fca563014ab6d21f466"
 }
 ```
 
@@ -5360,8 +5373,7 @@ Example:
 
 ```json
 {
-  "draftId": "SJ-p6t89Nw",
-  "limit": 1,
+  "draftId": "Bbrkk6l",
   "op": "draft.mention.complete",
   "query": "example"
 }
@@ -5382,11 +5394,11 @@ Example:
 
 ```json
 {
-  "bytes": 3,
+  "bytes": 9,
   "mimeType": "example",
   "name": "example",
   "op": "upload.begin",
-  "sha256": "63014ab6d21f4666f31aecc8d54c72d8a3c0c9854dcbcceebe38e8b6dfba9932",
+  "sha256": "c72d8a3c0c9854dcbcceebe38e8b6dfba9932fdb95748272274a5d02d38217b4",
   "threadId": "example"
 }
 ```
@@ -5403,7 +5415,7 @@ Example:
 ```json
 {
   "op": "upload.status",
-  "uploadId": "7R"
+  "uploadId": "Oi8jBWYSs"
 }
 ```
 
@@ -5420,10 +5432,10 @@ Example:
 
 ```json
 {
-  "data": "Ol6g0Hr8wpJ8cxzt",
-  "offset": 1,
+  "data": "TyLTBc==",
+  "offset": 5,
   "op": "upload.chunk",
-  "uploadId": "N4F1IG2PbS"
+  "uploadId": "m_j"
 }
 ```
 
@@ -5439,7 +5451,7 @@ Example:
 ```json
 {
   "op": "upload.commit",
-  "uploadId": "m_j"
+  "uploadId": "btGEhO"
 }
 ```
 
@@ -5455,7 +5467,7 @@ Example:
 ```json
 {
   "op": "upload.cancel",
-  "uploadId": "hgsXksT"
+  "uploadId": "hf8N3HBFr8"
 }
 ```
 
@@ -5490,9 +5502,11 @@ Example:
 
 ```json
 {
+  "offset": 0,
   "op": "attachment.read",
-  "sha256": "7a12af21c47cb948212e9ff7c50e49c5a62a4157c659e412f7fc34f5ba372b99",
-  "threadId": "example"
+  "sha256": "f7c50e49c5a62a4157c659e412f7fc34f5ba372b993693bcba36aed9aee44e68",
+  "threadId": "example",
+  "variant": "original"
 }
 ```
 
@@ -5509,7 +5523,7 @@ Example:
 ```json
 {
   "op": "attachment.release",
-  "sha256": "bcba36aed9aee44e68bfab1f89631e2c3ce680007e6730484c24bd1281f7b430",
+  "sha256": "89631e2c3ce680007e6730484c24bd1281f7b430a185fc6ae43fd4f2f4deecdc",
   "threadId": "example"
 }
 ```
@@ -5529,8 +5543,8 @@ Example:
   "mentions": [
     {
       "lines": {
-        "end": 9,
-        "start": 5
+        "end": 10,
+        "start": 3
       },
       "path": "example"
     }
@@ -5553,6 +5567,7 @@ Example:
 
 ```json
 {
+  "limit": 2,
   "op": "mention.complete",
   "query": "example",
   "threadId": "example"
@@ -5574,10 +5589,10 @@ Example:
 ```json
 {
   "operation": {
-    "op": "upload.cancel",
-    "uploadId": "uoOvIuP"
+    "op": "upload.status",
+    "uploadId": "_kjgN6LZNzb"
   },
-  "requestId": "iV_q",
+  "requestId": "c",
   "type": "context.request"
 }
 ```
@@ -5596,11 +5611,11 @@ Example:
 
 ```json
 {
-  "requestId": "sqj",
+  "requestId": "QgtBXT",
   "result": {
-    "code": "not_found",
-    "kind": "error",
-    "message": "example"
+    "diagnostics": [],
+    "entries": [],
+    "kind": "mentions"
   },
   "type": "context.result"
 }
@@ -5627,8 +5642,8 @@ Example:
   "model": "example",
   "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 1,
-  "windowTokens": 10
+  "usedTokens": 5,
+  "windowTokens": 4
 }
 ```
 
@@ -5669,10 +5684,9 @@ Example:
 
 ```json
 {
-  "channel": "browser",
   "deviceId": "example",
   "protocolVersion": 1,
-  "ticket": "example",
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -5691,8 +5705,10 @@ Example:
 
 ```json
 {
+  "afterSeq": 7,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -5730,9 +5746,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "commentId": "example",
-      "sessionId": "example",
-      "type": "review.applySuggestion"
+      "lastSeenSeq": 8,
+      "threadId": "example",
+      "type": "thread.markRead"
     }
   },
   "type": "command"
@@ -5753,8 +5769,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 7,
+  "limit": 1,
+  "offset": 3,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -5775,8 +5791,8 @@ Example:
 
 ```json
 {
-  "before": 2,
-  "limit": 4,
+  "before": 4,
+  "limit": 2,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -5798,9 +5814,9 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "collection": "agents",
-  "limit": 5,
+  "before": 7,
+  "collection": "backgroundTasks",
+  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -5843,7 +5859,7 @@ Example:
 {
   "data": "example",
   "done": true,
-  "index": 1,
+  "index": 0,
   "requestId": "example",
   "seq": 0,
   "threadId": "example",
@@ -5885,9 +5901,9 @@ Example:
 ```json
 {
   "data": "example",
-  "done": false,
-  "index": 8,
-  "seq": 4,
+  "done": true,
+  "index": 5,
+  "seq": 8,
   "subscriptionId": "example",
   "type": "snapshot.part"
 }
@@ -5906,10 +5922,10 @@ Example:
 ```json
 {
   "page": {
-    "collection": "agents",
-    "entitiesBefore": 5,
+    "collection": "backgroundTasks",
+    "entitiesBefore": 9,
     "entries": [],
-    "seq": 3,
+    "seq": 7,
     "threadId": "example"
   },
   "requestId": "example",
@@ -5930,7 +5946,7 @@ Example:
 
 ```json
 {
-  "headSeq": 9,
+  "headSeq": 3,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"
@@ -5952,13 +5968,93 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 6,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 5,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "runs": {},
+    "seq": 6,
+    "thread": {
+      "acpAgentId": "example",
+      "capabilities": {
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "none",
+        "fork": false,
+        "forkPoints": [],
+        "imageInput": false,
+        "interruptCascades": true,
+        "permissionModes": [],
+        "permissions": {
+          "modes": [],
+          "nativeAutoReview": false,
+          "toolGate": true
+        },
+        "planMode": false,
+        "resume": false,
+        "rewindFiles": true,
+        "steer": false,
+        "subagentTranscripts": true,
+        "tokenUsage": false
+      },
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
+      },
+      "createdAt": 4,
+      "execution": {
+        "provider": "pi"
+      },
+      "handoff": {
+        "bytes": 0,
+        "sourceThreadId": "example",
+        "truncated": true
+      },
+      "id": "example",
+      "imported": {
+        "importedAt": 7,
+        "instanceId": "example",
+        "native": {
+          "acpAgentId": "example",
+          "forkedFromNativeId": "example",
+          "installationId": "example",
+          "provider": "cursor"
+        },
+        "sourceId": "example"
+      },
+      "installationId": "example",
+      "pinned": true,
+      "provider": "claude",
+      "readAt": 3,
+      "settledReason": "pr_merged",
+      "snoozedUntil": 9,
+      "status": {
+        "on": "queue",
+        "state": "waiting"
+      },
+      "switch": {
+        "at": 3,
+        "error": "example",
+        "lossy": false,
+        "selection": {
+          "model": "example",
+          "provider": "antigravity"
+        },
+        "state": "failed"
+      },
+      "title": "example",
+      "unread": true,
+      "updatedAt": 3,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -5979,10 +6075,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 0,
+  "afterSeq": 5,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 9,
   "type": "events"
 }
 ```
@@ -6002,9 +6098,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 0,
+  "afterSeq": 3,
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 6,
   "type": "progress"
 }
 ```
@@ -6037,140 +6133,32 @@ Example:
 
 ```json
 {
-  "code": "example",
-  "commandId": "example",
-  "forkThreadId": "example",
-  "health": {
-    "activeSessions": null,
-    "at": 0,
-    "eventLoop": {
-      "maxMs": 9,
-      "meanMs": 8,
-      "p99Ms": null
-    },
-    "logs": {
-      "dropped": 6,
-      "failed": 0,
-      "queued": 5
-    },
-    "memory": {
-      "heapTotalBytes": 8,
-      "heapUsedBytes": 1,
-      "rssBytes": 7
-    },
-    "openHandles": 3,
-    "queues": {},
-    "sqlite": {
-      "pageBytes": null,
-      "walBytes": null
-    }
+  "alive": {
+    "agentsRunning": 9,
+    "operationsRunning": 1,
+    "terminalsOpen": 5
   },
-  "inspection": {
-    "git": {
-      "branch": "example",
-      "defaultBranch": "example",
-      "remotes": [],
-      "root": "example"
+  "commandId": "example",
+  "detail": "example",
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
     },
     "path": "example"
   },
+  "forkThreadId": "example",
   "ok": false,
   "pr": {
-    "number": 7,
+    "number": 9,
     "repository": {
-      "forge": "github",
-      "host": "IEEaFLGNNV",
-      "name": "5iSVUb35A",
-      "owner": "y0RKXi/RFZFCi/kycdh/y1Cv2EwQ/HamN"
+      "forge": "gitlab",
+      "host": "-9Q3eiK",
+      "name": "CEW4T6M-o",
+      "owner": "pVcH4E/-mDyW/pvQ3.6/uBIXlExBQV/V"
     }
   },
-  "prStatus": {
-    "checks": [],
-    "ci": "unknown",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "unknown",
-    "raw": null,
-    "ref": {
-      "number": 6,
-      "repository": {
-        "forge": "gitlab",
-        "host": "7",
-        "name": ".uM0",
-        "owner": "V.8lw4P.3VG/SD2F/bIR_7Gkye_R/SL/9Q3diJDpVcH/Ezz-mDyWCp/Q3.6/uBIXlExBQV/V/CEW4T6M-o/1r7DfT-qGr"
-      }
-    },
-    "reviewThreads": [],
-    "state": "draft",
-    "title": "example",
-    "url": "example"
-  },
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": true,
-      "sessionId": "example",
-      "text": "example"
-    },
-    "intentId": "example",
-    "replies": [],
-    "session": {
-      "createdAt": 6,
-      "id": "example",
-      "source": {
-        "from": {
-          "kind": "commit",
-          "ref": "example"
-        },
-        "threadId": "example",
-        "to": {
-          "kind": "commit",
-          "ref": "example"
-        },
-        "workspaceId": "example"
-      },
-      "status": "open"
-    }
-  },
-  "terminalId": "example",
   "title": "example",
   "type": "commandResult"
 }
@@ -6217,9 +6205,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": true,
-  "nextOffset": 8,
-  "offset": 6,
+  "eof": false,
+  "nextOffset": 3,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -6243,9 +6231,9 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 9,
+  "itemsBefore": null,
   "requestId": "example",
-  "seq": 9,
+  "seq": 3,
   "threadId": "example",
   "type": "items.page"
 }
@@ -6287,11 +6275,11 @@ Example:
 
 ```json
 {
-  "expiresAt": 3,
-  "instanceId": "3Yc181go49c6t0QNx2i7",
+  "expiresAt": 1,
+  "instanceId": "J_3MjJlYDaQP4x7Mn04jYc181go49c6t0QNx",
   "loginId": "example",
   "requestId": "example",
-  "state": "failed",
+  "state": "cancelled",
   "type": "cursor.auth.login"
 }
 ```
@@ -6312,11 +6300,11 @@ Example:
 {
   "auth": {
     "source": "sdk-store",
-    "status": "logged-out"
+    "status": "logged-in"
   },
-  "instanceId": "B4hIBf7VuRv4GtYggUvRATQ76QwWU_QdQm95MDELy2n",
+  "instanceId": "HQCv4hIBf7VuRv4GtYggUvRATQ76QwWU_QdQm95MDELy2nOYxexn_B2_2deNOUZAzeO_UJT2bVJv9480SUFPkpVlZtLrwRJaK-pRhw20W0LO7bKdiFxIKCi6syEqJA8F",
   "requestId": "example",
-  "selectedInstanceId": null,
+  "selectedInstanceId": "reWSHlQane30",
   "type": "cursor.auth.changed"
 }
 ```
@@ -6334,7 +6322,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
+  "code": "auth_failed",
   "requestId": "example",
   "type": "cursor.auth.error"
 }
@@ -6357,7 +6345,7 @@ Example:
 
 ```json
 {
-  "instanceId": "mB2_2deNOUZAzeO_UJT2bVJv9480SUFPkpVlZtLrwRJaK-pRhw20W0LO7bKdiFxIKCi6syEqJA8FtsfeWSHlQane30kH_Y_ZnNnmfBwruI1B8DFp06wUW3OWo6p1f",
+  "instanceId": "8nNnmfBwruI1B8DFp06wUW3OWo6p1fVHm4tIe_2Ew6l7-vX8gotxuhePjRwplZnqslbeSXmV165350iezRd_4XLV-kQDtaUQHynjsrpQ",
   "requestId": "example",
   "type": "cursor.auth.start"
 }
@@ -6411,7 +6399,7 @@ Example:
 
 ```json
 {
-  "instanceId": "F4tIe_2Ew6l7-vX8gotxuhePj",
+  "instanceId": "kjCumNTPy8AYHcA62hKgHtiNsHit-DhV9kGmtFDvzEbrnq0zvs5_I5lVNuOVM7qcTnJyFV4Wmi2vmZ9xa_XcCu",
   "requestId": "example",
   "type": "cursor.auth.status"
 }
@@ -6429,7 +6417,7 @@ Example:
 
 ```json
 {
-  "instanceId": "PplZnqslbeSXmV165350iezRd_4XLV-kQDtaUQHynjsrp",
+  "instanceId": "JFenAEIHPpEOsHJbQ05lemT70odsqKKc5nQCnmy5FAbv42pY",
   "requestId": "example",
   "type": "cursor.auth.select"
 }
@@ -6447,7 +6435,7 @@ Example:
 
 ```json
 {
-  "instanceId": "PkQjCumNTPy8AYHcA62hKgHtiNsHit-DhV9kGmtFDvzEbrnq0zvs5_",
+  "instanceId": "JisNlPidWsed_XiE9A5bJmTUE03MOq5XEJN",
   "requestId": "example",
   "type": "cursor.auth.logout"
 }
@@ -6466,8 +6454,8 @@ Example:
 
 ```json
 {
-  "source": "none",
-  "status": "logged-out"
+  "source": "environment",
+  "status": "logged-in"
 }
 ```
 
@@ -6507,8 +6495,8 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "outcome": "cancelled",
+  "before": null,
+  "outcome": "completed",
   "result": "example",
   "threadId": "example",
   "truncated": false
@@ -6533,8 +6521,10 @@ Example:
 
 ```json
 {
-  "cost": 6,
-  "durationMs": 1
+  "cost": 3,
+  "durationMs": 3,
+  "maxConcurrent": 4,
+  "tokens": 10
 }
 ```
 
@@ -6563,22 +6553,21 @@ Example:
 ```json
 {
   "childId": "example",
-  "createdAt": 4,
-  "depth": 4,
+  "createdAt": 2,
+  "depth": 3,
   "parentAgentId": "example",
   "parentId": "example",
   "phase": "cancelling",
   "request": {
-    "estimatedLoad": 2,
+    "acpAgentId": "example",
     "installationId": "example",
     "model": "example",
-    "provider": "claude",
-    "requestId": "m0_x",
+    "provider": "cursor",
+    "requestId": "p5vwvO00",
     "role": "example",
     "task": "example"
   },
-  "requestId": "W5Xmi3",
-  "resolvedModel": "example",
+  "requestId": "yOXjUaC",
   "rootId": "example"
 }
 ```
@@ -6607,17 +6596,13 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "acpAgentId": "example",
-  "estimatedLoad": 8,
-  "options": {
-    "effort": "low"
-  },
+  "estimatedLoad": 9,
   "permissionMode": "example",
-  "provider": "codex",
-  "requestId": "tIJbR16",
+  "provider": "claude",
+  "requestId": "tNDf4R6",
   "role": "example",
-  "task": "example"
+  "task": "example",
+  "wait": true
 }
 ```
 
@@ -6638,13 +6623,13 @@ Example:
 
 ```json
 {
-  "createdAt": 6,
+  "createdAt": 2,
   "id": "example",
-  "lastSeenAt": 4,
+  "lastSeenAt": 0,
   "name": "example",
-  "revokedAt": 1,
+  "revokedAt": null,
   "scopes": [
-    "operate"
+    "admin"
   ]
 }
 ```
@@ -6664,10 +6649,11 @@ Example:
 ```json
 {
   "operation": {
-    "deviceId": "android:6bKnUUE14NPq5YEKOjr7uN3vzACpoc9btXJyOXjUaCUp5vwvO00FJrpVb0zxIrsKzxz9NtNDf4R6idW_4Yy8",
-    "op": "stop"
+    "deviceId": "android:d6Xi2JEz.rTGcK5qCoje1sqUk4xHx.65Be_-dir8TGWdeh18UZzmws7DWT8XV3wHpz8MO94qZRRhTSyexFbgox_y6qj6zP15nBcso48Fid22OAFRdx.7ZbsFXGqi9yZjJqzGAKf",
+    "op": "install",
+    "path": "example"
   },
-  "requestId": "5FAbv42pYKrisNlPidWsed_Xi",
+  "requestId": "McGcVDJ_",
   "type": "devices.request"
 }
 ```
@@ -6686,16 +6672,16 @@ Example:
 ```json
 {
   "device": {
-    "createdAt": 1,
+    "createdAt": 6,
     "id": "example",
-    "lastSeenAt": 0,
+    "lastSeenAt": 8,
     "name": "example",
     "revokedAt": null,
     "scopes": [
-      "operate"
+      "read"
     ]
   },
-  "token": "30b19080b78f48a0ec2d876f4b708e47321d43b2d585fee61ff024eb7b011dfb"
+  "token": "ea991ffe38b397a5551617bd76ee6751d29a47679f17a2f0e12b3190a9d48072"
 }
 ```
 
@@ -6714,7 +6700,7 @@ Example:
 
 ```json
 {
-  "code": "lease_required",
+  "code": "not_supported",
   "hint": "example",
   "message": "example"
 }
@@ -6749,8 +6735,8 @@ Example:
 ```json
 {
   "kind": "tap",
-  "x": 1,
-  "y": 3
+  "x": 7,
+  "y": 5
 }
 ```
 
@@ -6768,9 +6754,9 @@ Example:
 ```json
 {
   "kind": "pointer",
-  "phase": "move",
-  "x": 9,
-  "y": 4
+  "phase": "down",
+  "x": 4,
+  "y": 3
 }
 ```
 
@@ -6787,9 +6773,10 @@ Example:
 
 ```json
 {
+  "durationMs": 2,
   "kind": "longPress",
-  "x": 7,
-  "y": 7
+  "x": 2,
+  "y": 6
 }
 ```
 
@@ -6808,11 +6795,12 @@ Example:
 
 ```json
 {
+  "durationMs": 2,
   "kind": "swipe",
-  "toX": 8,
-  "toY": 3,
-  "x": 7,
-  "y": 7
+  "toX": 7,
+  "toY": 9,
+  "x": 3,
+  "y": 3
 }
 ```
 
@@ -6843,7 +6831,7 @@ Example:
 
 ```json
 {
-  "key": "back",
+  "key": "rotate",
   "kind": "key"
 }
 ```
@@ -6972,8 +6960,8 @@ Example:
 
 ```json
 {
-  "allowed": false,
-  "deviceId": "android:qZRRhTSyexFbgox_y6qj6zP15nBcso48Fid22OAFRdx.7ZbsFXGqi9yZjJqzGAKfeR50b6SNNf..6pJVpLEPwwvhBfDV2FA47BDyg3lMSuFAFM.gDQl9c5elSnhLbPO3qHdFjn2XKkCvnQkjuzU.wkAX063g74hFXh.u6-361R.IXhP",
+  "allowed": true,
+  "deviceId": "ios:8cF5c-B8-7863-05c21Efc6bcDc046e0a2eE",
   "op": "approve",
   "threadId": "example"
 }
@@ -6990,7 +6978,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:c6bcDc046e0a2eEE1f3F3f8D5F-E5a66E22-",
+  "deviceId": "android:SGSq6AWG_DYb10COP-F_HXPDdVOz1_l5HEeGjK5D0.Qi1Q23hylE",
   "op": "boot"
 }
 ```
@@ -7006,7 +6994,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:F52Eb42D79d8FEbFd18E6-3d6377cCdEA6Fd",
+  "deviceId": "ios:Fd4FBD2-c-a7a568bAC8eEf0CdfeCfBbaBa1",
   "op": "shutdown"
 }
 ```
@@ -7023,7 +7011,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:wzP_g-c4aXZ4fsz5mDoIykonypudcwaN0Gj-XJIcWP_RGL-g.FmmmxtVqw4DFSDoX98MHW7Q1mT34Q9EEVqHDHwHntnzIL0uY",
+  "deviceId": "android:j-XJIcWP_RGL-g.FmmmxtVqw4DFSDoX98MHW7Q1mT34Q9EEVqHDHwHntnzIL0uY8.DX.WSc647yG2M0MzCs3.E6fA7Ak5SjNVt96",
   "op": "install",
   "path": "example"
 }
@@ -7042,7 +7030,7 @@ Example:
 ```json
 {
   "appId": "example",
-  "deviceId": "android:DX.WSc647yG2M0MzCs3.E6fA7Ak5SjNVt96oDCUt6Y3w98D6-53G1tiEO3oU98e87EpnNwdSDthq1KPIpBiYhMurSitBK-zVmZakixXL0VzJwjCzyhKArq-M4.Ms05LVgyDotvjDWvItC8f-RlmKEc5fGWcUZbL3ST9kYy.SP6bX57YlB3tfs8tvGmprEHuCdqhxF6F",
+  "deviceId": "ios:D4B857B99E8-87F6AdE27f499b98Efe2Bb3E",
   "op": "open_app"
 }
 ```
@@ -7059,7 +7047,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:Xhtt4PudzwDKn6XwOJQLrRpBKY5VJugTUVDhuXbdd-YHA2Uh7-TV9Dxci_AhnNDGiH3KJoz-if0RvUBDzrzw-BusH4r",
+  "deviceId": "ios:f7020fDc5c1BA3cAD1-D4e6adcC5164D0BdE",
   "op": "open_url",
   "url": "example"
 }
@@ -7077,13 +7065,14 @@ Example:
 
 ```json
 {
-  "deviceId": "android:8HI3YvWPa5G8W_5bL.M743R",
+  "deviceId": "ios:c0DAf-17-1A6814cCEfBBdE5B0AE9c-3ee0E",
   "op": "configure",
   "settings": {
-    "locale": "wwJpddnD_dusU-v15",
+    "appearance": "dark",
+    "locale": "PaESJK-x9QO3bU_Vlz0sfr5",
     "location": {
-      "latitude": 0,
-      "longitude": 5
+      "latitude": 5,
+      "longitude": 7
     }
   }
 }
@@ -7101,7 +7090,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:88B6275E95Ff2f79f2C6EB-e9-C0D43aeef2",
+  "deviceId": "ios:FefAEFBEbfcCF8F0E5cAB72BbCBE0e85B202",
   "op": "start"
 }
 ```
@@ -7117,7 +7106,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:DkqV79ODLlBoakMEeZXQxHAETowh4bpCrHybV54w",
+  "deviceId": "ios:fD06840Bc444EcB5abb-5FD74c9-449ECad-",
   "op": "stop"
 }
 ```
@@ -7134,13 +7123,13 @@ Example:
 
 ```json
 {
-  "deviceId": "android:eXJ",
+  "deviceId": "ios:e1EFdF700fD-db63B4DECACB-DBAF7A1c9F0",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128007,
+    "bitrate": 128006,
     "codec": "h264",
-    "fps": 9,
-    "maxHeight": 72,
+    "fps": 8,
+    "maxHeight": 67,
     "maxWidth": 71
   }
 }
@@ -7157,7 +7146,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:9C6F6902cbf932C8A9784eEE440D2c-d5AfC",
+  "deviceId": "ios:F9598a1-197730Ba1A9DD3Abbf161DbBA5ff",
   "op": "stream.keyframe"
 }
 ```
@@ -7173,7 +7162,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:0QXheLBgVFB50A9Of-FiQgFv2lR.IIKRWga-pKFOdQEZIaz1pgZs0cMZCd0z2uiiVf7liK02n299mWzW6WwwN0p7GtSR4-hh14wdfMCCoiW7EL07U-SsPAWj5cfsWP8kY1bTAdJiyrhLCuhtcak0BlL8Wh",
+  "deviceId": "ios:9EB88B6275E95Ff2f79f2C6EB-e9-C0D43ae",
   "op": "subscribe"
 }
 ```
@@ -7189,7 +7178,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:bC1AbEE9C6B2c21-43CE9d-DE8e5C-B37a3-",
+  "deviceId": "ios:2-2eEdf4892E1dDfad1Eb653C0DE3fBc8afE",
   "op": "unsubscribe"
 }
 ```
@@ -7208,11 +7197,9 @@ Example:
 
 ```json
 {
-  "agentId": "example",
-  "controller": "none",
-  "deviceId": "android:aCm.cNfmcKptmEp-lwmSogqQDUMBxwhT5Iaog5kPS6HQX1wbMN.gsDj8NLpsy9sbgz-G9lBse8Ek5QFh6andix8ircmnc3TKF8img",
-  "op": "controller",
-  "threadId": "example"
+  "controller": "agent",
+  "deviceId": "ios:Ca488B-ab5025684Da9C6F6902cbf932C8A9",
+  "op": "controller"
 }
 ```
 
@@ -7228,11 +7215,11 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:Eb9F0d2bd71B5AedA2f3B0460ad-4F6-B150",
+  "deviceId": "ios:E440D2c-d5AfC05635cb1Dc4FD86D92b-Fd3",
   "input": {
     "kind": "tap",
-    "x": 1,
-    "y": 0
+    "x": 4,
+    "y": 3
   },
   "op": "input"
 }
@@ -7249,7 +7236,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:fF99bFA79FF8BAFce6b978dC4-BCBEeeB83-",
+  "deviceId": "android:R.IIKRWga-pKFOdQEZIaz1pgZs0cMZCd0z2ui",
   "op": "screenshot"
 }
 ```
@@ -7267,7 +7254,9 @@ Example:
 
 ```json
 {
-  "deviceId": "android:A0aYEJn3p0zMagpqGQcAaVoOI1oOmw.Xk1udKP5Of.X1AQInUCu8SUWGYyi1cUMbqYfIBJupctd4ocF4iLvv9fk6wX.TFlfDNBFT.f_G2Tiqpf5vx7YRJtM1",
+  "deviceId": "ios:067e799e5C585CB16f9FA337-cc67Cbb1EEf",
+  "maxDepth": 7,
+  "maxNodes": 10,
   "op": "ui.tree"
 }
 ```
@@ -7285,11 +7274,10 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:c3bdf5B8dd1A827-5c9775D3-fEBebe212A7",
+  "deviceId": "android:7U-SsPAWj5cfsWP8kY1bTAdJiyrhLCuhtcak0BlL8Whj_ewMrfFD_yZuNgNL.TSyF_l.AE5nXx_vS3aS-6GaCm.cNfmcKptmEp-lwmSogqQDUMBxwhT5Iaog5kPS6HQX1wbMN.gsDj8NLpsy9sbgz-G9lBse8Ek5QF",
   "op": "ui.find",
   "query": {
-    "role": "example",
-    "text": "example"
+    "role": "example"
   }
 }
 ```
@@ -7310,11 +7298,15 @@ Example:
 
 ```json
 {
-  "action": "press",
-  "deviceId": "ios:FBd0afabf-f52-6748AFbd9769AE-e7ecC5c",
+  "action": "setValue",
+  "deviceId": "android:F8imgshcd1Ee7HIiOek4LvWtnksOqRwJU0Icj-VG0.wLYIdifhfqH77eHr29FH7wsGhn0e844jxV.vwuDnlu7S_UP8MA0aYEJn3p0zMagpqGQcAaVo",
+  "name": "example",
   "op": "ui.act",
-  "ref": "OQC37Ylm8jkxqnwqkGv9fDqYZgjT48if7v",
-  "value": false
+  "range": {
+    "length": 0,
+    "location": 2
+  },
+  "ref": "5andiw7i"
 }
 ```
 
@@ -7329,7 +7321,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:tAmrHOfCp2w4strGT1Sna4JZrsFTC-4EL_ZYTMq3BjFMRSey7dE2kO1TnTAN_hfVluGoIU5_8D0tVYsMbDXTmkx7KTaUMAFRjpMiTx1GHgzGoPtBi",
+  "deviceId": "android:1oOmw.Xk1udKP5Of.X1AQInUCu8SUWGYyi1cUMbqYfIBJupctd4ocF4iLvv9fk6wX.TFlfDNBFT.f_G2Tiqpf5vx7YRJtM15sEMyDhQdip",
   "op": "logs.start"
 }
 ```
@@ -7345,7 +7337,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:DFB5DEe59b0Fbe1d57B-edb1-Bfd4bdEDFC5",
+  "deviceId": "android:6jlMs5P3-Wh732YzR-qCtlcnQMPt4IPQD38Ymm9jlxqoxqkHv_gDqZ0gkU59jf8vd9B",
   "op": "logs.stop"
 }
 ```
@@ -7362,8 +7354,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:5DC0fdA5Dcc16B8a9c43CC5C9f7E8bDCFdF3",
-  "limit": 1,
+  "deviceId": "ios:-f6FBd0afabf-f52-6748AFbd9769AE-e7ec",
   "op": "logs"
 }
 ```
@@ -7379,7 +7370,7 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:6faDC9fDa-cD6cEA-f229191BB-FfD-3cdb8",
+  "deviceId": "android:9KtAmrHOfCp2w4strGT1Sna",
   "op": "record.start"
 }
 ```
@@ -7395,7 +7386,7 @@ Example:
 
 ```json
 {
-  "deviceId": "android:lblJOdjgjV7oDv3r70SZVKs_SxZoIC5MCJ_GkO6QTxDYZSEeznRMb2ueRvzSIE9l4.K3ZKEPJGHs42-gEfcltXDP0GQQ7xpdvIX94ZiHKnjaS58Ip-lsupRmJIB.uAuTQJdCcSfwnpI..2tO1OhbfM2YZXUCh4dPWQIwnczUzb.iuVDQx_HY6NVeaqRJG.",
+  "deviceId": "android:ZrsFTC-4EL_ZYTMq3BjFMRSey7dE2kO1TnTAN_hfVluGoIU5_8D0tVYsMbDXTmkx7KTaUMAFRjpMiTx1GHgzGoPtBifaCHwYBEnX7fKFenMjW",
   "op": "record.stop"
 }
 ```
@@ -7425,7 +7416,7 @@ Example:
 
 ```json
 {
-  "accessibility": true,
+  "accessibility": false,
   "screenRecording": true
 }
 ```
@@ -7439,7 +7430,7 @@ Type: ["read","operate","admin","desktop","projects","accounts"]. See JSON Schem
 Example:
 
 ```json
-"desktop"
+"operate"
 ```
 
 ## DeviceServerMessage
@@ -7461,7 +7452,7 @@ Example:
 ```json
 {
   "ok": true,
-  "requestId": "_Gja0MV_j8Eie-jTsrKaslWKTw8k6YCN-yTZCZqhM6-Ev5HPPbjoqWV2hy1",
+  "requestId": "dM9uojSeiE",
   "type": "devices.result"
 }
 ```
@@ -7479,20 +7470,17 @@ Example:
 {
   "state": {
     "approved": true,
-    "controller": "human",
+    "controller": "agent",
     "device": {
-      "id": "ios:CF9F9Fcd7bda-f28ffF6C5Cb7a535533D7D5",
+      "id": "android:oWCyKqisXzhhL1u4a9hVSyxXy9p2C7eAwHjGSadi-0qcBx8qCb",
       "name": "example",
-      "platform": "ios",
-      "state": "offline"
+      "platform": "android",
+      "state": "booted"
     },
     "enabled": true,
-    "holder": {
-      "agentId": "example",
-      "threadId": "example"
-    },
-    "lifecycle": "stopping",
-    "streamId": "UVqpeJSG5UIWi5"
+    "lifecycle": "failed",
+    "recording": false,
+    "threadId": "example"
   },
   "type": "devices.state"
 }
@@ -7509,7 +7497,7 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "type": "devices.enabled"
 }
 ```
@@ -7546,10 +7534,10 @@ Example:
 
 ```json
 {
-  "deviceId": "ios:71FCbE4ddA-A3EAD14fE769eAD0DCa86b8b0",
-  "dropped": 0,
+  "deviceId": "android:qz-Qike589lblJOdjgjV7oDv3r70SZVKs_SxZoIC5MCJ_GkO6QTxDYZSEeznRMb2ueRvzSIE9l4.K3ZKEPJGHs42-gEfcltXDP0GQ",
+  "dropped": 9,
   "lines": [],
-  "sequence": 3,
+  "sequence": 6,
   "type": "devices.logs"
 }
 ```
@@ -7568,10 +7556,9 @@ Example:
 
 ```json
 {
-  "locale": "sEz",
   "location": {
     "latitude": 0,
-    "longitude": 9
+    "longitude": 3
   }
 }
 ```
@@ -7601,16 +7588,15 @@ Example:
   "approved": true,
   "controller": "human",
   "device": {
-    "id": "ios:b15644019253F7868B4BA0C00eE35c-dFE54",
+    "id": "android:4ZiHKnjaS58Ip-lsupRmJIB.uAuTQJdCcSfwnpI..2tO1OhbfM2YZXUCh4dPWQIwnczUzb.iuVDQx_HY6NVeaqRJG.YFFN7-Gja1NW-j9Fie.jUsrKaslXLTw9k7ZCO.yU0D0qhM7.Ev6HPPbjoqXW2iy2tVKvQyH8G9Ggi2fia.qO6opG0xXxd2cXRWYS",
     "name": "example",
     "platform": "android",
-    "runtime": "example",
-    "state": "offline"
+    "state": "shutdown"
   },
-  "enabled": true,
-  "leaseExpiresAt": 8,
-  "lifecycle": "stopping",
-  "recording": true
+  "enabled": false,
+  "leaseExpiresAt": 2,
+  "lifecycle": "live",
+  "streamId": "S"
 }
 ```
 
@@ -7632,7 +7618,7 @@ Example:
   "fix": "example",
   "id": "example",
   "message": "example",
-  "status": "warn"
+  "status": "fail"
 }
 ```
 
@@ -7649,7 +7635,7 @@ Example:
 
 ```json
 {
-  "at": 3,
+  "at": 2,
   "checks": []
 }
 ```
@@ -7673,27 +7659,28 @@ Example:
 
 ```json
 {
-  "activeSessions": 8,
+  "activeSessions": null,
   "at": 2,
   "eventLoop": {
-    "maxMs": 3,
-    "meanMs": null,
+    "maxMs": null,
+    "meanMs": 5,
     "p99Ms": null
   },
   "logs": {
-    "dropped": 1,
-    "failed": 0,
-    "queued": 6
+    "directory": "example",
+    "dropped": 7,
+    "failed": 6,
+    "queued": 2
   },
   "memory": {
-    "heapTotalBytes": 9,
-    "heapUsedBytes": 9,
-    "rssBytes": 0
+    "heapTotalBytes": 5,
+    "heapUsedBytes": 7,
+    "rssBytes": 9
   },
-  "openHandles": 1,
+  "openHandles": 7,
   "queues": {},
   "sqlite": {
-    "pageBytes": 7,
+    "pageBytes": 9,
     "walBytes": 1
   }
 }
@@ -7838,9 +7825,9 @@ Example:
 ```json
 {
   "collection": "agents",
-  "entitiesBefore": null,
+  "entitiesBefore": 2,
   "entries": [],
-  "seq": 3,
+  "seq": 7,
   "threadId": "example"
 }
 ```
@@ -7882,9 +7869,9 @@ Example:
 ```json
 {
   "collection": "interactions",
-  "entitiesBefore": 1,
+  "entitiesBefore": null,
   "entries": [],
-  "seq": 0,
+  "seq": 2,
   "threadId": "example"
 }
 ```
@@ -7904,9 +7891,9 @@ Example:
 ```json
 {
   "collection": "backgroundTasks",
-  "entitiesBefore": 10,
+  "entitiesBefore": 5,
   "entries": [],
-  "seq": 1,
+  "seq": 4,
   "threadId": "example"
 }
 ```
@@ -7920,7 +7907,7 @@ Type: ["agents","runs","interactions","backgroundTasks"]. See JSON Schema for co
 Example:
 
 ```json
-"backgroundTasks"
+"interactions"
 ```
 
 ## EventId
@@ -7976,8 +7963,7 @@ Example:
 
 ```json
 {
-  "options": {},
-  "provider": "acp"
+  "provider": "codex"
 }
 ```
 
@@ -7996,7 +7982,9 @@ Example:
 {
   "nativeSessionId": "example",
   "selection": {
-    "provider": "opencode"
+    "instanceId": "example",
+    "model": "example",
+    "provider": "pi"
   }
 }
 ```
@@ -8018,7 +8006,8 @@ Example:
 
 ```json
 {
-  "kind": "update",
+  "kind": "delete",
+  "oldText": null,
   "path": "example"
 }
 ```
@@ -8039,6 +8028,7 @@ Example:
 
 ```json
 {
+  "limit": 9,
   "op": "list",
   "path": "example"
 }
@@ -8073,8 +8063,10 @@ Example:
 
 ```json
 {
+  "offset": 5,
   "op": "download",
-  "path": "example"
+  "path": "example",
+  "validator": "example"
 }
 ```
 
@@ -8092,7 +8084,9 @@ Example:
 ```json
 {
   "artifactId": "example",
-  "op": "artifact.download"
+  "offset": 8,
+  "op": "artifact.download",
+  "validator": "example"
 }
 ```
 
@@ -8146,7 +8140,7 @@ Example:
   "expected": "example",
   "op": "upload.begin",
   "path": "example",
-  "size": 4
+  "size": 1
 }
 ```
 
@@ -8179,7 +8173,7 @@ Example:
 ```json
 {
   "op": "upload.commit",
-  "sha256": "e1c88e528a84b61a80ed36135b8e7a98111eb0590d17b507f271120a20f1c698",
+  "sha256": "31aaeb3675523836417878f5fe2022c145b9c116533c8fa84bc001d75ffe55ef",
   "uploadId": "example"
 }
 ```
@@ -8213,7 +8207,7 @@ Example:
 
 ```json
 {
-  "expected": null,
+  "expected": "example",
   "op": "write",
   "path": "example",
   "text": "example"
@@ -8294,7 +8288,7 @@ Example:
 ```json
 {
   "destination": "example",
-  "destinationExpected": "example",
+  "destinationExpected": null,
   "expected": "example",
   "op": "move",
   "path": "example"
@@ -8364,6 +8358,7 @@ Example:
 
 ```json
 {
+  "includeThreads": false,
   "op": "artifact.support"
 }
 ```
@@ -8412,6 +8407,8 @@ Example:
 
 ```json
 {
+  "after": "example",
+  "limit": 7,
   "op": "trash.list"
 }
 ```
@@ -8468,9 +8465,9 @@ Example:
 
 ```json
 {
-  "channel": 9,
-  "data": "XuwW+lQo",
-  "offset": 0,
+  "channel": 6,
+  "data": "kIiVN2BfJT5wyZeV+8fZbpdglefOPb4SJ64SC4r=",
+  "offset": 9,
   "requestId": "example",
   "type": "files.chunk"
 }
@@ -8491,10 +8488,13 @@ Example:
 ```json
 {
   "operation": {
-    "op": "list",
-    "path": "example"
+    "expected": "example",
+    "op": "write",
+    "path": "example",
+    "text": "example"
   },
   "requestId": "example",
+  "threadId": "example",
   "type": "files.request"
 }
 ```
@@ -8511,7 +8511,7 @@ Example:
 
 ```json
 {
-  "channel": 1,
+  "channel": 10,
   "credits": 4,
   "type": "files.credit"
 }
@@ -8528,7 +8528,7 @@ Example:
 
 ```json
 {
-  "channel": 9,
+  "channel": 3,
   "type": "files.cancel"
 }
 ```
@@ -8553,10 +8553,10 @@ Example:
 
 ```json
 {
-  "channel": 4,
+  "channel": 3,
   "data": "example",
   "eof": false,
-  "offset": 2,
+  "offset": 5,
   "requestId": "example",
   "type": "files.data"
 }
@@ -8573,7 +8573,7 @@ Example:
 
 ```json
 {
-  "channel": 1,
+  "channel": 6,
   "type": "files.cancelled"
 }
 ```
@@ -8611,9 +8611,10 @@ Example:
 
 ```json
 {
+  "channel": 9,
   "code": "example",
+  "current": null,
   "message": "example",
-  "requestId": "example",
   "type": "files.error"
 }
 ```
@@ -8633,10 +8634,10 @@ Example:
 
 ```json
 {
-  "channel": 1,
-  "offset": 6,
+  "channel": 0,
+  "offset": 9,
   "requestId": "example",
-  "size": 6,
+  "size": null,
   "type": "files.ready",
   "validator": "example"
 }
@@ -8655,9 +8656,9 @@ Example:
 
 ```json
 {
-  "channel": 6,
-  "offset": 2,
-  "sha256": "4f380f27d31c86544312cfa811ecd5636dcd1dd690b346f4578caa2bc765d136",
+  "channel": 4,
+  "offset": 4,
+  "sha256": "eb0590d17b507f271120a20f1c6987951bad117448ad8f56f393e4b9fa3b060e",
   "type": "files.end"
 }
 ```
@@ -8677,10 +8678,9 @@ Example:
 
 ```json
 {
-  "channel": 4,
+  "channel": 5,
   "offset": 1,
-  "requestId": "example",
-  "size": 4,
+  "size": 0,
   "type": "files.upload",
   "uploadId": "example"
 }
@@ -8701,7 +8701,8 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "version": "example"
+    "trashId": "example",
+    "version": null
   },
   "type": "files.changed"
 }
@@ -8728,7 +8729,7 @@ Type: ["steer","queue"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"steer"
+"queue"
 ```
 
 ## ForkPoint
@@ -8776,7 +8777,7 @@ Type: ["git_head_moved","git_conflicts","git_hook_failed","git_auth_failed","git
 Example:
 
 ```json
-"git_invalid_ref"
+"git_conflicts"
 ```
 
 ## GitStatusFile
@@ -8796,8 +8797,7 @@ Example:
 
 ```json
 {
-  "additions": 7,
-  "binary": false,
+  "additions": 2,
   "deletions": 1,
   "path": "example",
   "status": "renamed"
@@ -8822,7 +8822,7 @@ Example:
   "bytes": "example",
   "encoding": "utf-16le",
   "eof": false,
-  "nextOffset": 2
+  "nextOffset": 6
 }
 ```
 
@@ -8841,8 +8841,7 @@ Example:
 
 ```json
 {
-  "limit": 10,
-  "offset": 0,
+  "limit": 6,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -8881,7 +8880,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 9,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -8900,6 +8899,7 @@ Example:
 
 ```json
 {
+  "before": 7,
   "sourceThreadId": "example"
 }
 ```
@@ -8950,7 +8950,6 @@ Example:
 {
   "instanceId": "example",
   "nativeSessionId": "example",
-  "requestId": "example",
   "status": "continued",
   "threadId": "example",
   "type": "history.continue"
@@ -8991,7 +8990,6 @@ Example:
 
 ```json
 {
-  "requestId": "example",
   "sourceId": "example",
   "type": "history.import",
   "workspaceId": "example"
@@ -9059,8 +9057,8 @@ Example:
 ```json
 {
   "cwd": "example",
-  "limit": 3,
-  "openableOnly": false,
+  "limit": 9,
+  "search": "example",
   "type": "history.list"
 }
 ```
@@ -9083,9 +9081,18 @@ Example:
 {
   "next": {
     "id": "example",
-    "lastActivity": 5
+    "lastActivity": 1
   },
-  "requestId": "example",
+  "scan": {
+    "state": "idle",
+    "stats": {
+      "bytes": 7,
+      "files": 1,
+      "reads": 7,
+      "skipped": 5
+    },
+    "unsupported": []
+  },
   "sessions": [],
   "type": "history.list"
 }
@@ -9107,8 +9114,9 @@ Example:
 
 ```json
 {
-  "operation": "history.continue",
-  "phase": "sending",
+  "events": 2,
+  "operation": "history.import",
+  "phase": "opening",
   "requestId": "example",
   "type": "history.operation.progress"
 }
@@ -9123,7 +9131,7 @@ Type: ["claude","codex","opencode","cursor"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"codex"
+"cursor"
 ```
 
 ## HistoryScanRequest
@@ -9140,7 +9148,6 @@ Example:
 
 ```json
 {
-  "requestId": "example",
   "type": "history.scan"
 }
 ```
@@ -9161,17 +9168,8 @@ Example:
 
 ```json
 {
-  "files": 0,
-  "scan": {
-    "state": "failed",
-    "stats": {
-      "bytes": 9,
-      "files": 3,
-      "reads": 9,
-      "skipped": 8
-    },
-    "unsupported": []
-  },
+  "files": 6,
+  "requestId": "example",
   "type": "history.scan",
   "unsupported": []
 }
@@ -9192,10 +9190,10 @@ Example:
 
 ```json
 {
-  "bytes": 4,
-  "files": 5,
-  "reads": 7,
-  "skipped": 9
+  "bytes": 6,
+  "files": 7,
+  "reads": 3,
+  "skipped": 7
 }
 ```
 
@@ -9214,13 +9212,12 @@ Example:
 
 ```json
 {
-  "error": "example",
   "state": "failed",
   "stats": {
-    "bytes": 2,
-    "files": 6,
-    "reads": 0,
-    "skipped": 8
+    "bytes": 0,
+    "files": 8,
+    "reads": 1,
+    "skipped": 0
   },
   "unsupported": []
 }
@@ -9240,12 +9237,13 @@ Example:
 ```json
 {
   "scan": {
-    "state": "failed",
+    "error": "example",
+    "state": "idle",
     "stats": {
-      "bytes": 3,
-      "files": 8,
+      "bytes": 7,
+      "files": 1,
       "reads": 8,
-      "skipped": 5
+      "skipped": 7
     },
     "unsupported": []
   },
@@ -9277,17 +9275,15 @@ Example:
 
 ```json
 {
-  "continuation": {
-    "status": "supported"
-  },
   "countAccuracy": "exact",
   "cwd": "example",
   "id": "example",
   "instanceId": "example",
-  "lastActivity": 0,
-  "messageCount": 6,
+  "lastActivity": 7,
+  "messageCount": 1,
   "nativeId": "example",
-  "provider": "claude",
+  "parentNativeId": "example",
+  "provider": "codex",
   "support": {
     "reason": "example",
     "status": "unsupported"
@@ -9385,11 +9381,12 @@ Example:
 
 ```json
 {
-  "importedAt": 5,
+  "importedAt": 1,
   "instanceId": "example",
   "native": {
-    "nativeId": "example",
-    "provider": "acp"
+    "aliases": [],
+    "installationId": "example",
+    "provider": "claude"
   },
   "sourceId": "example"
 }
@@ -9435,7 +9432,7 @@ Type: ["gemini","qwen-code","claude-acp","codex-acp","goose","auggie"]. See JSON
 Example:
 
 ```json
-"auggie"
+"qwen-code"
 ```
 
 ## InstallCommand
@@ -9492,9 +9489,9 @@ Example:
 
 ```json
 {
-  "channel": "stable",
-  "target": "linux-x64",
-  "version": "9152192526.299170107.9115044"
+  "channel": "preview",
+  "target": "linux-arm64",
+  "version": "00293873.69.5146-c4fitg7pv"
 }
 ```
 
@@ -9507,7 +9504,7 @@ Type: ["npm","bun","brew","script","registry"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"npm"
+"script"
 ```
 
 ## Interaction
@@ -9537,18 +9534,18 @@ Example:
 ```json
 {
   "agentId": "example",
-  "blocking": false,
-  "createdAt": 5,
-  "expirationReason": "provider_disconnected",
+  "blocking": true,
+  "createdAt": 7,
   "id": "example",
   "request": {
     "kind": "plan_review",
     "markdown": "example",
-    "title": "example"
+    "summary": "example",
+    "todos": []
   },
-  "state": "resolved",
-  "threadId": "example",
-  "toolCallId": "example"
+  "resolvedBy": "example",
+  "state": "expired",
+  "threadId": "example"
 }
 ```
 
@@ -9561,7 +9558,7 @@ Type: ["high","medium","low"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"medium"
+"low"
 ```
 
 ## InteractionEvidence
@@ -9592,24 +9589,23 @@ Example:
 
 ```json
 {
-  "actionAtMs": 0,
+  "cores": 7,
   "filmstrip": {
     "data": "example",
     "mimeType": "image/jpeg",
     "type": "image"
   },
-  "latencyMs": 6,
-  "layoutShift": 3,
-  "refreshHz": 8,
-  "source": "screen-frames",
+  "refreshAssumed": true,
+  "refreshHz": 2,
+  "source": "browser-trace",
   "target": {
-    "kind": "browser-tab",
-    "tabId": "example",
-    "threadId": "example"
+    "bundleId": "example",
+    "kind": "window",
+    "windowId": 3
   },
-  "truncated": true,
+  "truncated": false,
   "updatesMs": [],
-  "windowMs": 3
+  "windowMs": 8
 }
 ```
 
@@ -9646,8 +9642,8 @@ Example:
 
 ```json
 {
-  "atMs": 4,
-  "durationMs": 0
+  "atMs": 8,
+  "durationMs": 8
 }
 ```
 
@@ -9696,20 +9692,28 @@ Example:
 
 ```json
 {
-  "captureOverheadPct": 4,
-  "confidence": "low",
-  "frames": 7,
-  "hitches": [],
-  "notes": [],
-  "refreshHz": 7,
-  "source": "screen-frames",
-  "target": {
-    "bundleId": "example",
-    "kind": "window",
-    "windowId": 7
+  "confidence": "medium",
+  "filmstrip": {
+    "data": "example",
+    "mimeType": "image/jpeg",
+    "type": "image"
   },
-  "verdict": "no_change",
-  "windowMs": 0
+  "frames": 0,
+  "hitchTimeMs": 5,
+  "hitches": [],
+  "hostLoad": 6,
+  "layoutShift": 9,
+  "longTasks": [],
+  "notes": [],
+  "refreshHz": 8,
+  "source": "browser-trace",
+  "target": {
+    "kind": "browser-tab",
+    "tabId": "example",
+    "threadId": "example"
+  },
+  "verdict": "minor_hitches",
+  "windowMs": 5
 }
 ```
 
@@ -9726,8 +9730,8 @@ Example:
 
 ```json
 {
-  "median": 7,
-  "worst": 0
+  "median": 9,
+  "worst": 1
 }
 ```
 
@@ -9745,25 +9749,37 @@ Example:
 ```json
 {
   "metrics": {
-    "effectiveFps": {
-      "median": 8,
-      "worst": 8
+    "droppedFrames": {
+      "median": 0,
+      "worst": 9
     },
     "frames": {
-      "median": 2,
-      "worst": 8
+      "median": 9,
+      "worst": 1
     },
     "hitchMs": {
-      "median": 1,
+      "median": 3,
+      "worst": 1
+    },
+    "hitchRatioMsPerS": {
+      "median": 2,
+      "worst": 6
+    },
+    "hostLoad": {
+      "median": 8,
+      "worst": 7
+    },
+    "latencyMs": {
+      "median": 5,
       "worst": 0
     },
     "refreshHz": {
-      "median": 2,
-      "worst": 7
+      "median": 1,
+      "worst": 0
     },
     "windowMs": {
-      "median": 6,
-      "worst": 4
+      "median": 7,
+      "worst": 5
     }
   },
   "runs": [
@@ -9797,12 +9813,7 @@ Example:
 
 ```json
 {
-  "defaultToNo": true,
   "kind": "approval",
-  "mcpServer": {
-    "name": "example",
-    "source": "example"
-  },
   "options": [],
   "title": "example"
 }
@@ -9841,7 +9852,7 @@ Example:
 {
   "kind": "plan_review",
   "markdown": "example",
-  "planPath": "example",
+  "summary": "example",
   "todos": []
 }
 ```
@@ -9864,9 +9875,9 @@ Example:
 
 ```json
 {
-  "description": "example",
   "kind": "elicitation",
   "message": "example",
+  "nativeId": "example",
   "server": "example"
 }
 ```
@@ -9888,6 +9899,7 @@ Example:
 ```json
 {
   "kind": "approval",
+  "message": "example",
   "optionId": "example"
 }
 ```
@@ -9906,6 +9918,7 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": true,
   "kind": "question"
 }
 ```
@@ -9923,6 +9936,7 @@ Example:
 ```json
 {
   "decision": "approve",
+  "feedback": "example",
   "kind": "plan_review"
 }
 ```
@@ -9939,8 +9953,7 @@ Example:
 
 ```json
 {
-  "action": "cancel",
-  "content": null,
+  "action": "accept",
   "kind": "elicitation"
 }
 ```
@@ -9954,7 +9967,7 @@ Type: ["pending","resolved","cancelled","expired"]. See JSON Schema for constrai
 Example:
 
 ```json
-"expired"
+"resolved"
 ```
 
 ## InteractionTarget
@@ -9975,7 +9988,7 @@ Example:
 {
   "bundleId": "example",
   "kind": "window",
-  "windowId": 10
+  "windowId": 2
 }
 ```
 
@@ -10005,7 +10018,7 @@ Type: ["smooth","minor_hitches","janky","no_change","inconclusive"]. See JSON Sc
 Example:
 
 ```json
-"inconclusive"
+"no_change"
 ```
 
 ## Item
@@ -10039,26 +10052,18 @@ Example:
 {
   "agentId": "example",
   "complete": false,
-  "createdAt": 8,
-  "id": "example",
-  "mergedContext": {
-    "citations": [
-      {
-        "itemId": "example",
-        "threadId": "example"
-      }
-    ],
-    "patchApplied": true,
-    "sourceThreadId": "example",
-    "summary": "example"
+  "createdAt": 0,
+  "executionSource": {
+    "nativeSessionId": "example",
+    "selection": {
+      "options": {},
+      "provider": "antigravity"
+    }
   },
+  "id": "example",
   "nativeId": "example",
-  "notAnswered": "stopped",
   "parts": [],
-  "raw": [],
   "role": "assistant",
-  "runId": "example",
-  "synthetic": true,
   "type": "message"
 }
 ```
@@ -10097,19 +10102,19 @@ Example:
   "childThreadId": "example",
   "complete": true,
   "createdAt": 6,
-  "generation": 8,
+  "generation": 2,
   "id": "example",
   "origin": "ace",
-  "phase": "running",
-  "provider": "opencode",
+  "phase": "cancelling",
+  "provider": "cursor",
   "role": "example",
-  "runId": "example",
   "status": {
-    "state": "new"
+    "interactions": 7,
+    "state": "needs_you"
   },
   "title": "example",
   "type": "delegation.started",
-  "updatedAt": 5
+  "updatedAt": 2
 }
 ```
 
@@ -10135,29 +10140,20 @@ Example:
 ```json
 {
   "agentId": "example",
-  "complete": true,
-  "createdAt": 1,
+  "complete": false,
+  "createdAt": 2,
   "delivery": "ace-input",
-  "executionSource": {
-    "nativeSessionId": "example",
-    "selection": {
-      "model": "example",
-      "options": {},
-      "provider": "acp"
-    }
-  },
   "id": "example",
   "origin": "ace",
   "results": [
     {
       "before": null,
-      "outcome": "failed",
+      "outcome": "completed",
       "result": "example",
       "threadId": "example",
       "truncated": false
     }
   ],
-  "runId": "example",
   "type": "delegation.settled"
 }
 ```
@@ -10184,22 +10180,15 @@ Example:
 ```json
 {
   "agentId": "example",
-  "complete": false,
+  "complete": true,
   "createdAt": 8,
-  "executionSource": {
-    "nativeSessionId": "example",
-    "selection": {
-      "provider": "antigravity"
-    }
-  },
   "id": "example",
   "raw": [],
   "source": {
-    "bytes": 2,
+    "bytes": 9,
     "encoding": "utf-16le",
     "streamId": "example"
   },
-  "summary": false,
   "text": "example",
   "type": "reasoning"
 }
@@ -10228,31 +10217,21 @@ Example:
   "call": {
     "agentId": "example",
     "detail": {
-      "kind": "plan",
-      "todos": []
+      "kind": "search",
+      "query": "example"
     },
     "id": "example",
-    "kind": "notebook",
+    "kind": "browser",
     "raw": [],
-    "result": {
-      "content": [],
-      "durationMs": 4,
-      "isError": true,
-      "mode": "background",
-      "target": {
-        "bundleId": "example",
-        "displayName": "example",
-        "windowId": 3
-      }
-    },
-    "startedAt": 9,
+    "startedAt": 0,
     "status": "pending",
     "title": "example"
   },
   "complete": false,
-  "createdAt": 6,
+  "createdAt": 9,
   "id": "example",
   "nativeId": "example",
+  "runId": "example",
   "type": "tool_call"
 }
 ```
@@ -10287,33 +10266,42 @@ Example:
 ```json
 {
   "agentId": "example",
-  "code": "example",
-  "commandId": "example",
-  "complete": false,
+  "complete": true,
   "createdAt": 2,
   "details": {
     "code": "example",
-    "detail": "example",
-    "model": "example",
-    "provider": "acp"
-  },
-  "executionSource": {
-    "nativeSessionId": "example",
-    "selection": {
-      "provider": "claude"
-    }
+    "provider": "cursor"
   },
   "id": "example",
   "level": "error",
-  "nativeId": "example",
-  "runId": "example",
-  "source": {
-    "bytes": 8,
-    "encoding": "utf-16le",
-    "streamId": "example"
+  "measurement": {
+    "action": {
+      "kind": "pointer.drag",
+      "toX": 2,
+      "toY": 3,
+      "x": 7,
+      "y": 8
+    },
+    "confidence": "low",
+    "frames": 8,
+    "hitchRatioMsPerS": 1,
+    "hitches": [],
+    "hostLoad": 3,
+    "longTasks": [],
+    "notes": [],
+    "refreshHz": 7,
+    "source": "browser-trace",
+    "target": {
+      "bundleId": "example",
+      "kind": "window",
+      "windowId": 1
+    },
+    "verdict": "minor_hitches",
+    "windowMs": 3
   },
   "text": "example",
   "title": "example",
+  "toolCallId": "example",
   "type": "notice"
 }
 ```
@@ -10339,15 +10327,16 @@ Example:
 {
   "agentId": "example",
   "complete": false,
-  "createdAt": 4,
+  "createdAt": 8,
   "executionSource": {
     "nativeSessionId": "example",
     "selection": {
-      "instanceId": "example",
-      "provider": "claude"
+      "provider": "antigravity"
     }
   },
   "id": "example",
+  "tokensAfter": 8,
+  "tokensBefore": 2,
   "type": "compaction"
 }
 ```
@@ -10377,20 +10366,13 @@ Example:
 ```json
 {
   "agentId": "example",
-  "artifactId": "example",
-  "bytes": 3,
+  "bytes": 0,
   "complete": false,
-  "createdAt": 4,
-  "executionSource": {
-    "nativeSessionId": "example",
-    "selection": {
-      "instanceId": "example",
-      "provider": "claude"
-    }
-  },
+  "createdAt": 6,
   "flags": [],
   "id": "example",
   "mimeType": "example",
+  "nativeId": "example",
   "path": "example",
   "source": "device",
   "type": "artifact"
@@ -10425,10 +10407,9 @@ Example:
 
 ```json
 {
-  "itemSeqs": {},
   "items": [],
-  "itemsBefore": null,
-  "seq": 4,
+  "itemsBefore": 2,
+  "seq": 9,
   "threadId": "example"
 }
 ```
@@ -10453,7 +10434,7 @@ Example:
 
 ```json
 {
-  "aroundSeq": 1,
+  "aroundSeq": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "items.window"
@@ -10482,8 +10463,8 @@ Example:
 {
   "itemSeqs": {},
   "items": [],
-  "itemsAfter": 9,
-  "itemsBefore": 4,
+  "itemsAfter": 4,
+  "itemsBefore": 3,
   "requestId": "example",
   "seq": 3,
   "targetSeq": null,
@@ -10501,7 +10482,7 @@ Type: ["read-only","ask","auto-review","full-access"]. See JSON Schema for const
 Example:
 
 ```json
-"full-access"
+"read-only"
 ```
 
 ## LimitPolicy
@@ -10513,7 +10494,7 @@ Type: ["manual","resume_at_reset","snooze_until_reset","migrate_now"]. See JSON 
 Example:
 
 ```json
-"manual"
+"migrate_now"
 ```
 
 ## Machine
@@ -10533,7 +10514,7 @@ Example:
 {
   "hostId": "example",
   "name": "example",
-  "status": "unknown"
+  "status": "offline"
 }
 ```
 
@@ -10552,7 +10533,8 @@ Example:
 ```json
 {
   "operation": {
-    "op": "list"
+    "hostId": "example",
+    "op": "status"
   },
   "requestId": "example",
   "type": "machines.request"
@@ -10576,7 +10558,7 @@ Example:
   "requestId": "example",
   "result": {
     "kind": "unavailable",
-    "reason": "forbidden"
+    "reason": "directory_not_configured"
   },
   "type": "machines.result"
 }
@@ -10595,8 +10577,8 @@ Example:
 
 ```json
 {
-  "blockers": 8,
-  "draining": true
+  "blockers": 2,
+  "draining": false
 }
 ```
 
@@ -10629,7 +10611,7 @@ Type: ["browser","preview","terminal","notify","agents","thread_control","automa
 Example:
 
 ```json
-"preview"
+"terminal"
 ```
 
 ## McpIntent
@@ -10652,7 +10634,6 @@ Example:
 {
   "agentId": "example",
   "notice": {
-    "level": "info",
     "text": "example"
   },
   "sessionId": "example",
@@ -10677,6 +10658,7 @@ Example:
 {
   "agentId": "example",
   "input": {
+    "provider": "acp",
     "task": "example"
   },
   "sessionId": "example",
@@ -10698,6 +10680,7 @@ Example:
 
 ```json
 {
+  "level": "info",
   "text": "example"
 }
 ```
@@ -10720,7 +10703,6 @@ Example:
 {
   "agentId": "example",
   "notice": {
-    "level": "error",
     "text": "example"
   },
   "sessionId": "example",
@@ -10783,11 +10765,11 @@ Example:
 
 ```json
 {
-  "name": "8bmayyyYDK9-B6dhTRLVeCAz_KtKocyS",
+  "name": "J3phcrPEhCa0tXVafvRCWDg6uPhFWcE_THobuVzLWO05Ewgaxl",
   "requestId": "example",
   "server": {
-    "command": "example",
-    "transport": "command"
+    "transport": "http",
+    "url": "https://example.invalid/mcp"
   },
   "threadId": "example",
   "type": "mcp.add"
@@ -10886,7 +10868,7 @@ Example:
 
 ```json
 {
-  "provider": "acp",
+  "provider": "claude",
   "requestId": "example",
   "type": "mcp.provider.sources"
 }
@@ -10906,8 +10888,8 @@ Example:
 
 ```json
 {
-  "name": "-5okU5QBF",
-  "provider": "codex",
+  "name": "SHzihFsf8b",
+  "provider": "pi",
   "requestId": "example",
   "server": {
     "transport": "http",
@@ -10931,7 +10913,7 @@ Example:
 ```json
 {
   "name": "example",
-  "provider": "claude",
+  "provider": "acp",
   "requestId": "example",
   "type": "mcp.provider.reconnect"
 }
@@ -10951,7 +10933,7 @@ Example:
 ```json
 {
   "name": "example",
-  "provider": "opencode",
+  "provider": "acp",
   "requestId": "example",
   "type": "mcp.provider.enable"
 }
@@ -10971,7 +10953,7 @@ Example:
 ```json
 {
   "name": "example",
-  "provider": "claude",
+  "provider": "acp",
   "requestId": "example",
   "type": "mcp.provider.disable"
 }
@@ -10993,7 +10975,7 @@ Example:
 
 ```json
 {
-  "provider": "acp",
+  "provider": "codex",
   "requestId": "example",
   "result": null,
   "type": "mcp.result"
@@ -11038,7 +11020,6 @@ Example:
 
 ```json
 {
-  "args": [],
   "command": "example",
   "transport": "command"
 }
@@ -11076,9 +11057,9 @@ Example:
 
 ```json
 {
-  "appliesNextTurn": false,
-  "canAdd": false,
-  "live": true,
+  "canAdd": true,
+  "groups": [],
+  "live": false,
   "servers": []
 }
 ```
@@ -11097,7 +11078,7 @@ Example:
 ```json
 {
   "name": "example",
-  "status": "needs_auth"
+  "status": "connecting"
 }
 ```
 
@@ -11115,7 +11096,8 @@ Example:
 
 ```json
 {
-  "provider": "pi",
+  "name": "example",
+  "provider": "codex",
   "task": "example"
 }
 ```
@@ -11138,6 +11120,7 @@ Example:
 {
   "agentId": "example",
   "input": {
+    "name": "example",
     "task": "example"
   },
   "sessionId": "example",
@@ -11206,7 +11189,7 @@ Example:
       "threadId": "example"
     }
   ],
-  "patchApplied": true,
+  "patchApplied": false,
   "sourceThreadId": "example",
   "summary": "example"
 }
@@ -11227,7 +11210,9 @@ Example:
 
 ```json
 {
-  "attachments": []
+  "draftId": "jNBXre4X",
+  "items": [],
+  "mentions": []
 }
 ```
 
@@ -11254,11 +11239,12 @@ Example:
   "from": {
     "provider": "claude"
   },
-  "interactionId": "example",
-  "kind": "background_completion",
+  "kind": "schedule",
+  "lossy": false,
   "role": "example",
+  "threadIds": [],
   "to": {
-    "provider": "antigravity"
+    "provider": "claude"
   }
 }
 ```
@@ -11281,8 +11267,9 @@ Example:
 
 ```json
 {
-  "action": "resume",
-  "copiedFiles": 0,
+  "action": "fork",
+  "cleanupWarnings": [],
+  "copiedFiles": 7,
   "nativeSessionId": "example",
   "status": "migrated"
 }
@@ -11331,7 +11318,7 @@ Type: ["codex","claude","opencode","cursor","pi"]. See JSON Schema for constrain
 Example:
 
 ```json
-"claude"
+"opencode"
 ```
 
 ## NativePermissionMode
@@ -11350,10 +11337,11 @@ Example:
 
 ```json
 {
+  "default": false,
   "description": "example",
   "id": "example",
   "label": "example",
-  "risk": "low"
+  "risk": "high"
 }
 ```
 
@@ -11376,12 +11364,9 @@ Example:
 
 ```json
 {
-  "aliases": [],
+  "acpAgentId": "example",
   "forkedFromNativeId": "example",
-  "installationId": "example",
-  "nativeId": "example",
-  "path": "example",
-  "provider": "pi"
+  "provider": "antigravity"
 }
 ```
 
@@ -11418,10 +11403,10 @@ Example:
 ```json
 {
   "actions": [],
-  "backgroundCount": 0,
+  "backgroundCount": 5,
   "id": "example",
-  "preview": "example",
-  "status": "unresponsive",
+  "message": "example",
+  "status": "failed",
   "threadId": "example",
   "title": "example"
 }
@@ -11460,11 +11445,11 @@ Example:
 ```json
 {
   "channel": "webpush",
-  "platform": "web",
+  "platform": "phone",
   "subscription": {
-    "auth": "C4U5Ar1zEm-hsmH5PgPjQn",
+    "auth": "QXaSwjEKuyM9fST7j9EN-v",
     "endpoint": "https://example.invalid/",
-    "p256dh": "CzxgP5JOx-Z3wKEKRcNf1Uj-b4f3aqQUQpbo5TqLQYRhGyD_XDd_p8QXaSwjEKuyM9fST7j9EN-v5piGKo16r2X"
+    "p256dh": "u3KKGiNnbr9Dr5aNTc3dFiUQGQjaGKirOwCzxgP5JOx-Z3wKEKRcNf1Uj-b4f3aqQUQpbo5TqLQYRhGyD_XDd_p"
   }
 }
 ```
@@ -11483,7 +11468,7 @@ Example:
 {
   "channel": "apns",
   "platform": "phone",
-  "token": "d1a59907DAa16DabFa9DcDbDBdD3f781A04DF5EEf0dcDcAb0bc5Fc6CE3ebeedd"
+  "token": "2Fcd16826C9a7A7a265b19F31c7fFf0f1cd1a59907DAa16DabFa9DcDbDBdD3f7"
 }
 ```
 
@@ -11539,9 +11524,9 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": false
+    "includePreview": false
   },
-  "publicKey": "0Kqbyp5muRDf-75Lnq5UPmm_GGKKIEcp3HIZfq2iWlKs60DFnEK6ha0peh8eGC76F1aUcie5sifZKT9h2l20r-S",
+  "publicKey": null,
   "requestId": "example",
   "type": "notification.config.result"
 }
@@ -11565,9 +11550,9 @@ Example:
     "channel": "webpush",
     "platform": "phone",
     "subscription": {
-      "auth": "jgGsyhcWHUCk1A4l-JFhVa",
+      "auth": "GC76F1aUcie5sifZKT9h2l",
       "endpoint": "https://example.invalid/",
-      "p256dh": "c4QZs9VBIofr8AMKBEqSRIiQDampf5d_X2wX2OrsGDihpgzbEN7yaGy4Joe5_h6if9g5eL03q2vm8iEbcTIN7D7"
+      "p256dh": "fePlIHcGSFjFIzgG0ZfrNDNMJJDs0Kqbyp5muRDf-75Lnq5UPmm_GGKKIEcp3HIZfq2iWlKs60DFnEK6ha0peh8"
     }
   },
   "id": "example",
@@ -11590,11 +11575,11 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 1,
+    "backgroundCount": 6,
     "id": "example",
     "interactionId": "example",
-    "preview": "example",
-    "status": "unresponsive",
+    "message": "example",
+    "status": "agent_says",
     "threadId": "example",
     "title": "example"
   },
@@ -11615,11 +11600,7 @@ Example:
 Example:
 
 ```json
-{
-  "agentSays": false,
-  "includePreview": false,
-  "quietHours": null
-}
+{}
 ```
 
 ## NotificationRegister
@@ -11637,9 +11618,13 @@ Example:
 ```json
 {
   "device": {
-    "channel": "apns",
+    "channel": "webpush",
     "platform": "phone",
-    "token": "C96DF8a74fD160b2f0Ad5Deae944db2F6fCBEF43700Cc0a7adC54A6cD3CF08D4"
+    "subscription": {
+      "auth": "syhcWHUCk1A4l-JFhVacw3",
+      "endpoint": "https://example.invalid/",
+      "p256dh": "Zs9VBIofr8AMKBEqSRIiQDampf5d_X2wX2OrsGDihpgzbEN7yaGy4Joe5_h6if9g5eL03q2vm8iEbcTIN7D7Ujg"
+    }
   },
   "type": "notification.register"
 }
@@ -11678,7 +11663,7 @@ Example:
 {
   "preferences": {
     "agentSays": false,
-    "quietHours": null
+    "includePreview": true
   },
   "type": "notification.preferences"
 }
@@ -11700,7 +11685,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 8
+  "until": 2
 }
 ```
 
@@ -11748,7 +11733,7 @@ Example:
 
 ```json
 {
-  "dismissed": false,
+  "dismissed": true,
   "requestId": "example",
   "type": "onboarding.dismiss"
 }
@@ -11770,13 +11755,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "dismissed": true,
-    "next": {
-      "action": "configure"
-    },
-    "ok": true,
-    "providers": [],
-    "ready": []
+    "error": "forbidden",
+    "ok": false
   },
   "type": "onboarding.result"
 }
@@ -11797,10 +11777,10 @@ Example:
 
 ```json
 {
-  "bytes": 0,
+  "bytes": 8,
   "streamId": "example",
   "tail": "example",
-  "truncated": true
+  "truncated": false
 }
 ```
 
@@ -11849,7 +11829,7 @@ Example:
 
 ```json
 {
-  "expiresAt": 4,
+  "expiresAt": 9,
   "url": "https://example.invalid/"
 }
 ```
@@ -11873,14 +11853,13 @@ Example:
 
 ```json
 {
-  "argumentHint": "example",
   "arguments": {},
   "description": "example",
   "id": "example",
-  "name": "2Zfsu",
-  "namespace": "provider",
-  "provider": "acp",
-  "scope": "builtin"
+  "name": "-3BJ:",
+  "namespace": "ace",
+  "provider": "any",
+  "scope": "user"
 }
 ```
 
@@ -11893,7 +11872,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"413EtdA"
+"N2LdS"
 ```
 
 ## PendingMcpIntent
@@ -11939,7 +11918,7 @@ Example:
 ```json
 {
   "modes": [],
-  "nativeAutoReview": false,
+  "nativeAutoReview": true,
   "permissionModes": [],
   "toolGate": false
 }
@@ -11961,7 +11940,9 @@ Example:
 
 ```json
 {
-  "provider": "antigravity",
+  "backend": "cursor-sdk",
+  "instanceId": "example",
+  "provider": "codex",
   "requestId": "example",
   "type": "permissions.capabilities"
 }
@@ -11983,7 +11964,8 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "requestId": "example",
   "type": "permissions.capabilities.result"
 }
@@ -12005,10 +11987,10 @@ Example:
 ```json
 {
   "gates": {
-    "network": true,
-    "protectedReads": true,
+    "network": false,
+    "protectedReads": false,
     "shell": true,
-    "writes": true
+    "writes": false
   },
   "level": "tool-gate",
   "limitations": [],
@@ -12045,11 +12027,15 @@ Example:
 
 ```json
 {
-  "decision": "approve",
+  "decision": "deny",
   "interactionId": "example",
   "mode": "example",
   "reason": "example",
-  "reviewer": "ace-risk-policy"
+  "reviewer": "ace-risk-policy",
+  "target": {
+    "access": "execute",
+    "tool": "example"
+  }
 }
 ```
 
@@ -12067,9 +12053,9 @@ Example:
 
 ```json
 {
-  "effective": "example",
-  "override": null,
-  "pending": false
+  "effective": null,
+  "override": "example",
+  "pending": true
 }
 ```
 
@@ -12089,7 +12075,8 @@ Example:
 ```json
 {
   "operation": {
-    "kind": "profile"
+    "entryId": "example",
+    "kind": "rollback"
   },
   "requestId": "example",
   "threadId": "example",
@@ -12113,6 +12100,7 @@ Example:
 {
   "requestId": "example",
   "result": {
+    "nativeSessionId": "example",
     "ok": true
   },
   "type": "pi.result"
@@ -12128,7 +12116,7 @@ Type: ["unrestricted","read_only","supervised","auto_accept_edits"]. See JSON Sc
 Example:
 
 ```json
-"read_only"
+"auto_accept_edits"
 ```
 
 ## PiProfile
@@ -12148,11 +12136,11 @@ Example:
 
 ```json
 {
-  "extensionDialogs": true,
+  "extensionDialogs": false,
   "mcpExtension": true,
   "permissions": [],
-  "rollbackConversation": false,
-  "supported": true,
+  "rollbackConversation": true,
+  "supported": false,
   "version": "example"
 }
 ```
@@ -12172,7 +12160,7 @@ Example:
 ```json
 {
   "enabled": true,
-  "name": "ak1h",
+  "name": "ouv8q1",
   "providers": []
 }
 ```
@@ -12192,11 +12180,8 @@ Example:
 ```json
 {
   "request": {
-    "limit": 4,
-    "name": "1",
-    "offset": 5,
-    "path": "example",
-    "type": "plugins.source"
+    "id": "aG3T2DaZTbDGBBZXfrtvw1lkJ1Y1CsdzsxnV7JK21kMAijfwvaT0AYjn7",
+    "type": "plugins.cancel"
   },
   "requestId": "example",
   "type": "pluginRequest"
@@ -12212,7 +12197,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"962c026ffa6658c8b88734768995a910a5c1955d"
+"1f6bda3de5dbd6bc2dab962c026ffa6658c8b887"
 ```
 
 ## PluginComponent
@@ -12237,10 +12222,10 @@ Example:
 {
   "description": "example",
   "enabled": false,
-  "kind": "agent",
-  "name": "c",
+  "kind": "command",
+  "name": "z",
   "path": "example",
-  "plugin": "mh0ltl",
+  "plugin": "v39-.1a.spa",
   "providers": []
 }
 ```
@@ -12264,7 +12249,8 @@ Example:
 {
   "command": "example",
   "event": "example",
-  "kind": "hook"
+  "kind": "hook",
+  "matcher": "example"
 }
 ```
 
@@ -12285,9 +12271,10 @@ Example:
 {
   "args": [],
   "command": "example",
+  "cwd": "example",
   "env": {},
   "kind": "stdio",
-  "name": "9-r8"
+  "name": "mh0ltl"
 }
 ```
 
@@ -12307,7 +12294,7 @@ Example:
 {
   "headers": {},
   "kind": "remote",
-  "name": "lv",
+  "name": "pn10.s",
   "type": "http",
   "url": "example"
 }
@@ -12322,7 +12309,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"69fa68ac588cb5e42e49784b2f2e276a674be8a4e37028e845f4415fb011d54e"
+"193e2a3fc69fa68ac588cb5e42e49784b2f2e276a674be8a4e37028e845f4415"
 ```
 
 ## PluginInstall
@@ -12341,10 +12328,10 @@ Example:
 
 ```json
 {
-  "acceptedAt": 2,
-  "commit": "2d392bbc2d987b4c65a89df901f86a9cedfe8b48",
-  "hash": "e5c888f869b3449397867b072b35eb3b38065dbefacafc879b3b87144959baa3",
-  "name": "0",
+  "acceptedAt": 6,
+  "commit": "11d54e5df2d392bbc2d987b4c65a89df901f86a9",
+  "hash": "edfe8b48ce5c888f869b3449397867b072b35eb3b38065dbefacafc879b3b871",
+  "name": "n",
   "version": "example"
 }
 ```
@@ -12363,7 +12350,7 @@ Example:
 
 ```json
 {
-  "name": "hb1k6fpdbsu",
+  "name": "x-dcavkh1",
   "version": "example"
 }
 ```
@@ -12379,7 +12366,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"c"
+"z"
 ```
 
 ## PluginOrigin
@@ -12396,7 +12383,7 @@ Example:
 
 ```json
 {
-  "name": "t",
+  "name": "4",
   "ref": "example",
   "repository": "example"
 }
@@ -12421,8 +12408,8 @@ Example:
 ```json
 {
   "enabled": false,
-  "name": "y",
-  "plugin": "4950l",
+  "name": "b",
+  "plugin": "o",
   "providers": [],
   "type": "plugins.skillAvailability"
 }
@@ -12442,7 +12429,7 @@ Example:
 ```json
 {
   "enabled": true,
-  "name": "ie39.tztyz9p",
+  "name": "o",
   "providers": [],
   "type": "plugins.availability"
 }
@@ -12460,6 +12447,7 @@ Example:
 
 ```json
 {
+  "limit": 9,
   "offset": 5,
   "type": "plugins.catalog"
 }
@@ -12479,7 +12467,7 @@ Example:
 
 ```json
 {
-  "name": "o",
+  "name": "t",
   "path": "example",
   "type": "plugins.source"
 }
@@ -12499,8 +12487,8 @@ Example:
 
 ```json
 {
-  "expectedHash": "00876f679645e123988ce1925d8e291cb6fd96ba1e623fe3b3902f5bb3b976f3",
-  "name": "5wnik8252-yd",
+  "expectedHash": "a4d99b68924244801b350e937593fde857594b400876f679645e123988ce1925",
+  "name": "y",
   "path": "example",
   "text": "example",
   "type": "plugins.edit"
@@ -12518,7 +12506,7 @@ Example:
 
 ```json
 {
-  "name": "r",
+  "name": "ht9re",
   "type": "plugins.update"
 }
 ```
@@ -12549,6 +12537,7 @@ Example:
 
 ```json
 {
+  "ref": "example",
   "repository": "example",
   "type": "plugins.marketplace"
 }
@@ -12565,7 +12554,7 @@ Example:
 
 ```json
 {
-  "id": "pqu1Z5Q",
+  "id": "vo-WfdErYHLuqNgK8zFxUhhKg-ZZxKECzfpqu1Z5QdWz2cyqSlDjSfrigpzQ84zqZ",
   "type": "plugins.cancel"
 }
 ```
@@ -12583,7 +12572,7 @@ Example:
 
 ```json
 {
-  "name": "b6bojz",
+  "name": "p",
   "ref": "example",
   "repository": "example",
   "type": "plugins.prepare"
@@ -12603,9 +12592,9 @@ Example:
 
 ```json
 {
-  "commit": "0d4368c3c44e69d5c813e1f791d3e81db827e237",
-  "hash": "f6f314a0589dd672196b6ec4489c2d6f0f78e0a4220d0c301abd716f4b5f345d",
-  "id": "DjSfrigpzQ84zqZ",
+  "commit": "e1f791d3e81db827e2370f6f314a0589dd672196",
+  "hash": "6ec4489c2d6f0f78e0a4220d0c301abd716f4b5f345daeab071cf901d69c6a55",
+  "id": "ONX3iLjNOpV9nSl6C",
   "type": "plugins.accept"
 }
 ```
@@ -12621,7 +12610,7 @@ Example:
 
 ```json
 {
-  "name": "c",
+  "name": "5",
   "type": "plugins.remove"
 }
 ```
@@ -12652,7 +12641,7 @@ Example:
 
 ```json
 {
-  "id": "ADnY9iWcSR3uG9dWRRVyuBbEQl0P4eawBi4L7DcJF8zoItbbSjmyLPFOeNfHOkyraxck6HCb0cHW",
+  "id": "9dWRRVyuBbEQl0P4eawBi4L7DcJF8zoItbbSjmyLPF",
   "type": "plugins.readReview"
 }
 ```
@@ -12674,8 +12663,8 @@ Example:
 {
   "availability": {
     "enabled": true,
-    "name": "3qg",
-    "plugin": "2wznl",
+    "name": "w",
+    "plugin": "ct",
     "providers": []
   },
   "type": "plugins.skillAvailability"
@@ -12694,8 +12683,8 @@ Example:
 ```json
 {
   "availability": {
-    "enabled": false,
-    "name": "o",
+    "enabled": true,
+    "name": "j",
     "providers": []
   },
   "type": "plugins.availability"
@@ -12715,7 +12704,7 @@ Example:
 ```json
 {
   "components": [],
-  "nextOffset": 2,
+  "nextOffset": 1,
   "type": "plugins.catalog"
 }
 ```
@@ -12739,15 +12728,15 @@ Example:
 
 ```json
 {
-  "bytes": 8,
-  "hash": "6006443550c41382ed614d8f2c6d6a15109dc0293c75866865e7af17c68dbe5d",
-  "nextOffset": 8,
-  "offset": 6,
+  "bytes": 4,
+  "hash": "21a7a26863f34ff77b0c0008ae36006443550c41382ed614d8f2c6d6a15109dc",
+  "manifestPath": "example",
+  "nextOffset": 9,
+  "offset": 5,
   "path": "example",
   "readonly": true,
   "text": "example",
-  "type": "plugins.source",
-  "virtual": false
+  "type": "plugins.source"
 }
 ```
 
@@ -12762,7 +12751,7 @@ Example:
 
 ```json
 {
-  "id": "VSYZ70arekn89t2VmT3iRFNIt3vzEBRukRxiEF2qgKQ7fc1nMGHIfJVSyyWpq6TJ",
+  "id": "S6WX4XUt1duC1iW5ofqRp4N0e3TYVSYZ70arekn89t2VmT3iRFNIt3vzEBRukRxiEF2",
   "type": "plugins.cancelled"
 }
 ```
@@ -12779,11 +12768,11 @@ Example:
 ```json
 {
   "review": {
-    "commit": "b4bd36cff893b5f1db642fdadb45e973360b3572",
+    "commit": "0eb4bd36cff893b5f1db642fdadb45e973360b35",
     "executions": [],
-    "hash": "5b66b1c89d09af4cceb4e27baee592ddcfc6ff5dadce09512c90cb36215b496b",
-    "id": "0EALhL",
-    "name": "u",
+    "hash": "2f5b66b1c89d09af4cceb4e27baee592ddcfc6ff5dadce09512c90cb36215b49",
+    "id": "gKQ7fc1nMGHIfJVSyyWpq",
+    "name": "7c5spwev",
     "unsupported": [],
     "version": "example"
   },
@@ -12803,10 +12792,10 @@ Example:
 ```json
 {
   "install": {
-    "acceptedAt": 9,
-    "commit": "c953863a66e3f42f492603cf1ebc190ae431fd38",
-    "hash": "9ef57fb4a62774232ee0bb1f1c85109164c105e5b940335c3765d4663ba05400",
-    "name": "d37eosx",
+    "acceptedAt": 7,
+    "commit": "5167c014cc953863a66e3f42f492603cf1ebc190",
+    "hash": "e431fd3889ef57fb4a62774232ee0bb1f1c85109164c105e5b940335c3765d46",
+    "name": "1",
     "version": "example"
   },
   "type": "plugins.installed"
@@ -12843,7 +12832,7 @@ Example:
 
 ```json
 {
-  "name": "g",
+  "name": "d",
   "type": "plugins.removed"
 }
 ```
@@ -12896,14 +12885,13 @@ Example:
 ```json
 {
   "entries": [],
-  "nextOffset": 2,
   "review": {
-    "commit": "c2e92fc20ef8ce6cef99ce4940b6f7d112a0a247",
-    "executionCount": 3,
-    "hash": "a737c9a345d789abc79f93d758c12968ebf6571f6f5c121687d1b77691322b08",
-    "id": "zyevnE1aLCrg5k6Qv1oIy2wPOMITS6iBGvplanSXiE8STES5",
-    "name": "t",
-    "unsupportedCount": 1,
+    "commit": "56c19551582e5c2e92fc20ef8ce6cef99ce4940b",
+    "executionCount": 4,
+    "hash": "f7d112a0a2478a737c9a345d789abc79f93d758c12968ebf6571f6f5c121687d",
+    "id": "SPyy5-ktLzyevnE1aLCrg5k6Qv1oIy2wPOM",
+    "name": "t9fqtmjha",
+    "unsupportedCount": 0,
     "version": "example"
   },
   "type": "plugins.reviewPage"
@@ -12928,11 +12916,11 @@ Example:
 
 ```json
 {
-  "commit": "3c7441954c8d2d0db2590fa22786997eb068c309",
+  "commit": "8faa3c0b75483eee08676cce3dfcc3c7441954c8",
   "executions": [],
-  "hash": "bb3a12888cd824e6ecc4952ef14991b97340d406687840dd0bdda5e7ca93e2e8",
-  "id": "4s9fMfZnMLuUNvfpcWoMiyKwaReGOWiXzWownWhdQIhKmET7aIqzsavEdAE4xaaKlBh0SO3Nqrs",
-  "name": "n63ffkvhnf",
+  "hash": "2d0db2590fa22786997eb068c309abb3a12888cd824e6ecc4952ef14991b9734",
+  "id": "X8DKJIez3xkuj64s9fMfZnMLuUNvfpcWoMiyKwaReGOWiXzWownWhdQIhKmET7aIqzsavE",
+  "name": "c",
   "unsupported": [],
   "version": "example"
 }
@@ -12954,10 +12942,11 @@ Example:
 ```json
 {
   "execution": {
+    "args": [],
     "command": "example",
-    "event": "example",
-    "kind": "hook",
-    "matcher": "example"
+    "env": {},
+    "kind": "stdio",
+    "name": "h44865"
   },
   "type": "execution"
 }
@@ -12988,7 +12977,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-3
+4
 ```
 
 ## PluginReviewSummary
@@ -13009,12 +12998,12 @@ Example:
 
 ```json
 {
-  "commit": "78530ce406f7ac11bf923ceed5104bb2c38deaf1",
-  "executionCount": 8,
-  "hash": "3ef6ce07276ac6eb90c5ac866b8d79dff3d772c5603c6bcf961339e76e135549",
-  "id": "GIl2FoNojZU3BmeAzhC3NvUUn0Q5ATujrQuueenqHzFwbok9822xK54WJY1N7",
-  "name": "m",
-  "unsupportedCount": 6,
+  "commit": "622c71d3dc7581db00b183f55d74805fce4ffbbd",
+  "executionCount": 4,
+  "hash": "202fadc9977f388626749f0178530ce406f7ac11bf923ceed5104bb2c38deaf1",
+  "id": "ozenobSq3hd8JrFq6",
+  "name": "h",
+  "unsupportedCount": 5,
   "version": "example"
 }
 ```
@@ -13035,9 +13024,14 @@ Example:
 {
   "requestId": "example",
   "response": {
-    "plugins": [],
-    "ref": "example",
-    "type": "plugins.marketplace"
+    "bytes": 1,
+    "hash": "6ce07276ac6eb90c5ac866b8d79dff3d772c5603c6bcf961339e76e135549746",
+    "nextOffset": 5,
+    "offset": 9,
+    "path": "example",
+    "readonly": true,
+    "text": "example",
+    "type": "plugins.source"
   },
   "type": "pluginResult"
 }
@@ -13058,9 +13052,9 @@ Example:
 
 ```json
 {
-  "enabled": false,
-  "name": "29a40ernda",
-  "plugin": "e.-ciw9",
+  "enabled": true,
+  "name": "v929a40erm",
+  "plugin": "c",
   "providers": []
 }
 ```
@@ -13088,22 +13082,21 @@ Example:
 {
   "excerpts": [],
   "history": {
-    "before": 6,
-    "chunkTool": "ace_read_handoff_chunk",
+    "before": 2,
     "limit": 50,
     "threadId": "example",
-    "tool": "ace_read_handoff",
     "type": "items.page"
   },
   "limitations": "Provider-private state is unavailable. Page history for omitted items, full text, reasoning, tools and attachments.",
   "lossy": true,
-  "omittedItems": 9,
+  "omittedItems": 6,
   "origin": {
-    "provider": "pi"
+    "backend": "example",
+    "provider": "antigravity"
   },
   "policy": "recent-complete-items",
   "sourceThreadId": "example",
-  "throughSeq": 4,
+  "throughSeq": 8,
   "version": 1
 }
 ```
@@ -13134,7 +13127,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 8,
+  "inputAgeMs": 5,
   "threadId": "example",
   "type": "presence.update"
 }
@@ -13201,7 +13194,7 @@ Example:
 
 ```json
 {
-  "port": 9,
+  "port": 2,
   "type": "preview.forward"
 }
 ```
@@ -13217,7 +13210,7 @@ Example:
 
 ```json
 {
-  "port": 6,
+  "port": 9,
   "type": "preview.unforward"
 }
 ```
@@ -13233,7 +13226,7 @@ Example:
 
 ```json
 {
-  "port": 10,
+  "port": 9,
   "type": "preview.link"
 }
 ```
@@ -13253,9 +13246,9 @@ Example:
 
 ```json
 {
-  "origin": "https://example.invalid/",
-  "port": 1,
-  "source": "terminal"
+  "name": "example",
+  "port": 6,
+  "source": "listener"
 }
 ```
 
@@ -13268,7 +13261,7 @@ Type: ["forbidden","preview_unavailable","preview_not_found","preview_owned_by_a
 Example:
 
 ```json
-"preview_limit"
+"preview_refused"
 ```
 
 ## PreviewGatewayStatus
@@ -13285,7 +13278,7 @@ Example:
 
 ```json
 {
-  "reason": "link_invalid",
+  "reason": "not_previewed",
   "status": 404,
   "type": "ace-preview.status"
 }
@@ -13347,7 +13340,7 @@ Example:
 
 ```json
 {
-  "sessionMs": 3,
+  "sessionMs": 6,
   "url": "https://example.invalid/"
 }
 ```
@@ -13361,7 +13354,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-2
+1
 ```
 
 ## PreviewRefusal
@@ -13373,7 +13366,7 @@ Type: ["signed_out","session_expired","link_invalid","not_previewed","upstream_u
 Example:
 
 ```json
-"link_invalid"
+"session_expired"
 ```
 
 ## PreviewRequest
@@ -13417,6 +13410,7 @@ Example:
 
 ```json
 {
+  "error": "example",
   "ok": false,
   "requestId": "example",
   "type": "preview.result"
@@ -13492,7 +13486,10 @@ Example:
 
 ```json
 {
-  "name": "|#**#& &~y",
+  "git": {
+    "initialBranch": "example"
+  },
+  "name": "+||#**#&",
   "parent": "example",
   "type": "workspace.create"
 }
@@ -13511,7 +13508,7 @@ Example:
 
 ```json
 {
-  "name": "(|#$*#$~%#!",
+  "name": "+{~(|#$*#",
   "parent": "example",
   "type": "workspace.clone",
   "url": "example"
@@ -13530,7 +13527,7 @@ Example:
 
 ```json
 {
-  "name": "z\"~",
+  "name": "~%#",
   "type": "workspace.rename",
   "workspaceId": "example"
 }
@@ -13548,6 +13545,7 @@ Example:
 
 ```json
 {
+  "archiveThreads": true,
   "type": "workspace.remove",
   "workspaceId": "example"
 }
@@ -13585,12 +13583,12 @@ Example:
 
 ```json
 {
-  "isGitRepo": true,
+  "isGitRepo": false,
   "isProject": true,
   "name": "example",
   "path": "example",
-  "recentScore": 7,
-  "score": 6
+  "recentScore": 9,
+  "score": 2
 }
 ```
 
@@ -13609,7 +13607,7 @@ Example:
 
 ```json
 {
-  "branch": null,
+  "branch": "example",
   "defaultBranch": "example",
   "remotes": [],
   "root": "example"
@@ -13636,8 +13634,7 @@ Example:
     "remotes": [],
     "root": "example"
   },
-  "path": "example",
-  "suggestedRepoRoot": "example"
+  "path": "example"
 }
 ```
 
@@ -13652,7 +13649,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"-!-#*'"
+") (zz'.)~"
 ```
 
 ## ProjectsRequest
@@ -13670,8 +13667,10 @@ Example:
 ```json
 {
   "operation": {
-    "op": "workspace.inspect",
-    "path": "example"
+    "limit": 9,
+    "op": "fs.search",
+    "query": "example",
+    "showHidden": true
   },
   "requestId": "example",
   "type": "projects.request"
@@ -13694,8 +13693,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "entries": [],
-    "kind": "directories",
+    "git": null,
+    "kind": "inspection",
     "path": "example"
   },
   "type": "projects.result"
@@ -13718,7 +13717,7 @@ Example:
 
 ```json
 {
-  "type": "string"
+  "type": "number"
 }
 ```
 
@@ -13754,7 +13753,7 @@ Example:
 {
   "description": "example",
   "diagnostics": [],
-  "name": "WSD_.md",
+  "name": "VaVyXt9.md",
   "scope": {
     "kind": "global"
   },
@@ -13771,7 +13770,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"vrfa1TFVSX.md"
+"izXwFQ9R.md"
 ```
 
 ## PromptFileOperation
@@ -13805,7 +13804,7 @@ Example:
 
 ```json
 {
-  "name": "TXt9w.md",
+  "name": "P.md",
   "op": "read",
   "scope": {
     "kind": "global"
@@ -13828,7 +13827,7 @@ Example:
 ```json
 {
   "expectedRevision": null,
-  "name": "NXwFQ.md",
+  "name": "3t.md",
   "op": "write",
   "scope": {
     "kind": "global"
@@ -13873,14 +13872,14 @@ Example:
   "file": {
     "description": "example",
     "diagnostics": [],
-    "name": "PwRfi6jt792.md",
+    "name": "6F5r7E0.jG.md",
     "scope": {
       "kind": "global"
     },
     "title": "example"
   },
   "kind": "file",
-  "revision": "e8169c1a018a63cb8d1604c33358ff96aff525880e472af537bfc1967867ce6e",
+  "revision": "18a63cb8d1604c33358ff96aff525880e472af537bfc1967867ce6edf2e6683d",
   "text": "example"
 }
 ```
@@ -13952,12 +13951,14 @@ Example:
 ```json
 {
   "operation": {
-    "name": "r07Lny2H7.md",
-    "op": "read",
+    "expectedRevision": "e0410fbd1e7c92bd2ee40140d5374d10883dba2d074477a4aa3f59c995b4c543",
+    "name": "5saOYel.md",
+    "op": "write",
     "scope": {
       "kind": "project",
       "workspaceId": "example"
-    }
+    },
+    "text": "example"
   },
   "requestId": "example",
   "type": "prompts.request"
@@ -13980,19 +13981,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "file": {
-      "description": "example",
-      "diagnostics": [],
-      "name": "r.md",
-      "scope": {
-        "kind": "project",
-        "workspaceId": "example"
-      },
-      "title": "example"
-    },
-    "kind": "file",
-    "revision": "bce2e0410fbd1e7c92bd2ee40140d5374d10883dba2d074477a4aa3f59c995b4",
-    "text": "example"
+    "code": "forbidden",
+    "kind": "error",
+    "message": "example"
   },
   "type": "prompts.result"
 }
@@ -14019,7 +14010,7 @@ Type: number. See JSON Schema for constraints.
 Example:
 
 ```json
-1
+3
 ```
 
 ### Variant 3
@@ -14029,7 +14020,7 @@ Type: boolean. See JSON Schema for constraints.
 Example:
 
 ```json
-false
+true
 ```
 
 ## ProviderAccountsRequest
@@ -14069,8 +14060,8 @@ Example:
 
 ```json
 {
-  "method": "login",
-  "provider": "opencode",
+  "method": "api_key",
+  "provider": "claude",
   "requestId": "example",
   "type": "provider.accounts.add"
 }
@@ -14092,12 +14083,10 @@ Example:
 
 ```json
 {
-  "badgeColor": null,
-  "instanceId": "Ly7HtDHi9m95wnZOnrGmiyB1BOR5deIrWdzG7Pm1ct80DVWxpL",
-  "label": "V",
-  "provider": "codex",
+  "instanceId": "Ci9m95wnZOnrGmiyB1BOR5deIrWdzG7Pm1ct80DVWxpLKigPs6DzoiPmb3AOtVsM65N",
+  "label": "*",
+  "provider": "claude",
   "requestId": "example",
-  "shortLabel": "^",
   "type": "provider.accounts.rename"
 }
 ```
@@ -14115,8 +14104,8 @@ Example:
 
 ```json
 {
-  "instanceId": "yiPmb3AOtVsM65NgAQp-mScltY_6e",
-  "provider": "opencode",
+  "instanceId": "9ScltY_6eGsaZB9DBKGWWvaEO",
+  "provider": "claude",
   "requestId": "example",
   "type": "provider.accounts.setDefault"
 }
@@ -14138,8 +14127,9 @@ Example:
 ```json
 {
   "confirm": true,
-  "instanceId": "s",
-  "provider": "opencode",
+  "deleteHome": false,
+  "instanceId": "NnGljuYAUy3n_xXZL-VI_3cfNDf4pfGBjlOATOriC9WBFLVrvCkM",
+  "provider": "codex",
   "requestId": "example",
   "type": "provider.accounts.remove"
 }
@@ -14160,7 +14150,7 @@ Example:
 
 ```json
 {
-  "instanceId": "81HLADsVGl2LFv9P84Ry99l0nO4362",
+  "instanceId": "dKE",
   "provider": "opencode",
   "requestId": "example",
   "type": "provider.accounts.reauth"
@@ -14183,25 +14173,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "accounts": [],
-    "apiKey": {
-      "supported": false
-    },
-    "ok": true,
-    "progress": {
-      "action": "login",
-      "expiresAt": 0,
-      "manual": {
-        "action": "open_terminal",
-        "command": "example",
-        "instance": "example",
-        "instruction": "example"
-      },
-      "provider": "pi",
-      "sequence": 6,
-      "session": "example",
-      "state": "cancelled"
-    }
+    "error": "unsupported",
+    "ok": false
   },
   "type": "provider.accounts.result"
 }
@@ -14242,31 +14215,33 @@ Example:
 ```json
 {
   "apiKey": {
+    "reason": "example",
     "supported": true
   },
-  "authMethod": "unknown",
+  "authMethod": "browser",
   "availability": "available",
+  "badgeColor": "amber",
+  "homeStrategy": "default_cli",
   "id": "example",
-  "installationId": "example",
-  "installationVersion": "example",
+  "implicit": true,
   "label": "example",
-  "loginRevision": "example",
-  "profileRevision": "example",
-  "provider": "opencode",
+  "provider": "acp",
   "quota": {
     "auth": "unknown",
-    "billingMode": "subscription",
+    "billingMode": "api",
     "cursorSdkAuth": {
       "source": "none",
-      "status": "logged-in"
+      "status": "logged-out"
     },
-    "observedAt": 1,
+    "observedAt": 6,
+    "plan": "example",
     "usage": {},
     "windows": {}
   },
-  "shortLabel": "n",
-  "status": "logged_out",
-  "usageSummary": {}
+  "status": "exhausted",
+  "usageSummary": {
+    "costUsd": 3
+  }
 }
 ```
 
@@ -14279,7 +14254,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"|{}"
+"{~y~|y~y||~"
 ```
 
 ## ProviderConfiguration
@@ -14306,9 +14281,9 @@ Example:
 
 ```json
 {
-  "defaultModel": "y|~|y|~}~|y",
+  "hiddenModels": [],
   "provider": "codex",
-  "showOnlyFavourites": true
+  "shownGroups": []
 }
 ```
 
@@ -14341,8 +14316,7 @@ Example:
 ```json
 {
   "code": "example",
-  "model": "example",
-  "provider": "codex"
+  "provider": "pi"
 }
 ```
 
@@ -14360,40 +14334,14 @@ Example:
 ```json
 {
   "progress": {
-    "action": "install",
+    "action": "uninstall",
     "lines": [],
-    "message": "example",
     "method": "npm",
-    "plan": {
-      "acpAgentId": "official:9bg3vz7fj",
-      "action": "uninstall",
-      "agent": "claude-acp",
-      "commands": [],
-      "methods": [],
-      "needsAdmin": false,
-      "provider": "cursor",
-      "registryPlan": {
-        "acpAgentId": "example",
-        "argv": [],
-        "destination": "example",
-        "digest": "b7c697b892f9bbbf2d2bdf9ea77f819212aa5da49b53ad8e0af4eec1438daefb",
-        "publisher": [],
-        "runtime": "uv",
-        "source": "https://example.invalid/",
-        "target": "example",
-        "verification": "sha256",
-        "version": "example"
-      },
-      "sourceUrl": "https://example.invalid/",
-      "status": "unavailable",
-      "versionCheckedAt": 1
-    },
-    "provider": "acp",
-    "sequence": 5,
+    "provider": "antigravity",
+    "sequence": 2,
     "session": "example",
     "state": "cancelled",
-    "step": 3,
-    "version": "example"
+    "step": 3
   },
   "type": "provider.install.progress"
 }
@@ -14429,22 +14377,30 @@ Example:
 
 ```json
 {
-  "acpAgentId": "official:yf2qa-pxx8",
-  "action": "install",
-  "agent": "qwen-code",
+  "action": "uninstall",
   "commands": [],
-  "method": "registry",
   "methods": [],
-  "needsAdmin": true,
+  "needsAdmin": false,
+  "prerequisite": {
+    "name": "example",
+    "sourceUrl": "https://example.invalid/"
+  },
   "provider": "cursor",
+  "registryPlan": {
+    "acpAgentId": "example",
+    "argv": [],
+    "destination": "example",
+    "digest": "7b59a3022735a9c269e96058faf0ca784cd9cd395670a85c12218e4f5e04b19a",
+    "publisher": [],
+    "runtime": "npm",
+    "source": "https://example.invalid/",
+    "target": "example",
+    "verification": "package_manager",
+    "version": "example"
+  },
   "sourceUrl": "https://example.invalid/",
-  "status": "manual",
-  "updateAvailable": false,
-  "verify": {
-    "args": [],
-    "command": "example",
-    "display": "example"
-  }
+  "status": "sign_in",
+  "updateAvailable": false
 }
 ```
 
@@ -14473,16 +14429,32 @@ Example:
 
 ```json
 {
-  "acpAgentId": "official:z",
   "action": "update",
   "lines": [],
   "message": "example",
   "method": "brew",
-  "provider": "opencode",
-  "sequence": 1,
+  "plan": {
+    "action": "install",
+    "commands": [],
+    "downloadOnly": true,
+    "installedVersion": "example",
+    "message": "example",
+    "methods": [],
+    "needsAdmin": false,
+    "prerequisite": {
+      "name": "example",
+      "sourceUrl": "https://example.invalid/"
+    },
+    "provider": "codex",
+    "sourceUrl": "https://example.invalid/",
+    "status": "sign_in",
+    "updateAvailable": true
+  },
+  "provider": "acp",
+  "sequence": 3,
   "session": "example",
-  "state": "cancelled",
-  "step": 0
+  "state": "planning",
+  "step": 3
 }
 ```
 
@@ -14505,7 +14477,7 @@ Example:
 
 ```json
 {
-  "provider": "cursor",
+  "provider": "codex",
   "requestId": "example",
   "type": "provider.install.plan"
 }
@@ -14527,9 +14499,10 @@ Example:
 
 ```json
 {
-  "action": "install",
+  "action": "uninstall",
+  "agent": "qwen-code",
   "method": "brew",
-  "provider": "codex",
+  "provider": "pi",
   "requestId": "example",
   "type": "provider.install.run"
 }
@@ -14587,8 +14560,27 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "error": "not_found",
-    "ok": false
+    "ok": true,
+    "plan": {
+      "acpAgentId": "official:94c88sl9d",
+      "action": "install",
+      "agent": "auggie",
+      "commands": [],
+      "downloadOnly": true,
+      "installedVersion": "example",
+      "latestVersion": "example",
+      "methods": [],
+      "needsAdmin": true,
+      "provider": "antigravity",
+      "sourceUrl": "https://example.invalid/",
+      "status": "ready",
+      "verify": {
+        "args": [],
+        "command": "example",
+        "display": "example"
+      },
+      "versionCheckedAt": 9
+    }
   },
   "type": "provider.install.result"
 }
@@ -14644,7 +14636,7 @@ Type: ["claude","codex","opencode","cursor","antigravity","acp","pi"]. See JSON 
 Example:
 
 ```json
-"acp"
+"pi"
 ```
 
 ## ProviderLoginEvent
@@ -14663,16 +14655,19 @@ Example:
   "progress": {
     "action": "logout",
     "expiresAt": 0,
+    "hint": "example",
     "manual": {
       "action": "open_terminal",
       "command": "example",
-      "instruction": "example"
+      "instruction": "example",
+      "terminalId": "example"
     },
-    "provider": "claude",
-    "sequence": 2,
+    "prompt": "example",
+    "provider": "cursor",
+    "sequence": 0,
     "session": "example",
     "state": "awaiting_api_key",
-    "url": "https://example.invalid/"
+    "userCode": "W9E0-CI6KP"
   },
   "type": "provider.login.progress"
 }
@@ -14720,7 +14715,7 @@ Example:
 
 ```json
 {
-  "choice": "lrwofrhm7ealkxdegsl1d4qt"
+  "choice": "w8ibknc-gt0-4fdnw3s4harfkc5zf3ra-pyx9jpm_s"
 }
 ```
 
@@ -14750,13 +14745,16 @@ Example:
 
 ```json
 {
-  "action": "logout",
-  "expiresAt": 0,
+  "action": "login",
+  "expiresAt": 7,
+  "hint": "example",
+  "message": "example",
+  "method": "login",
   "prompt": "example",
-  "provider": "cursor",
-  "sequence": 2,
+  "provider": "antigravity",
+  "sequence": 0,
   "session": "example",
-  "state": "awaiting_code_entry"
+  "state": "succeeded"
 }
 ```
 
@@ -14779,9 +14777,10 @@ Example:
 
 ```json
 {
-  "provider": "codex",
+  "provider": "cursor",
   "requestId": "example",
-  "type": "provider.login.start"
+  "type": "provider.login.start",
+  "upstream": "openai"
 }
 ```
 
@@ -14798,7 +14797,7 @@ Example:
 
 ```json
 {
-  "apiKey": "{{~",
+  "apiKey": "}|y{}|{",
   "requestId": "example",
   "session": "example",
   "type": "provider.login.apiKey"
@@ -14818,7 +14817,7 @@ Example:
 
 ```json
 {
-  "provider": "claude",
+  "provider": "codex",
   "requestId": "example",
   "type": "provider.logout"
 }
@@ -14892,7 +14891,7 @@ Example:
 ```json
 {
   "input": {
-    "choice": "1v-xlwl3kdv6ll3z0gf3500sn0"
+    "value": "enter"
   },
   "requestId": "example",
   "session": "example",
@@ -14916,8 +14915,24 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "error": "busy",
-    "ok": false
+    "ok": true,
+    "progress": {
+      "action": "logout",
+      "choices": [],
+      "expiresAt": 3,
+      "manual": {
+        "action": "open_terminal",
+        "command": "example",
+        "instruction": "example"
+      },
+      "message": "example",
+      "method": "api_key",
+      "prompt": "example",
+      "provider": "cursor",
+      "sequence": 6,
+      "session": "example",
+      "state": "starting"
+    }
   },
   "type": "provider.login.result"
 }
@@ -14955,7 +14970,6 @@ Example:
 
 ```json
 {
-  "operation": "list",
   "requestId": "example",
   "type": "providers.request"
 }
@@ -15023,22 +15037,26 @@ Example:
 
 ```json
 {
-  "accountLabel": "example",
+  "actionId": "provider.sign_in",
   "apiKey": {
+    "reason": "example",
     "supported": true,
     "upstreams": []
   },
   "auth": "logged_in",
+  "authDetail": "example",
   "authEvidence": "credentials_configured",
-  "authMethod": "api_key",
-  "installed": null,
-  "latestVersion": "example",
+  "authMethod": "unknown",
+  "error": "example",
+  "installCommand": "example",
+  "installed": false,
   "loginHint": "example",
+  "modelsAvailable": true,
+  "path": "example",
   "provider": "opencode",
-  "refreshing": true,
-  "runtime": "cursor-sdk",
-  "stale": false,
-  "updateAvailable": false
+  "refreshing": false,
+  "runtime": "cli",
+  "stale": true
 }
 ```
 
@@ -15061,7 +15079,7 @@ Example:
 
 ```json
 {
-  "exitCode": 3
+  "exitCode": 4
 }
 ```
 
@@ -15082,7 +15100,7 @@ Example:
 
 ```json
 {
-  "header": "example",
+  "allowOther": true,
   "id": "example",
   "options": [],
   "text": "example"
@@ -15105,11 +15123,7 @@ Example:
 
 ```json
 {
-  "context": {
-    "attachments": [],
-    "mentions": []
-  },
-  "delivery": "queue",
+  "delivery": "steer",
   "id": "example",
   "input": [
     {
@@ -15117,7 +15131,7 @@ Example:
       "type": "text"
     }
   ],
-  "state": "queued"
+  "state": "uncertain"
 }
 ```
 
@@ -15138,8 +15152,6 @@ Example:
 
 ```json
 {
-  "after": "example",
-  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -15157,9 +15169,11 @@ Example:
 ```json
 [
   {
-    "mimeType": "example",
-    "type": "image",
-    "url": "example"
+    "arguments": "example",
+    "entryId": "example",
+    "kind": "agent",
+    "name": "example",
+    "type": "mention"
   }
 ]
 ```
@@ -15186,11 +15200,11 @@ Example:
   "messages": [],
   "next": null,
   "paused": true,
-  "reason": "stopped",
+  "reason": null,
   "resumeAt": null,
-  "revision": 2,
+  "revision": 8,
   "threadId": "example",
-  "total": 2
+  "total": 4
 }
 ```
 
@@ -15212,11 +15226,11 @@ Example:
     "messages": [],
     "next": null,
     "paused": false,
-    "reason": "model_unavailable",
-    "resumeAt": 8,
+    "reason": null,
+    "resumeAt": 5,
     "revision": 5,
     "threadId": "example",
-    "total": 4
+    "total": 3
   },
   "requestId": "example",
   "type": "queue.result"
@@ -15242,9 +15256,9 @@ Example:
 {
   "messages": [],
   "paused": true,
-  "reason": "not_sent",
-  "resumeAt": 2,
-  "revision": 1,
+  "reason": null,
+  "resumeAt": null,
+  "revision": 2,
   "threadId": "example"
 }
 ```
@@ -15265,9 +15279,9 @@ Example:
 ```json
 {
   "paused": true,
-  "reason": "restart",
+  "reason": null,
   "resumeAt": null,
-  "revision": 7
+  "revision": 3
 }
 ```
 
@@ -15288,9 +15302,9 @@ Example:
 ```json
 {
   "paused": true,
-  "reason": null,
+  "reason": "not_sent",
   "resumeAt": null,
-  "revision": 2,
+  "revision": 6,
   "type": "queue.updated"
 }
 ```
@@ -15309,8 +15323,8 @@ Example:
 
 ```json
 {
-  "endMinute": 4,
-  "startMinute": 2,
+  "endMinute": 6,
+  "startMinute": 7,
   "timeZone": "UTC"
 }
 ```
@@ -15331,9 +15345,9 @@ Example:
 
 ```json
 {
-  "resetsAt": null,
-  "usedPercent": 4,
-  "windowDurationMins": 10
+  "resetsAt": 6,
+  "source": "cli",
+  "usedPercent": 4
 }
 ```
 
@@ -15354,6 +15368,7 @@ Example:
 ```json
 {
   "data": null,
+  "name": "example",
   "type": "example"
 }
 ```
@@ -15373,8 +15388,9 @@ Example:
 ```json
 {
   "blobRef": "example",
+  "name": "example",
   "preview": "example",
-  "size": 4,
+  "size": 6,
   "type": "example"
 }
 ```
@@ -15409,11 +15425,11 @@ Example:
   "acpAgentId": "example",
   "auth": "unknown",
   "authors": [],
-  "availability": "unsupported_distribution",
-  "coverage": "source_profile",
+  "availability": "unsupported_target",
+  "coverage": "generic",
   "description": "example",
+  "homepage": "https://example.invalid/",
   "isolation": "unsupported",
-  "license": "example",
   "loginHint": "example",
   "name": "example",
   "source": "https://example.invalid/",
@@ -15442,13 +15458,9 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "evidence": "package_manager",
+  "evidence": "user_local_binding",
   "installationId": "example",
   "instanceId": "example",
-  "packageManager": {
-    "command": "example",
-    "package": "example"
-  },
   "profileRevision": "example",
   "source": "example",
   "version": "example"
@@ -15479,9 +15491,9 @@ Example:
   "acpAgentId": "example",
   "argv": [],
   "destination": "example",
-  "digest": "44ecb55d8980322188d42b4881b9431cfc10496148e7312538b6431766f9819f",
+  "digest": "6703dc2fc4ad7d669699df4b03e3f43be3fe4a53e1c44e332e9c716cda6fd61f",
   "publisher": [],
-  "runtime": "npm",
+  "runtime": "binary",
   "source": "https://example.invalid/",
   "target": "example",
   "verification": "unsigned_https",
@@ -15504,10 +15516,10 @@ Example:
 
 ```json
 {
-  "digest": "560f26b75fbace5e81e3b2f268b45fa837b28e7303102de158df1f4efe4e2658",
+  "digest": "d22d1170b9286021225e3d3344ecb55d8980322188d42b4881b9431cfc104961",
   "intentId": "example",
-  "phase": "download",
-  "receivedBytes": 8
+  "phase": "package_manager",
+  "receivedBytes": 9
 }
 ```
 
@@ -15528,7 +15540,7 @@ Example:
 
 ```json
 {
-  "limit": 3,
+  "offset": 8,
   "requestId": "example",
   "type": "registry.list"
 }
@@ -15575,7 +15587,6 @@ Example:
   "instanceId": "example",
   "requestId": "example",
   "type": "registry.bind",
-  "underlyingCommand": "example",
   "version": "example"
 }
 ```
@@ -15613,7 +15624,7 @@ Example:
 
 ```json
 {
-  "digest": "8f1fa9666182beb095e756fc9f153598f2b444530d19ad64fae05669707458bf",
+  "digest": "38b6431766f9819f138560f26b75fbace5e81e3b2f268b45fa837b28e7303102",
   "intentId": "example",
   "requestId": "example",
   "type": "registry.install-intent"
@@ -15654,19 +15665,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "activeInstall": {
-      "digest": "18ba8fa46342b8150b1962887e8c5b0fad25445f2dac701266ab5bbe6709b131",
-      "intentId": "example",
-      "phase": "download",
-      "receivedBytes": 1
-    },
-    "agents": [],
-    "installations": [],
-    "ok": true,
-    "refreshing": true,
-    "schemaVersion": "example",
-    "source": "example",
-    "stale": true
+    "ok": false,
+    "reason": "example"
   },
   "type": "registry.result"
 }
@@ -15681,7 +15681,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"releases/949302514.017537.6775396068-darwin-x64"
+"releases/4782.4362.2625-8j5pdlbs-linux-arm64"
 ```
 
 ## ReleaseManifest
@@ -15701,12 +15701,12 @@ Example:
 
 ```json
 {
-  "archive": "ace-r5t5.tar.gz",
-  "bytes": 5,
-  "channel": "preview",
-  "sha256": "559604a276cee68b37588ecc18b9832a95ce3dea037afb8ddc38d2713ef6c342",
-  "target": "darwin-arm64",
-  "version": "6712150793.1.495751"
+  "archive": "ace-h.tar.gz",
+  "bytes": 8,
+  "channel": "stable",
+  "sha256": "fae05669707458bf0eeea18ba8fa46342b8150b1962887e8c5b0fad25445f2da",
+  "target": "linux-x64",
+  "version": "3430977749.0204972.7831934757-ltcxzy1wpi"
 }
 ```
 
@@ -15731,7 +15731,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"8292.158.12781"
+"3457700710.8839.45"
 ```
 
 ## RemoteAccessStatus
@@ -15749,10 +15749,10 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "listenOverride": null,
   "relayOverride": false,
-  "transport": "lan"
+  "transport": "local"
 }
 ```
 
@@ -15891,6 +15891,7 @@ Example:
     "start": 1
   },
   "sessionId": "example",
+  "suggestion": "example",
   "text": "example",
   "type": "review.comment"
 }
@@ -16012,7 +16013,8 @@ Example:
   },
   "sessionId": "example",
   "to": {
-    "kind": "working-tree"
+    "kind": "commit",
+    "ref": "example"
   },
   "type": "review.refresh"
 }
@@ -16031,7 +16033,7 @@ Example:
 ```json
 {
   "sessionId": "example",
-  "status": "changes-requested",
+  "status": "open",
   "type": "review.status"
 }
 ```
@@ -16053,7 +16055,6 @@ Example:
 {
   "commentId": "example",
   "cursor": "example",
-  "limit": 8,
   "type": "review.list"
 }
 ```
@@ -16115,7 +16116,7 @@ Example:
     },
     "state": "active"
   },
-  "resolved": true,
+  "resolved": false,
   "sessionId": "example",
   "text": "example"
 }
@@ -16141,9 +16142,7 @@ Example:
 ```json
 {
   "comments": [],
-  "intentId": "example",
-  "replies": [],
-  "sessions": []
+  "intentId": "example"
 }
 ```
 
@@ -16204,12 +16203,12 @@ Example:
 ```json
 {
   "from": {
-    "kind": "working-tree"
-  },
-  "threadId": "example",
-  "to": {
     "kind": "commit",
     "ref": "example"
+  },
+  "to": {
+    "id": "example",
+    "kind": "checkpoint"
   },
   "workspaceId": "example",
   "worktree": "example"
@@ -16257,8 +16256,7 @@ Example:
   "before": [],
   "lines": [
     "example"
-  ],
-  "noFinalNewline": true
+  ]
 }
 ```
 
@@ -16289,7 +16287,6 @@ Example:
         "side": "new",
         "start": 1
       },
-      "suggestion": "example",
       "text": "example"
     }
   ],
@@ -16298,12 +16295,10 @@ Example:
   "sessionId": "example",
   "source": {
     "from": {
-      "kind": "commit",
-      "ref": "example"
+      "kind": "working-tree"
     },
     "to": {
-      "id": "example",
-      "kind": "checkpoint"
+      "kind": "working-tree"
     },
     "workspaceId": "example",
     "worktree": "example"
@@ -16393,7 +16388,8 @@ Example:
   "sessionId": "example",
   "source": {
     "from": {
-      "kind": "working-tree"
+      "id": "example",
+      "kind": "checkpoint"
     },
     "to": {
       "kind": "working-tree"
@@ -16476,13 +16472,14 @@ Example:
     "from": {
       "kind": "working-tree"
     },
+    "threadId": "example",
     "to": {
       "kind": "commit",
       "ref": "example"
     },
     "workspaceId": "example"
   },
-  "status": "approved"
+  "status": "changes-requested"
 }
 ```
 
@@ -16539,15 +16536,13 @@ Example:
 ```json
 {
   "agentId": "example",
-  "error": {
-    "kind": "unknown",
-    "message": "example"
-  },
+  "endedAt": 7,
   "id": "example",
-  "startedAt": 7,
+  "permissionMode": "example",
+  "startedAt": 4,
   "state": "failed",
   "threadId": "example",
-  "trigger": "spawn"
+  "trigger": "user"
 }
 ```
 
@@ -16566,10 +16561,7 @@ Example:
 
 ```json
 {
-  "after": "example",
-  "before": "example",
-  "error": "example",
-  "state": "pending"
+  "state": "ready"
 }
 ```
 
@@ -16588,8 +16580,8 @@ Example:
 ```json
 {
   "checkpoints": {
-    "error": "example",
-    "state": "pending"
+    "before": "example",
+    "state": "unavailable"
   },
   "runId": "example",
   "type": "run.client.updated"
@@ -16617,7 +16609,7 @@ Type: ["user","restart","limit_resume","spawn","parent_agent","background_comple
 Example:
 
 ```json
-"parent_agent"
+"restart"
 ```
 
 ## ScreenAction
@@ -16638,8 +16630,8 @@ Example:
 ```json
 {
   "kind": "click",
-  "x": 1,
-  "y": 6
+  "x": 2,
+  "y": 2
 }
 ```
 
@@ -16671,7 +16663,7 @@ Example:
 
 ```json
 {
-  "keyCode": 3,
+  "keyCode": 9,
   "kind": "key",
   "modifiers": []
 }
@@ -16691,11 +16683,11 @@ Example:
 
 ```json
 {
-  "deltaX": 4,
-  "deltaY": 3,
+  "deltaX": 7,
+  "deltaY": 9,
   "kind": "scroll",
-  "x": 4,
-  "y": 1
+  "x": 5,
+  "y": 8
 }
 ```
 
@@ -16744,6 +16736,7 @@ Example:
 
 ```json
 {
+  "selectedWindowId": 2,
   "windows": []
 }
 ```
@@ -16783,28 +16776,29 @@ Example:
 
 ```json
 {
-  "background": false,
+  "background": true,
   "capture": {
-    "changeDriven": true,
-    "displays": false,
-    "windows": true
+    "changeDriven": false,
+    "displays": true,
+    "windows": false
   },
   "codecs": [
     "jpeg"
   ],
   "input": {
-    "keyboard": false,
-    "pointer": true,
-    "scroll": false,
+    "keyboard": true,
+    "pointer": false,
+    "scroll": true,
     "text": false
   },
+  "permissionEvents": false,
   "permissions": {
     "input": "denied",
-    "screen": "prompt"
+    "screen": "granted"
   },
-  "platform": "windows",
+  "platform": "linux-x11",
   "semanticActions": [],
-  "uiTree": false,
+  "uiTree": true,
   "version": 2
 }
 ```
@@ -16824,10 +16818,10 @@ Example:
 ```json
 {
   "operation": {
-    "op": "record.start",
-    "sessionId": "MSX56Q"
+    "op": "permissions.request",
+    "permission": "accessibility"
   },
-  "requestId": "RpJAX6eR6d9WGM_ZV_5clWK24i9BkLijICaHs5zPTYArczTjLZ",
+  "requestId": "2cvg6mnkK5oI3DLtwYkNQIku4o-oolK1AlnW2lF-",
   "type": "screen.request"
 }
 ```
@@ -16861,9 +16855,9 @@ Example:
 
 ```json
 {
-  "code": "not_supported",
+  "code": "approval_required",
   "message": "example",
-  "phase": "rejected-before-dispatch"
+  "phase": "partial"
 }
 ```
 
@@ -16892,17 +16886,14 @@ Example:
 
 ```json
 {
-  "bytes": 2,
-  "captureGeneration": 10,
+  "bytes": 3,
   "codec": "jpeg",
-  "height": 2,
-  "keyframe": false,
-  "scale": 5,
-  "sequence": 6,
-  "sessionId": "NKYkq_i4qiTI2WftSD9WcXJPZkidz",
-  "timestamp": 7,
+  "height": 10,
+  "sequence": 0,
+  "sessionId": "UxXLaceJG6batUUYNv5U3slb7h_0ngyc3zSwm_9jbY",
+  "timestamp": 5,
   "version": 1,
-  "width": 9
+  "width": 8
 }
 ```
 
@@ -16928,15 +16919,17 @@ Example:
 
 ```json
 {
-  "bytes": 4,
+  "bytes": 10,
+  "captureGeneration": 1,
   "codec": "h264",
-  "height": 7,
-  "scale": 5,
-  "seq": 3,
-  "sessionId": "IIISE2fSm_qbrUGSFqarh",
-  "ts": 0,
+  "height": 6,
+  "scale": 8,
+  "seq": 6,
+  "sessionId": "NMC5UIw6xKMKplcqSTsiClN7ylCjEv8_oP8LZ",
+  "ts": 2,
   "version": 2,
-  "width": 7
+  "videoCodec": "avc1.8Ae5c9",
+  "width": 5
 }
 ```
 
@@ -16962,13 +16955,14 @@ Example:
 
 ```json
 {
-  "bytes": 3,
+  "bytes": 9,
   "codec": "jpeg",
-  "height": 10,
-  "scale": 4,
-  "seq": 1,
-  "sessionId": "9eaFvD-uNzRc8UO3FnlKujjZbiDE79NppgyT8",
-  "ts": 0,
+  "dirtyRects": [],
+  "height": 9,
+  "scale": 8,
+  "seq": 5,
+  "sessionId": "R6d9W",
+  "ts": 6,
   "version": 2,
   "width": 10
 }
@@ -16991,7 +16985,7 @@ Example:
 ```json
 {
   "bundleId": "example",
-  "grantedAt": 1,
+  "grantedAt": 8,
   "scope": "turn"
 }
 ```
@@ -17005,7 +16999,7 @@ Type: ["turn","thread","always"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"thread"
+"always"
 ```
 
 ## ScreenHelperError
@@ -17023,10 +17017,8 @@ Example:
 
 ```json
 {
-  "candidates": [],
-  "code": "permission_denied",
-  "message": "example",
-  "phase": "partial"
+  "code": "screen_disabled",
+  "message": "example"
 }
 ```
 
@@ -17046,10 +17038,14 @@ Example:
 
 ```json
 {
-  "data": null,
-  "id": "YSCCg3EIW2de_xvN2wJx",
+  "error": {
+    "code": "target_gone",
+    "message": "example",
+    "phase": "partial"
+  },
+  "id": "ijICaHs5zPTYArczTjLZRfMSX56QVvmq9CNKYk",
   "ok": true,
-  "version": 2
+  "version": 1
 }
 ```
 
@@ -17069,11 +17065,7 @@ Example:
 
 ```json
 {
-  "error": {
-    "code": "denied",
-    "message": "example"
-  },
-  "id": "ADtruPq31lL5AC-Vk_mircrZUyU0OwmL5wsfiTXg1ybgzT2CyN0_kYKW",
+  "id": "WftSD9WcXJPZkidzNW2licWGnCr-huIIISE2fSm_qbrUGSFqarh_waM",
   "ok": false,
   "version": 2
 }
@@ -17099,10 +17091,10 @@ Example:
 
 ```json
 {
-  "humanDeviceInput": false,
-  "id": "xUqoXeGzngpAL4yNMw2sG9aK",
+  "id": "6xK9eaFvD-uNzRc8UO3FnlKujj",
+  "mode": "background",
   "op": "hello",
-  "version": 1
+  "version": 2
 }
 ```
 
@@ -17122,9 +17114,9 @@ Example:
 
 ```json
 {
-  "id": "e5Ps5ikMcjelrIzIGqlhwRMIirpkyn",
+  "id": "NppgyT8ke7-yBqPgXSiDch-i-tYSCCg3EIW2de_xvN2wJxhfL3ADtruPq31lL5",
   "op": "metrics",
-  "version": 1
+  "version": 2
 }
 ```
 
@@ -17149,17 +17141,15 @@ Example:
 ```json
 {
   "action": {
-    "button": "right",
-    "kind": "pointer.click",
-    "x": 4,
-    "y": 0
+    "kind": "text.type",
+    "text": "example"
   },
-  "id": "5KhteO7gl148UeNt-KBpo2MhTZQ",
-  "maxWindowMs": 5,
+  "id": "mircrZUyU0OwmL5wsfiTXg1ybgzT2CyN0_kYKW6JamCWwxxUqoXeGzngpAL4yNM",
+  "maxWindowMs": 10,
+  "mode": "background",
   "op": "measure_interaction",
-  "secureInputAllowed": true,
-  "sessionId": "VMHO_YbByxTUdk2lbMaPL",
-  "version": 2
+  "sessionId": "sG9aKF23j3zDe5Ps5ikMcjelrIzIGqlhwRMIirpkynIJ41OA5KhteO7",
+  "version": 1
 }
 ```
 
@@ -17183,10 +17173,11 @@ Example:
 {
   "allowlist": [],
   "bundleId": "example",
-  "id": "Ut237eMZrjkxEUtPmlbNT7nlYVWrSWR7kZ3xlQGSDwnMi0Ilhry",
-  "mode": "background",
+  "humanDeviceInput": false,
+  "id": "po2MhTZQtuVMHO_YbByxTUdk2lbM",
   "op": "open.app",
-  "version": 1
+  "sessionId": "L6vyL0xaaDdoHaAcYUt237eMZrjkxEUtPmlbNT7nlY",
+  "version": 2
 }
 ```
 
@@ -17207,14 +17198,14 @@ Example:
 
 ```json
 {
-  "id": "AA_jP0dy55LutyjPrH1KGjprF2GcN7S-bLObOCe_kqOt3Fa1Kjwh8a09pjZKhtb",
+  "id": "7kZ3xlQGSDwnMi0Ilhry0cnyRX_AA_jP0dy55LutyjPr",
   "op": "stream.configure",
   "settings": {
-    "bitrate": 128007,
-    "codec": "h264",
-    "fps": 6,
+    "bitrate": 128008,
+    "codec": "jpeg",
+    "fps": 5,
     "maxHeight": 66,
-    "maxWidth": 73
+    "maxWidth": 66
   },
   "version": 2
 }
@@ -17237,10 +17228,9 @@ Example:
 ```json
 {
   "humanDeviceInput": false,
-  "id": "SqmT2xQZ3IjW0qw4KAipGJcaAIyrLZxBinvTWwDecVc36pxawIbmaYV6wKA96R5P",
-  "mode": "background",
+  "id": "N7S",
+  "mode": "foreground",
   "op": "stream.keyframe",
-  "sessionId": "Bl_GlX_KdyCfOpTtnMOl9kr2cya0ZGtiR29ny",
   "version": 2
 }
 ```
@@ -17261,9 +17251,9 @@ Example:
 
 ```json
 {
-  "id": "xfhDm7TlmUos",
-  "mode": "background",
+  "id": "_kqOt",
   "op": "stream.image",
+  "secureInputAllowed": false,
   "version": 1
 }
 ```
@@ -17286,11 +17276,10 @@ Example:
 ```json
 {
   "enabled": true,
-  "humanDeviceInput": false,
-  "id": "iyCwF7l13qm1_LXakJRW3n3RT8b6Zcwcj",
+  "id": "h8a09pjZKhtbRVU4V8qJTR-",
+  "mode": "background",
   "op": "capture",
-  "secureInputAllowed": false,
-  "version": 2
+  "version": 1
 }
 ```
 
@@ -17311,15 +17300,17 @@ Example:
 
 ```json
 {
-  "humanDeviceInput": true,
-  "id": "h9hjvY89wD9igMXi4k",
+  "id": "3IjW0qw4KAipGJcaAIyrLZxBinvTWwDecVc36pxawIbmaYV6wKA9",
   "input": {
-    "kind": "pointer.down",
-    "x": 3,
-    "y": 0
+    "button": "right",
+    "kind": "pointer.drag",
+    "toX": 9,
+    "toY": 5,
+    "x": 4,
+    "y": 1
   },
   "op": "input",
-  "version": 1
+  "version": 2
 }
 ```
 
@@ -17344,12 +17335,15 @@ Example:
 ```json
 {
   "allowlist": [],
-  "id": "ex4fPbxTHYUiDV1B",
+  "id": "dyCfOpTtnMOl9kr2cya0ZGtiR29nyboVqZFlx",
+  "mode": "foreground",
   "op": "ui.tree",
-  "sessionId": "gUSgW6hEHurVCA4MCbw6P06v1",
+  "secureInputAllowed": true,
+  "sessionId": "Dm7TlmUo",
   "target": {
     "bundleId": "example",
-    "kind": "app"
+    "kind": "window",
+    "windowId": 2
   },
   "version": 2
 }
@@ -17376,17 +17370,18 @@ Example:
 ```json
 {
   "allowlist": [],
-  "id": "dRkSUEaujG8UVWtdxn-X0P_jiXMIMwtpgN_Dj-Y",
+  "id": "wF7l13qm1_LXakJRW3n3RT8b6Zcwc",
   "op": "ui.find",
   "query": {
     "name": "example",
     "role": "example"
   },
-  "secureInputAllowed": false,
+  "secureInputAllowed": true,
+  "sessionId": "Sc_c5pDrh9hjvY89wD9igMXi4kyL4ajTyf-pex4fPbxTHYUiDV1BoygUSgW",
   "target": {
     "bundleId": "example",
-    "displayId": 7,
-    "kind": "app"
+    "kind": "window",
+    "windowId": 9
   },
   "version": 1
 }
@@ -17415,20 +17410,14 @@ Example:
 
 ```json
 {
-  "action": "setValue",
+  "action": "press",
   "allowlist": [],
-  "humanDeviceInput": true,
-  "id": "8p2ZwA6VM0TCtSGN9zvh",
+  "id": "bw6P06v15IVG3s3kMdRkSUEaujG8U",
   "op": "ui.act",
-  "range": {
-    "length": 6,
-    "location": 1
-  },
-  "ref": "MkeH6W",
-  "sessionId": "pSze_u70Wnyiejp5TJ01NpZ_bfpW83h-D-Z",
+  "ref": "-X0P_jiXMIMwtp",
+  "secureInputAllowed": true,
   "target": {
     "bundleId": "example",
-    "displayId": 10,
     "kind": "app"
   },
   "version": 2
@@ -17451,10 +17440,8 @@ Example:
 
 ```json
 {
-  "id": "uSnk7bm3V9z6Q6c7HeRLoYTw9qBoxmHj0gD_lC7uS_IO2SApBArym8hvJlWdJY",
-  "mode": "foreground",
+  "id": "0cSUwgHQuoNWt8p2ZwA6VM0TCtS",
   "op": "permissions",
-  "secureInputAllowed": false,
   "version": 2
 }
 ```
@@ -17476,13 +17463,11 @@ Example:
 
 ```json
 {
-  "id": "M95yT",
-  "mode": "background",
+  "humanDeviceInput": true,
+  "id": "nIpSze_u",
   "op": "permissions.request",
-  "permission": "accessibility",
-  "secureInputAllowed": false,
-  "sessionId": "khZZdwQtvsg5BhP7NQQCTmVYXstOlwIq2lXu7w4nTydiEeHosCWB",
-  "version": 2
+  "permission": "screenRecording",
+  "version": 1
 }
 ```
 
@@ -17503,11 +17488,10 @@ Example:
 
 ```json
 {
-  "humanDeviceInput": false,
-  "id": "1UsC7Xhy5hHLbi5TriXShPOxDFY8b",
+  "id": "p5TJ01NpZ_",
   "name": "example",
   "op": "button.press",
-  "sessionId": "lncJfwoNo02niB-UvmSfeh6qL3koRyNn7TxeET_5",
+  "sessionId": "pW83h-",
   "version": 1
 }
 ```
@@ -17528,11 +17512,11 @@ Example:
 
 ```json
 {
-  "humanDeviceInput": false,
-  "id": "-5-daUOabym-i3kCWU",
-  "mode": "background",
+  "humanDeviceInput": true,
+  "id": "dbfMkeH6WvLdkQzmk8M9uSnk7bm3V9z6Q6c7HeRLoY",
+  "mode": "foreground",
   "op": "targets",
-  "sessionId": "ShyuOy4G",
+  "secureInputAllowed": true,
   "version": 2
 }
 ```
@@ -17557,9 +17541,12 @@ Example:
 {
   "allowlist": [],
   "bundleId": "example",
-  "id": "kqFkn4Pds2qvg1tgS2Kfo7x7UeO3T1FMpF1_2JEZllanEVydkN4BjV8nUY-",
+  "humanDeviceInput": false,
+  "id": "j0gD_lC7uS_IO2SApBArym8hvJlWdJYZo2",
+  "mode": "foreground",
   "op": "windows.list",
-  "sessionId": "-v1",
+  "secureInputAllowed": false,
+  "sessionId": "CGeM95yTkZkhZZdwQtvsg5BhP7NQQCTmVYXstOlwI",
   "version": 1
 }
 ```
@@ -17581,13 +17568,12 @@ Example:
 
 ```json
 {
-  "humanDeviceInput": true,
-  "id": "oi2cu0Y5cWcSNfTGfdWhEJGq6xOJMVoCqUvl5Eh34IC7zYYC",
-  "mode": "foreground",
+  "id": "nTydiEeHosCWBqdf9PRiC1UsC7Xhy5hHLbi5TriXShPOxDFY8biNlncJf",
   "op": "window.select",
-  "sessionId": "yBSxyV3MtJcb1lhkm380ngil-5xlaZ",
-  "version": 2,
-  "windowId": 6
+  "secureInputAllowed": false,
+  "sessionId": "No02niB-UvmSfeh",
+  "version": 1,
+  "windowId": 2
 }
 ```
 
@@ -17612,13 +17598,12 @@ Example:
 {
   "allowlist": [],
   "bundleId": "example",
-  "id": "VAAaL",
-  "mode": "foreground",
+  "humanDeviceInput": false,
+  "id": "yNn7TxeET_50BmNIr-5-daUOabym-i3kCWUbhShyuOy4",
+  "mode": "background",
   "op": "open.url",
-  "secureInputAllowed": true,
-  "sessionId": "3Anjw2Y",
   "url": "https://example.com",
-  "version": 2
+  "version": 1
 }
 ```
 
@@ -17639,12 +17624,13 @@ Example:
 
 ```json
 {
-  "id": "pf",
-  "mode": "foreground",
+  "id": "qFkn4Pds2qv",
   "op": "menu.press",
   "path": [
     "example"
   ],
+  "secureInputAllowed": true,
+  "sessionId": "tgS2Kfo7x7UeO3T1FMpF1_2JEZllanEVydkN4BjV8nUY-rc-v1FQU4",
   "version": 2
 }
 ```
@@ -17665,8 +17651,7 @@ Example:
 
 ```json
 {
-  "id": "aeFY7W45k7BOZAz",
-  "mode": "background",
+  "id": "0Y5cWcSNfTGfdWhEJGq6x",
   "op": "stop",
   "version": 1
 }
@@ -17691,17 +17676,17 @@ Example:
 {
   "action": {
     "deltaX": 8,
-    "deltaY": 5,
+    "deltaY": 8,
     "kind": "scroll",
-    "x": 5,
-    "y": 0
+    "x": 9,
+    "y": 7
   },
   "humanDeviceInput": true,
-  "id": "P5",
-  "mode": "background",
+  "id": "qUvl5Eh34IC7zYYCiDyBSxyV3MtJc",
   "op": "action",
-  "secureInputAllowed": false,
-  "version": 2
+  "secureInputAllowed": true,
+  "sessionId": "lhkm380ngil-5xlaZkUOkyKReVAAaLtg3Anjw2YiJoBMl1bpfPr2X6",
+  "version": 1
 }
 ```
 
@@ -17726,17 +17711,20 @@ Example:
 ```json
 {
   "allowlist": [],
-  "fps": 5,
-  "id": "OMAJo3x0UYWfHk_b-3mxbuq1mx3DWcGDbjQu24hP8Ty_Iw00IJMnncY4aQvZ94",
+  "fps": 4,
+  "humanDeviceInput": false,
+  "id": "BOZAz9utzFUbP5KiwiSbj1Jc0JY9OMAJo3x0UYWfHk_b-3mxbuq1mx3DWcGD",
+  "mode": "foreground",
   "op": "start",
-  "secureInputAllowed": true,
-  "sessionId": "Eg8PCxzf2t19aIdMrx7iPNSJdfO",
+  "sessionId": "jQ",
   "target": {
-    "bundleId": "example",
-    "kind": "window",
-    "windowId": 1
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 8,
+    "kind": "display"
   },
-  "version": 2
+  "version": 1
 }
 ```
 
@@ -17756,7 +17744,7 @@ Example:
 
 ```json
 {
-  "id": "nP8sYiuz27KhkjA31ZCXQfjwsHGMjtOzgA0QnZt20CBNjg-IdjmNAQh",
+  "id": "w00IJMnncY4aQvZ94AEg8PCxzf2t19aIdMr",
   "op": "hello",
   "version": 2
 }
@@ -17774,7 +17762,7 @@ Example:
 
 ```json
 {
-  "id": "I233NA9jUpfgq09R2lBYYdjNU4OoxLDU_AXvoizS0EJ",
+  "id": "7iPNSJdfOKkC-xcD92nP8sYi",
   "op": "permissions",
   "version": 2
 }
@@ -17792,7 +17780,7 @@ Example:
 
 ```json
 {
-  "id": "DUDBJFRZFx2rBboPaUi7oGkOLy_qrvZ",
+  "id": "z27KhkjA31ZCXQfjwsHGM",
   "op": "targets",
   "version": 2
 }
@@ -17815,7 +17803,7 @@ Example:
 {
   "allowlist": [],
   "bundleId": "example",
-  "id": "Vka1jhFqMbPw3Cm9n-f4MYr2oRo2g2mkz204Hi",
+  "id": "tOzgA0QnZt",
   "op": "open.url",
   "url": "example",
   "version": 2
@@ -17837,8 +17825,7 @@ Example:
 
 ```json
 {
-  "allowlist": [],
-  "id": "nwKJD32GhnzrzdnKGKgjhF429iLhSl4",
+  "id": "0CBNjg-IdjmNAQhQI233NA9jUpfgq09R2lBYYdjNU4OoxLDU_AXvoiz",
   "op": "menu.press",
   "path": [
     "example"
@@ -17859,7 +17846,7 @@ Example:
 
 ```json
 {
-  "id": "ii1BW7dQaSEle1N6uvCVgOOcniRsfVhdzADSH_RN_wvl_fMDJ15tcn",
+  "id": "JEDUDBJFRZFx2rBboPaUi7oGkOLy_qr",
   "op": "stop",
   "version": 2
 }
@@ -17883,14 +17870,16 @@ Example:
 ```json
 {
   "allowlist": [],
-  "captureGeneration": 6,
-  "fps": 3,
-  "id": "MSjxOYIE6Q-c6v62EKrz85LysPorWd--RdCJPvMflY86GlZvefD",
+  "fps": 10,
+  "id": "ZLVka1jhFqMbPw3Cm9n-f4",
   "op": "start",
-  "sessionId": "9g5rz-Oc2skYJzslAC2",
+  "sessionId": "Yr2oRo2g2mkz204HiEnwKJD32GhnzrzdnKGKgjh",
   "target": {
-    "bundleId": "example",
-    "kind": "app"
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 9,
+    "kind": "display"
   },
   "version": 2
 }
@@ -17910,13 +17899,11 @@ Example:
 ```json
 {
   "action": {
-    "deltaX": 0,
-    "deltaY": 8,
-    "kind": "scroll",
-    "x": 6,
-    "y": 9
+    "kind": "click",
+    "x": 8,
+    "y": 4
   },
-  "id": "6C",
+  "id": "LhSl4Hl1i",
   "op": "action",
   "version": 2
 }
@@ -17937,8 +17924,7 @@ Example:
 ```json
 {
   "active": true,
-  "captureGeneration": 7,
-  "id": "m2gNKOzBXPP36-DQhE6J5_Sjl",
+  "id": "dQaSEle1N6uvCVgOOcniRsfVhdzADSH_RN_wvl_fMDJ15tcnYMSjxOYIE6Q-",
   "op": "watch",
   "version": 2
 }
@@ -17961,15 +17947,10 @@ Example:
 ```json
 {
   "allowlist": [],
-  "id": "7aahGhV6zoGtl-R24UUS9hQGZ3TFfcsDw",
-  "maxDepth": 4,
-  "maxNodes": 6,
+  "id": "62EKrz85LysPorWd--RdCJ",
+  "maxDepth": 5,
+  "maxNodes": 2,
   "op": "ui.tree",
-  "target": {
-    "bundleId": "example",
-    "displayId": 3,
-    "kind": "app"
-  },
   "version": 2
 }
 ```
@@ -17990,12 +17971,10 @@ Example:
 
 ```json
 {
-  "id": "qKoozJtM",
-  "limit": 6,
+  "id": "86GlZvefDs9g5rz-Oc2skYJzslAC2tIm5nb6C5N5aZym2gNKOzB",
   "op": "ui.find",
   "query": {
-    "role": "example",
-    "text": "example"
+    "name": "example"
   },
   "version": 2
 }
@@ -18020,10 +17999,10 @@ Example:
 
 ```json
 {
-  "action": "press",
-  "id": "RkJ40xvIl0Najbqy9cbR3CN2aPRJEQ2VlwRwa9a8HgJPzZmbcbMNtakEhwk",
+  "action": "focus",
+  "id": "QhE6J5_SjlBqSG7aahGhV6zoGtl-R2",
   "op": "ui.act",
-  "ref": "78Dag8d-GkNpmcFvKT",
+  "ref": "S9hQGZ3TFfcsDwgpioczkJhqKoozJtMO3cNolI6RkJ40xvI",
   "value": "example",
   "version": 2
 }
@@ -18043,11 +18022,11 @@ Example:
 
 ```json
 {
-  "id": "wP6PbJB8E16_pjEv8oDY7RNge4Z75_3IKX7HcjdjTAe2ryp8GzRQD",
+  "id": "qy",
   "op": "pointer.move",
   "version": 2,
-  "x": 5,
-  "y": 9
+  "x": 9,
+  "y": 0
 }
 ```
 
@@ -18066,11 +18045,11 @@ Example:
 
 ```json
 {
-  "id": "7PcOEUz",
+  "id": "R3",
   "op": "pointer.click",
   "version": 2,
-  "x": 8,
-  "y": 2
+  "x": 4,
+  "y": 6
 }
 ```
 
@@ -18092,13 +18071,13 @@ Example:
 
 ```json
 {
-  "id": "ssqn7wyNhiaR0whJfTgu74YZy",
+  "id": "P",
   "op": "pointer.drag",
   "toX": 6,
-  "toY": 7,
+  "toY": 8,
   "version": 2,
-  "x": 6,
-  "y": 6
+  "x": 5,
+  "y": 4
 }
 ```
 
@@ -18116,9 +18095,8 @@ Example:
 
 ```json
 {
-  "id": "MetL8Qlw",
+  "id": "wRwa9a8HgJPz",
   "key": "example",
-  "modifiers": [],
   "op": "key.press",
   "version": 2
 }
@@ -18137,7 +18115,7 @@ Example:
 
 ```json
 {
-  "id": "yGeSc-N4mXXn2oPZ3ZWQ1MB_hWAA6pZ4W",
+  "id": "bcbMNtakEhwkH",
   "op": "text.type",
   "text": "example",
   "version": 2
@@ -18158,9 +18136,9 @@ Example:
 
 ```json
 {
-  "dx": 3,
-  "dy": 4,
-  "id": "3SaIjEkbzPcKSbvAjvW_e4bnh2yyrEzmCNfz5mYVhHsrOFcC3rQak5X",
+  "dx": 9,
+  "dy": 9,
+  "id": "r78Dag8d-GkNpmcFvKTfQTut0wP6PbJB8E1",
   "op": "scroll",
   "version": 2
 }
@@ -18175,7 +18153,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"iartEDkRJzAeuE3Mm5Aw4nc_ifPAMruKyFyij6Ai2cJxDRhnhhZF"
+"jEv8oDY7RNge4Z75"
 ```
 
 ## ScreenInput
@@ -18195,8 +18173,8 @@ Example:
 ```json
 {
   "kind": "pointer.move",
-  "x": 7,
-  "y": 4
+  "x": 9,
+  "y": 8
 }
 ```
 
@@ -18213,10 +18191,9 @@ Example:
 
 ```json
 {
-  "button": "left",
   "kind": "pointer.click",
-  "x": 8,
-  "y": 9
+  "x": 5,
+  "y": 5
 }
 ```
 
@@ -18236,11 +18213,12 @@ Example:
 
 ```json
 {
+  "button": "right",
   "kind": "pointer.drag",
-  "toX": 2,
-  "toY": 3,
-  "x": 0,
-  "y": 1
+  "toX": 1,
+  "toY": 0,
+  "x": 5,
+  "y": 0
 }
 ```
 
@@ -18256,8 +18234,9 @@ Example:
 
 ```json
 {
-  "key": "C",
-  "kind": "key.press"
+  "key": "End",
+  "kind": "key.press",
+  "modifiers": []
 }
 ```
 
@@ -18292,9 +18271,9 @@ Example:
 ```json
 {
   "dx": 2,
-  "dy": 6,
+  "dy": 9,
   "kind": "scroll",
-  "x": 4
+  "y": 3
 }
 ```
 
@@ -18327,8 +18306,8 @@ Example:
 ```json
 {
   "kind": "pointer.down",
-  "x": 2,
-  "y": 6
+  "x": 5,
+  "y": 4
 }
 ```
 
@@ -18345,8 +18324,8 @@ Example:
 ```json
 {
   "kind": "pointer.up",
-  "x": 4,
-  "y": 5
+  "x": 6,
+  "y": 6
 }
 ```
 
@@ -18391,7 +18370,7 @@ Type: ["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F","G","H","
 Example:
 
 ```json
-"F3"
+"ArrowRight"
 ```
 
 ## ScreenKeyModifiers
@@ -18430,13 +18409,13 @@ Example:
 ```json
 {
   "bytes": 1,
-  "codec": "jpeg",
-  "height": 6,
-  "sequence": 6,
-  "sessionId": "R9meXyMBwKVtpt0MtFw0sF",
-  "timestamp": 5,
+  "captureGeneration": 7,
+  "codec": "h264",
+  "height": 7,
+  "sequence": 8,
+  "sessionId": "5g7PcOEUz4oByssqn7wyNhiaR0whJfTgu74Y",
+  "timestamp": 3,
   "version": 1,
-  "videoCodec": "avc1.dcf0EB",
   "width": 5
 }
 ```
@@ -18459,8 +18438,8 @@ Example:
 ```json
 {
   "kind": "pointer.click",
-  "x": 7,
-  "y": 3
+  "x": 2,
+  "y": 5
 }
 ```
 
@@ -18482,8 +18461,8 @@ Example:
 {
   "kind": "pointer.drag",
   "toX": 0,
-  "toY": 8,
-  "x": 2,
+  "toY": 5,
+  "x": 1,
   "y": 3
 }
 ```
@@ -18500,8 +18479,9 @@ Example:
 
 ```json
 {
-  "key": "w",
-  "kind": "key.press"
+  "key": "delete",
+  "kind": "key.press",
+  "modifiers": []
 }
 ```
 
@@ -18535,9 +18515,10 @@ Example:
 
 ```json
 {
-  "dx": 0,
+  "dx": 6,
   "dy": 8,
-  "kind": "scroll"
+  "kind": "scroll",
+  "y": 9
 }
 ```
 
@@ -18572,7 +18553,12 @@ Example:
 
 ```json
 {
-  "filmstrip": false
+  "action": {
+    "kind": "text.type",
+    "text": "example"
+  },
+  "filmstrip": false,
+  "observeMs": 8
 }
 ```
 
@@ -18585,7 +18571,7 @@ Type: ["background","foreground"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"background"
+"foreground"
 ```
 
 ## ScreenNamedKey
@@ -18601,7 +18587,7 @@ Example:
 
 ```json
 {
-  "key": "5"
+  "key": "/"
 }
 ```
 
@@ -18621,7 +18607,7 @@ Example:
 {
   "bundleId": "example",
   "mode": "background",
-  "pid": 5
+  "pid": 8
 }
 ```
 
@@ -18640,7 +18626,7 @@ Example:
 
 ```json
 {
-  "enabled": true,
+  "enabled": false,
   "op": "enable"
 }
 ```
@@ -18675,8 +18661,7 @@ Example:
 {
   "allowed": false,
   "bundleId": "example",
-  "op": "approve",
-  "threadId": "example"
+  "op": "approve"
 }
 ```
 
@@ -18724,8 +18709,7 @@ Example:
 {
   "mode": "foreground",
   "op": "mode",
-  "reason": "example",
-  "sessionId": "Pjxvs4pErFYj0aIM-H2dSD1UuxQqtD_9Q"
+  "sessionId": "WAA6pZ4W"
 }
 ```
 
@@ -18741,9 +18725,9 @@ Example:
 
 ```json
 {
-  "allowed": false,
+  "allowed": true,
   "op": "secure.input",
-  "sessionId": "ny7vOMeEdItbSN7BGmAbkfcQSLBNIPv-87jibgo4TKR"
+  "sessionId": "aIjEkbzPcKSbvAjvW_e4bnh2yyrEzmCNfz5mYVhHsrOFc"
 }
 ```
 
@@ -18834,12 +18818,14 @@ Example:
 
 ```json
 {
+  "fps": 10,
   "op": "start",
   "target": {
     "bundleId": "example",
     "kind": "window",
-    "windowId": 10
-  }
+    "windowId": 1
+  },
+  "threadId": "example"
 }
 ```
 
@@ -18855,7 +18841,7 @@ Example:
 ```json
 {
   "op": "stop",
-  "sessionId": "3qWzR7S-Nbar"
+  "sessionId": "tBZiartEDkRJzAeuE3Mm5Aw4nc_ifPAMruKyFyij6Ai2cJxDRh"
 }
 ```
 
@@ -18875,7 +18861,8 @@ Example:
 {
   "controller": "agent",
   "op": "controller",
-  "sessionId": "zkj7WTpQ3Xc1D26qK8WhysDDT1MY2N7nvLPFVrJn02xNx7jgWLto-nQSM"
+  "sessionId": "hhZFVE19br0flq",
+  "threadId": "example"
 }
 ```
 
@@ -18892,11 +18879,11 @@ Example:
 ```json
 {
   "action": {
-    "keyCode": 2,
-    "kind": "key"
+    "kind": "type",
+    "text": "example"
   },
   "op": "action",
-  "sessionId": "XO0RddtqOXk_dFK30URs8nFvzQjcITMqTkkQDcaha-qHk69VyeTxp5As9ycAf"
+  "sessionId": "bFFoSpQAHMvR9meXyMBwKVtp"
 }
 ```
 
@@ -18912,7 +18899,7 @@ Example:
 ```json
 {
   "op": "subscribe",
-  "sessionId": "eN8YqBX-EUFCLV7wwXJTXSyzae7RQ"
+  "sessionId": "MtFw0sFRKFJt1r1MJUb6X3LfUvK3pucZDvLK9d1VxjPMEcyAk6InT"
 }
 ```
 
@@ -18928,7 +18915,7 @@ Example:
 ```json
 {
   "op": "unsubscribe",
-  "sessionId": "h3SIHfyOuC1m00bLEqIF2UtoYIbxWYpyrRgq2Gh3FN4YwVp2MDwxNS6hrEhF"
+  "sessionId": "Pjxvs4pErFYj0aIM-H2dSD1UuxQqtD_9Q"
 }
 ```
 
@@ -18944,7 +18931,7 @@ Example:
 ```json
 {
   "op": "record.start",
-  "sessionId": "yBf7AjaSqmLPdVdYqWNQkr4LifSuUsFqeWmUCEatNtD0OXaW-NPizJG7N"
+  "sessionId": "bQny7vOMeEdItbSN7BGmAbkfcQSLBNIPv-87jibgo4TKRHGxD"
 }
 ```
 
@@ -18960,7 +18947,7 @@ Example:
 ```json
 {
   "op": "record.stop",
-  "sessionId": "BacZ3QaqNF7BCo_owQKN"
+  "sessionId": "7l3qWzR7S-Nbar4zkj7WTpQ3Xc1D26qK8WhysDDT1MY2N7nvLPFVrJn02xNx7"
 }
 ```
 
@@ -18991,10 +18978,9 @@ Example:
 
 ```json
 {
-  "maxDepth": 7,
-  "maxNodes": 4,
+  "maxDepth": 0,
   "op": "ui.tree",
-  "sessionId": "O-mNkZffcJkIZ7I5j6lzEWTuDylu"
+  "sessionId": "to-nQSMn258XO0RddtqOXk_dFK30URs8nFvzQj"
 }
 ```
 
@@ -19011,13 +18997,11 @@ Example:
 
 ```json
 {
-  "limit": 10,
   "op": "ui.find",
   "query": {
-    "role": "example",
-    "text": "example"
+    "role": "example"
   },
-  "sessionId": "aJoA7IZUl7qjPvZnP_zGHPk8N8qBEO_4GNBsx7tv43"
+  "sessionId": "TkkQDcaha-qHk69Vy"
 }
 ```
 
@@ -19038,14 +19022,10 @@ Example:
 ```json
 {
   "action": "setValue",
-  "name": "example",
   "op": "ui.act",
-  "range": {
-    "length": 0,
-    "location": 1
-  },
-  "ref": "Lm5SHFmY1DYvDx3p2FIX-bdFu9KlDLQ9St",
-  "sessionId": "uAmBjvkr0hHmOfGDraUK4f0JM6"
+  "ref": "Txp5A",
+  "sessionId": "q5CeN8YqBX-EUFCLV7wwXJTXSyzae7RQ7h3SIHfyOu",
+  "value": true
 }
 ```
 
@@ -19062,15 +19042,12 @@ Example:
 ```json
 {
   "input": {
-    "button": "left",
-    "kind": "pointer.drag",
-    "toX": 3,
-    "toY": 3,
-    "x": 7,
-    "y": 3
+    "kind": "pointer.up",
+    "x": 4,
+    "y": 6
   },
   "op": "input",
-  "sessionId": "-4y4_8BNT5f9YMxKBl28X493ANtpWo0gPNlgzk5fE3tGfD-yJ"
+  "sessionId": "1m00bLEqIF2UtoYIbxWYpyrRgq2Gh"
 }
 ```
 
@@ -19118,7 +19095,7 @@ Example:
 ```json
 {
   "accessibility": true,
-  "screenRecording": true
+  "screenRecording": false
 }
 ```
 
@@ -19135,7 +19112,7 @@ Example:
 
 ```json
 {
-  "input": "n/a",
+  "input": "granted",
   "screen": "prompt"
 }
 ```
@@ -19155,10 +19132,10 @@ Example:
 
 ```json
 {
-  "h": 1,
-  "w": 2,
+  "h": 3,
+  "w": 4,
   "x": 8,
-  "y": 9
+  "y": 6
 }
 ```
 
@@ -19194,50 +19171,23 @@ Example:
 ```json
 {
   "state": {
-    "capabilities": {
-      "capture": {
-        "changeDriven": true,
-        "displays": false,
-        "windows": false
-      },
-      "codecs": [
-        "h264"
-      ],
-      "input": {
-        "keyboard": true,
-        "pointer": true,
-        "scroll": true,
-        "text": true
-      },
-      "permissionEvents": true,
-      "permissions": {
-        "input": "granted",
-        "screen": "prompt"
-      },
-      "platform": "windows",
-      "semanticActions": [],
-      "uiTree": false,
-      "version": 2,
-      "windowSelection": true
-    },
-    "controller": "none",
+    "controller": "human",
     "holder": {
       "agentId": "example",
       "threadId": "example"
     },
-    "indicator": false,
-    "lifecycle": "stopping",
+    "indicator": true,
+    "lifecycle": "failed",
     "permissions": {
-      "accessibility": false,
+      "accessibility": true,
       "screenRecording": false
     },
-    "sessionId": "K0gWoIPGzNyJnrbeEzv2-iw5SQEwQ5xCHYIy0SlNKTO24w",
+    "secureInputAllowed": false,
+    "sessionId": "aW-NPizJG7NtBacZ3QaqNF7BCo_owQKNhVjyBO-mNkZffcJkIZ",
     "target": {
-      "bundleIds": [
-        "example"
-      ],
-      "displayId": 10,
-      "kind": "display"
+      "bundleId": "example",
+      "kind": "window",
+      "windowId": 8
     }
   },
   "type": "screen.state"
@@ -19260,13 +19210,13 @@ Example:
 
 ```json
 {
-  "errorCode": "approval_required",
+  "errorCode": "no_key_window",
   "holder": {
     "owner": "example",
-    "sessionId": "kf0bGXo8_4m"
+    "sessionId": "PvZnP_zGHP"
   },
   "ok": false,
-  "requestId": "y4MABNz1nF6hec_ohTgdpd5AWEfOgRJqegqcXm3qj0O3NGZkzrAbIiI",
+  "requestId": "ujGji8PaJoA7",
   "type": "screen.result"
 }
 ```
@@ -19293,45 +19243,25 @@ Example:
 
 ```json
 {
-  "capabilities": {
-    "background": false,
-    "capture": {
-      "changeDriven": false,
-      "displays": true,
-      "windows": false
-    },
-    "codecs": [
-      "h264"
-    ],
-    "input": {
-      "keyboard": false,
-      "pointer": false,
-      "scroll": false,
-      "text": false
-    },
-    "permissionEvents": true,
-    "permissions": {
-      "input": "n/a",
-      "screen": "prompt"
-    },
-    "platform": "linux-x11",
-    "semanticActions": [],
-    "uiTree": true,
-    "version": 2,
-    "windowSelection": true
+  "controller": "agent",
+  "error": "example",
+  "holder": {
+    "agentId": "example",
+    "threadId": "example"
   },
-  "controller": "human",
-  "indicator": false,
-  "lifecycle": "failed",
+  "indicator": true,
+  "lifecycle": "stopping",
   "permissions": {
-    "accessibility": true,
-    "screenRecording": true
+    "accessibility": false,
+    "screenRecording": false
   },
-  "sessionId": "I5nMpAOLNGXBRHFaTEC9ug2EInDahWcOa5Mw87lnx66CsmTX",
+  "sessionId": "8N8qBEO_4GN",
   "target": {
-    "bundleId": "example",
-    "displayId": 1,
-    "kind": "app"
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 9,
+    "kind": "display"
   }
 }
 ```
@@ -19352,10 +19282,10 @@ Example:
 {
   "enabled": false,
   "permissions": {
-    "accessibility": false,
-    "screenRecording": true
+    "accessibility": true,
+    "screenRecording": false
   },
-  "sessions": 5
+  "sessions": 1
 }
 ```
 
@@ -19375,11 +19305,11 @@ Example:
 
 ```json
 {
-  "bitrate": 128008,
-  "codec": "jpeg",
-  "fps": 1,
+  "bitrate": 128003,
+  "codec": "h264",
+  "fps": 8,
   "maxHeight": 68,
-  "maxWidth": 64
+  "maxWidth": 72
 }
 ```
 
@@ -19418,7 +19348,7 @@ Example:
 {
   "bundleId": "example",
   "kind": "window",
-  "windowId": 2
+  "windowId": 4
 }
 ```
 
@@ -19437,7 +19367,7 @@ Example:
   "bundleIds": [
     "example"
   ],
-  "displayId": 7,
+  "displayId": 9,
   "kind": "display"
 }
 ```
@@ -19464,15 +19394,16 @@ Example:
 
 ```json
 {
-  "bytes": 1,
+  "bytes": 8,
+  "captureGeneration": 1,
   "codec": "jpeg",
-  "height": 7,
-  "scale": 6,
-  "seq": 3,
-  "sessionId": "kvhNCxxwXtymvVOh0NxTte3",
-  "ts": 6,
+  "height": 2,
+  "scale": 4,
+  "seq": 7,
+  "sessionId": "2FIX-bdFu9KlDLQ9",
+  "ts": 3,
   "version": 2,
-  "width": 2
+  "width": 3
 }
 ```
 
@@ -19492,10 +19423,8 @@ Example:
 
 ```json
 {
-  "action": "scroll",
-  "name": "example",
-  "ref": "CHU_o1lbizZKIz1Gv0kazyeM4PL4OTHT",
-  "value": true
+  "action": "performSecondaryAction",
+  "ref": "AmBjvkr0hHmOfGDraUK4f"
 }
 ```
 
@@ -19508,7 +19437,7 @@ Type: ["press","focus","setValue","scroll","expand","select","performSecondaryAc
 Example:
 
 ```json
-"select"
+"performSecondaryAction"
 ```
 
 ## ScreenUIActOptions
@@ -19527,9 +19456,9 @@ Example:
 
 ```json
 {
-  "action": "setValue",
+  "action": "focus",
   "name": "example",
-  "ref": "3Yre95ZS8tzgYbSiT7H_p0IPcZQIVdKwdOjwzrd6WFPJf24d2Y_AYlcJeqU"
+  "ref": "4y4_8BNT5f9YMxKBl28X493ANtpWo0gPNlgzk5fE3tGfD-yJrFTyywkf6btJ22-q"
 }
 ```
 
@@ -19552,11 +19481,12 @@ Example:
 
 ```json
 {
-  "boundsCentre": {
-    "x": 9,
-    "y": 1
-  },
-  "fallback": false
+  "fallback": false,
+  "mode": "foreground",
+  "snapshot": {
+    "nodes": [],
+    "truncated": false
+  }
 }
 ```
 
@@ -19575,10 +19505,10 @@ Example:
 
 ```json
 {
-  "h": 4,
-  "w": 7,
-  "x": 0,
-  "y": 0
+  "h": 0,
+  "w": 2,
+  "x": 5,
+  "y": 2
 }
 ```
 
@@ -19595,6 +19525,7 @@ Example:
 
 ```json
 {
+  "limit": 9,
   "query": {
     "role": "example"
   }
@@ -19616,6 +19547,7 @@ Example:
 {
   "query": {
     "name": "example",
+    "role": "example",
     "text": "example"
   }
 }
@@ -19693,7 +19625,6 @@ Example:
 
 ```json
 {
-  "name": "example",
   "role": "example"
 }
 ```
@@ -19710,8 +19641,7 @@ Example:
 
 ```json
 {
-  "name": "example",
-  "text": "example"
+  "name": "example"
 }
 ```
 
@@ -19727,7 +19657,6 @@ Example:
 
 ```json
 {
-  "role": "example",
   "text": "example"
 }
 ```
@@ -19741,7 +19670,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"R5xlfOWZEtd8bdV87AsqDIs6bGzJ"
+"YIy0SlNKTO24wGSyHpW4703Ku5sFnsAt_4"
 ```
 
 ## ScreenUITree
@@ -19757,8 +19686,23 @@ Example:
 
 ```json
 {
-  "root": null,
-  "truncated": false
+  "root": {
+    "actions": [
+      "press"
+    ],
+    "bounds": {
+      "h": 10,
+      "w": 10,
+      "x": 0,
+      "y": 0
+    },
+    "children": [],
+    "name": "Example",
+    "ref": "example",
+    "role": "button",
+    "states": []
+  },
+  "truncated": true
 }
 ```
 
@@ -19775,7 +19719,7 @@ Example:
 
 ```json
 {
-  "maxDepth": 2
+  "maxNodes": 10
 }
 ```
 
@@ -19836,15 +19780,17 @@ Example:
 
 ```json
 {
-  "bytes": 5,
+  "bytes": 6,
   "codec": "jpeg",
-  "height": 9,
-  "scale": 6,
-  "seq": 8,
-  "sessionId": "2OfTeAxQOnEL3osuvX6qrywwP190nxRqnzFva",
-  "ts": 3,
+  "dirtyRects": [],
+  "height": 1,
+  "keyframe": true,
+  "scale": 3,
+  "seq": 5,
+  "sessionId": "y4MABNz1nF6hec_ohTgdpd5AWEfOgRJqegqcXm3qj0O3NGZkzrAbIiI",
+  "ts": 6,
   "version": 2,
-  "width": 6
+  "width": 2
 }
 ```
 
@@ -19862,7 +19808,7 @@ Example:
 
 ```json
 {
-  "code": "search_invalid_query",
+  "code": "search_failed",
   "requestId": "example",
   "type": "search.error"
 }
@@ -19890,8 +19836,11 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "kind": "tool_call",
+  "before": 7,
+  "kind": "compaction",
+  "kinds": [
+    "tool_call"
+  ],
   "threadId": "example"
 }
 ```
@@ -19920,17 +19869,16 @@ Example:
 
 ```json
 {
-  "agentId": "example",
-  "createdAt": 1,
-  "kind": "message",
-  "provider": "claude",
-  "score": 8,
+  "createdAt": 6,
+  "kind": "tool_call",
+  "provider": "antigravity",
+  "score": 5,
   "snippet": {
     "highlights": [],
     "text": "example"
   },
-  "status": "working",
-  "statusSeq": 3,
+  "status": "needs_you",
+  "statusSeq": 7,
   "threadId": "example",
   "threadTitle": "example",
   "title": {
@@ -19970,8 +19918,8 @@ Example:
 
 ```json
 {
-  "limit": 1,
-  "scope": "threads",
+  "cursor": "example",
+  "mode": "substring",
   "text": "example"
 }
 ```
@@ -19996,13 +19944,8 @@ Example:
 ```json
 {
   "cursor": "example",
-  "filters": {
-    "after": 4,
-    "provider": "cursor",
-    "status": "failed",
-    "threadId": "example",
-    "workspaceId": "example"
-  },
+  "limit": 5,
+  "mode": "substring",
   "requestId": "example",
   "text": "example",
   "type": "search.query"
@@ -20025,8 +19968,8 @@ Example:
 
 ```json
 {
-  "cursor": null,
-  "generation": 9,
+  "cursor": "example",
+  "generation": 7,
   "hits": [],
   "requestId": "example",
   "type": "search.results"
@@ -20047,8 +19990,8 @@ Example:
 
 ```json
 {
-  "cursor": null,
-  "generation": 1,
+  "cursor": "example",
+  "generation": 6,
   "hits": []
 }
 ```
@@ -20080,7 +20023,7 @@ Type: ["new","working","waiting","needs_you","done","failed","unresponsive"]. Se
 Example:
 
 ```json
-"waiting"
+"new"
 ```
 
 ## SearchStatus
@@ -20100,12 +20043,12 @@ Example:
 
 ```json
 {
-  "generation": 0,
-  "headSeq": 0,
-  "indexWrites": 4,
-  "indexedSeq": 1,
-  "pending": 5,
-  "ready": false
+  "generation": 9,
+  "headSeq": 5,
+  "indexWrites": 9,
+  "indexedSeq": 9,
+  "pending": 3,
+  "ready": true
 }
 ```
 
@@ -20147,10 +20090,10 @@ Example:
 ```json
 {
   "generation": 4,
-  "headSeq": 9,
-  "indexWrites": 5,
-  "indexedSeq": 4,
-  "pending": 4,
+  "headSeq": 3,
+  "indexWrites": 9,
+  "indexedSeq": 2,
+  "pending": 9,
   "ready": true,
   "requestId": "example",
   "type": "search.progress"
@@ -20194,8 +20137,7 @@ Example:
 {
   "code": "size",
   "layer": "defaults",
-  "message": "example",
-  "offset": 8
+  "message": "example"
 }
 ```
 
@@ -20214,8 +20156,8 @@ Example:
 ```json
 {
   "diagnostic": {
-    "code": "io",
-    "layer": "workspace",
+    "code": "secret",
+    "layer": "thread",
     "message": "example"
   },
   "subscriptionId": "example",
@@ -20237,23 +20179,21 @@ Example:
 ```json
 {
   "settings": {
-    "approvals.policy": "never",
-    "browser.backend": "headless",
-    "browser.backendLoss": "pause",
-    "browser.profile": "persistent",
-    "clients.keybindings": 0,
-    "clients.theme": {},
-    "permissions.providerModes": {},
+    "approvals.policy": "ask",
+    "clients.keybindings": [],
     "providers.coder.model": "example",
-    "providers.coder.provider": "pi",
+    "providers.coder.reasoningEffort": "low",
     "providers.coder.tier": "default",
-    "providers.default": "antigravity",
-    "providers.planner.provider": "codex",
-    "providers.planner.tier": "standard",
-    "providers.reviewer.reasoningEffort": "max",
-    "threads.settleOnClose": false,
-    "threads.settleOnMerge": true,
-    "threads.useWorktree": false
+    "providers.default": "codex",
+    "providers.planner.reasoningEffort": "medium",
+    "providers.reviewer.tier": "flex",
+    "remote.enabled": true,
+    "remote.transport": "tailscale",
+    "threads.autoSettleAfter": "never",
+    "threads.continueAfterRestart": true,
+    "threads.followUpBehavior": "steer",
+    "threads.limitPolicy": "snooze_until_reset",
+    "threads.settleOnMerge": false
   },
   "version": 2
 }
@@ -20274,9 +20214,9 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
-  "provenance": "defaults",
-  "value": "example"
+  "key": "providers.reviewer.provider",
+  "provenance": "global",
+  "value": true
 }
 ```
 
@@ -20295,7 +20235,7 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
+  "key": "permissions.defaultMode",
   "requestId": "example",
   "scope": {
     "workspaceId": "example"
@@ -20313,7 +20253,7 @@ Type: ["providers.configuration","host.displayName","projects.roots","threads.fo
 Example:
 
 ```json
-"remote.enabled"
+"permissions.defaultMode"
 ```
 
 ## SettingsLayer
@@ -20375,7 +20315,7 @@ Type: ["defaults","global","workspace","thread"]. See JSON Schema for constraint
 Example:
 
 ```json
-"workspace"
+"global"
 ```
 
 ## SettingsRequest
@@ -20395,10 +20335,11 @@ Example:
 
 ```json
 {
-  "key": "providers.coder.tier",
+  "key": "threads.useWorktree",
   "requestId": "example",
   "scope": {
-    "threadId": "example"
+    "threadId": "example",
+    "workspaceId": "example"
   },
   "type": "settings.get"
 }
@@ -20424,7 +20365,7 @@ Example:
   },
   "requestId": "example",
   "type": "settings.set",
-  "value": 4
+  "value": {}
 }
 ```
 
@@ -20443,7 +20384,7 @@ Example:
 ```json
 {
   "keys": [
-    "automations.enabled"
+    "permissions.defaultMode"
   ],
   "requestId": "example",
   "scope": {
@@ -20490,7 +20431,7 @@ Example:
 {
   "diagnostics": [],
   "entries": [],
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "settings.result"
 }
@@ -20509,7 +20450,7 @@ Example:
 
 ```json
 {
-  "workspaceId": "example"
+  "threadId": "example"
 }
 ```
 
@@ -20531,11 +20472,12 @@ Example:
 {
   "key": "example",
   "layer": {
-    "kind": "global"
+    "kind": "workspace",
+    "workspaceId": "example"
   },
   "requestId": "example",
   "type": "settings.set",
-  "value": 3
+  "value": null
 }
 ```
 
@@ -20556,13 +20498,10 @@ Example:
 ```json
 {
   "keys": [
-    "browser.backendLoss"
+    "providers.planner.model"
   ],
   "requestId": "example",
-  "scope": {
-    "threadId": "example",
-    "workspaceId": "example"
-  },
+  "scope": {},
   "subscriptionId": "example",
   "type": "settings.subscribe"
 }
@@ -20637,42 +20576,42 @@ Example:
 ```json
 {
   "approvals.policy": "on-failure",
-  "automations.enabled": true,
+  "automations.enabled": false,
   "browser.allowedOrigins": [],
-  "browser.backend": "embedded",
-  "browser.backendLoss": "headless",
+  "browser.backend": "headless",
+  "browser.backendLoss": "pause",
   "browser.profile": "persistent",
-  "clients.keybindings": false,
-  "clients.theme": true,
+  "clients.keybindings": true,
+  "clients.theme": [],
   "host.displayName": "example",
-  "permissions.defaultMode": null,
+  "permissions.defaultMode": "example",
   "permissions.providerModes": {},
   "projects.roots": [],
   "providers.coder.model": "example",
   "providers.coder.provider": "claude",
   "providers.coder.reasoningEffort": "xhigh",
-  "providers.coder.tier": "default",
+  "providers.coder.tier": "standard",
   "providers.configuration": [],
-  "providers.default": "opencode",
+  "providers.default": "claude",
   "providers.planner.model": "example",
-  "providers.planner.provider": "claude",
-  "providers.planner.reasoningEffort": "none",
+  "providers.planner.provider": "acp",
+  "providers.planner.reasoningEffort": "minimal",
   "providers.planner.tier": "fast",
   "providers.reviewer.model": "example",
-  "providers.reviewer.provider": "acp",
-  "providers.reviewer.reasoningEffort": "none",
-  "providers.reviewer.tier": "default",
+  "providers.reviewer.provider": "cursor",
+  "providers.reviewer.reasoningEffort": "low",
+  "providers.reviewer.tier": "fast",
   "remote.enabled": false,
-  "remote.relayUrl": "",
-  "remote.transport": "relay",
-  "threads.autoSettleAfter": "1d",
+  "remote.relayUrl": "wss://relay.example.invalid/",
+  "remote.transport": "tailscale",
+  "threads.autoSettleAfter": "1w",
   "threads.continueAfterRestart": false,
-  "threads.followUpBehavior": "queue",
-  "threads.limitPolicy": "snooze_until_reset",
+  "threads.followUpBehavior": "steer",
+  "threads.limitPolicy": "manual",
   "threads.settleOnClose": false,
-  "threads.settleOnMerge": true,
-  "threads.unresponsiveAfter": "2m",
-  "threads.useWorktree": false
+  "threads.settleOnMerge": false,
+  "threads.unresponsiveAfter": "15m",
+  "threads.useWorktree": true
 }
 ```
 
@@ -20709,74 +20648,69 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
-  "contextMeters": {},
-  "entitiesBefore": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
-  "itemsBefore": null,
+  "itemsBefore": 7,
   "kind": "thread",
+  "queue": {
+    "paused": true,
+    "reason": null,
+    "resumeAt": null,
+    "revision": 4
+  },
   "runs": {},
   "seq": 7,
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": true,
-        "planMode": false,
-        "resume": false
-      },
-      "coverage": "legacy",
-      "mcp": "unavailable",
-      "modeSelection": true,
-      "modelSelection": true,
-      "raw": {
-        "json": "example",
-        "truncated": false
-      },
-      "visibility": "limited"
-    },
-    "capabilities": {
+    "acpAgentId": "example",
+    "activityAt": 7,
+    "autoSettleAt": 7,
+    "createdAt": 8,
+    "deletedAt": 7,
+    "effectiveCapabilities": {
+      "approvals": "sandbox-only",
       "attachmentInput": {
         "documents": [],
         "embeddedContext": true,
         "format": "opencode",
-        "maxInlineBytes": 8
+        "maxInlineBytes": 2
       },
       "backgroundTaskControl": false,
       "backgroundVisibility": "full",
-      "childFidelity": "summary",
-      "fork": true,
+      "fork": false,
       "forkSubagents": false,
       "imageInput": true,
-      "interruptCascades": false,
+      "interruptCascades": true,
+      "permissionModes": [],
       "planMode": true,
       "resume": false,
-      "rewindFiles": true,
-      "sessionOptions": false,
+      "rewindFiles": false,
       "steer": false,
-      "steeringMode": "queue",
-      "subagentTranscripts": false,
-      "tokenUsage": true
+      "steeringMode": "native",
+      "subagentTranscripts": true,
+      "tokenUsage": false
     },
-    "createdAt": 5,
+    "execution": {
+      "instanceId": "example",
+      "model": "example",
+      "options": {},
+      "provider": "pi"
+    },
     "id": "example",
-    "installationId": "example",
+    "instanceId": "example",
     "permission": {
-      "effective": "example",
+      "effective": null,
       "override": null,
       "pending": false
     },
-    "provider": "claude",
-    "rootAgentId": "example",
-    "settledAt": 9,
-    "snoozedUntil": 0,
+    "pinned": true,
+    "provider": "codex",
+    "snoozedUntil": 3,
     "status": {
-      "on": "network",
-      "state": "waiting"
+      "state": "unresponsive"
     },
     "title": "example",
-    "updatedAt": 4,
+    "updatedAt": 6,
     "workspaceId": "example"
   },
   "usage": {}
@@ -20796,7 +20730,7 @@ Example:
 ```json
 {
   "kind": "threads",
-  "seq": 2,
+  "seq": 7,
   "threads": {}
 }
 ```
@@ -20814,8 +20748,8 @@ Example:
 
 ```json
 {
-  "expiresAt": 1,
-  "ticket": "27aa80a63f5ada40795e68952b6e0d608b7b3f11783880de809968a8e56c3f2e"
+  "expiresAt": 3,
+  "ticket": "26995fe2496ae521acc740f00bfe644784e0868de2486c09da1b165aa379d345"
 }
 ```
 
@@ -20852,57 +20786,25 @@ Example:
 
 ```json
 {
-  "confidence": "low",
-  "frames": 9,
-  "hitchRatioMsPerS": 2,
+  "action": {
+    "key": "y",
+    "kind": "key.press"
+  },
+  "confidence": "medium",
+  "effectiveFps": 2,
+  "frames": 6,
+  "hitchTimeMs": 0,
   "hitches": [],
   "notes": [],
-  "refreshHz": 1,
-  "repeat": {
-    "metrics": {
-      "captureOverheadPct": {
-        "median": 6,
-        "worst": 9
-      },
-      "effectiveFps": {
-        "median": 4,
-        "worst": 6
-      },
-      "frames": {
-        "median": 9,
-        "worst": 2
-      },
-      "hitchMs": {
-        "median": 0,
-        "worst": 0
-      },
-      "layoutShift": {
-        "median": 9,
-        "worst": 2
-      },
-      "refreshHz": {
-        "median": 0,
-        "worst": 0
-      },
-      "windowMs": {
-        "median": 0,
-        "worst": 2
-      }
-    },
-    "runs": [
-      {
-        "confidence": "low",
-        "verdict": "janky"
-      }
-    ]
-  },
-  "settleMs": 9,
+  "refreshHz": 9,
+  "settleMs": 3,
   "source": "browser-trace",
   "target": {
     "kind": "browser-tab",
+    "tabId": "example",
     "threadId": "example"
   },
-  "verdict": "inconclusive",
+  "verdict": "minor_hitches",
   "windowMs": 9
 }
 ```
@@ -20977,12 +20879,12 @@ Example:
 
 ```json
 {
-  "exited": true,
+  "exited": false,
   "id": "example",
   "name": "example",
-  "nextOffset": 5,
-  "oldestOffset": 9,
-  "pid": 1,
+  "nextOffset": 6,
+  "oldestOffset": 4,
+  "pid": 9,
   "threadId": "example"
 }
 ```
@@ -21001,9 +20903,9 @@ Example:
 
 ```json
 {
-  "error": 5,
+  "error": 4,
   "id": 3,
-  "result": 1
+  "result": 0
 }
 ```
 
@@ -21029,7 +20931,7 @@ Example:
   "cols": 6,
   "cwd": "example",
   "name": "example",
-  "rows": 4
+  "rows": 8
 }
 ```
 
@@ -21048,12 +20950,11 @@ Example:
 ```json
 {
   "event": {
-    "nextOffset": 2,
-    "status": {
-      "code": 7,
-      "signal": 7
-    },
-    "type": "exit"
+    "data": "example",
+    "endOffset": 5,
+    "offset": 3,
+    "truncatedBefore": true,
+    "type": "data"
   },
   "subscriptionId": "example",
   "type": "terminal.output"
@@ -21075,9 +20976,9 @@ Example:
 
 ```json
 {
-  "group": 6,
-  "owner": null,
-  "pid": 7,
+  "group": 0,
+  "owner": "2Daf1FD0-DEE5-2192-a0Ba-Dc1eFc3721c9",
+  "pid": 3,
   "state": "example"
 }
 ```
@@ -21097,9 +20998,7 @@ Example:
 ```json
 {
   "operation": {
-    "data": "example",
-    "op": "write",
-    "terminalId": "example",
+    "op": "list",
     "threadId": "example"
   },
   "requestId": "example",
@@ -21126,7 +21025,6 @@ Example:
 {
   "ok": false,
   "requestId": "example",
-  "terminals": [],
   "type": "terminal.result"
 }
 ```
@@ -21145,7 +21043,7 @@ Example:
 
 ```json
 {
-  "bytes": 4,
+  "bytes": 5,
   "encoding": "utf-16le",
   "streamId": "example"
 }
@@ -21200,18 +21098,19 @@ Example:
 {
   "acpSupport": {
     "capabilities": {
-      "imageInput": false,
+      "imageInput": true,
       "planMode": true,
       "resume": true
     },
     "coverage": "source_profile",
-    "mcp": "http",
-    "modeSelection": true,
-    "modelSelection": true,
+    "mcp": "stdio",
+    "modeSelection": false,
+    "modelSelection": false,
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
+    "subagentSessions": false,
     "visibility": "limited"
   },
   "continuation": {
@@ -21219,46 +21118,47 @@ Example:
     "reason": "cursor_cli_retired",
     "state": "read_only"
   },
-  "createdAt": 4,
-  "details": {
-    "workspace": {
-      "id": "example",
-      "name": "example",
-      "path": "example"
-    },
-    "worktreeCreation": {
-      "actions": [],
-      "attempt": 0,
-      "cleanupComplete": false,
-      "commandId": "example",
-      "details": [],
-      "elapsedMs": 4,
-      "percent": 6,
-      "startedAt": 0,
-      "state": "cancelled",
-      "step": "fetching",
-      "steps": []
-    }
-  },
-  "execution": {
-    "provider": "pi"
-  },
-  "handoff": {
-    "bytes": 0,
-    "sourceThreadId": "example",
-    "truncated": false
-  },
+  "createdAt": 0,
   "id": "example",
+  "imported": {
+    "importedAt": 6,
+    "instanceId": "example",
+    "native": {
+      "instanceId": "example",
+      "nativeId": "example",
+      "path": "example",
+      "provider": "antigravity"
+    },
+    "sourceId": "example"
+  },
+  "instanceId": "example",
+  "permission": {
+    "effective": "example",
+    "override": "example",
+    "pending": false
+  },
   "pinOrder": 1,
-  "provider": "opencode",
-  "settledAt": 6,
-  "snoozedUntil": 0,
+  "provider": "codex",
+  "readAt": 8,
+  "rootAgentId": "example",
   "status": {
-    "state": "unresponsive"
+    "agents": 7,
+    "state": "working"
+  },
+  "switch": {
+    "at": 7,
+    "lossy": true,
+    "recommendation": "delegate_task",
+    "selection": {
+      "instanceId": "example",
+      "model": "example",
+      "options": {},
+      "provider": "acp"
+    },
+    "state": "failed"
   },
   "title": "example",
-  "unread": true,
-  "updatedAt": 4,
+  "updatedAt": 2,
   "workspaceId": "example"
 }
 ```
@@ -21282,7 +21182,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sinceSeq": 9,
+  "sinceSeq": 4,
   "threadId": "example",
   "type": "thread.catchUp"
 }
@@ -21310,32 +21210,33 @@ Example:
 ```json
 {
   "digest": {
-    "approvalsAnswered": 5,
-    "approvalsAsked": 2,
-    "approvalsAutoReviewed": 8,
-    "approvalsPending": 6,
+    "approvalsAnswered": 8,
+    "approvalsAsked": 3,
+    "approvalsAutoReviewed": 2,
+    "approvalsPending": 2,
     "commands": [],
-    "commandsFailed": 3,
-    "commandsRun": 9,
-    "errors": 3,
+    "commandsFailed": 9,
+    "commandsRun": 0,
+    "errors": 0,
     "files": [],
     "inputTokens": 1,
     "outputTokens": null,
-    "subagentsFinished": 8,
-    "subagentsStarted": 3,
+    "subagentsFinished": 2,
+    "subagentsStarted": 9,
     "toolCounts": {},
-    "truncated": false
+    "truncated": true
   },
   "indexedSeq": 2,
   "latestAgentMessagePreview": "example",
-  "ready": true,
+  "ready": false,
   "requestId": "example",
-  "seq": 2,
+  "seq": 6,
   "status": {
-    "state": "limited"
+    "on": "network",
+    "state": "waiting"
   },
   "threadId": "example",
-  "turnsCompleted": 8,
+  "turnsCompleted": 0,
   "type": "thread.catchUp"
 }
 ```
@@ -21363,9 +21264,16 @@ Example:
 
 ```json
 {
-  "autoSettleAt": 6,
+  "activityAt": 5,
+  "autoSettleAt": 3,
+  "deletedAt": 2,
+  "live": {
+    "options": {},
+    "subagentCount": 3,
+    "waitingOn": 4
+  },
   "pinned": false,
-  "settledReason": "pr_merged"
+  "settledAt": 1
 }
 ```
 
@@ -21383,14 +21291,44 @@ Example:
 ```json
 {
   "changes": {
-    "autoSettleAt": null,
-    "deletedAt": 2,
-    "live": {
-      "account": "example",
-      "model": "example",
-      "step": "tests",
-      "subagentCount": 3
-    }
+    "activityAt": 9,
+    "details": {
+      "base": {
+        "head": "82fbfda5c7ca5e206b89b3c66bf092ef130f3957cf57e4c1442a40d9f",
+        "ref": "example"
+      },
+      "behind": 1,
+      "diff": {
+        "additions": 6,
+        "deletions": 3,
+        "files": 4
+      },
+      "machine": {
+        "host": "example",
+        "name": "example"
+      },
+      "mode": "worktree",
+      "workspaceChange": {
+        "at": 9,
+        "commandId": "example",
+        "lossy": false,
+        "state": "failed"
+      },
+      "worktreeCreation": {
+        "actions": [],
+        "attempt": 8,
+        "cleanupComplete": false,
+        "commandId": "example",
+        "details": [],
+        "elapsedMs": 0,
+        "startedAt": 5,
+        "state": "cancelled",
+        "step": "setup",
+        "steps": []
+      }
+    },
+    "readAt": 7,
+    "unread": false
   },
   "type": "thread.client.updated"
 }
@@ -21434,24 +21372,22 @@ Example:
 
 ```json
 {
-  "behind": 7,
-  "linkedPr": {
-    "number": 8,
-    "state": "merged"
-  },
+  "ahead": 9,
+  "behind": 1,
+  "linkedPr": null,
+  "mode": "worktree",
   "repository": {
-    "forge": "github",
-    "host": "Jrl",
-    "name": "T5WD",
-    "owner": "pXI4V1/Uwe93/ZgjZf/qqx7An"
+    "forge": "gitlab",
+    "host": "d16IaK",
+    "name": "lR98cb5bk6I",
+    "owner": "zGQH4wz/.i6/Y3/7b8Ea-5MM/sC/Y5-RAiB7/b/n/r5zcARSFb.n"
   },
   "workspaceChange": {
-    "at": 3,
+    "at": 7,
     "commandId": "example",
-    "state": "failed",
+    "state": "preparing",
     "uncertain": false
-  },
-  "worktree": "example"
+  }
 }
 ```
 
@@ -21484,7 +21420,7 @@ Example:
 ```json
 {
   "lossy": false,
-  "mode": "native",
+  "mode": "portable",
   "parentAgentId": "example",
   "parentThreadId": "example",
   "point": {
@@ -21541,77 +21477,104 @@ Example:
 ```json
 {
   "acpAgentId": "example",
+  "acpSupport": {
+    "capabilities": {
+      "imageInput": false,
+      "planMode": true,
+      "resume": true
+    },
+    "coverage": "legacy",
+    "mcp": "stdio",
+    "modeSelection": true,
+    "modelSelection": false,
+    "raw": {
+      "json": "example",
+      "truncated": false
+    },
+    "subagentSessions": false,
+    "visibility": "limited"
+  },
+  "autoSettleAt": 6,
   "backend": "acp",
-  "createdAt": 9,
-  "deletedAt": 4,
-  "effectiveCapabilities": {
+  "capabilities": {
+    "attachmentInput": {
+      "documents": [],
+      "embeddedContext": true,
+      "format": "acp",
+      "maxInlineBytes": 0
+    },
     "backgroundTaskControl": false,
-    "backgroundVisibility": "partial",
+    "backgroundVisibility": "none",
+    "childControls": "read-only",
     "fork": true,
-    "forkMode": "native",
-    "imageInput": true,
-    "interruptCascades": true,
-    "launchOptions": [],
-    "planMode": true,
+    "imageInput": false,
+    "interruptCascades": false,
+    "permissions": {
+      "guarantees": [],
+      "modes": [],
+      "nativeAutoReview": true,
+      "permissionModes": [],
+      "toolGate": false
+    },
+    "planMode": false,
     "resume": false,
     "rewindFiles": false,
     "steer": true,
-    "steeringMode": "interrupt-restart",
     "subagentTranscripts": true,
     "tokenUsage": true
   },
-  "handoff": {
-    "bytes": 7,
-    "sourceThreadId": "example",
-    "truncated": false
+  "createdAt": 2,
+  "effectiveCapabilities": {
+    "backgroundTaskControl": false,
+    "backgroundVisibility": "partial",
+    "fork": false,
+    "imageInput": false,
+    "interruptCascades": true,
+    "permissions": {
+      "guarantees": [],
+      "modes": [],
+      "nativeAutoReview": true,
+      "permissionModes": [],
+      "toolGate": false
+    },
+    "planMode": true,
+    "resume": false,
+    "rewindFiles": true,
+    "steer": true,
+    "subagentTranscripts": false,
+    "tokenUsage": true
   },
   "id": "example",
   "imported": {
-    "importedAt": 4,
+    "importedAt": 7,
     "instanceId": "example",
     "native": {
       "acpAgentId": "example",
       "aliases": [],
-      "provider": "opencode"
+      "provider": "pi"
     },
     "sourceId": "example"
   },
   "installationId": "example",
-  "lineage": {
-    "lossy": true,
-    "mode": "portable",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "runId": "example",
-      "type": "turn"
-    }
+  "live": {
+    "backgroundTaskCount": 5,
+    "options": {},
+    "step": "tests",
+    "subagentCount": 2,
+    "watching": []
   },
   "permission": {
     "effective": "example",
     "override": "example",
     "pending": false
   },
-  "pinned": false,
-  "provider": "codex",
-  "settledAt": 9,
-  "snoozedUntil": 4,
+  "provider": "acp",
   "status": {
-    "state": "failed"
-  },
-  "switch": {
-    "at": 5,
-    "lossy": true,
-    "recommendation": "delegate_task",
-    "selection": {
-      "provider": "claude"
-    },
-    "state": "queued"
+    "state": "limited"
   },
   "title": "example",
-  "titleSource": "provider",
   "unread": false,
-  "updatedAt": 7,
+  "updatedAt": 1,
   "workspaceId": "example"
 }
 ```
@@ -21650,7 +21613,7 @@ Example:
 
 ```json
 {
-  "lastSeenSeq": 4,
+  "lastSeenSeq": 6,
   "threadId": "example",
   "type": "thread.markRead"
 }
@@ -21677,10 +21640,7 @@ Example:
 
 ```json
 {
-  "autoSettleAt": 6,
-  "deletedAt": 6,
-  "pinOrder": 1,
-  "pinned": false
+  "autoSettleAt": 2
 }
 ```
 
@@ -21714,10 +21674,10 @@ Example:
   "base": {
     "ref": "example"
   },
-  "baseBranch": "example",
-  "instanceId": "example",
-  "model": "example",
-  "provider": "codex",
+  "installationId": "example",
+  "mode": "worktree",
+  "permissionMode": "example",
+  "provider": "opencode",
   "threadId": "example",
   "title": "example",
   "type": "thread.prepare",
@@ -21741,7 +21701,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example"
+  "installationId": "example"
 }
 ```
 
@@ -21781,11 +21741,11 @@ Example:
 
 ```json
 {
-  "lastSeenSeq": 8,
+  "lastSeenSeq": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "thread.readState",
-  "updatedAt": 2
+  "updatedAt": 0
 }
 ```
 
@@ -21831,13 +21791,13 @@ Example:
 ```json
 {
   "account": "example",
-  "asking": [],
   "contextMeter": {
-    "at": 5,
-    "limit": 2,
-    "used": 1
+    "at": 8,
+    "limit": null,
+    "used": 7
   },
-  "waitingOn": 5
+  "provider": "pi",
+  "watching": []
 }
 ```
 
@@ -21860,9 +21820,10 @@ Example:
 
 ```json
 {
-  "cursor": "example",
-  "limit": 1,
+  "filter": "commands",
+  "limit": 2,
   "requestId": "example",
+  "scope": "thread",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"
@@ -21889,12 +21850,12 @@ Example:
 
 ```json
 {
-  "cursor": null,
-  "headSeq": 9,
+  "cursor": "example",
+  "headSeq": 5,
   "hits": [],
-  "indexedSeq": 6,
-  "pending": 3,
-  "ready": true,
+  "indexedSeq": 7,
+  "pending": 8,
+  "ready": false,
   "requestId": "example",
   "threadId": "example",
   "type": "thread.search"
@@ -21932,7 +21893,7 @@ Example:
 
 ```json
 {
-  "agents": 5,
+  "agents": 4,
   "state": "working"
 }
 ```
@@ -21948,7 +21909,7 @@ Example:
 
 ```json
 {
-  "on": "upstream",
+  "on": "rate_limit",
   "state": "waiting"
 }
 ```
@@ -22041,15 +22002,15 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 8,
   "error": "example",
   "lossy": false,
+  "recommendation": "delegate_task",
   "selection": {
     "model": "example",
-    "options": {},
-    "provider": "claude"
+    "provider": "opencode"
   },
-  "state": "queued"
+  "state": "applied"
 }
 ```
 
@@ -22067,9 +22028,6 @@ Example:
 
 ```json
 {
-  "execution": {
-    "provider": "pi"
-  },
   "lineage": {
     "lossy": true,
     "mode": "native",
@@ -22114,106 +22072,80 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
-  "entitiesBefore": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
-  "itemsBefore": null,
   "kind": "thread",
+  "queue": {
+    "paused": false,
+    "reason": null,
+    "resumeAt": null,
+    "revision": 2
+  },
   "runs": {},
   "seq": 0,
   "thread": {
     "acpAgentId": "example",
     "acpSupport": {
       "capabilities": {
-        "imageInput": false,
-        "planMode": false,
-        "resume": true
+        "imageInput": true,
+        "planMode": true,
+        "resume": false
       },
       "coverage": "legacy",
-      "mcp": "http",
-      "modeSelection": false,
+      "mcp": "stdio",
+      "modeSelection": true,
       "modelSelection": false,
       "raw": {
         "json": "example",
         "truncated": true
       },
-      "subagentSessions": false,
+      "subagentSessions": true,
       "visibility": "limited"
     },
-    "capabilities": {
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": true,
-        "format": "opencode",
-        "maxInlineBytes": 2
-      },
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "fork": true,
-      "forkPoints": [],
-      "forkSubagents": false,
-      "imageInput": true,
-      "interruptCascades": false,
-      "launchOptions": [],
-      "permissions": {
-        "guarantees": [],
-        "modes": [],
-        "nativeAutoReview": true,
-        "permissionModes": [],
-        "toolGate": false
-      },
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": false,
-      "steer": true,
-      "steeringMode": "interrupt-restart",
-      "subagentTranscripts": false,
-      "tokenUsage": true
+    "autoSettleAt": 8,
+    "continuation": {
+      "actionId": "thread.continue_new",
+      "reason": "cursor_cli_retired",
+      "state": "read_only"
     },
-    "createdAt": 0,
-    "effectiveCapabilities": {
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": true,
-        "format": "claude",
-        "maxInlineBytes": 7
-      },
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "fork": true,
-      "forkPoints": [],
-      "forkSubagents": true,
-      "imageInput": true,
-      "interruptCascades": false,
-      "launchOptions": [],
-      "planMode": false,
-      "resume": false,
-      "rewindFiles": true,
-      "steer": false,
-      "subagentTranscripts": false,
-      "tokenUsage": false
+    "createdAt": 3,
+    "deletedAt": 8,
+    "handoff": {
+      "bytes": 9,
+      "sourceThreadId": "example",
+      "truncated": true
     },
     "id": "example",
-    "instanceId": "example",
-    "live": {
-      "asking": [],
-      "backgroundTaskCount": 8,
-      "step": "tests"
+    "lineage": {
+      "lossy": false,
+      "mode": "native",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "runId": "example",
+        "type": "turn"
+      }
     },
-    "pinOrder": 5,
-    "provider": "claude",
-    "rootAgentId": "example",
-    "settledAt": 8,
+    "live": {
+      "account": "example",
+      "contextMeter": {
+        "at": 8,
+        "limit": 10,
+        "used": 0
+      },
+      "step": "tests",
+      "subagentCount": 4
+    },
+    "pinned": false,
+    "provider": "codex",
+    "settledReason": "manual",
     "status": {
-      "on": "rate_limit",
-      "state": "waiting"
+      "state": "failed"
     },
     "title": "example",
-    "updatedAt": 6,
+    "titleSource": "provider",
+    "updatedAt": 1,
     "workspaceId": "example"
   },
   "usage": {}
@@ -22229,7 +22161,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-4
+8
 ```
 
 ## TodoEntry
@@ -22247,7 +22179,8 @@ Example:
 ```json
 {
   "content": "example",
-  "status": "cancelled"
+  "id": "example",
+  "status": "in_progress"
 }
 ```
 
@@ -22276,14 +22209,21 @@ Example:
 {
   "agentId": "example",
   "detail": {
-    "kind": "agent.message",
-    "targetAgentId": "example"
+    "kind": "custom"
   },
   "id": "example",
-  "kind": "plan",
+  "kind": "search",
   "raw": [],
-  "startedAt": 7,
-  "status": "succeeded",
+  "result": {
+    "content": [],
+    "durationMs": 3,
+    "isError": true,
+    "mode": "foreground",
+    "scale": 1,
+    "structuredContent": null
+  },
+  "startedAt": 6,
+  "status": "cancelled",
   "title": "example"
 }
 ```
@@ -22306,7 +22246,7 @@ Example:
   "available": true,
   "detail": "example",
   "hint": "example",
-  "id": "xcode"
+  "id": "git"
 }
 ```
 
@@ -22331,12 +22271,6 @@ Example:
 {
   "command": "example",
   "kind": "shell",
-  "output": {
-    "bytes": 8,
-    "streamId": "example",
-    "tail": "example",
-    "truncated": true
-  },
   "rawCommand": "example"
 }
 ```
@@ -22370,7 +22304,7 @@ Example:
 ```json
 {
   "changes": [],
-  "kind": "file.move"
+  "kind": "file.edit"
 }
 ```
 
@@ -22388,6 +22322,7 @@ Example:
 ```json
 {
   "kind": "search",
+  "matches": 1,
   "query": "example"
 }
 ```
@@ -22457,10 +22392,7 @@ Example:
 
 ```json
 {
-  "agentType": "example",
-  "childAgentId": "example",
-  "kind": "agent.spawn",
-  "prompt": "example"
+  "kind": "agent.spawn"
 }
 ```
 
@@ -22477,7 +22409,6 @@ Example:
 ```json
 {
   "kind": "agent.message",
-  "message": "example",
   "targetAgentId": "example"
 }
 ```
@@ -22510,7 +22441,8 @@ Example:
 
 ```json
 {
-  "kind": "plan"
+  "kind": "plan",
+  "todos": []
 }
 ```
 
@@ -22538,7 +22470,7 @@ Example:
 
 ```json
 {
-  "kind": "browser"
+  "kind": "notebook"
 }
 ```
 
@@ -22551,7 +22483,7 @@ Type: ["shell","file.read","file.edit","file.write","file.delete","file.move","s
 Example:
 
 ```json
-"agent.message"
+"todo"
 ```
 
 ## ToolResult
@@ -22574,8 +22506,10 @@ Example:
 ```json
 {
   "content": [],
-  "durationMs": 7,
-  "isError": false
+  "durationMs": 0,
+  "isError": true,
+  "mode": "foreground",
+  "structuredContent": null
 }
 ```
 
@@ -22588,7 +22522,7 @@ Type: ["pending","awaiting_approval","running","succeeded","failed","declined","
 Example:
 
 ```json
-"running"
+"pending"
 ```
 
 ## TurnDigest
@@ -22617,21 +22551,21 @@ Example:
 
 ```json
 {
-  "approvalsAnswered": 4,
-  "approvalsAsked": 8,
-  "approvalsAutoReviewed": 4,
-  "approvalsPending": 9,
+  "approvalsAnswered": 2,
+  "approvalsAsked": 4,
+  "approvalsAutoReviewed": 6,
+  "approvalsPending": 5,
   "commands": [],
-  "commandsFailed": 2,
-  "commandsRun": 8,
-  "errors": 7,
+  "commandsFailed": 4,
+  "commandsRun": 0,
+  "errors": 8,
   "files": [],
   "inputTokens": null,
-  "outputTokens": null,
-  "subagentsFinished": 0,
-  "subagentsStarted": 6,
+  "outputTokens": 2,
+  "subagentsFinished": 9,
+  "subagentsStarted": 8,
   "toolCounts": {},
-  "truncated": false
+  "truncated": true
 }
 ```
 
@@ -22668,7 +22602,7 @@ Example:
 
 ```json
 {
-  "limit": 8,
+  "after": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "turns.page"
@@ -22696,11 +22630,11 @@ Example:
 ```json
 {
   "after": null,
-  "before": 9,
-  "indexedSeq": 7,
-  "ready": false,
+  "before": 5,
+  "indexedSeq": 8,
+  "ready": true,
   "requestId": "example",
-  "seq": 4,
+  "seq": 7,
   "threadId": "example",
   "turns": [],
   "type": "turns.page"
@@ -22727,27 +22661,29 @@ Example:
 {
   "agentId": "example",
   "digest": {
-    "approvalsAnswered": 7,
+    "approvalsAnswered": 1,
     "approvalsAsked": 0,
-    "approvalsAutoReviewed": 6,
-    "approvalsPending": 3,
+    "approvalsAutoReviewed": 8,
+    "approvalsPending": 6,
     "commands": [],
-    "commandsFailed": 9,
-    "commandsRun": 7,
-    "errors": 3,
+    "commandsFailed": 1,
+    "commandsRun": 5,
+    "errors": 4,
     "files": [],
-    "inputTokens": 4,
-    "outputTokens": 4,
-    "subagentsFinished": 9,
-    "subagentsStarted": 7,
+    "inputTokens": 8,
+    "outputTokens": 7,
+    "subagentsFinished": 3,
+    "subagentsStarted": 9,
     "toolCounts": {},
-    "truncated": false
+    "truncated": true
   },
-  "startedAt": 4,
+  "name": "example",
+  "startedAt": 5,
   "status": {
-    "interactions": 8,
+    "interactions": 2,
     "state": "needs_you"
-  }
+  },
+  "threadId": "example"
 }
 ```
 
@@ -22776,33 +22712,31 @@ Example:
 ```json
 {
   "digest": {
-    "approvalsAnswered": 0,
-    "approvalsAsked": 9,
-    "approvalsAutoReviewed": 2,
-    "approvalsPending": 7,
+    "approvalsAnswered": 4,
+    "approvalsAsked": 2,
+    "approvalsAutoReviewed": 0,
+    "approvalsPending": 1,
     "commands": [],
     "commandsFailed": 2,
-    "commandsRun": 4,
+    "commandsRun": 1,
     "errors": 1,
     "files": [],
     "inputTokens": null,
-    "outputTokens": 0,
-    "subagentsFinished": 2,
+    "outputTokens": 4,
+    "subagentsFinished": 4,
     "subagentsStarted": 9,
     "toolCounts": {},
     "truncated": true
   },
   "endSeq": 3,
-  "endedAt": 3,
   "initiatingMessagePreview": "example",
   "latestAgentMessagePreview": "example",
-  "ordinal": 6,
-  "outcome": "failed",
-  "startSeq": 3,
+  "ordinal": 1,
+  "outcome": "active",
+  "startSeq": 5,
   "startedAt": 1,
   "status": {
-    "agents": 2,
-    "state": "working"
+    "state": "unresponsive"
   },
   "subagents": [],
   "subagentsTruncated": false,
@@ -22829,11 +22763,11 @@ Example:
 
 ```json
 {
-  "exhaustionAt": 1,
-  "observed": 7,
-  "overflow": true,
-  "perHour": 1,
-  "remaining": null,
+  "exhaustionAt": null,
+  "observed": 9,
+  "overflow": false,
+  "perHour": 4,
+  "remaining": 8,
   "unit": "tokens",
   "windowId": "example"
 }
@@ -22865,7 +22799,7 @@ Type: ["day","thread","agent","provider","account","model","workspace"]. See JSO
 Example:
 
 ```json
-"model"
+"account"
 ```
 
 ## UsageLimitsChanged
@@ -22882,29 +22816,33 @@ Example:
 ```json
 {
   "account": {
-    "authMethod": "browser",
-    "availability": "logged_out",
-    "blockedUntil": null,
-    "homeStrategy": "default_cli",
+    "acpAgentId": "example",
+    "availability": "near_limit",
+    "blockedUntil": 7,
     "id": "example",
     "installationVersion": "example",
-    "isDefault": false,
     "label": "example",
-    "profileRevision": "example",
-    "provider": "cursor",
+    "provider": "acp",
     "quota": {
       "auth": "logged_in",
-      "billingMode": "subscription",
+      "billingMode": "api",
       "blockers": {
-        "overflow": true
+        "limitError": {
+          "remainingPercent": 6,
+          "resetsAt": null,
+          "source": "limit_error",
+          "usedPercent": 6
+        }
       },
-      "observedAt": 9,
+      "observedAt": 6,
+      "plan": "example",
       "usage": {
-        "costUsd": 6,
-        "inputTokens": 7
+        "outputTokens": 1
       },
       "windows": {}
-    }
+    },
+    "shortLabel": "M",
+    "signedInAs": "example"
   },
   "type": "usage.limits_changed"
 }
@@ -22928,12 +22866,13 @@ Example:
   "kind": "summary",
   "requestId": "example",
   "result": {
-    "costLabel": "estimate",
-    "cursor": 9,
+    "cursor": 1,
     "priceVersion": "example",
+    "retainedFrom": "2000-02-29",
     "rows": [],
     "timezone": "example",
-    "truncated": true
+    "tokenSource": "cli",
+    "truncated": false
   },
   "type": "usage.result"
 }
@@ -22963,9 +22902,10 @@ Example:
 
 ```json
 {
-  "cacheWrite1hTokens": 2,
-  "contextTokens": 6,
-  "counterMode": "incremental"
+  "contextTokens": 7,
+  "counterKey": "example",
+  "model": "example",
+  "usageScope": "provider_session"
 }
 ```
 
@@ -23021,15 +22961,15 @@ Example:
 
 ```json
 {
-  "cursor": 6,
-  "omittedEvents": 7,
+  "accounts": [],
+  "costLabel": "estimate",
+  "cursor": 9,
   "priceSources": [],
   "priceVersion": "example",
-  "retainedFrom": "5200-02-29",
+  "retainedFrom": "5764-03-30",
   "rows": [],
   "timezone": "example",
-  "tokenSource": "cli",
-  "truncated": false
+  "truncated": true
 }
 ```
 
@@ -23048,18 +22988,19 @@ Example:
 {
   "dimensions": {},
   "totals": {
-    "cacheWrite1hTokens": 1,
-    "cacheWriteTokens": 8,
-    "cachedInputTokens": 2,
-    "equivalentApiUsd": null,
-    "estimatedUsd": 4,
-    "inputTokens": 2,
-    "outputTokens": 7,
+    "cacheWrite1hTokens": 5,
+    "cacheWriteTokens": 3,
+    "cachedInputTokens": 5,
+    "equivalentApiUsd": 2,
+    "estimatedUsd": 1,
+    "inputTokens": 5,
+    "outputTokens": 0,
+    "overflow": true,
     "providerReportedUsd": 7,
-    "reasoningTokens": 6,
-    "subscriptionTokens": 1,
+    "reasoningTokens": 8,
+    "subscriptionTokens": 7,
     "unknownBillingTokens": 5,
-    "unpricedTokens": 3
+    "unpricedTokens": 6
   }
 }
 ```
@@ -23108,14 +23049,14 @@ Example:
 
 ```json
 {
-  "at": 2,
-  "cacheWriteTokens": 0,
-  "cachedInputTokens": 1,
-  "costUsd": 2,
+  "at": 8,
+  "cacheWriteTokens": 8,
+  "cachedInputTokens": 9,
+  "costUsd": 3,
   "counterKey": "example",
-  "inputTokens": 1,
+  "inputTokens": 2,
   "model": "example",
-  "outputTokens": 7,
+  "outputTokens": 0,
   "scope": "model_session"
 }
 ```
@@ -23238,18 +23179,19 @@ Example:
 
 ```json
 {
-  "cacheWrite1hTokens": 5,
+  "cacheWrite1hTokens": 4,
   "cacheWriteTokens": 6,
-  "cachedInputTokens": 3,
-  "equivalentApiUsd": 1,
-  "estimatedUsd": 2,
-  "inputTokens": 9,
-  "outputTokens": 8,
-  "providerReportedUsd": 3,
-  "reasoningTokens": 7,
-  "subscriptionTokens": 6,
-  "unknownBillingTokens": 9,
-  "unpricedTokens": 9
+  "cachedInputTokens": 8,
+  "equivalentApiUsd": null,
+  "estimatedUsd": 7,
+  "inputTokens": 6,
+  "outputTokens": 1,
+  "overflow": true,
+  "providerReportedUsd": 7,
+  "reasoningTokens": 9,
+  "subscriptionTokens": 7,
+  "unknownBillingTokens": 1,
+  "unpricedTokens": 5
 }
 ```
 
@@ -23284,12 +23226,15 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "agentId": "example",
-  "cacheWriteTokens": 7,
+  "billingMode": "api",
+  "cachedInputTokens": 5,
+  "counterKey": "example",
+  "counterMode": "cumulative",
   "inputTokens": 5,
-  "outputTokens": 2,
-  "type": "usage.updated",
-  "usageScope": "agent"
+  "outputTokens": 4,
+  "type": "usage.updated"
 }
 ```
 
@@ -23307,9 +23252,9 @@ Example:
 
 ```json
 {
-  "auth": "cqXMxdhjSyxMOHFANSfzFd",
+  "auth": "CbMVtWDRmdvQx_DckHPjOt",
   "endpoint": "https://example.invalid/",
-  "p256dh": "Lpmr8szPO9_aQj1kcA0EvsqlIy2QH8DIeZuplS3TSjHh7h6iDHn2-MbQQsm_cXjCHSo52mhadA8BA_tMH3kfuKZ"
+  "p256dh": "WctdX3Q1de9pDqgv0gfIvdt-L3u89ExdWt6CtmWu_KfDcUskXWHSTPH9dN-AOt-QuGBIMjYvQMcHoQKe014Rrxq"
 }
 ```
 
@@ -23352,8 +23297,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "editors": [],
-    "kind": "editors"
+    "kind": "scripts",
+    "scripts": []
   },
   "type": "workspace.result"
 }
@@ -23396,8 +23341,7 @@ Example:
 ```json
 {
   "commandId": "example",
-  "percent": 2,
-  "phase": "failed",
+  "phase": "receiving",
   "type": "workspace.clone.progress"
 }
 ```
@@ -23423,7 +23367,7 @@ Example:
   "id": "example",
   "op": "example",
   "path": "example",
-  "version": "example"
+  "version": null
 }
 ```
 
@@ -23446,7 +23390,7 @@ Example:
     "op": "example",
     "path": "example",
     "trashId": "example",
-    "version": "example"
+    "version": null
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"
@@ -23483,7 +23427,7 @@ Example:
   "command": "example",
   "id": "example",
   "name": "example",
-  "source": "Procfile"
+  "source": "justfile"
 }
 ```
 
@@ -23519,9 +23463,9 @@ Example:
 
 ```json
 {
-  "head": "4e5fa7f8352807462102052c02764c484d01d437ac2dcd55",
-  "ref": "example",
-  "remote": "laiNQusbk"
+  "fetch": "unreachable",
+  "head": "29fc4286cd806d7c4d51d4bdf901288d5d48c5155f",
+  "ref": "example"
 }
 ```
 
@@ -23551,15 +23495,14 @@ Example:
 ```json
 {
   "actions": [],
-  "attempt": 2,
-  "cleanupComplete": false,
+  "attempt": 9,
+  "cleanupComplete": true,
   "commandId": "example",
   "details": [],
-  "elapsedMs": 4,
-  "message": "example",
-  "startedAt": 4,
-  "state": "local",
-  "step": "done",
+  "elapsedMs": 0,
+  "startedAt": 1,
+  "state": "cancelling",
+  "step": "fetching",
   "steps": [],
   "threadId": "example",
   "type": "worktree.creation.progress"
@@ -23591,14 +23534,14 @@ Example:
 ```json
 {
   "actions": [],
-  "attempt": 3,
+  "attempt": 5,
   "cleanupComplete": false,
   "commandId": "example",
   "details": [],
-  "elapsedMs": 0,
-  "startedAt": 4,
-  "state": "done",
-  "step": "fetching",
+  "elapsedMs": 7,
+  "startedAt": 3,
+  "state": "local",
+  "step": "done",
   "steps": []
 }
 ```
@@ -23618,7 +23561,7 @@ Example:
 
 ```json
 {
-  "action": "retry",
+  "action": "cancel",
   "commandId": "example",
   "requestId": "example",
   "type": "worktree.creation.request"
@@ -23641,8 +23584,20 @@ Example:
 
 ```json
 {
-  "error": "not_found",
   "ok": true,
+  "progress": {
+    "actions": [],
+    "attempt": 9,
+    "cleanupComplete": false,
+    "commandId": "example",
+    "details": [],
+    "elapsedMs": 7,
+    "percent": 0,
+    "startedAt": 7,
+    "state": "done",
+    "step": "done",
+    "steps": []
+  },
   "requestId": "example",
   "type": "worktree.creation.result"
 }

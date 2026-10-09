@@ -89,9 +89,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               <span className="grid size-5 place-items-center">
                 <PlusIcon aria-hidden size={14} />
               </span>
-              <span className="font-medium">
-                {props.provider === "opencode" ? "Sign in for more models" : "Connect a service"}
-              </span>
+              <span className="font-medium">Connect a service</span>
             </button>
           </li>
         )}

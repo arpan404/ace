@@ -102,3 +102,4 @@ export {
 export { withoutEmptySources } from "@ace/models/availability";
 
 export { isDefaultSelection } from "@ace/models/resolve";
+export { extensionDisplayName, catalogDisplayName } from "./extension-names.ts";

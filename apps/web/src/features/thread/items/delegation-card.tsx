@@ -50,7 +50,7 @@ function ResultRow(props: { result: DelegationResult }) {
   const model = thread?.execution?.model;
   const lead =
     result.outcome === "failed"
-      ? describeProviderError({ text: result.result, provider: thread?.provider }).title
+      ? describeProviderError({ text: result.result, provider: thread?.provider, model }).title
       : resultLead(result.result);
   return (
     <li className="flex items-start gap-2.5">

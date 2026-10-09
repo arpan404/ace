@@ -349,6 +349,12 @@ export function modelCatalog(): CatalogModel[] {
         }),
       );
   }
+  // The isolated API account reports its own failing service, as a real catalog instance does.
+  rows.push(
+    ...rows
+      .filter((row) => row.provider === "opencode" && row.source?.id === "openrouter")
+      .map((row) => Object.assign({}, row, { instance: "opencode-api" })),
+  );
   for (const source of [
     { kind: "subscription", id: "github-copilot", label: "GitHub Copilot" },
     { kind: "other", id: "anthropic", label: "Anthropic" },

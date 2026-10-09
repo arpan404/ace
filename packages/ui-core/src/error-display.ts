@@ -105,7 +105,8 @@ export function isBareErrorCode(text: string): boolean {
 
 /** A failure as one readable row: title, the fixing action and the raw text behind "Details". */
 export function describeProviderError(input: ErrorInput): ErrorView {
-  const tagged = parseTaggedError(input.text);
+  const tagged =
+    parseTaggedError(input.text) ?? (input.detail ? parseTaggedError(input.detail) : undefined);
   const rawCode =
     input.code ?? tagged?.code ?? (isBareErrorCode(input.text) ? input.text.trim() : undefined);
   const code = rawCode ? (codeAliases[rawCode] ?? rawCode) : input.kind && codeAliases[input.kind];

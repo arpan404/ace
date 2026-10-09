@@ -2,6 +2,7 @@ import { ApproveApp } from "./approve-app.tsx";
 import type { ScreenGrant } from "@ace/protocol";
 import {
   grantRows,
+  targetBundle,
   permissionsReading,
   stopAllSummary,
   visibleSessions,
@@ -122,7 +123,7 @@ export function LiveSessions(props: {
           : cn("grid grid-cols-1 gap-3", !props.narrow && "md:grid-cols-2")
       }
     >
-      {sessions.map((state) => (
+      {sessions.map((state, index) => (
         <li key={state.sessionId} className="min-w-0">
           <SessionCard
             state={state}
@@ -130,6 +131,11 @@ export function LiveSessions(props: {
             threadId={threadId}
             live={!props.compact}
             compact={props.compact}
+            fallback={
+              sessions.findIndex((other) => targetBundle(other) === targetBundle(state)) === index
+                ? "group"
+                : "row"
+            }
           />
         </li>
       ))}
@@ -182,9 +188,17 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
     <>
       {picker}
       <ul aria-label="Approved apps" className="flex flex-col">
-        {rows.map((row) => (
+        {rows.map((row, index) => (
           <li key={row.key} className="flex h-9 items-center gap-2 border-b last:border-b-0">
-            <AppMark name={row.app} bundleId={row.bundleId} />
+            <AppMark
+              name={row.app}
+              bundleId={row.bundleId}
+              fallback={
+                rows.findIndex((other) => other.bundleId === row.bundleId) === index
+                  ? "group"
+                  : "row"
+              }
+            />
             <p className="min-w-0 flex-1 truncate text-ui">
               {row.app}
               <span className="ml-2 text-xs text-subtle-foreground">

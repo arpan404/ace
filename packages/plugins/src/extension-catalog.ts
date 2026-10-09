@@ -1,3 +1,5 @@
+import { componentTitle } from "./component-title.ts";
+import { normalizePath } from "./manifest.ts";
 import { projectionName } from "./projection-name.ts";
 import type { CatalogEntry, ProviderKind } from "@ace/protocol";
 import type { PluginSnapshot } from "./types.ts";
@@ -6,6 +8,7 @@ export function pluginCatalog(
   provider: ProviderKind,
   snapshots: readonly {
     install: PluginSnapshot["install"];
+    text?: PluginSnapshot["text"] | undefined;
     manifest: Pick<PluginSnapshot["manifest"], "description" | "skills" | "commands" | "agents">;
   }[],
 ): CatalogEntry[] {
@@ -32,8 +35,18 @@ export function pluginCatalog(
           provider === "opencode" || provider === "codex"
             ? projectionName(plugin, component.name)
             : `${plugin}:${component.name}`;
+        const path =
+          kind === "skill"
+            ? `${normalizePath(component.path)}/SKILL.md`
+            : normalizePath(component.path);
+        const title =
+          componentTitle(snapshot.text?.[path] ?? "", component.name) ??
+          ("title" in component && typeof component.title === "string"
+            ? component.title
+            : undefined);
         entries.push({
           id: `ace:plugin:${plugin}:${kind}:${component.name}`,
+          ...(title ? { title } : {}),
           kind,
           name: `${plugin}:${component.name}`,
           description: component.description ?? "",

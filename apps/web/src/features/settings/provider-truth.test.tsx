@@ -21,14 +21,14 @@ test("one world agrees on Codex's usable sibling, Claude's default login and Gem
   const codex = await screen.findByRole("article", { name: "Codex Personal" });
   expect(within(codex).getByText("Signed in")).toBeTruthy();
   expect(meter(codex, "5-hour")).toBe("38");
-  const claude = await screen.findByRole("article", { name: "Claude Code ada@example.com" });
+  const claude = await screen.findByRole("article", { name: "Claude Code Your CLI login" });
   expect(within(claude).getByText("Signed in")).toBeTruthy();
   const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
   expect(meter(gemini, "Daily")).toBe("71");
 
   for (const [name, account] of [
     ["Codex", "Personal", "5-hour", "38"],
-    ["Claude Code", "ada@example.com", undefined, undefined],
+    ["Claude Code", "Your CLI login", undefined, undefined],
     ["Gemini CLI", "Google", "Daily", "71"],
   ] as const) {
     await userEvent.click(screen.getByRole("link", { name }));
@@ -187,8 +187,10 @@ test("OpenCode lists Free models and distinguishes identically named models by t
   expect(within(zen).getByText("Free")).toBeTruthy();
   for (const source of ["Anthropic", "OpenRouter"])
     expect(
-      within(within(models).getByRole("list", { name: source })).getByText("Opus 5.5"),
-    ).toBeTruthy();
+      within(models)
+        .getAllByRole("list", { name: source })
+        .some((list) => within(list).queryByText("Opus 5.5")),
+    ).toBe(true);
 });
 
 test("OpenAI key entry stays inline in an OpenCode account and cancels without storing input", async () => {

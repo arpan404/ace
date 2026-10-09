@@ -53,15 +53,6 @@ export function AutomationRunDetail(props: { run: AutomationRun }) {
         <dd>{triggers[run.trigger]}</dd>
       </dl>
       <div className="mt-5 flex flex-wrap gap-2">
-        {run.threadId && (
-          <Link
-            to="/t/$threadId"
-            params={{ threadId: run.threadId }}
-            className={buttonVariants({ variant: "primary" })}
-          >
-            Open thread
-          </Link>
-        )}
         <Link
           to="/automations/$automationId"
           params={{ automationId: run.automationId }}

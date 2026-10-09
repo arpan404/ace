@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useItem, useThread } from "@ace/client-react";
+import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item, ProviderKind } from "@ace/protocol";
 import {
   echoesEarlierError,
@@ -137,6 +137,7 @@ function useEchoedCode(threadId: string, item: Item | undefined): boolean {
  */
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
+  const thread = useThreadMeta(props.threadId);
   const input = systemInput(item);
   const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));
   const echoed = useEchoedCode(props.threadId, item);
@@ -190,7 +191,18 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventDivider line={line} received={item.text} />;
-      if (item.level === "error") return <ErrorRow error={noticeError(item)} />;
+      if (item.level === "error") {
+        const error = noticeError(item);
+        return (
+          <ErrorRow
+            error={{
+              ...error,
+              provider: error.provider ?? thread?.provider,
+              model: error.model ?? item.executionSource?.selection.model,
+            }}
+          />
+        );
+      }
       return <NoticeLine level={item.level} text={item.text} />;
     }
     case "compaction":

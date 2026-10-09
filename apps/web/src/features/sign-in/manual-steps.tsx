@@ -1,3 +1,4 @@
+import { loginSuccessMessage } from "./login-copy.ts";
 import { accountDisplayName, accountStatus } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderLoginProgress } from "@ace/protocol";
@@ -141,10 +142,8 @@ export function ManualSteps(props: {
             <p role="status" className="flex items-center gap-1.5 font-medium">
               <CheckIcon aria-hidden size={14} weight="bold" className="text-status-done" />
               {account
-                ? `Signed in · ${accountDisplayName(account)}`
-                : row?.accountLabel
-                  ? `Signed in as ${row.accountLabel}`
-                  : `Signed in to ${name}`}
+                ? loginSuccessMessage({ name, account: accountDisplayName(account) })
+                : loginSuccessMessage({ name })}
             </p>
           ) : (
             <p className="text-muted-foreground">

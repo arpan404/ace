@@ -50,7 +50,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
       {/* On a narrow column the actions wrap under the label instead of squeezing it. */}
       <div className="flex min-h-[42px] flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-card py-1 pr-2 pl-3.5 shadow-[inset_0_0_0_1px_var(--border)]">
         <span className="flex items-center gap-2.5 whitespace-nowrap">
-          <span className="text-[13.5px] font-medium">{label}</span>
+          <span className="text-[13.5px] font-medium">This turn · {label}</span>
           <Stat added={added} removed={removed} />
         </span>
         <span className="flex flex-1 justify-end">

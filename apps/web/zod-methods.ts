@@ -61,7 +61,7 @@ export const droppedZodMethods: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * The worker never uses fallback schemas or schema introspection; the page's saved Choices still
+ * Ordinary workers never use fallback schemas or schema introspection; the page's saved Choices still
  * need .catch(). Metadata getters would call the omitted JSON Schema processor anyway.
  * Keep .array(): browser origin replies use it at runtime, and perf workers build core
  * validation schemas with it too. These omissions apply to every Vite worker.
@@ -122,6 +122,12 @@ export const droppedWorkerZodMethods = {
     "slugify",
   ],
   ZodError: ["format", "flatten"],
+};
+
+/** The perf fixture loads optional model hints that use fallback schemas. */
+export const droppedPerfWorkerZodMethods = {
+  ...droppedWorkerZodMethods,
+  ZodType: droppedWorkerZodMethods.ZodType.filter((method) => method !== "catch"),
 };
 
 const classicSchemas = /zod\/v4\/classic\/schemas\.js$/;

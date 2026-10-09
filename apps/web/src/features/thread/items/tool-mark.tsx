@@ -8,7 +8,7 @@ import {
   RobotIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { useAppIcon } from "@/lib/app-icons.ts";
+import { AppMark } from "@/components/app-mark.tsx";
 
 const glyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon> = {
   screen: MonitorIcon,
@@ -45,24 +45,7 @@ export function ToolMarkIcon(props: { mark: ToolMark; fallback?: "group" | "row"
 }
 
 function AppIcon(props: { bundleId: string; name: string; fallback: "group" | "row" }) {
-  const icon = useAppIcon(props.bundleId);
-  if (!icon)
-    return props.fallback === "row" ? (
-      <MonitorIcon aria-hidden size={14} />
-    ) : (
-      <LetterTile text={props.name} />
-    );
-  return (
-    <img
-      src={icon}
-      alt=""
-      data-app-icon={props.bundleId}
-      width={14}
-      height={14}
-      className="size-3.5 shrink-0"
-      draggable={false}
-    />
-  );
+  return <AppMark {...props} className="size-3.5 rounded-sm text-2xs" />;
 }
 
 /** A quiet tile with the name's first letter, where there is no icon to show. */

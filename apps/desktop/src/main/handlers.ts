@@ -5,7 +5,7 @@ import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
-import { appIdentities, systemApplication } from "./os/app-identity.ts";
+import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
 import { editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
@@ -45,7 +45,7 @@ export function createHandlers(options: {
   );
   const appIdentity = appIdentities({
     application: (bundleId) => systemApplication(bundleId, process.platform),
-    icon: (path) => app.getFileIcon(path, { size: "normal" }),
+    icon: (path) => systemApplicationIcon(path, process.platform),
   });
   const requireWindow = () => {
     const window = options.window();

@@ -1,3 +1,4 @@
+import { promptProblem } from "./prompt-copy.ts";
 import type { PromptFile, PromptFileScope } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
@@ -124,9 +125,7 @@ export function PromptEditor(props: {
         <ul aria-label="Prompt diagnostics" className="text-ui text-status-failed">
           {diagnostics.map((diagnostic) => (
             <li key={`${diagnostic.source}:${diagnostic.message}`}>
-              {diagnostic.message === "Invalid command metadata or document"
-                ? "The prompt’s heading or arguments couldn’t be read. Check the names and indentation."
-                : diagnostic.message}
+              {promptProblem(diagnostic.message)}
             </li>
           ))}
         </ul>

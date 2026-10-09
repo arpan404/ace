@@ -6,7 +6,7 @@ import { FileTextIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { StatusLabel } from "@/components/status-label.tsx";
+import { promptProblem } from "./prompt-copy.ts";
 import { Icon } from "@/components/icon.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
@@ -135,8 +135,15 @@ export function PromptsSettingsScreen() {
                 <span className="text-xs text-subtle-foreground">
                   {file.scope.kind === "global" ? "Global" : "Project"}
                 </span>
-                {!!file.diagnostics.length && <StatusLabel tone="failed" label="Needs attention" />}
+                <span className="text-xs">Edit</span>
               </button>
+              {!!file.diagnostics.length && (
+                <p role="status" className="px-2 pb-2 text-xs text-status-failed">
+                  {file.diagnostics
+                    .map((diagnostic) => promptProblem(diagnostic.message))
+                    .join(" ")}
+                </p>
+              )}
             </li>
           ))}
         </ul>

@@ -1,3 +1,4 @@
+import { catalogDisplayName } from "@ace/ui-core";
 import type { ClientApi } from "@ace/client";
 import type { CatalogEntry, CatalogList } from "@ace/protocol";
 import type { z } from "zod";
@@ -45,7 +46,9 @@ export function catalogSourceLabel(entry: CatalogEntry): string | undefined {
     case "global":
       return "Global";
     case "plugin":
-      return entry.source.plugin ?? "Plugin";
+      return entry.source.plugin === catalogDisplayName(entry)
+        ? undefined
+        : (entry.source.plugin ?? "Plugin");
     case "ace":
       return undefined;
   }

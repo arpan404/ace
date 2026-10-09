@@ -87,7 +87,7 @@ function AccountItem(props: {
   const toast = useToast();
   const [renaming, setRenaming] = useState(false);
   const [removing, setRemoving] = useState(false);
-  // The CLI's own sign-in is named by who it is signed in as, when the CLI says.
+  // Named accounts keep the casing entered by the person.
   const label = account.label;
 
   const state = accountStatus(account, now);

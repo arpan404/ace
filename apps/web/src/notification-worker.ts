@@ -1,5 +1,6 @@
 import { Notification } from "@ace/protocol/notifications";
 import { z } from "zod";
+import { notificationTitle } from "./lib/notification-title.ts";
 
 interface PushEvent extends Event {
   data?: { json(): unknown };
@@ -35,14 +36,11 @@ self.addEventListener("push", (event) => {
   if (!parsed.success) return;
   const notice = parsed.data;
   event.waitUntil(
-    self.registration.showNotification(
-      notice.status === "agent_says" ? `Agent says · ${notice.title}` : notice.title,
-      {
-        body: notice.message ?? notice.preview ?? "Your thread has an update",
-        tag: notice.id,
-        data: { path: `/t/${encodeURIComponent(notice.threadId)}` },
-      },
-    ),
+    self.registration.showNotification(notificationTitle(notice), {
+      body: notice.message ?? notice.preview ?? "Your thread has an update",
+      tag: notice.id,
+      data: { path: `/t/${encodeURIComponent(notice.threadId)}` },
+    }),
   );
 });
 self.addEventListener("notificationclick", (event) => {

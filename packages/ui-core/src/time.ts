@@ -48,8 +48,12 @@ export function formatSpan(from: number, to: number): string {
 }
 
 /** "14:02" in the reader's locale. */
-export function formatClock(at: number, locale?: string): string {
-  return new Date(at).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+export function formatClock(at: number, locale?: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone })
+    .formatToParts(at)
+    .map((part) => (part.type === "dayPeriod" ? part.value.toUpperCase() : part.value))
+    .join("")
+    .replace(/[\u202f\u00a0]/g, " ");
 }
 
 /** "under a minute", "12m", "1h 27m", "3d 4h": the time left until a reset, rounded up. */

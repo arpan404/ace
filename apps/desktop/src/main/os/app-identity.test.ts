@@ -7,7 +7,7 @@ it("looks up arbitrary installed bundle IDs and keeps the system's localized dis
       bundleId === "dev.example.writer"
         ? { path: "/test/Writer.app", displayName: "Localized Writer" }
         : null,
-    icon: async () => ({ isEmpty: () => false, toDataURL: () => "data:image/png;base64,AA==" }),
+    icon: async () => "data:image/png;base64,AA==",
   });
   await expect(read("dev.example.writer")).resolves.toEqual({
     bundleId: "dev.example.writer",
@@ -20,7 +20,7 @@ it("retains the app name when its icon is oversized or malformed", async () => {
   let url = "data:image/png;base64," + "A".repeat(128 * 1024);
   const read = appIdentities({
     application: async () => ({ path: "/test/Writer.app", displayName: "Writer" }),
-    icon: async () => ({ isEmpty: () => false, toDataURL: () => url }),
+    icon: async () => url,
   });
   await expect(read("dev.example.writer")).resolves.toMatchObject({
     displayName: "Writer",
@@ -36,7 +36,7 @@ it("evicts old app identities after the cache reaches its bound", async () => {
   let name = "Before";
   const read = appIdentities({
     application: async () => ({ path: "/test/Writer.app", displayName: name }),
-    icon: async () => ({ isEmpty: () => true, toDataURL: () => "" }),
+    icon: async () => null,
   });
   await read("dev.example.writer");
   name = "After";
