@@ -1,18 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  BellIcon,
   FolderPlusIcon,
   GearSixIcon,
   MagnifyingGlassIcon,
   NotePencilIcon,
 } from "@phosphor-icons/react";
-import { needYouPhrase } from "@ace/ui-core/counts";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { Icon } from "@/components/icon.tsx";
-import { CountBadge } from "@/components/ui/dot.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu, WorkspaceMenu } from "./account-menu.tsx";
@@ -44,14 +41,12 @@ export function useNoProjects(): boolean {
 }
 
 /**
- * The one sidebar. At the top, "ace ▾" (the daemon), Search (a dialog over any screen) and the
- * Activity bell with what needs you; then New thread (Add project while there is none),
+ * The one sidebar. At the top, "ace ▾" (the daemon) and Search (a dialog over any screen);
+ * then New thread (Add project while there is none),
  * Automations and Skills; then the thread list (Settings' pages while in Settings) as its only
  * scrolling part; and at the foot the profile, full width, with the Settings gear beside it.
  */
 export function AppSidebar(props: {
-  /** What needs the person, counted by Activity; composed in by the app layer. */
-  needsYou?: number;
   /** Opens Add project; composed in by the app layer, which owns the project dialogs. */
   onAddProject?(): void;
   /** A quiet sign of agents at work (computer use), composed in by the app layer. */
@@ -63,7 +58,6 @@ export function AppSidebar(props: {
   const { openSearch } = useLayout();
   const current = useRouterState({ select: (state) => activeView(state.location.pathname) });
   const noProjects = useNoProjects() && props.onAddProject !== undefined;
-  const needsYou = props.needsYou ?? 0;
   // A dialog opened from the sheet takes its place.
   const leaveSheet = () => {
     if (sheet) hideSidebar();
@@ -94,21 +88,6 @@ export function AppSidebar(props: {
             >
               <Icon icon={MagnifyingGlassIcon} />
             </button>
-          </Tip>
-          <Tip label="Activity" shortcut="goActivity">
-            <Link
-              to="/activity"
-              aria-label={needsYou > 0 ? `Activity, ${needYouPhrase(needsYou)}` : "Activity"}
-              aria-current={page(current === "activity")}
-              className={quick}
-            >
-              <Icon icon={BellIcon} active={current === "activity"} />
-              <CountBadge
-                count={needsYou}
-                label={needYouPhrase(needsYou)}
-                className="absolute -top-0.5 -right-1"
-              />
-            </Link>
           </Tip>
         </div>
         <ul className="flex flex-col gap-px px-2 pb-2">

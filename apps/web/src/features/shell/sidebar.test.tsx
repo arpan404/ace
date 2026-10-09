@@ -1,4 +1,4 @@
-import { flakyCheckout, workbench, workbenchServices } from "@ace/fake-daemon";
+import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -8,7 +8,7 @@ const title = (name: string) => screen.findByRole("heading", { level: 1, name })
 const button = (name: string | RegExp) => screen.getByRole("button", { name });
 /** The list in the sidebar for the current place. */
 const list = (name: string) => screen.queryByRole("complementary", { name });
-/** The sidebar's own links and buttons: "ace ▾", Search, Activity, New thread and the places. */
+/** The sidebar's own links and buttons: "ace ▾", Search, New thread and the places. */
 const appNav = () => screen.getByRole("navigation", { name: "App" });
 
 function workbenchApp(storage = memoryKeyValue()) {
@@ -21,6 +21,7 @@ function workbenchApp(storage = memoryKeyValue()) {
 test("each place replaces the sidebar list and returning to New thread restores threads", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
+  expect(within(appNav()).queryByRole("link", { name: /^Activity/ })).toBeNull();
   // One sidebar: no rail of views beside it.
   expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
   for (const place of ["Automations", "Skills"]) {
@@ -58,29 +59,6 @@ test("Settings is the gear beside the profile, and its pages take the thread lis
   await title("Automations");
   expect(await screen.findByRole("complementary", { name: "Automations" })).toBeTruthy();
   expect(list("Threads")).toBeNull();
-});
-
-test("the bell counts what needs you and opens Activity in the sidebar", async () => {
-  await workbenchApp().open("/new");
-  await title("New thread");
-  const bell = await within(appNav()).findByRole("link", { name: "Activity, 3 need you" });
-  expect(within(bell).getByLabelText("3 need you")).toBeTruthy();
-  await userEvent.click(bell);
-  await title("Activity");
-  expect(bell.getAttribute("aria-current")).toBe("page");
-  expect(list("Activity")).toBeTruthy();
-  expect(list("Threads")).toBeNull();
-});
-
-test("the bell's count follows a thread that comes to need you, through the client worker too", async () => {
-  const worker = harness({ throughWorker: true });
-  const checkout = worker.play(flakyCheckout());
-  checkout.runThrough("watcher-started");
-  await worker.open("/new");
-  await title("New thread");
-  expect(await within(appNav()).findByRole("link", { name: "Activity" })).toBeTruthy();
-  checkout.runThrough("approval-requested");
-  expect(await within(appNav()).findByRole("link", { name: "Activity, 1 needs you" })).toBeTruthy();
 });
 
 test("the sidebar's title is the daemon's menu, and the profile at its foot the person's", async () => {

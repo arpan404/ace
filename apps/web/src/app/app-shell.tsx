@@ -2,7 +2,7 @@ import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
+import { ActivityNotifier } from "@/features/activity/index.ts";
 import { MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
@@ -62,14 +62,13 @@ export function AppShell() {
   );
 }
 
-/** The thread list in the sidebar's body, made once: the sidebar re-renders on its own count. */
+/** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 const status = <ComputerUseIndicator />;
 
 /**
- * The sidebar with what other slices own: the thread list, Activity's count on its bell (the
- * number Activity's header shows; a change re-renders only the sidebar), Add project for an
- * empty world, and the sign of computer use at its foot.
+ * The sidebar with what other slices own: the thread list, Add project for an empty world,
+ * and the sign of computer use at its foot.
  */
 function ShellSidebar() {
   const projects = useProjectDialogs();
@@ -77,7 +76,6 @@ function ShellSidebar() {
     <AppSidebar
       threads={threads}
       status={status}
-      needsYou={useNeedsYouCount()}
       onAddProject={() => projects.open({ kind: "add", tab: "open" })}
     />
   );

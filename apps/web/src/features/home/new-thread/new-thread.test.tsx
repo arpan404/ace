@@ -264,19 +264,19 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: /^Activity/,
+      name: "Automations",
     }),
   );
-  await screen.findByRole("heading", { level: 1, name: "Activity" });
+  await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
   await screen.findByRole("button", { name: "Project: relay" });
 
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: /^Activity/,
+      name: "Automations",
     }),
   );
-  await screen.findByRole("heading", { level: 1, name: "Activity" });
+  await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
   await screen.findByRole("button", { name: "Project: relay" });
 });
