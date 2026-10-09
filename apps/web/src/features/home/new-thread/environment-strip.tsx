@@ -9,7 +9,6 @@ import {
   composerEnvironmentSurface,
   composerStrip,
   composerEnvironmentRow,
-  ComposerSettingsControls,
   useComposerCompact,
 } from "@/features/thread/index.ts";
 import type { BaseRefs } from "@/lib/branches.ts";
@@ -59,7 +58,6 @@ export function NewThreadEnvironment(props: {
         ) : (
           <EnvironmentControls {...props} compact={false} />
         )}
-        <ComposerSettingsControls />
       </div>
     </section>
   );

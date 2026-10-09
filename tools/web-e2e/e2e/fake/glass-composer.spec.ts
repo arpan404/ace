@@ -54,12 +54,20 @@ for (const theme of ["light", "dark"])
       });
       await page.getByRole("button", { name: /Remove trace.txt/ }).click();
       const environment = page.getByRole("region", { name: "Environment", exact: true });
-      await expect(environment.getByRole("button", { name: /^Model: / })).toBeVisible();
+      const model = composer.getByRole("button", { name: /^Model: / });
+      await expect(model).toBeVisible();
+      const modelBox = await model.boundingBox(),
+        sendBox = await send.boundingBox();
+      if (!modelBox || !sendBox) throw new Error("composer actions missing");
+      expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(sendBox.x + 1);
+      expect(
+        Math.abs(modelBox.y + modelBox.height / 2 - sendBox.y - sendBox.height / 2),
+      ).toBeLessThan(1);
       await expect(environment.getByRole("button", { name: /^Environment:/ })).toHaveCSS(
         "height",
         "28px",
       );
-      await expect(composer.getByRole("button", { name: /^Model: / })).toHaveCount(0);
+      await expect(environment.getByRole("button", { name: /^Model: / })).toHaveCount(0);
       await expect(composer.getByRole("button", { name: /^Approvals:/ })).toBeVisible();
       await page.locator("[data-composer-dock]").screenshot({
         animations: "disabled",

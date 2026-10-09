@@ -75,7 +75,7 @@ export interface ProviderIconProps {
   /** A particular mark, over the provider's and the model's: a service OpenCode reaches. */
   brand?: Brand | undefined;
   /** 12 dense rows · 14 menus and chips · 16 headings · 20 settings · 24 a provider's page. */
-  size?: 12 | 14 | 16 | 20 | 24;
+  size?: 12 | 14 | 16 | 18 | 20 | 24;
   /** `color` (the default) uses the brand's colours; `mono` draws in the surrounding text colour. */
   variant?: "mono" | "color";
   /** Overrides the name read to assistive tech. */

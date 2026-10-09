@@ -5,7 +5,7 @@ import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
-import { accountBadge, accountBadgeStyle } from "./account-badge.ts";
+import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -39,13 +39,17 @@ export function ProviderAccountIcon(
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn("inline-flex shrink-0 items-center gap-0.5", props.className)}
+      className={cn(
+        "relative inline-flex shrink-0 items-center",
+        multiple && account && "pr-1.5 pb-1.5",
+        props.className,
+      )}
       title={account?.shortLabel ? `${name} · ${account.shortLabel}` : name}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
       <ProviderIcon
         {...props}
-        size={props.size ?? 12}
+        size={props.size ?? 16}
         acpAgentId={props.acpAgentId ?? account?.acpAgentId}
         className={undefined}
         decorative
@@ -58,7 +62,7 @@ export function ProviderAccountIcon(
           style={
             { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
           }
-          className={accountBadgeStyle}
+          className={accountBadgeOverlayStyle}
         >
           {accountBadge(account.label, account.shortLabel)}
         </span>

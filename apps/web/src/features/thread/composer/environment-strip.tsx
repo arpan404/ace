@@ -10,7 +10,6 @@ import { useCheckout } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { environmentSurface, stripControl, environmentRow } from "./composer-styles.ts";
-import { ComposerSettingsControls } from "./composer-settings.tsx";
 
 const DeferredThreadEnvironment = deferredComponent(() =>
   import("./thread-environment.tsx").then((module) => module.ThreadEnvironmentCard),
@@ -69,7 +68,6 @@ export function EnvironmentStrip(props: { thread: ThreadRef; onClose(): void }) 
             </PopoverContent>
           </Popover>
         )}
-        <ComposerSettingsControls />
       </div>
     </section>
   );

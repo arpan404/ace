@@ -57,7 +57,7 @@ export function ModelControl(props: {
             <ProviderAccountIcon
               provider={view.provider}
               instance={view.instance ?? view.account}
-              size={12}
+              size={18}
               accountLabel
             />
           )}

@@ -4,7 +4,7 @@ import { useId, type CSSProperties } from "react";
 import { Input } from "./input.tsx";
 import { Button } from "./button.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { accountBadge, accountBadgeStyle } from "./account-badge.ts";
+import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
 
 const symbols = ["💼", "🏠", "🧪", "🚀", "🌙", "🔧"];
 
@@ -45,11 +45,11 @@ export function AccountBadgeField(props: {
           aria-label={`Account badge preview${props.name ? ` for ${props.name}` : ""}`}
         >
           <span
-            className="inline-flex items-center gap-0.5"
+            className="relative inline-flex items-center pr-1.5 pb-1.5"
             style={{ "--account-color": "var(--foreground)" } as CSSProperties}
           >
-            <ProviderIcon provider={props.provider} size={12} decorative />
-            <span className={accountBadgeStyle}>
+            <ProviderIcon provider={props.provider} size={16} decorative />
+            <span className={accountBadgeOverlayStyle}>
               {issue ? "?" : accountBadge(props.name ?? "Account", props.value)}
             </span>
           </span>

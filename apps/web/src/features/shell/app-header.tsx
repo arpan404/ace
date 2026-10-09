@@ -1,18 +1,14 @@
-import {
-  CaretLeftIcon,
-  CaretRightIcon,
-  DotsThreeIcon,
-  SidebarSimpleIcon,
-} from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHistoryNav } from "@/lib/history-nav.ts";
-import { useViewFrame, useSidebarToggleRegistration } from "./sidebar-frame.tsx";
+import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
   /** 14px semibold. Rendered as the view's h1. */
@@ -37,7 +33,6 @@ export interface HeaderProps {
  */
 export function HeaderNav() {
   const frame = useViewFrame();
-  const registerSidebarToggle = useSidebarToggleRegistration();
   const nav = useHistoryNav();
   // A phone leaves history to the system.
   const phone = usePhone();
@@ -51,19 +46,15 @@ export function HeaderNav() {
         (phone && !frame.sidebarShown ? (
           // A phone's list is the sidebar sheet: going back to it is the header's first control.
           <IconButton
-            ref={registerSidebarToggle}
             icon={CaretLeftIcon}
             label="Back to threads"
             shortcut="toggleSidebar"
             onClick={frame.showSidebar}
           />
         ) : (
-          <IconButton
-            ref={registerSidebarToggle}
-            icon={SidebarSimpleIcon}
+          <SidebarTrigger
             label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
             shortcut="toggleSidebar"
-            onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
           />
         ))}
       {!phone && (

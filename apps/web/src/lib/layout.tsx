@@ -13,17 +13,15 @@ import type { WorkspaceStore } from "./workspace/store.ts";
 export const ShellLayout = z.object({
   /** The sidebar is on screen (⌘\ hides it). */
   sidebarOpen: z.catch(z.boolean(), true),
-  sidebarWidth: z.catch(z.number().check(z.minimum(220), z.maximum(480)), 280),
 });
 export type ShellLayout = z.infer<typeof ShellLayout>;
 
-const defaultLayout: ShellLayout = { sidebarOpen: true, sidebarWidth: 280 };
+const defaultLayout: ShellLayout = { sidebarOpen: true };
 const storageKey = "ace.layout";
 
 interface LayoutValue {
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
-  setSidebarWidth(width: number): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
   /** The search dialog, open with the words it starts from; undefined while it is closed. */
@@ -93,7 +91,6 @@ export function LayoutProvider(props: {
       setRightPanel,
       storage,
       workspaceStore,
-      setSidebarWidth: (width) => change((p) => ({ ...p, sidebarWidth: width })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
     }),
     [

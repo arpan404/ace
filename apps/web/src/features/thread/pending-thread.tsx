@@ -20,7 +20,6 @@ import {
   environmentRow,
   environmentSurface,
 } from "./composer/composer-styles.ts";
-import { ComposerSettingsControls } from "./composer/composer-settings.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -225,7 +224,6 @@ function PendingComposer({
                 <GitForkIcon aria-hidden size={14} className="shrink-0" />
                 <span className="truncate">{worktreeTabLabel(progress)}</span>
               </p>
-              <ComposerSettingsControls />
             </div>
           </section>
         }

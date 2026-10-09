@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -126,14 +126,20 @@ test("a live limit update changes the provider and account surfaces together", a
   const app = harness();
   await app.open("/settings/providers/codex");
   const list = await screen.findByRole("list", { name: "Codex accounts" });
+  // The list mounts before accounts load; establish the starting account state before a live push.
+  const personalRow = (await within(list).findByText("Personal")).closest("li");
+  if (!personalRow) throw new Error("Missing Personal account row");
+  expect(await within(personalRow).findByText("Signed in")).toBeTruthy();
   const personal = app.daemon.services.accounts.find(
     (account) => account.provider === "codex" && account.label === "Personal",
   );
   if (!personal) throw new Error("Missing Personal fixture");
-  app.daemon.services.updateQuota(personal.id, {
-    ...personal.quota,
-    observedAt: personal.quota.observedAt + 1,
-    windows: { daily: { usedPercent: 100, resetsAt: null } },
+  await act(async () => {
+    app.daemon.services.updateQuota(personal.id, {
+      ...personal.quota,
+      observedAt: personal.quota.observedAt + 1,
+      windows: { daily: { usedPercent: 100, resetsAt: null } },
+    });
   });
   await waitFor(() => expect(within(list).getAllByText("Limit reached")).toHaveLength(2));
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));

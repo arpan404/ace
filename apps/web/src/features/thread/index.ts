@@ -17,7 +17,6 @@ export {
 export { AttachedCard } from "./composer/attached-card.tsx";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
-export { ComposerSettingsControls } from "./composer/composer-settings.tsx";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";

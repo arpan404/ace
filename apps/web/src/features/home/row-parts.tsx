@@ -195,7 +195,7 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
         instance={props.instance}
         provider={card.provider}
         acpAgentId={card.acpAgentId}
-        size={12}
+        size={16}
         accountLabel
         decorative
       />
