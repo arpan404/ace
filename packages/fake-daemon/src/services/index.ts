@@ -66,6 +66,8 @@ export class FakeServices {
   readonly authTerminals = new Map<string, FakeAuthTerminal>();
   private accountCounter = 0;
   models: CatalogModel[];
+  /** Source metadata can exist even when no chat models are enabled. */
+  modelSources = new Map<string, import("@ace/protocol").ModelSourceStatus[]>();
   providerStatuses: import("@ace/protocol").ProviderStatus[];
   commands: PaletteCommand[];
   /** Usage over time and Claude's per-session totals; replace its fields to stage a report. */
@@ -404,43 +406,46 @@ export class FakeServices {
             }
           : {}),
         sources: [
-          ...new Map(
-            models
-              .filter((row) => row.instance === model.instance && row.source)
-              .map((row) => [row.source?.id, row.source]),
-          ).values(),
-        ].flatMap((source) =>
-          source
-            ? [
-                {
-                  source,
-                  status: this.refreshingModels.has(model.instance)
-                    ? "refreshing"
-                    : cursorNeedsLogin || this.failingSources.has(source.id)
-                      ? "stale"
-                      : "fresh",
-                  lastRefreshedAt: refreshedAt ?? Math.max(0, this.host.clock() - 60_000),
-                  ...(this.failingSources.has(source.id)
-                    ? {
-                        error: {
-                          code: "unreachable",
-                          message: `${source.label} could not be reached.`,
-                          hint: "Check your network and refresh models.",
-                        },
-                      }
-                    : cursorNeedsLogin
+          ...(this.modelSources.get(model.instance) ?? []),
+          ...[
+            ...new Map(
+              models
+                .filter((row) => row.instance === model.instance && row.source)
+                .map((row) => [row.source?.id, row.source]),
+            ).values(),
+          ].flatMap<import("@ace/protocol").ModelSourceStatus>((source) =>
+            source
+              ? [
+                  {
+                    source,
+                    status: this.refreshingModels.has(model.instance)
+                      ? "refreshing"
+                      : cursorNeedsLogin || this.failingSources.has(source.id)
+                        ? "stale"
+                        : "fresh",
+                    lastRefreshedAt: refreshedAt ?? Math.max(0, this.host.clock() - 60_000),
+                    ...(this.failingSources.has(source.id)
                       ? {
                           error: {
-                            code: "auth_expired",
-                            message: "Cursor sign-in has expired.",
-                            hint: "Sign in using Cursor, then refresh models.",
+                            code: "unreachable",
+                            message: `${source.label} could not be reached.`,
+                            hint: "Check your network and refresh models.",
                           },
                         }
-                      : {}),
-                },
-              ]
-            : [],
-        ),
+                      : cursorNeedsLogin
+                        ? {
+                            error: {
+                              code: "auth_expired",
+                              message: "Cursor sign-in has expired.",
+                              hint: "Sign in using Cursor, then refresh models.",
+                            },
+                          }
+                        : {}),
+                  },
+                ]
+              : [],
+          ),
+        ],
         refreshing: this.refreshingModels.has(model.instance),
         ...(refreshedAt === undefined ? {} : { refreshedAt, lastRefreshedAt: refreshedAt }),
       });
