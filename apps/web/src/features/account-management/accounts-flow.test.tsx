@@ -84,9 +84,8 @@ test("a renamed default account immediately names the new-thread composer and pi
   await screen.findByText("Near its limit · Studio Work");
   await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
-  expect(
-    within(chip).getByRole("img", { name: "Claude Code · Studio Work · label W" }),
-  ).toBeTruthy();
+  expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();
+  expect(within(chip).getByRole("img", { name: "Studio Work account" })).toBeTruthy();
   const popover = await openModelControl(/^Model: Opus 5.5, Studio Work/);
   const list = await openModelPicker(popover);
   expect(await within(list).findByRole("group", { name: "Studio Work" })).toBeTruthy();
