@@ -10,6 +10,7 @@ export async function startHistory(context: ServiceContext): Promise<void> {
       ? { adapters: options.history.adapters ?? services.historyAdapters }
       : {}),
     signal: context.signal,
+    log: context.log.child("history"),
   });
   resources.own(() => history.close());
   services.history = history;
