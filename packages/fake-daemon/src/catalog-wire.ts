@@ -20,7 +20,12 @@ export class FakeCatalogWire {
   }
   private readonly overrides = new Map<ProviderKind, CatalogEntry[]>();
   private readonly listeners = new Set<() => void>();
-  seed(overrides: Partial<Record<ProviderKind, CatalogEntry[]>>): void {
+  private loading: readonly ProviderKind[] = [];
+  seed(
+    overrides: Partial<Record<ProviderKind, CatalogEntry[]>>,
+    loading: readonly ProviderKind[] = [],
+  ): void {
+    this.loading = loading;
     this.overrides.clear();
     for (const [provider, entries] of Object.entries(overrides))
       for (const kind of [
@@ -72,7 +77,7 @@ export class FakeCatalogWire {
         ]
           .filter((e) => `${e.name} ${e.description}`.toLowerCase().includes(query))
           .slice(0, message.limit),
-        stale: false,
+        stale: this.loading.includes(provider),
       };
     };
     const changed = () => {

@@ -9,7 +9,7 @@ type Target = Pick<z.input<typeof CatalogList>, "threadId" | "draft" | "workspac
 export function watchCatalog(
   client: ClientApi,
   target: Target,
-  receive: (entries: readonly CatalogEntry[]) => void,
+  receive: (entries: readonly CatalogEntry[], stale: boolean) => void,
   failed: () => void,
 ): () => void {
   const requestId = crypto.randomUUID();
@@ -18,7 +18,7 @@ export function watchCatalog(
   const stop = client.onMessage((message) => {
     if (message.type === "catalog.changed" && message.requestId === requestId) {
       receivedPush = true;
-      receive(message.entries);
+      receive(message.entries, message.stale);
     }
   });
   void client
@@ -28,7 +28,7 @@ export function watchCatalog(
     )
     .then(
       (reply) => {
-        if (!controller.signal.aborted && !receivedPush) receive(reply.entries);
+        if (!controller.signal.aborted && !receivedPush) receive(reply.entries, reply.stale);
       },
       () => {
         if (!controller.signal.aborted) failed();
@@ -37,7 +37,11 @@ export function watchCatalog(
   return () => {
     controller.abort();
     stop();
-    if (client.state === "ready") client.send({ type: "catalog.unsubscribe", requestId });
+    try {
+      if (client.state === "ready") client.send({ type: "catalog.unsubscribe", requestId });
+    } catch {
+      // Disconnect can race the worker mirror; the closed socket owns its subscriptions.
+    }
   };
 }
 

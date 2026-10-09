@@ -54,17 +54,17 @@ export function useSuggestions(
     reference: typeof reference;
     entries: readonly CatalogEntry[];
     failed: boolean;
+    stale: boolean;
   }>();
   const scoped = !thread.draft || !!thread.id;
-  const slash = trigger?.kind === "command";
   useEffect(() => {
-    if (!slash || !scoped || !ready) return;
+    if (!scoped || !ready) return;
     return sources.commands.watch(
       reference,
-      (entries) => setCatalog({ reference, entries, failed: false }),
-      () => setCatalog({ reference, entries: [], failed: true }),
+      (entries, stale) => setCatalog({ reference, entries, stale, failed: false }),
+      () => setCatalog({ reference, entries: [], stale: false, failed: true }),
     );
-  }, [sources, slash, scoped, ready, reference]);
+  }, [sources, scoped, ready, reference]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
@@ -109,6 +109,7 @@ export function useSuggestions(
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
     if (catalog.failed) return { state: "failed", kind, query };
+    if (catalog.stale) return { state: "loading", kind, query };
     const entries = thread.draft
       ? catalog.entries
       : [

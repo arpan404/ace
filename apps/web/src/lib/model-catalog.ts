@@ -89,7 +89,15 @@ function watchCatalog(client: ClientApi, queryClient: QueryClient): () => void {
       const filters = [...changed.values()];
       changed.clear();
       const fetching = queryClient.getQueryState(catalogKey)?.fetchStatus === "fetching";
-      if (fetching || filters.length > 3 || filters.some((filter) => !filter.instance))
+      if (fetching) {
+        await queryClient.cancelQueries({ queryKey: catalogKey });
+        return readAll();
+      }
+      if (
+        !queryClient.getQueryData(catalogKey) ||
+        filters.length > 3 ||
+        filters.some((filter) => !filter.instance)
+      )
         return readAll();
       for (const filter of filters) {
         const scope = scopeOf({ provider: filter.provider ?? "", instance: filter.instance ?? "" });
@@ -112,7 +120,7 @@ function watchCatalog(client: ClientApi, queryClient: QueryClient): () => void {
     let ready = connection.getSnapshot() === "ready";
     const stops = [
       client.onMessage((message) => {
-        if (message.type !== "models.changed" || !queryClient.getQueryData(catalogKey)) return;
+        if (message.type !== "models.changed") return;
         const { provider, instance } = message.filter;
         changed.set(scopeOf({ provider: provider ?? "", instance: instance ?? "" }), {
           provider,
@@ -155,10 +163,10 @@ function useCatalogQuery() {
   });
 }
 
-/** Every model discovery found, or undefined until known (an error reads as empty). */
+/** Every model discovery found, or undefined until discovery is known. */
 export function useModelCatalog(): CatalogModel[] | undefined {
   const query = useCatalogQuery();
-  return query.data?.models ?? (query.isError ? noModels : undefined);
+  return query.data?.models;
 }
 
 /** Each account's freshness, last refresh and discovery errors; empty until known. */
@@ -179,5 +187,4 @@ export function useModelCatalogState(): CatalogState {
   return query.isFetching || discovering ? "refreshing" : "ready";
 }
 
-const noModels: CatalogModel[] = [];
 const noInstances: ModelInstanceStatus[] = [];

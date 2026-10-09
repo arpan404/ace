@@ -29,7 +29,7 @@ const payload = (model: string) => ({
   ],
   nextCursor: null,
 });
-test("default installed CLI models refresh lazily, cache across restarts and refresh on demand", async () => {
+test("default installed CLI models load on startup, cache across restarts and refresh on demand", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-default-models-"));
   const executable = join(home, "codex");
   const listing = join(home, "listing.json");
@@ -83,8 +83,9 @@ createInterface({input:process.stdin}).on('line', line => {
     resources = first.resources;
     // Admission is background filesystem work; startup does not await a metadata command.
     expect(first.models.list().instances.map((entry) => entry.provider)).toEqual(["codex"]);
-    await first.models.refresh();
-    expect(first.models.list().models.map((row) => row.id)).toEqual(["first"]);
+    await vi.waitFor(() =>
+      expect(first.models.list().models.map((row) => row.id)).toEqual(["first"]),
+    );
     await first.resources.close();
     resources = undefined;
     await writeFile(listing, JSON.stringify(payload("second")));
@@ -101,7 +102,6 @@ createInterface({input:process.stdin}).on('line', line => {
   }
 });
 
-// Mutation 15 and startup/shutdown responsiveness. Not executed (tests run at merge).
 test("a hung installed model probe leaves startup and listing responsive and shutdown reaps it", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-hung-models-"));
   await writeFile(

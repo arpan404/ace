@@ -48,6 +48,7 @@ export function SkillsCatalogProvider({ children }: { children: ReactNode }) {
     key: string;
     entries: readonly CatalogEntry[];
     failed: boolean;
+    stale: boolean;
   }>();
   const projectId = project?.id;
   const key = `${projectId ?? ""}:${provider}:${revision}`;
@@ -56,8 +57,8 @@ export function SkillsCatalogProvider({ children }: { children: ReactNode }) {
     return watchCatalog(
       client,
       { workspace: { workspaceId: WorkspaceId.parse(projectId), provider } },
-      (entries) => setSnapshot({ key, entries, failed: false }),
-      () => setSnapshot({ key, entries: [], failed: true }),
+      (entries, stale) => setSnapshot({ key, entries, stale, failed: false }),
+      () => setSnapshot({ key, entries: [], stale: false, failed: true }),
     );
   }, [client, connection, projectId, provider, key, providerReady]);
   const current = snapshot?.key === key ? snapshot : undefined;
@@ -88,7 +89,7 @@ export function SkillsCatalogProvider({ children }: { children: ReactNode }) {
     () => ({
       entries: current?.entries ?? [],
       controls,
-      pending: !directory.loaded || Boolean(project && !current),
+      pending: !directory.loaded || Boolean(project && (!current || current.stale)),
       failed: current?.failed ?? false,
       retry,
     }),
