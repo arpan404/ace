@@ -16,10 +16,11 @@ test("remote access and transport choices are saved and machine renaming is show
   expect(
     await screen.findByText(/Browsers must trust this computer's HTTPS certificate/),
   ).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Edit this machine" }));
   const name = screen.getByRole("textbox", { name: "Machine name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Office Mac");
-  await userEvent.tab();
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(app.daemon.services.settings.get("host.displayName")).toBe("Office Mac"),
   );

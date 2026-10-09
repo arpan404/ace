@@ -3,6 +3,7 @@ import { useClient, useThread } from "@ace/client-react";
 import type { ThreadCatchUpResponse } from "@ace/protocol";
 import { catchUpHasNews } from "@ace/ui-core";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { usePageVisible } from "@/lib/page-visibility.ts";
 import { useWatched, type ThreadNav } from "./nav.tsx";
@@ -75,6 +76,7 @@ export function useCatchUp(threadId: string): {
  * client; this waits until the thread's cursor settles for a moment.
  */
 export function useReadMarker(threadId: string, nav: ThreadNav, ready: boolean): void {
+  const queryClient = useQueryClient();
   const client = useClient();
   const following = useWatched(nav.following);
   const visible = usePageVisible();
@@ -82,9 +84,15 @@ export function useReadMarker(threadId: string, nav: ThreadNav, ready: boolean):
   useEffect(() => {
     if (!ready || !following || !visible || !cursor) return;
     const timer = setTimeout(
-      () => void client.markThreadRead({ threadId, lastSeenSeq: cursor }).catch(() => {}),
+      () =>
+        void client
+          .markThreadRead({ threadId, lastSeenSeq: cursor })
+          .then(() =>
+            queryClient.invalidateQueries({ queryKey: ["sidebar-thread-read", threadId] }),
+          )
+          .catch(() => {}),
       800,
     );
     return () => clearTimeout(timer);
-  }, [client, threadId, ready, following, visible, cursor]);
+  }, [client, queryClient, threadId, ready, following, visible, cursor]);
 }

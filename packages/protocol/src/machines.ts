@@ -40,19 +40,9 @@ export const MachinesResult = z.object({
 });
 export type MachinesResult = z.infer<typeof MachinesResult>;
 
-/** Authenticated identity of this daemon, never an inventory of other hosts. */
-export const HostIdentity = z.object({
-  hostId: HostId,
-  displayName: z.string().min(1).max(256),
-  version: z.string().min(1).max(128),
-});
-export type HostIdentity = z.infer<typeof HostIdentity>;
-export const HostIdentityRequest = z.object({
-  type: z.literal("host.identity"),
-  requestId: id,
-});
-export const HostIdentityResult = z.object({
-  type: z.literal("host.identity.result"),
-  requestId: id,
-  identity: HostIdentity,
-});
+export {
+  MachineIcon,
+  HostIdentity,
+  HostIdentityRequest,
+  HostIdentityResult,
+} from "./host-identity.ts";

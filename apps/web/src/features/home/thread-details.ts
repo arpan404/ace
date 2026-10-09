@@ -1,34 +1,16 @@
-import { useHostIdentity, useMachineName } from "@/lib/host-name.ts";
-import type { SidebarReader } from "@ace/client";
-import { useSidebarAll } from "@ace/client-react";
+import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import type { ThreadListEntry } from "@ace/protocol";
-import { cardDetails, homeMachine, type CardDetails } from "@ace/ui-core";
-import { createContext, use, useCallback } from "react";
+import { cardDetails, type CardDetails } from "@ace/ui-core";
 
-/** The machine most threads run on; cards name a machine only when it is another one. */
-export const HomeMachine = createContext<string | undefined>(undefined);
-
-/** Read once for the whole list, so rows don't each scan every entry. */
-export function useHomeMachine(): string | undefined {
-  const select = useCallback(
-    (reader: SidebarReader) =>
-      homeMachine(
-        reader.ids.flatMap((id) => {
-          const entry = reader.thread(id);
-          return entry ? [entry] : [];
-        }),
-      ),
-    [],
-  );
-  const fallback = useSidebarAll(select);
-  return useHostIdentity()?.hostId ?? fallback;
-}
-
-/** Branch, PR, worktree, machine and diff for a card, from the daemon's `details`. */
+/** Branch, PR, worktree, machine and diff for a card, from its metadata and live host identity. */
 export function useCardDetails(entry: ThreadListEntry | undefined): CardDetails | undefined {
-  const home = use(HomeMachine);
-  const machine = useMachineName(entry?.details?.machine);
-  const details = entry && cardDetails(entry, home);
-  if (details?.machine) return { ...details, machine };
-  return details;
+  const machine = useMachineIdentity(entry?.details?.machine);
+  const details = entry && cardDetails(entry, undefined);
+  return (
+    details && {
+      ...details,
+      machine: machine.primary ? undefined : machine.name,
+      machineIcon: machine.icon,
+    }
+  );
 }

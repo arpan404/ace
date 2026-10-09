@@ -247,6 +247,37 @@
           "type": "object"
         }
       ]
+    },
+    "schema8": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
     }
   },
   "$id": "https://ace.local/protocol/v1/SharedDefinitions.json"

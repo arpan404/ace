@@ -1,3 +1,5 @@
+import { loadHostId } from "../local-files.ts";
+import { computerName } from "../computer-name.ts";
 import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
 import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
@@ -23,6 +25,10 @@ export async function startWorkspaceActions({
   );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
+    machine: options.workspaceActions?.machine ?? {
+      host: loadHostId(config.dataDir),
+      name: await computerName(),
+    },
     reconcileThread: async (id) => {
       await services.engine?.reconcileThread(id);
     },

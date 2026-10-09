@@ -235,7 +235,7 @@ test("filtering by project counts that project and shows a chip that clears it",
 
 const requests = ["Allow a force push", "How should the sheet", "Install @fontsource"];
 const order = (titles: string[]) =>
-  titles.filter((title) => requests.some((request) => title.includes(request)));
+  titles.flatMap((title) => requests.filter((request) => title.includes(request)));
 
 test("what needs you is listed oldest first, the same in the sidebar and the cards", async () => {
   const { feed } = await openActivity();
@@ -246,9 +246,8 @@ test("what needs you is listed oldest first, the same in the sidebar and the car
     expect(cards).toHaveLength(3);
     const titles = cards.map((card) => card.getAttribute("aria-label") ?? "");
     const rows = feed.getAllByRole("button").map((row) => row.textContent ?? "");
-    const expected = requests.map((request) => request.slice(0, 12));
-    expect(order(titles).map((title) => title.slice(0, 12))).toEqual(expected);
-    expect(order(rows).map((row) => row.slice(0, 12))).toEqual(expected);
+    expect(order(titles)).toEqual(requests);
+    expect(order(rows)).toEqual(requests);
   });
   // The rest of the feed sits under day headings.
   expect(feed.getByRole("heading", { level: 3, name: "Today" })).toBeTruthy();

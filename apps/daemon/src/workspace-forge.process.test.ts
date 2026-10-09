@@ -124,7 +124,7 @@ test("a thread's details name the forge repository behind its origin remote", as
   }
 });
 
-test("unlink survives restart and an in-flight forge read cannot restore it", async () => {
+test("a draft PR stays identified until unlink, which survives restart and in-flight reads", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-unlink-"));
   await execute("git", ["init", "-q", root]);
   await execute("git", [
@@ -166,6 +166,7 @@ test("unlink survives restart and an in-flight forge read cannot restore it", as
           title: "Linked PR",
           html_url: "https://github.com/test/project/pull/7",
           state: "open",
+          draft: true,
           head: { sha: "a".repeat(40), ref: "topic" },
         };
       } else if (path.includes("/check-runs?")) body = { check_runs: [] };
@@ -195,6 +196,11 @@ test("unlink survives restart and an in-flight forge read cannot restore it", as
         Command.parse({ id: "link", deviceId: "device", payload: { type: "forge.pr.link", link } }),
       ),
     ).toMatchObject({ ok: true });
+    expect(store.getThread(thread.id)?.details?.linkedPr).toMatchObject({
+      number: 7,
+      state: "open",
+      draft: true,
+    });
     hold = true;
     const reading = runtime.read({
       type: "workspace.request",

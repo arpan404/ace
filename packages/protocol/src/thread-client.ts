@@ -1,3 +1,4 @@
+import { MachineIcon } from "./host-identity.ts";
 import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
@@ -64,11 +65,18 @@ export const ThreadDetails = z.object({
     .object({
       number: z.number().int().positive(),
       state: z.enum(["open", "closed", "merged"]),
+      draft: z.boolean().optional(),
       url: z.string().url().max(4096).optional(),
     })
     .nullable()
     .optional(),
-  machine: z.object({ host: z.string().min(1).max(256), name: z.string().max(256) }).optional(),
+  machine: z
+    .object({
+      host: z.string().min(1).max(256),
+      name: z.string().max(256),
+      icon: MachineIcon.optional(),
+    })
+    .optional(),
   diff: z
     .object({
       files: z.number().int().nonnegative(),
@@ -79,11 +87,15 @@ export const ThreadDetails = z.object({
 });
 export type ThreadDetails = z.infer<typeof ThreadDetails>;
 export const ThreadRunMetadata = z.object({
+  /** Start of the current working stretch; streaming activity does not reset it. */
+  workingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),
   model: z.string().max(256).optional(),
   account: z.string().max(256).optional(),
   options: TurnOptions.optional(),
   subagentCount: z.number().int().nonnegative().optional(),
+  /** Subagents currently starting, working or waiting on their own subagents. */
+  runningSubagentCount: z.number().int().nonnegative().optional(),
   backgroundTaskCount: z.number().int().nonnegative().optional(),
   /**
    * Background work still running that holds the thread open (ambient helpers left out),
@@ -116,6 +128,10 @@ export const ThreadRunMetadata = z.object({
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
 export const ThreadClientFields = ThreadOrganization.extend({
+  /** Sequence of the latest execution status, compared with this device's read cursor. */
+  activitySeq: z.number().int().nonnegative().optional(),
+  /** Sticky after the first admitted user message, independent of title and status. */
+  hasSentMessage: z.boolean().optional(),
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
 });

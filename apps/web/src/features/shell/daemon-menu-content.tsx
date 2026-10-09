@@ -1,4 +1,5 @@
-import { useHostName } from "@/lib/host-name.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -16,13 +17,14 @@ export function DaemonMenuContent() {
   const state = useConnectionState();
   const connection = useDaemonConnection();
   const navigate = useNavigate();
-  const host = useHostName() ?? "This machine";
+  const identity = useHostIdentity();
+  const host = identity?.displayName ?? "This machine";
   return (
     <MenuContent side="bottom" align="start" className="max-w-[300px]">
       <MenuGroup>
         <div className="flex items-center gap-2 px-2.5 pt-1.5 text-ui font-medium text-foreground">
           <span aria-hidden className={cn("size-2 shrink-0 rounded-full", connectionDot[state])} />
-          {host} · {connectionLabels[state]}
+          <MachineLabel name={host} icon={identity?.icon} /> · {connectionLabels[state]}
         </div>
       </MenuGroup>
       <MenuSeparator />

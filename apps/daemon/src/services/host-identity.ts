@@ -1,3 +1,4 @@
+import { computerName } from "../computer-name.ts";
 import { hostname } from "node:os";
 import { HostIdentity } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -11,6 +12,7 @@ export function createHostIdentitySession({
   fail,
 }: SocketContext): SocketService {
   let pending = false;
+  const defaultName = options.hostName ? Promise.resolve(options.hostName) : computerName();
   return {
     handle(message) {
       if (message.type !== "host.identity") return false;
@@ -24,9 +26,12 @@ export function createHostIdentitySession({
       void (async () => {
         try {
           const name = (await options.settings?.get("host.displayName"))?.value;
+          const icon = (await options.settings?.get("host.icon"))?.value;
           const identity = HostIdentity.parse({
             hostId: options.hostId,
-            displayName: name || options.hostName || hostname(),
+            displayName: name || (await defaultName),
+            icon: icon ?? { kind: "laptop" },
+            hostname: hostname(),
             version: options.version ?? "development",
           });
           if (connected() && authorize("read"))

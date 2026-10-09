@@ -14,7 +14,8 @@ test("the connected machine has the same name in menus, settings and thread envi
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "ace menu" }));
   const menu = await screen.findByRole("menu");
-  expect(await within(menu).findByText("Workshop Mac · Connected")).toBeTruthy();
+  expect(await within(menu).findByText("Workshop Mac")).toBeTruthy();
+  expect(menu.textContent).toContain("Connected");
   expect(menu.textContent).not.toContain("memory://");
   expect(menu.textContent).not.toMatch(/daemon/i);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Connection settings" }));

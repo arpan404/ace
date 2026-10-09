@@ -16,6 +16,14 @@ type Live = ThreadRunMetadata;
 /** How many running tasks and open requests the sidebar hints keep, newest last. */
 const kept = 8;
 const titleLength = 256;
+function runningAgent(agent: Agent | undefined): number {
+  if (!agent || agent.origin === "root") return 0;
+  return Number(
+    agent.status.state === "starting" ||
+      agent.status.state === "working" ||
+      (agent.status.state === "blocked" && agent.status.on === "subagents"),
+  );
+}
 
 /** `list` with `entry` appended (replacing one with its id), keeping the newest `kept`. */
 function withEntry<T extends { id: string }>(list: readonly T[] | undefined, entry: T): T[] {
@@ -68,28 +76,52 @@ export function liveMetadata(
   previousAgent?: Agent,
   previousTask?: BackgroundTask,
   command?: string,
+  at?: number,
 ): EventPayload | undefined {
   if (
+    payload.type === "item.created" &&
+    payload.item.type === "message" &&
+    payload.item.role === "user" &&
+    !payload.item.synthetic &&
+    !thread.hasSentMessage
+  )
+    return { type: "thread.client.updated", changes: { hasSentMessage: true } };
+  const unsettled =
     payload.type === "thread.updated" &&
     payload.status &&
     payload.status.state !== "done" &&
-    (thread.settledAt !== undefined || thread.autoSettleAt !== undefined)
-  )
-    return {
-      type: "thread.client.updated",
-      changes: { settledAt: null, settledReason: null, autoSettleAt: null },
-    };
+    (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
   const live: Live = { provider: thread.provider, ...thread.live };
-  if (payload.type === "thread.updated" && payload.execution) {
-    live.provider = payload.execution.provider;
-    live.model = boundedLiveModel(payload.execution.model);
-    live.account = payload.execution.instanceId;
-    live.options = payload.execution.options;
+  if (payload.type === "thread.updated") {
+    let changed = Boolean(unsettled);
+    if (payload.execution) {
+      live.provider = payload.execution.provider;
+      live.model = boundedLiveModel(payload.execution.model);
+      live.account = payload.execution.instanceId;
+      live.options = payload.execution.options;
+      changed = true;
+    }
+    if (payload.status && at !== undefined) {
+      if (payload.status.state === "working") {
+        if (thread.status.state !== "working" || live.workingSince === undefined) {
+          live.workingSince = at;
+          changed = true;
+        }
+      } else if (live.workingSince !== undefined) {
+        delete live.workingSince;
+        changed = true;
+      }
+    }
+    if (!changed) return undefined;
   } else if (payload.type === "agent.created") {
     const count =
       Number(payload.agent.origin !== "root") -
       Number(previousAgent !== undefined && previousAgent.origin !== "root");
     live.subagentCount = Math.max(0, (live.subagentCount ?? 0) + count);
+    live.runningSubagentCount = Math.max(
+      0,
+      (live.runningSubagentCount ?? 0) + runningAgent(payload.agent) - runningAgent(previousAgent),
+    );
     if (payload.agent.origin === "root" && payload.agent.model)
       live.model = boundedLiveModel(payload.agent.model);
   } else if (
@@ -132,11 +164,24 @@ export function liveMetadata(
     const asking = withoutEntry(live.asking, payload.interactionId);
     if (asking === live.asking) return undefined;
     put(live, "asking", asking);
-  } else if (payload.type === "agent.status" && payload.agentId === thread.rootAgentId) {
-    const facts = rootFacts(live, payload.status, command);
-    if (facts === live) return undefined;
-    put(live, "waitingOn", facts.waitingOn);
-    put(live, "step", facts.step);
+  } else if (payload.type === "agent.status") {
+    if (payload.agentId === thread.rootAgentId) {
+      const facts = rootFacts(live, payload.status, command);
+      if (facts === live) return undefined;
+      put(live, "waitingOn", facts.waitingOn);
+      put(live, "step", facts.step);
+    } else if (previousAgent) {
+      const change =
+        runningAgent({ ...previousAgent, status: payload.status }) - runningAgent(previousAgent);
+      if (!change) return undefined;
+      live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + change);
+    } else return undefined;
   } else return undefined;
-  return { type: "thread.client.updated", changes: { live } };
+  return {
+    type: "thread.client.updated",
+    changes: {
+      live,
+      ...(unsettled ? { settledAt: null, settledReason: null, autoSettleAt: null } : {}),
+    },
+  };
 }

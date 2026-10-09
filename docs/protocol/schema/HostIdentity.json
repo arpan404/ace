@@ -10,6 +10,13 @@
     "hostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },
+    "hostname": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "icon": {
+      "$ref": "https://ace.local/protocol/v1/MachineIcon.json"
+    },
     "version": {
       "maxLength": 128,
       "minLength": 1,

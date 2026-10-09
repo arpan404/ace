@@ -1,6 +1,5 @@
-import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useRef, type KeyboardEvent } from "react";
-import { Icon } from "@/components/icon.tsx";
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { Machine, MachineStatus } from "@/lib/machines.ts";
 
@@ -85,8 +84,7 @@ export function MachinePicker(props: {
                 checked && "bg-foreground/8 text-foreground",
               )}
             >
-              <Icon icon={DesktopTowerIcon} size={14} />
-              <span className="truncate">{machine.name}</span>
+              <MachineLabel name={machine.name} icon={machine.icon} />
               <span
                 aria-hidden
                 className={cn("size-1.5 rounded-full", statusDot[machine.status])}
