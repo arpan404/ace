@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Agent, Item, Thread, ThreadId } from "@ace/protocol";
+import { Agent, Item, Thread, ThreadId } from "@ace/protocol/entities";
 const Bytes = z.custom<Uint8Array>((v) => v instanceof Uint8Array);
 export const ArchiveCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("begin"), thread: Thread }),
