@@ -7,12 +7,25 @@ import { harness } from "@/test/harness.tsx";
 test("legacy OpenCode bookkeeping and replayed native answers stay out of the conversation", async () => {
   const app = harness();
   seedColdStartState(app.daemon);
+  app.daemon.apply(
+    "cold-legacy",
+    [
+      "Native history record: world_state",
+      "Native message",
+      "Native content block: input_image",
+    ].map((text) => ({
+      type: "item.upsert" as const,
+      agent: "root",
+      item: text,
+      draft: { type: "notice" as const, level: "info" as const, text, complete: true },
+    })),
+  );
   await app.open("/t/cold-legacy");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(feed).findAllByText("I checked the reconnect path.")).toHaveLength(1);
   expect(within(feed).getByText("A separate reply stays visible.")).toBeTruthy();
   expect(feed.textContent).not.toMatch(
-    /session.permissions|instructions.updated|Internal tool schemas/,
+    /session.permissions|instructions.updated|Internal tool schemas|Native history record|Native message|Native content block/,
   );
 });
 
