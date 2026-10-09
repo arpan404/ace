@@ -230,6 +230,7 @@ test("approvals show as an icon alone, the mode kept in its name; a phone drops 
   // The model chip keeps its name; only its effort goes.
   const model = screen.getByRole("button", { name: /^Model: / });
   expect(model.textContent).toContain("Opus 5.5");
-  expect(within(model).getByRole("img", { name: "Claude Code · Personal · label P" })).toBeTruthy();
+  expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
+  expect(within(model).getByRole("img", { name: "Personal account" })).toBeTruthy();
   expect(model.textContent).not.toContain("Medium");
 });

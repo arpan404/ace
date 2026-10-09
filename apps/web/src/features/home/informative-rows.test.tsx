@@ -1,4 +1,10 @@
-import { facts } from "@ace/fake-daemon";
+import {
+  facts,
+  askingQuestion,
+  waitingOnSubagents,
+  watchingRelay,
+  runningTests,
+} from "@ace/fake-daemon";
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -23,6 +29,48 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
   ]);
 }
 const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
+
+test("a plan review says Needs you and explains the request on hover", async () => {
+  const app = harness();
+  task(app, "plan", "Review reconnect recovery");
+  app.daemon.apply("plan", [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "review",
+      blocking: true,
+      request: { kind: "plan_review", markdown: "Review the reconnect plan" },
+    },
+  ]);
+  await app.open("/new");
+  const row = await (await rows()).findByRole("link", { name: /^Review reconnect recovery/ });
+  expect(within(row).getByText("Needs you", { exact: true })).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
+  await userEvent.hover(row);
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Waiting for your review");
+});
+
+test.each([
+  [askingQuestion, "Answer", "Waiting for your answer"],
+  [waitingOnSubagents, "Waiting", "Waiting on 2 subagents"],
+  [watchingRelay, "Waiting", "Watching bun run dev:relay"],
+  [runningTests, "Working", "Running tests…"],
+])(
+  "short row statuses keep the full explanation for hover and screen readers: %s",
+  async (scenario, short, full) => {
+    const app = harness();
+    const example = scenario();
+    app.play(example).runUntilBlocked();
+    await app.open("/new");
+    const row = await (
+      await rows()
+    ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
+    expect(within(row).getByText(short, { exact: true })).toBeTruthy();
+    expect(row.getAttribute("aria-label")).toContain(full);
+    await userEvent.hover(row);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(full);
+  },
+);
 
 test("PR state, changes, status words and provider stay visible together", async () => {
   const app = harness();
@@ -71,11 +119,11 @@ test("agents running beside a human request remain counted until they finish", a
   ]);
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(within(row).getByText("Needs you")).toBeTruthy();
+  expect(within(row).getByText("Approve")).toBeTruthy();
   expect(within(row).getByText("⑂ 1")).toBeTruthy();
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(within(row).queryByText("⑂ 1")).toBeNull());
-  expect(within(row).getByText("Needs you")).toBeTruthy();
+  expect(within(row).getByText("Approve")).toBeTruthy();
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {

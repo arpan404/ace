@@ -14,6 +14,16 @@ export async function stageInformativeSidebar(page: Page, theme: string) {
           "threads.autoSettleAfter": "never",
           "host.icon": { kind: "desktop", color: "blue" },
         });
+        daemon.services.accounts = daemon.services.accounts.filter(
+          (account) =>
+            account.provider !== "claude" ||
+            ["claude-personal", "claude-work"].includes(account.id),
+        );
+        daemon.services.models = daemon.services.models.filter(
+          (model) =>
+            model.provider !== "claude" ||
+            ["claude-personal", "claude-work"].includes(model.instance ?? ""),
+        );
         const titles = [
           "Review the release plan",
           "Choose a retry policy",
@@ -38,6 +48,9 @@ export async function stageInformativeSidebar(page: Page, theme: string) {
               title,
               provider,
               workspaceId: index === 3 ? "mobile" : "ace",
+              ...(provider === "claude"
+                ? { live: { account: "claude-personal", model: "claude-opus-5-5" } }
+                : {}),
               details: {
                 workspace: {
                   id: index === 3 ? "mobile" : "ace",
@@ -163,6 +176,34 @@ export async function stageInformativeSidebar(page: Page, theme: string) {
                 ],
                 age,
               );
+            daemon.apply(
+              id,
+              [
+                {
+                  type: "item.upsert",
+                  agent: "root",
+                  item: "wait-for-checks",
+                  draft: {
+                    type: "tool_call",
+                    complete: false,
+                    call: {
+                      kind: "agent.spawn",
+                      title: "Run web and mobile checks",
+                      detail: { kind: "agent.spawn", description: "Run checks" },
+                      status: "running",
+                      raw: [],
+                    },
+                  },
+                },
+                {
+                  type: "subagents.waiting",
+                  agent: "root",
+                  item: "wait-for-checks",
+                  targets: [],
+                },
+              ],
+              age,
+            );
           } else if (index === 5)
             daemon.apply(
               id,

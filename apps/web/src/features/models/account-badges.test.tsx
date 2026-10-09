@@ -24,6 +24,31 @@ async function open(app: ReturnType<typeof harness>) {
   return { popover, list };
 }
 
+test("a single account has no dot in its composer, row or picker", async () => {
+  const app = harness();
+  app.daemon.services.accounts = app.daemon.services.accounts.filter(
+    (account) => account.provider !== "claude" || account.id === "claude-personal",
+  );
+  app.daemon.services.models = app.daemon.services.models.filter(
+    (model) => model.provider !== "claude" || model.instance === "claude-personal",
+  );
+  const { popover } = await open(app);
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const personal = await within(rail).findByRole("tab", { name: "Claude Code", selected: true });
+  expect(within(personal).queryByRole("img", { name: "Personal account" })).toBeNull();
+  expect(
+    within(screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ })).queryByRole("img", {
+      name: "Personal account",
+    }),
+  ).toBeNull();
+  expect(
+    within(screen.getByRole("link", { name: /Replay cursor resets/ })).queryByTitle(
+      "Personal account",
+    ),
+  ).toBeNull();
+  await closeModelControl();
+});
+
 test("each Codex account has a badged rail entry and its own catalog, default first", async () => {
   const app = harness();
   const team = app.daemon.services.accounts.find((account) => account.id === "codex-team");
@@ -42,7 +67,12 @@ test("each Codex account has a badged rail entry and its own catalog, default fi
     "Codex · Your CLI login",
     "Codex · Personal",
   ]);
-  expect(within(codex[0] ?? rail).getByText("T")).toBeTruthy();
+  expect(within(codex[0] ?? rail).getByRole("img", { name: "Team account" })).toBeTruthy();
+  expect(
+    within(within(rail).getByRole("tab", { name: "Codex · Your CLI login" })).getByRole("img", {
+      name: "Your CLI login account",
+    }),
+  ).toBeTruthy();
   await userEvent.click(within(rail).getByRole("tab", { name: "Codex · Personal" }));
   expect(within(list).getByRole("option", { name: /^GPT-6 Luna/ })).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeNull();
@@ -51,12 +81,8 @@ test("each Codex account has a badged rail entry and its own catalog, default fi
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
   expect(within(list).getByText("NEW")).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt-6");
-  expect(
-    within(list).getAllByRole("img", { name: "Codex · Team · label T" }).length,
-  ).toBeGreaterThan(0);
-  expect(
-    within(list).getAllByRole("img", { name: "Codex · Personal · label P" }).length,
-  ).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("img", { name: "Codex · Team" }).length).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("img", { name: "Codex · Personal" }).length).toBeGreaterThan(0);
 });
 
 test("arrow keys and Tab move between account rail and models, then Enter picks on that account", async () => {
@@ -70,9 +96,9 @@ test("arrow keys and Tab move between account rail and models, then Enter picks 
   expect(document.activeElement).toBe(search);
   await userEvent.keyboard("{ArrowDown}{Enter}");
   const chip = await screen.findByRole("button", { name: /^Model: Sonnet 5.5, Work/ });
-  expect(within(chip).getByRole("img", { name: "Claude Code · Work · label W" })).toBeTruthy();
+  expect(within(chip).getByRole("img", { name: "Claude Code · Work" })).toBeTruthy();
   expect(
-    within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByText("W"),
+    within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByTitle("Work account"),
   ).toBeTruthy();
 });
 
@@ -103,29 +129,39 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.click(within(editor).getByRole("combobox", { name: "Label colour" }));
   await userEvent.click(await screen.findByRole("option", { name: "Violet" }));
   await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
-  await within(accounts).findByRole("img", { name: "Claude Code · Studio · label ST" });
+  await within(accounts).findByRole("img", { name: "Claude Code · Studio" });
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
   await waitFor(() =>
-    expect(screen.getByRole("article", { name: "Claude Code Studio" }).textContent).toContain("ST"),
+    expect(
+      within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
+        name: "Studio account",
+      }),
+    ).toBeTruthy(),
   );
   await userEvent.click(await screen.findByRole("link", { name: /Replay cursor resets/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio/ });
-  expect(within(chip).getByRole("img", { name: "Claude Code · Studio · label ST" })).toBeTruthy();
+  expect(within(chip).getByRole("img", { name: "Claude Code · Studio" })).toBeTruthy();
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
   await userEvent.hover(row);
-  expect(within(row).getByText("ST")).toBeTruthy();
+  expect(within(row).getByTitle("Studio account")).toBeTruthy();
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
-  expect(within(popover).getByRole("tab", { name: "Claude Code · Studio" }).textContent).toContain(
-    "ST",
-  );
+  expect(
+    within(within(popover).getByRole("tab", { name: "Claude Code · Studio" })).getByTitle(
+      "Studio account",
+    ),
+  ).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "Studio");
   expect(await within(list).findByRole("option", { name: /Opus 5.5.*Studio/ })).toBeTruthy();
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Usage.*accounts/ }));
   await waitFor(() =>
-    expect(screen.getByRole("article", { name: "Claude Code Studio" }).textContent).toContain("ST"),
+    expect(
+      within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
+        name: "Studio account",
+      }),
+    ).toBeTruthy(),
   );
 });

@@ -25,7 +25,7 @@ export function StatusLabel(props: {
       )}
     >
       {props.mark ?? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-(--tone)" />}
-      <span className="min-w-0 truncate">{props.label}</span>
+      <span>{props.label}</span>
       {props.children}
     </span>
   );
