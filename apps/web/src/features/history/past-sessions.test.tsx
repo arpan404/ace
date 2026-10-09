@@ -197,6 +197,9 @@ test("old imported Codex notices and new raw-only items take no visible transcri
   const labels = [
     "Native history record: event_msg",
     "Native history record: turn_context",
+    "Native history record: message",
+    "Native history record: world_state",
+    "Native content block: input_image",
     "Native reasoning record",
     "",
   ];
@@ -238,4 +241,69 @@ test("the full session list stays usable while more saved conversations are bein
   expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
   expect(within(dialog).getByText("Trace delivery order")).toBeTruthy();
   expect(within(dialog).queryByRole("alert")).toBeNull();
+});
+
+test("past sessions keep their rows and show a calm retrying status until recovery finishes", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await screen.findByRole("button", { name: "Import Trace delivery order" });
+  made.daemon.seedServices({
+    historyScan: {
+      state: "retrying",
+      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
+      unsupported: [],
+    },
+  });
+  expect(await screen.findByText("Past sessions will be back shortly. Retrying…")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
+  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
+  expect(
+    await within(dialog).findByText("Past sessions will be back shortly. Retrying…"),
+  ).toBeTruthy();
+  expect(within(dialog).getByText("Trace delivery order")).toBeTruthy();
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  made.daemon.seedServices({
+    historyScan: {
+      state: "ready",
+      stats: { files: 6000, reads: 6000, bytes: 1000, skipped: 0 },
+      unsupported: [],
+    },
+  });
+  await waitFor(() =>
+    expect(within(dialog).queryByText("Past sessions will be back shortly. Retrying…")).toBeNull(),
+  );
+  await userEvent.click(
+    within(dialog).getByRole("button", { name: "Import Trace delivery order" }),
+  );
+  await screen.findByRole("heading", { name: "Trace delivery order" });
+});
+
+test("an empty inventory stays accessible while scanning and retrying instead of showing failure", async () => {
+  const made = app();
+  made.daemon.seedServices({
+    history: [],
+    historyScan: {
+      state: "scanning",
+      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
+      unsupported: [],
+    },
+  });
+  await made.open("/new?project=relay");
+  expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
+  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
+  expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
+  expect(within(dialog).queryByText("No matching sessions.")).toBeNull();
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  made.daemon.seedServices({
+    historyScan: {
+      state: "retrying",
+      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
+      unsupported: [],
+    },
+  });
+  expect(
+    await within(dialog).findByText("Past sessions will be back shortly. Retrying…"),
+  ).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /^Retry$/ })).toBeNull();
 });

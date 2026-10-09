@@ -49,15 +49,14 @@ export default function SessionsDialog(props: { project: Project; onClose: () =>
           }}
         />
         <DialogBody>
-          {query.data?.scan?.state === "scanning" && (
-            <StatusLabel tone="working" label="Looking for saved conversations…" />
-          )}
-          {query.isError ? (
-            <p role="alert">Past sessions couldn't be loaded. Reconnect and try again.</p>
+          {query.scanLabel && <StatusLabel tone="working" label={query.scanLabel} />}
+          {query.isError && !query.refreshing ? (
+            <p role="alert">Past sessions couldn't be loaded. Try again in a moment.</p>
           ) : !query.data ? (
-            <StatusLabel tone="working" label="Loading past sessions…" />
-          ) : !sessions.length &&
-            query.data.scan?.state === "scanning" ? null : !sessions.length ? (
+            query.refreshing ? null : (
+              <StatusLabel tone="working" label="Loading past sessions…" />
+            )
+          ) : !sessions.length && query.refreshing ? null : !sessions.length ? (
             <p className="text-sm text-muted-foreground">No matching sessions.</p>
           ) : (
             HistoryProvider.options.map((provider) => {
@@ -79,7 +78,7 @@ export default function SessionsDialog(props: { project: Project; onClose: () =>
               ) : null;
             })
           )}
-          {query.isError && (
+          {query.isError && !query.refreshing && (
             <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>
               Retry
             </Button>

@@ -1,11 +1,96 @@
 import { mkdtemp, mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
+import { WorkspaceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { Store } from "./store.ts";
 import { openDaemonHistory } from "./history.ts";
 
 const noop = () => {};
+
+test("worker recovery reports retrying and resumes scanning without losing cached past sessions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-daemon-history-recovery-"));
+  const home = join(root, "claude");
+  await mkdir(join(home, "projects/p"), { recursive: true });
+  await writeFile(
+    join(home, "projects/p/native.jsonl"),
+    JSON.stringify({
+      type: "user",
+      sessionId: "native",
+      cwd: "/project",
+      message: { role: "user", content: "Recover the useful session" },
+    }) + "\n",
+  );
+  const store = new Store(join(root, "events.sqlite"));
+  let isolate: Worker | undefined;
+  const retry = Promise.withResolvers<() => void>();
+  const refresh = Promise.withResolvers<() => void>();
+  const history = await openDaemonHistory(root, store, {
+    instances: [{ id: "account", provider: "claude", homeDir: home }],
+    spawnWorker: (url, options) => (isolate = new Worker(url, options)),
+    historyRuntime: {
+      watch: () => noop,
+      delay(run, milliseconds) {
+        if (milliseconds !== 5000) retry.resolve(run);
+        return noop;
+      },
+    },
+    scheduleScan(run) {
+      refresh.resolve(run);
+      return noop;
+    },
+  });
+  try {
+    await history.startScan();
+    await isolate?.terminate();
+    const run = await retry.promise;
+    expect(history.scanStatus().state).toBe("retrying");
+    const listing = history.handle(
+      { type: "history.list", cwd: "/project", limit: 10 },
+      new AbortController().signal,
+    );
+    run();
+    const cached = await listing;
+    if (cached.type !== "history.list") throw new Error("Wrong history reply");
+    expect(cached.sessions.map((session) => session.title)).toEqual(["Recover the useful session"]);
+    (await refresh.promise)();
+    await history.startScan();
+    expect(history.scanStatus().state).toBe("ready");
+    const recovered = await history.handle(
+      { type: "history.list", cwd: "/project", limit: 10 },
+      new AbortController().signal,
+    );
+    if (recovered.type !== "history.list") throw new Error("Wrong history reply");
+    expect(recovered.scan?.state).toBe("ready");
+    expect(recovered.sessions[0]?.title).toBe("Recover the useful session");
+    const source = recovered.sessions[0];
+    if (!source) throw new Error("Missing recovered session");
+    const workspaceId = WorkspaceId.parse(store.createWorkspace("/project", "Scratch"));
+    const crashed = Promise.withResolvers<void>();
+    history.subscribeScan((status) => {
+      if (status.state === "retrying") crashed.resolve();
+    });
+    await isolate?.terminate();
+    await crashed.promise;
+    const preparing = Promise.withResolvers<void>();
+    const importing = history.handle(
+      { type: "history.import", sourceId: source.id, workspaceId, requestId: "closing-import" },
+      new AbortController().signal,
+      (event) => {
+        if (event.phase === "preparing") preparing.resolve();
+      },
+    );
+    const rejected = expect(importing).rejects.toThrow("closed");
+    await preparing.promise;
+    await history.close();
+    await rejected;
+  } finally {
+    await history.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("observed transcript changes refresh daemon history without a client requesting another scan", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-daemon-history-watch-"));

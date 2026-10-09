@@ -1,5 +1,10 @@
 import { useClient } from "@ace/client-react";
-import { WorkspaceId, type HistorySession, type HistoryListRequest } from "@ace/protocol";
+import {
+  WorkspaceId,
+  type HistorySession,
+  type HistoryListRequest,
+  type HistoryScanStatus,
+} from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -10,6 +15,7 @@ export function usePastSessions(
   page: Pick<HistoryListRequest, "limit"> & Partial<Pick<HistoryListRequest, "before" | "search">>,
 ) {
   const client = useClient();
+  const [scan, setScan] = useState<HistoryScanStatus>();
   const query = useDaemonQuery({
     queryKey: ["past-sessions", project.path, page],
     staleTime: 30_000,
@@ -23,12 +29,21 @@ export function usePastSessions(
   useEffect(
     () =>
       client.onMessage((message) => {
-        if (message.type === "history.scan.updated" && message.scan.state === "ready")
-          void refetch({ cancelRefetch: false });
+        if (message.type === "history.scan.updated") {
+          setScan(message.scan);
+          if (message.scan.state === "ready") void refetch({ cancelRefetch: false });
+        }
       }),
     [client, refetch],
   );
-  return query;
+  const state = (scan ?? query.data?.scan)?.state;
+  const scanLabel =
+    state === "retrying"
+      ? "Past sessions will be back shortly. Retrying…"
+      : state === "scanning"
+        ? "Looking for saved conversations…"
+        : undefined;
+  return { ...query, scanLabel, refreshing: scanLabel !== undefined };
 }
 
 export function useOpenSession(project: Project) {

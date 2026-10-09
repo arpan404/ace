@@ -1,7 +1,7 @@
 import { nativeReference } from "./native-reference.ts";
 import { z } from "zod";
 import { parentPort, workerData } from "node:worker_threads";
-import { mkdir, chmod, open, lstat } from "node:fs/promises";
+import { mkdir, chmod, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { validateIndexPath } from "./index-path.ts";
@@ -14,12 +14,6 @@ import { importHistory } from "./import-history.ts";
 const options = Options.parse(workerData);
 await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
-try {
-  const info = await lstat(options.indexPath);
-  if (!info.isFile() || info.isSymbolicLink()) throw new Error("ace index must be a regular file");
-} catch (error) {
-  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-}
 const file = await open(options.indexPath, "a", 0o600);
 await file.close();
 await chmod(options.indexPath, 0o600);
