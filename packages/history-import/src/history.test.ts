@@ -52,13 +52,15 @@ test("workspace lists retain native metadata and imports retain resumable proven
     instanceId: "account",
     native: { provider: "claude", nativeId },
   });
-  expect(thread?.status.state).toBe("new");
+  expect(thread).toMatchObject({
+    status: { state: "done" },
+    settledAt: init(source.id).at,
+    unread: false,
+  });
   expect(text((await service.itemsPage({ threadId: init(source.id).threadId })).items)).toBe(
     "hello answer",
   );
-  expect((await service.importedAgents(init(source.id).threadId))[0]?.status.state).toBe(
-    "unresponsive",
-  );
+  expect((await service.importedAgents(init(source.id).threadId))[0]?.status.state).toBe("idle");
   expect(await service.continuation(source.id, "resume")).toMatchObject({
     instanceId: "account",
     cwd,

@@ -1,3 +1,4 @@
+import { nativeReference } from "./native-reference.ts";
 import { lstat } from "node:fs/promises";
 import { Agent, AgentId, Item, ItemId, Thread, type RawPayload } from "@ace/protocol";
 import { fingerprint, object, string } from "@ace/native-session";
@@ -52,7 +53,7 @@ export async function* importHistory(
     if ((await currentFingerprint(instance, source, signal)) !== source.fingerprint)
       throw new Error("History source changed; rescan before importing");
   }
-  const native = { provider: root.summary.provider, nativeId: root.summary.nativeId };
+  const native = nativeReference(root);
   yield {
     type: "thread",
     thread: Thread.parse({
@@ -61,7 +62,11 @@ export async function* importHistory(
       title: root.summary.title,
       provider: root.summary.provider,
       rootAgentId: init.agentId,
-      status: { state: "new" },
+      status: { state: "done" },
+      settledAt: init.at,
+      settledReason: "manual",
+      unread: false,
+      readAt: init.at,
       createdAt: init.at,
       updatedAt: init.at,
       imported: { sourceId: init.sourceId, instanceId: instance.id, native, importedAt: init.at },
@@ -78,11 +83,11 @@ export async function* importHistory(
         threadId: init.threadId,
         parentId,
         origin: parentId ? "provider_subagent" : "root",
-        native: { provider: s.provider, nativeId: s.nativeId },
+        native: nativeReference(source),
         fidelity: "full",
         cwd: s.cwd,
         model: s.model,
-        status: { state: "unresponsive", lastSignalAt: s.lastActivity },
+        status: { state: "idle" },
         createdAt: init.at,
       }),
     };

@@ -8,6 +8,7 @@
     "./adapter": "./src/adapter.ts",
     "./input": "./src/input.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./session-header": "./src/session-header.ts",
     "./history-errors": "./src/history-errors.ts"
   },
   "scripts": {

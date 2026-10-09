@@ -66,6 +66,16 @@ export function summary(
       if (meta) nativeId = meta.sessionId;
       if (r.isSidechain === true) parent ??= "sidechain";
     }
+    if (instance.provider === "pi") {
+      if (r.type === "session") {
+        nativeId = string(r.id) ?? nativeId;
+        if (![1, 2, 3].includes(Number(r.version ?? 1)))
+          reason = "This Pi history format cannot be opened. Update ace and try again.";
+      }
+      if (r.type === "session_info") title = string(r.name) ?? title;
+      if (r.type === "model_change") model = string(r.modelId) ?? model;
+      if (r.type === "message" && ["user", "assistant"].includes(String(message.role))) count++;
+    }
     if (r.type === "ai-title") title = string(r.aiTitle) ?? string(r.title) ?? title;
     if (typeof r.customTitle === "string") title = r.customTitle;
     if (r.type === "summary") title = string(r.summary) ?? title;
