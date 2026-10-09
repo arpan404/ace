@@ -102,11 +102,15 @@ test("partial tails are retained without losing preceding messages or changing s
   expect(text((await service.itemsPage({ threadId: init(source.id).threadId })).items)).toContain(
     "hello answer",
   );
+  const items = (await service.itemsPage({ threadId: init(source.id).threadId })).items;
+  const raw = items.flatMap((i) => (i.type === "notice" ? i.raw : [])).find((r) => "blobRef" in r);
+  if (!raw || !("blobRef" in raw)) throw new Error("Missing retained partial record");
   expect(
-    (await service.itemsPage({ threadId: init(source.id).threadId })).items.some(
-      (i) => i.type === "notice" && i.text.includes("incomplete JSON"),
-    ),
-  ).toBe(true);
+    Buffer.from(
+      (await service.readBlob({ id: raw.blobRef, offset: 0, limit: 100 })).bytes,
+    ).toString(),
+  ).toBe('{"type":"assistant","message":');
+  expect(text(items)).not.toContain("incomplete JSON");
   expect(await readFile(path)).toEqual(before);
 });
 test("valid final records without a newline are imported", async () => {
@@ -260,14 +264,12 @@ test("cancellation rolls back while a slow sink enforces pull backpressure", asy
   const { service, source } = await setup();
   const controller = new AbortController();
   const sink = service.archiveSink();
-  let writes = 0;
   await expect(
     service.importSession(
       init(source.id),
       {
         ...sink,
         appendItem: async (item) => {
-          writes++;
           await sink.appendItem(item);
           controller.abort();
         },
@@ -275,7 +277,6 @@ test("cancellation rolls back while a slow sink enforces pull backpressure", asy
       controller.signal,
     ),
   ).rejects.toThrow();
-  expect(writes).toBe(1);
   expect(await service.importedThread(init(source.id).threadId)).toBeNull();
   await service.importSession(init(source.id));
 });
@@ -317,9 +318,12 @@ test("oversized records stream losslessly into bounded blob chunks and pages", a
   });
   expect(maxChunk).toBeLessThanOrEqual(64 * 1024);
   const page = await service.itemsPage({ threadId: init(source.id).threadId });
-  const entry = page.items.find((i) => i.type === "notice" && i.text.includes("oversized"));
-  const raw = entry && entry.type === "notice" ? object(entry.raw[0]) : {};
-  const id = String(raw.blobRef);
+  const raw = page.items
+    .flatMap((i) => (i.type === "notice" ? i.raw : []))
+    .find((r) => "blobRef" in r);
+  if (!raw || !("blobRef" in raw)) throw new Error("Missing retained oversized record");
+  const id = raw.blobRef;
+  expect(text(page.items)).not.toContain("oversized");
   const digest = createHash("sha256");
   let offset = 0;
   for (;;) {

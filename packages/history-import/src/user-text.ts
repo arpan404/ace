@@ -14,6 +14,18 @@ const contextTags = [
 ];
 const contextBlocks = new RegExp(`<(${contextTags.join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, "g");
 
+// Standalone handoffs contain generated instructions rather than a new request.
+const wrapperPatterns = [
+  { pattern: /^The user interrupted the previous turn on purpose\b[\s\S]*/i, replacement: "" },
+  { pattern: /^A previous agent produced the plan below\b[\s\S]*/i, replacement: "" },
+  {
+    pattern: /^Continue this conversation using the transcript context below\b[\s\S]*/i,
+    replacement: "",
+  },
+  { pattern: /\[User attached one or more images\b[^\]]*(?:\]|$)/gi, replacement: "" },
+  { pattern: /^Title request:\s*/i, replacement: "" },
+];
+
 /** Remove the context envelopes saved by CLIs and IDEs, before truncating display text. */
 export function sanitizeUserText(value: string): string {
   let text = value.trim();
@@ -54,6 +66,8 @@ export function sanitizeUserText(value: string): string {
     .replace(/^\s*(?:mimeType|sizeBytes|attachmentId):[^\n]*(?:\n|$)/gim, "")
     .replace(/^\s*(?:\[?Attached (?:image|file|screenshot)[^\n]*|<image>)[\n]?/gi, "")
     .trim();
+  for (const wrapper of wrapperPatterns)
+    text = text.replace(wrapper.pattern, wrapper.replacement).trim();
   return text;
 }
 

@@ -1,6 +1,6 @@
 import { sanitizeUserText } from "./user-text.ts";
 import { historyToolDetail } from "./tool-detail.ts";
-import { Item, ItemId, type AgentId, type RawPayload } from "@ace/protocol";
+import { Item, ItemId, type AgentId, type RawPayload } from "@ace/protocol/entities";
 import { object, string, timestamp } from "@ace/native-session";
 import type { HistoryProvider } from "@ace/protocol/history";
 
@@ -13,7 +13,7 @@ export type MappingContext = {
   resultCall?: (id: string) => ItemId | undefined;
 };
 export type Mapped = { item: Item; message: boolean };
-/** File transcripts differ from live notifications. Preserve unsupported blocks as notices. */
+/** File transcripts differ from live notifications. Keep unmapped records as hidden raw entries. */
 export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapped> {
   const r = object(value);
   const p = ctx.provider === "codex" && r.type === "response_item" ? object(r.payload) : r;
@@ -53,7 +53,10 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
   ): Generator<Mapped> {
     if (role === "user") {
       text = sanitizeUserText(text);
-      if (!text) return;
+      if (!text) {
+        yield rawOnly();
+        return;
+      }
     }
     // Bounded text items also bound event and page sizes after importing a large native block.
     for (let offset = 0; offset < text.length || offset === 0; offset += 4096) {
@@ -179,14 +182,27 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     if (p.synthetic !== true) yield* texts("message", string(p.text) ?? "", false);
     return;
   }
-  if (role === "user" && (p.isMeta === true || p.synthetic === true)) return;
+  if (role === "user" && (p.isMeta === true || p.synthetic === true)) {
+    yield rawOnly();
+    return;
+  }
   let content = message.content ?? p.content ?? (role === "user" ? p.text : undefined);
+  if (ctx.provider === "opencode" && Array.isArray(p.files) && p.files.length) {
+    content = [
+      ...(typeof content === "string"
+        ? [{ type: "text", text: content }]
+        : Array.isArray(content)
+          ? content
+          : []),
+      ...p.files,
+    ];
+  } else if (ctx.provider === "opencode" && p.type === "file") content = [p];
   if (
     ctx.provider === "opencode" &&
     (role === "user" || role === "assistant") &&
     content === undefined
   ) {
-    const entry = notice("Native message");
+    const entry = rawOnly();
     entry.message = true;
     yield entry;
     return;
@@ -219,7 +235,7 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
           for (const result of Array.isArray(state.content) ? state.content : []) {
             const resultText = string(object(result).text);
             if (resultText) yield* texts("notice", resultText, false);
-            else yield notice(`Native tool content: ${string(object(result).type) ?? "unknown"}`);
+            else yield rawOnly();
           }
         } else if (block.type === "thinking")
           yield* texts("reasoning", string(block.thinking) ?? "", false);
@@ -230,11 +246,45 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
           const result = string(block.content);
           if (result) yield* texts("notice", result, false);
           else yield notice("Native tool result");
-        } else yield notice(`Native content block: ${string(block.type) ?? "unknown"}`);
+        } else if (
+          ["image", "input_image"].includes(String(block.type)) ||
+          (block.type === "file" && (string(block.mime) ?? "").startsWith("image/"))
+        ) {
+          const source = object(block.source);
+          const url =
+            string(block.image_url) ??
+            string(object(block.image_url).url) ??
+            string(block.url) ??
+            (source.type === "base64" && typeof source.data === "string"
+              ? `data:${string(source.media_type) ?? "image/*"};base64,${source.data}`
+              : string(source.url));
+          if (url && url.length <= 128 * 1024) {
+            const mimeType =
+              /^data:([^;,]+)/.exec(url)?.[1] ??
+              string(source.media_type) ??
+              string(block.mime) ??
+              "image/*";
+            yield {
+              item: Item.parse({
+                ...base(),
+                type: "message",
+                role,
+                parts: [
+                  /^(?:data:image\/|https?:|blob:)/i.test(url)
+                    ? { type: "image", mimeType, url }
+                    : { type: "file", mimeType, path: url },
+                ],
+                raw: raw(),
+              }),
+              message: !counted,
+            };
+            counted = true;
+          } else yield rawOnly();
+        } else yield rawOnly();
       }
       // Count native messages even if their only content is tools or attachments.
       if (!counted) {
-        const entry = notice("Native message");
+        const entry = rawOnly();
         entry.message = true;
         yield entry;
       }
@@ -247,6 +297,7 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
   }
   if (ctx.provider === "claude" && p.type === "system" && p.subtype === "compact_boundary") {
     yield { item: Item.parse({ ...base(), type: "compaction" }), message: false };
+    return;
   }
-  yield notice(`Native history record: ${string(p.type) ?? string(r.type) ?? "unknown"}`);
+  yield rawOnly();
 }
