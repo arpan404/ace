@@ -48,7 +48,10 @@ workers (usage and notifications) exceed the one-worker limit. Timing was deferr
 after host load reached 14. The idle RSS measurement passed (241.2 MiB in the
 subprocess gate; 196.8 MiB in the idle CPU probe). The root command did not reach its
 web bundle check. Those services and performance limits were not changed in this
-revision. No CSS was added; web bundle budgets still require verification.
+revision. No CSS was added. When load fell to 7.41, the standalone web bundle check
+passed: initial JS 260.66 KB, CSS 19.27 KB, thread route 124.55 KB, and client worker
+55.42 KB eager / 72.77 KB including lazy chunks. Every route and worker passed its
+existing budget.
 
 ## Scan measurement
 
