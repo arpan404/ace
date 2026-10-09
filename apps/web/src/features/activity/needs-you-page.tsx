@@ -1,4 +1,5 @@
-import { useInteractions, useSidebarLoaded } from "@ace/client-react";
+import { RecoveryThreadRow } from "./recovery-thread-row.tsx";
+import { useSidebar, useInteractions, useSidebarLoaded } from "@ace/client-react";
 import { BellIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -24,6 +25,9 @@ export function NeedsYouPage() {
   const loaded = useSidebarLoaded();
   const { focused, focusCard } = useActivityState();
   const empty = !needs.entries.length;
+  const requests = useSidebar(["threads"], (reader) =>
+    needs.threadIds.some((id) => reader.thread(id)?.status.state === "needs_you"),
+  );
   const [watch, list] = useFocusFollowsCards();
   const move = (step: number) => {
     const root = list.current;
@@ -52,21 +56,21 @@ export function NeedsYouPage() {
       <EmptyState
         icon={BellIcon}
         title="You're all caught up"
-        description="Approvals, questions and plans from every thread land here, with mentions, CI failures and automation results."
+        description="Threads waiting for your answer, a model, or help sending a message appear here."
       />
     );
   return (
     <Page>
       <PageTitle
         title="Needs you"
-        lede="Approvals, questions and plans from every thread, oldest first. Answer here, or open the thread for context."
+        lede="Threads that need your help, oldest first. Answer here or open a thread to continue."
       />
       <div ref={watch} className="mt-3 flex flex-col">
         {needs.entries.map((entry) => (
           <ThreadCards key={entry.threadId} threadId={entry.threadId} />
         ))}
       </div>
-      {!empty && <KeyLegend />}
+      {requests && <KeyLegend />}
       <LimitedThreads threads={limited} />
     </Page>
   );
@@ -74,6 +78,7 @@ export function NeedsYouPage() {
 
 function ThreadCards(props: { threadId: string }) {
   const open = useInteractions(props.threadId);
+  if (!open?.length) return <RecoveryThreadRow threadId={props.threadId} />;
   return (open ?? []).map((id) => (
     <InteractionCard key={id} threadId={props.threadId} interactionId={id} />
   ));

@@ -33,7 +33,7 @@ export class AdapterRegistry {
       : this.entries.get(provider);
     if (!entry)
       throw new Error(
-        `No adapter registered for ${provider}${backend ? ` backend ${backend}; install its original runtime to resume` : ""}`,
+        "The provider isn't ready yet. Check its connection in Settings and try again.",
       );
     return entry;
   }

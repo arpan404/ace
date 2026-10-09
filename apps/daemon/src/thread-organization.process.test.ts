@@ -315,3 +315,47 @@ test("sidebar metadata says the root agent is running tests, from its step's sto
   ]);
   expect(f.store.getThread(f.thread.id)?.live?.step).toBeUndefined();
 });
+
+test("completed old turns with retained queue holds cannot be settled from another device", async () => {
+  const f = await setup();
+  f.store.appendEvents(
+    f.thread.id,
+    [
+      { type: "thread.updated", status: { state: "done" } },
+      {
+        type: "queue.updated",
+        paused: true,
+        reason: "not_sent",
+        resumeAt: null,
+        revision: 1,
+        pendingCount: 1,
+      },
+    ],
+    1000,
+  );
+  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
+    type: "commandResult",
+    ok: false,
+    error: "thread_not_done",
+  });
+  expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
+  f.store.appendEvents(
+    f.thread.id,
+    [
+      {
+        type: "queue.updated",
+        paused: false,
+        reason: null,
+        resumeAt: null,
+        revision: 2,
+        pendingCount: 0,
+      },
+    ],
+    1001,
+  );
+  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
+    type: "commandResult",
+    ok: true,
+  });
+  expect(f.store.getThread(f.thread.id)?.settledAt).toBe(1000);
+});

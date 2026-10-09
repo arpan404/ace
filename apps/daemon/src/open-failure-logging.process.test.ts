@@ -140,6 +140,23 @@ else process.exit(9);
       const snapshot = daemon.store.snapshotThread(thread.id);
       expect(JSON.stringify(snapshot)).not.toContain("opaque-login-value");
       expect(JSON.stringify(snapshot)).not.toContain("private-callback-secret");
+      if (provider === "opencode") {
+        const rejected = Command.parse({
+          id: "model-missing",
+          deviceId: "warning-test",
+          payload: {
+            type: "thread.create",
+            workspaceId,
+            provider,
+            model: "synthetic-cloud/missing",
+            input: [{ type: "text", text: "unsent" }],
+          },
+        });
+        expect(engine.handler.handle(rejected, daemon.store)).toMatchObject({
+          ok: false,
+          error: "model_unavailable",
+        });
+      }
       await daemon.close();
       const log = await readFile(join(home, "logs", "ace.jsonl"), "utf8");
       const records = z
@@ -164,6 +181,18 @@ else process.exit(9);
           }),
         }),
       );
+      if (provider === "opencode")
+        expect(records).toContainEqual(
+          expect.objectContaining({
+            message: "Selected model unavailable",
+            data: expect.objectContaining({
+              code: "model_unavailable",
+              provider,
+              model: "synthetic-cloud/missing",
+            }),
+          }),
+        );
+      expect(log).not.toContain("UNPREPARED OBJECT OMITTED");
       expect(log).not.toContain("opaque-login-value");
       expect(log).not.toContain("private-callback-secret");
       expect(scripted.commands.filter((entry) => entry.type === "send")).toEqual([]);

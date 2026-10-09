@@ -1,3 +1,4 @@
+import { logFields } from "@ace/diagnostics";
 import { ProviderAccountsRequest } from "@ace/protocol";
 import { providerAccounts } from "../provider-accounts.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
@@ -20,7 +21,7 @@ export async function startAccounts(context: ServiceContext) {
         context.log.log(
           event.outcome === "moved" ? "info" : "warn",
           "Account instance home migrated",
-          { ...event },
+          logFields(Object.entries(event)),
         ),
     },
   );

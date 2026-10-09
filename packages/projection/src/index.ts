@@ -1,4 +1,6 @@
 export { isRawHistoryItem } from "./history-visibility.ts";
+export { threadAttention } from "./thread-attention.ts";
+export { withoutPortableHandoff } from "./portable-input.ts";
 import { usageSnapshotKey } from "./usage.ts";
 export {
   emptyTurnDigest,
@@ -126,6 +128,10 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
   return { kind: "applied" };
 }
 export function updateThread(thread: Thread, event: Event): void {
+  if (event.payload.type === "queue.updated") {
+    const { type: _type, ...queue } = event.payload;
+    thread.queue = queue;
+  }
   const payload = event.payload;
   if (payload.type === "thread.client.updated") {
     for (const [key, value] of Object.entries(payload.changes)) {
@@ -166,6 +172,7 @@ export function updateThread(thread: Thread, event: Event): void {
   if (isSidebarEvent(event)) thread.updatedAt = event.at;
 }
 export function isSidebarEvent(event: Event): boolean {
+  if (event.payload.type === "queue.updated") return true;
   return (
     event.payload.type === "thread.created" ||
     event.payload.type === "thread.updated" ||

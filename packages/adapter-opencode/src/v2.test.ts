@@ -757,3 +757,21 @@ it("new OpenCode text clears overload retries while quota blocks require explici
     );
   }
 });
+
+it("OpenCode system tool schemas never appear as an assistant response while user messages remain visible", () => {
+  const h = setup();
+  h.frame("snapshot.message", {
+    sessionID: "s-root",
+    message: {
+      id: "system",
+      type: "system",
+      text: "INTERNAL TOOL SCHEMAS " + "schema ".repeat(25000),
+    },
+  });
+  h.frame("snapshot.message", {
+    sessionID: "s-root",
+    message: { id: "user", type: "user", text: "Hello" },
+  });
+  const messages = Object.values(h.view.items).filter((item) => item.type === "message");
+  expect(messages).toMatchObject([{ role: "user", parts: [{ type: "text", text: "Hello" }] }]);
+});

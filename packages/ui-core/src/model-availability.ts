@@ -1,7 +1,6 @@
-import { isDefaultSelection } from "@ace/models/resolve";
+import { isDefaultSelection, matchesModel } from "@ace/models/resolve";
 import { modelDisplayName } from "@ace/models/display-name";
 import type { CatalogModel, ExecutionSelection } from "@ace/protocol";
-import { modelAliases } from "./catalog-ids.ts";
 import type { PickerModel } from "./model-picker.ts";
 import { providerNames } from "./providers.ts";
 
@@ -12,13 +11,8 @@ export function unavailableSelection(
 ) {
   if (!models || !selection?.model || isDefaultSelection(selection.model)) return undefined;
   const serving = servingModels(models, selection);
-  if (
-    serving.some(
-      (model) =>
-        model.id === selection.model || modelAliases(model).includes(selection.model ?? ""),
-    )
-  )
-    return undefined;
+  const matching = serving.filter((model) => matchesModel(model, selection.model ?? ""));
+  if (matching.length && new Set(matching.map((model) => model.id)).size === 1) return undefined;
   return {
     provider: selection.provider,
     model: selection.model,
@@ -52,8 +46,9 @@ export function modelReplacement(
       !model.deprecated &&
       !model.legacy &&
       model.tier !== "legacy" &&
-      model.id !== selection.model &&
-      !modelAliases(model).includes(selection.model ?? ""),
+      !matchesModel(model, selection.model ?? "") &&
+      modelDisplayName(model.id).displayName !==
+        modelDisplayName(selection.model ?? "").displayName,
   );
   return eligible.find((model) => model.isDefault) ?? eligible[0];
 }

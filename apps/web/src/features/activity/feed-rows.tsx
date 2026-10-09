@@ -12,6 +12,7 @@ import { useNow } from "@/lib/time.ts";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
 import { approvalCopy, formatAge, privateBrowserGate } from "@ace/ui-core";
 import { interactionKey, useActivityState } from "./activity-state.tsx";
+import { RecoveryThreadRow } from "./recovery-thread-row.tsx";
 import { FeedRow } from "./feed-row.tsx";
 import { requestTitle } from "./question-card.tsx";
 import { useProjectName } from "@/lib/projects.ts";
@@ -28,6 +29,12 @@ const requestIcons: Record<InteractionRequest["kind"], PhosphorIcon> = {
 /** A thread's open requests, each a row that focuses its card in the main column. */
 export function ThreadNeedsRows(props: { threadId: string }) {
   const open = useInteractions(props.threadId);
+  if (!open?.length)
+    return (
+      <li>
+        <RecoveryThreadRow threadId={props.threadId} />
+      </li>
+    );
   return (open ?? []).map((id) => (
     <InteractionRow key={id} threadId={props.threadId} interactionId={id} />
   ));

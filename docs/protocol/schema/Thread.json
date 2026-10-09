@@ -122,6 +122,9 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "queue": {
+      "$ref": "https://ace.local/protocol/v1/QueueState.json"
+    },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

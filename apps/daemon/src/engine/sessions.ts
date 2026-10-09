@@ -28,6 +28,7 @@ const SessionIdentity = z.strictObject({
 });
 
 interface SessionDependencies {
+  waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
   commandEvent?(event: ProviderCommandEvent): void;
   models: EngineModels;
   repo: EngineRepository;
@@ -75,6 +76,10 @@ export class Sessions {
     // A prepared root is starting before its first turn, not a pinned live policy.
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
+    await this.dependencies.waitForProvider?.(stateBefore.config.provider);
+    await this.dependencies.repo.store.writable();
+    if (this.dependencies.closing() || this.dependencies.repo.cleaning(actor.id))
+      throw new Error("Thread is closing");
     const entry = this.dependencies.registry.get(
       stateBefore.config.provider,
       this.dependencies.repo.backend(actor.id),

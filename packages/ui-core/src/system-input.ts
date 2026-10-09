@@ -1,3 +1,4 @@
+import { withoutPortableHandoff } from "@ace/projection";
 import type { Item, ProviderKind } from "@ace/protocol";
 
 /*
@@ -69,6 +70,8 @@ const candidates = [
  */
 export function mayBeSystemInput(item: Item | undefined): boolean {
   if (item?.type !== "message" || item.role === "assistant") return false;
+  const stripped = withoutPortableHandoff(item.parts);
+  if (stripped.length !== item.parts.length || stripped[0] !== item.parts[0]) return true;
   const origin = messageOrigin(item);
   if (origin) return origin.kind !== "person" && origin.kind !== "queue";
   const text = messageText(item).trimStart();

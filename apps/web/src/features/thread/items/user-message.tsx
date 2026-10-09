@@ -1,6 +1,6 @@
 import { MessageReferences } from "./message-references.tsx";
 import { useItem } from "@ace/client-react";
-import { formatClock } from "@ace/ui-core";
+import { formatClock, withoutPortableHandoff } from "@ace/ui-core";
 import { Suspense } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -70,7 +70,9 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
       ? inputText(local.send.payload.input)
       : (local.staged?.text ?? "");
   // Most messages carry no files: only those load the thumbnails' code.
-  const parts = message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [];
+  const parts = withoutPortableHandoff(
+    message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
+  );
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),

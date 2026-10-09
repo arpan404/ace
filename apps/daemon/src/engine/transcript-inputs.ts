@@ -49,8 +49,8 @@ export function admitInput(
   const thread = repo.store.getThread(id);
   if (
     (origin.kind === "person" || origin.kind === "queue") &&
-    thread?.titleSource === "provisional" &&
-    thread.title === "New thread"
+    (thread?.titleSource === "provisional" || !thread?.titleSource) &&
+    thread?.title === "New thread"
   )
     repo.store.appendEvents(
       id,

@@ -71,6 +71,7 @@ test("cancelled engine publication rolls back history and sequences before a lat
   expect(store.getThread(threadId)).toMatchObject({
     status: { state: "done" },
     settledAt: 123,
+    settledReason: "manual",
     unread: false,
   });
   const snapshot = store.snapshotThread(threadId);

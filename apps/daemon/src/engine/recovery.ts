@@ -116,6 +116,23 @@ export class Recovery {
       : command;
   }
   sync(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    const saved = this.repo.store.getThread(id)?.queue;
+    if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision)
+      this.repo.store.appendEvents(
+        id,
+        [
+          {
+            type: "queue.updated",
+            paused: queue.paused,
+            reason: queue.reason,
+            resumeAt: queue.resumeAt,
+            revision: queue.revision,
+            pendingCount: queue.pendingCount,
+          },
+        ],
+        this.clock.now(),
+      );
     const count = this.repo.queuedCount(id);
     if (this.repo.requireState(id).queueSources.engine !== count)
       this.repo.apply(id, [{ type: "queue.changed", source: "engine", count }], this.clock.now());

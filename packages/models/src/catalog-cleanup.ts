@@ -207,7 +207,15 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
 }
 
 export function matchesModel(row: CatalogModel, id: string): boolean {
-  return row.id === id || row.resolvedModelId === id || row.aliases?.includes(id) === true;
+  return (
+    row.id === id ||
+    row.nativeModelId === id ||
+    row.resolvedModelId === id ||
+    row.aliases?.includes(id) === true ||
+    (row.provider === "opencode" &&
+      !id.includes("/") &&
+      row.id.slice(row.id.indexOf("/") + 1) === id)
+  );
 }
 export function defaultModel(
   models: readonly CatalogModel[],

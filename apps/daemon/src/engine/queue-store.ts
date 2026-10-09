@@ -84,6 +84,7 @@ export class QueueStore {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
     if (!row) throw new Error("Missing queue metadata");
     return RecoveryRecord.parse({
+      pendingCount: this.count(id) + (row.continuation ? 1 : 0),
       holdToken: row.hold_token,
       revision: row.revision,
       paused: row.paused === 1,
@@ -115,7 +116,19 @@ export class QueueStore {
         value.holdToken,
         id,
       );
-      this.store.appendEvents(id, [{ type: "queue.updated", ...QueueState.parse(value) }], at);
+      this.store.appendEvents(
+        id,
+        [
+          {
+            type: "queue.updated",
+            ...QueueState.parse({
+              ...value,
+              pendingCount: this.count(id) + (value.continuation ? 1 : 0),
+            }),
+          },
+        ],
+        at,
+      );
     });
   }
   count(id: ThreadId): number {

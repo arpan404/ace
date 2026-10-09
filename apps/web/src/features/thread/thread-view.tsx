@@ -187,7 +187,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             </>
           )
         }
-        title={title ?? "Loading thread…"}
+        title={error ? "Thread unavailable" : (title ?? "Loading thread…")}
         subtitle={
           connection.fresh && meta?.status.state === "limited" ? (
             <Suspense fallback={null}>

@@ -1,3 +1,4 @@
+import { withoutPortableHandoff } from "@ace/projection";
 import type { Item, ProviderKind } from "@ace/protocol";
 import { modelLabel, providerNames } from "./providers.ts";
 import {
@@ -107,6 +108,8 @@ const inputKinds = new Set<string>([
 export function systemInput(item: Item | undefined): SystemInput | undefined {
   if (item?.type !== "message" || item.role === "assistant") return undefined;
   const text = messageText(item);
+  if (item.parts.length && !withoutPortableHandoff(item.parts).length)
+    return { kind: "handoff", text };
   const origin = messageOrigin(item);
   if (origin) {
     if (origin.kind === "person" || !inputKinds.has(origin.kind)) return undefined;

@@ -242,6 +242,13 @@ export class Client implements ClientApi, ConnectionControl {
     });
   }
   private observeInputs(message: ServerMessage): void {
+    const acceptedRuns = new Set(
+      message.type === "events"
+        ? message.events.flatMap((event) =>
+            event.payload.type === "run.started" ? [event.payload.run.id] : [],
+          )
+        : [],
+    );
     const observe = (item: Item) => {
       // A known-not-sent notice fails its draft. `delivery_uncertain` may have run: it is
       // recovered through `queue.resend`, never offered as a plain resend (ADR 0065).
@@ -260,7 +267,9 @@ export class Client implements ClientApi, ConnectionControl {
       const id =
         item.origin?.commandId ?? (item.id.startsWith("input:") ? item.id.slice(6) : undefined);
       if (id)
-        void this.intents.observe(id).catch(() => this.connection.fail(new ClientError("storage")));
+        void this.intents
+          .observe(id, !!item.nativeId || (!!item.runId && acceptedRuns.has(item.runId)))
+          .catch(() => this.connection.fail(new ClientError("storage")));
     };
     if (message.type === "snapshot" && message.view.kind === "thread")
       for (const item of Object.values(message.view.items)) observe(item);
@@ -268,6 +277,10 @@ export class Client implements ClientApi, ConnectionControl {
       for (const item of message.items) observe(item);
     else if (message.type === "events")
       for (const event of message.events) {
+        if (event.payload.type === "input.admitted" && event.payload.commandId)
+          void this.intents
+            .observe(event.payload.commandId, true)
+            .catch(() => this.connection.fail(new ClientError("storage")));
         if (event.payload.type === "item.created" || event.payload.type === "item.updated")
           observe(event.payload.item);
       }
