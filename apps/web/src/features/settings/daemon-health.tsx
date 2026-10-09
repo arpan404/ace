@@ -1,4 +1,5 @@
-import { useHostName } from "@/lib/host-name.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { useQuery } from "@tanstack/react-query";
@@ -48,7 +49,8 @@ const ms = (value: number | null) => (value === null ? "–" : `${value.toFixed(
  */
 export function DaemonHealth() {
   const client = useClient();
-  const host = useHostName() ?? "This machine";
+  const identity = useHostIdentity();
+  const host = identity?.displayName ?? "This machine";
   const connection = useDaemonConnection();
   const toast = useToast();
   const ready = useConnectionState() === "ready";
@@ -99,7 +101,9 @@ export function DaemonHealth() {
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
             <dt className="text-muted-foreground">{label}</dt>
-            <dd className="truncate tabular-nums">{value}</dd>
+            <dd className="truncate tabular-nums">
+              {label === "Machine" ? <MachineLabel name={host} icon={identity?.icon} /> : value}
+            </dd>
           </div>
         ))}
       </dl>

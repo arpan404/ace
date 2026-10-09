@@ -1,9 +1,5 @@
-import { useMachines } from "@/lib/machines.ts";
+import { Machines } from "./machine-editor.tsx";
 import { RemoteAccess } from "./remote-access.tsx";
-import { settingKeys } from "./data/setting-keys.ts";
-import { useSettingControl } from "./data/use-settings.ts";
-import { Input } from "@/components/ui/input.tsx";
-import { StatusLabel } from "@/components/status-label.tsx";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,26 +16,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useNow } from "@/lib/time.ts";
-import { formatAge } from "@ace/ui-core";
-import type { Machine } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
 import { settingRow } from "./settings-index.ts";
-import { UnavailableError } from "@/boot/fake-backend.ts";
-
-const platformNames: Record<Machine["platform"], string> = {
-  macos: "macOS",
-  linux: "Linux",
-  windows: "Windows",
-};
-
-function ago(at: number, now: number): string {
-  const age = formatAge(at, now);
-  return age === "now" ? "just now" : `${age} ago`;
-}
-
-const lastSeen = (at: number, now: number) => `last seen ${ago(at, now)}`;
 
 /** Machines running the daemon, paired phones and browsers, pairing and revoking. */
 export function RemoteDevices() {
@@ -49,72 +28,6 @@ export function RemoteDevices() {
       <Machines />
       <PairedDevices />
     </>
-  );
-}
-
-/**
- * Machines running the daemon. A daemon that can't list them yet shows the one this window
- * talks to, from the connection, with no error: nothing is wrong.
- */
-function Machines() {
-  const backend = useSettingsBackend();
-  const listed = useQuery(settingsQueries.machines(backend));
-  const connected = useMachines();
-  const name = useSettingControl(settingKeys.hostName, "Machine name");
-  const now = useNow();
-  const unlisted = listed.error instanceof UnavailableError;
-  const machines = listed.data;
-  return (
-    <SettingSection label="Machines">
-      <SettingRow id="host.displayName" title="Machine name" htmlFor="host-name" inline compact>
-        <Input
-          id="host-name"
-          key={name.value}
-          defaultValue={name.value}
-          placeholder={
-            machines?.find((machine) => machine.current)?.name ??
-            connected[0]?.name ??
-            "This machine"
-          }
-          className="w-52"
-          maxLength={256}
-          disabled={name.offline}
-          onBlur={(event) => {
-            if (event.target.value !== name.value) name.set(event.target.value.trim());
-          }}
-        />
-      </SettingRow>
-      {listed.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
-      {unlisted &&
-        connected.map((machine) => (
-          <SettingRow key={machine.id} compact inline title={machine.name}>
-            <StatusLabel
-              tone={machine.status === "online" ? "done" : "idle"}
-              label={machine.status === "online" ? "Online" : "Offline"}
-            />
-          </SettingRow>
-        ))}
-      {listed.isError && !unlisted && <LoadError error={listed.error} />}
-      {machines?.map((machine) => (
-        <SettingRow
-          key={machine.id}
-          compact
-          inline
-          title={machine.current && name.value ? name.value : machine.name}
-          description={[
-            machine.current ? "This machine" : platformNames[machine.platform],
-            `${machine.threads} thread${machine.threads === 1 ? "" : "s"}`,
-            `ace ${machine.daemonVersion}`,
-            ...(machine.current ? [] : [lastSeen(machine.lastSeenAt, now)]),
-          ].join(" · ")}
-        >
-          <StatusLabel
-            tone={machine.online ? "done" : "idle"}
-            label={machine.online ? "Online" : "Offline"}
-          />
-        </SettingRow>
-      ))}
-    </SettingSection>
   );
 }
 

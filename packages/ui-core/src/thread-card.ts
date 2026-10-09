@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
+import type { MachineIcon, ProviderKind, ThreadListEntry } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
@@ -42,6 +42,7 @@ export interface CardDetails {
   worktree?: boolean | undefined;
   /** Set when the thread runs on another machine. */
   machine?: string | undefined;
+  machineIcon?: MachineIcon | undefined;
   diff?: { added: number; removed: number } | undefined;
 }
 
@@ -108,6 +109,7 @@ export interface ThreadCard {
   /** "tomorrow 9:00 AM" while snoozed. */
   wake: string | undefined;
   machine: string | undefined;
+  machineIcon: MachineIcon | undefined;
   /**
    * The branch, only when it says something: not the project's default branch. `label` is the
    * name cut in the middle to fit a row; `name` is whole, for the tooltip.
@@ -198,6 +200,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
         ? describeWake(entry.snoozedUntil, now, input.locale)
         : undefined,
     machine: details?.machine,
+    machineIcon: details?.machineIcon,
     branch:
       details?.branch && !isDefaultBranch(details.branch)
         ? {

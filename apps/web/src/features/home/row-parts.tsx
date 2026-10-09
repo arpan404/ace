@@ -1,3 +1,4 @@
+import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
@@ -123,7 +124,7 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
         instance={props.instance}
         provider={card.provider}
         acpAgentId={card.acpAgentId}
-        size={card.provider === "opencode" ? 24 : 16}
+        size={16}
         decorative
       />
       {card.subagents > 0 && (
@@ -138,9 +139,14 @@ export function RowDetail(props: { card: ThreadCard; instance?: string | undefin
   const { card } = props;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-      <span className="min-w-0 flex-1 truncate">
-        {card.branch?.name ?? card.project}
-        {card.machine && ` · ${card.machine}`}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="truncate">{card.branch?.name ?? card.project}</span>
+        {card.machine && (
+          <>
+            {" "}
+            · <MachineLabel name={card.machine} icon={card.machineIcon} />
+          </>
+        )}
       </span>
       <span className="flex shrink-0 items-center gap-1.5 group-focus-within/row:invisible group-hover/row:invisible">
         <ChangeMark card={card} />

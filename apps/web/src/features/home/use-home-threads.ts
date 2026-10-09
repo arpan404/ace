@@ -25,7 +25,7 @@ const noProjects: ProjectCount[] = [];
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
     const entry = reader.thread(id);
-    return entry ? [entry] : [];
+    return entry && entry.hasSentMessage !== false ? [entry] : [];
   });
 
 /** The list's entries as this window shows them, with organize actions not yet confirmed. */

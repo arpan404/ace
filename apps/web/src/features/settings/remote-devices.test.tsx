@@ -4,15 +4,11 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 test("machines and paired devices are listed; revoking a device removes it after confirming", async () => {
-  const app = harness();
+  const app = harness({ machines: [{ hostId: "build-box", name: "Build server" }] });
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
-  expect(await within(machines).findByText("studio-mac")).toBeTruthy();
-  await userEvent.hover(within(machines).getByText("build-box"));
-  expect((await screen.findByRole("tooltip")).textContent).toMatch(
-    /^Linux · 3 threads · ace 0\.8\.0/,
-  );
-  await userEvent.unhover(within(machines).getByText("build-box"));
+  expect(await within(machines).findByText("This Mac")).toBeTruthy();
+  expect(await within(machines).findByText("Build server")).toBeTruthy();
 
   const devices = screen.getByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();

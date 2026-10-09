@@ -50,7 +50,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
           <div
             className={cn(
               row,
-              settled ? "h-8" : "h-[46px]",
+              settled ? "h-8" : "h-9",
               "flex-row items-center gap-2 bg-sidebar-accent",
             )}
           >
@@ -84,7 +84,7 @@ export function ThreadRow(props: { threadId: string; settled: boolean }) {
               draggable={false}
               className={cn(
                 row,
-                settled ? "h-8" : "h-[46px]",
+                settled ? "h-8" : "h-9",
                 "group/link focus-visible:shadow-[inset_0_0_0_1px_var(--sidebar-border)] group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/8",
                 selected && "bg-foreground/8",
                 handle && "pointer-coarse:pr-11",

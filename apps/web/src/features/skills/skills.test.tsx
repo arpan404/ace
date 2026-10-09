@@ -310,7 +310,10 @@ test("Stop while a review is being made cancels that review once the daemon make
   // Hold the daemon's answer to plugins.prepare until after Stop.
   const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const request = app.client.request.bind(app.client);
-  app.client.request = ((input: Parameters<typeof request>[0], options) =>
+  app.client.request = ((
+    input: Parameters<typeof request>[0],
+    options,
+  ): Promise<Awaited<ReturnType<typeof request>>> =>
     input.type === "pluginRequest" && input.request.type === "plugins.prepare"
       ? held.then(() => request(input, options))
       : request(input, options)) as typeof app.client.request;

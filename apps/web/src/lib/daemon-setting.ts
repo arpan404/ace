@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
   SettingsValues,
+  SettingsSet,
   type SettingsEntry,
   type SettingsKey,
   type SettingsLayer,
@@ -141,7 +142,12 @@ export function useDaemonSetting<K extends SettingsKey>(
   const value = raw === undefined || !parsed.success ? undefined : (parsed.data as Value<K>);
   const set = useCallback(
     async (stored: Value<K>, layer: SettingsLayer = { kind: "global" }) => {
-      const reply = await client.request({ type: "settings.set", key, value: stored, layer });
+      const reply = await client.request({
+        type: "settings.set",
+        key,
+        value: SettingsSet.shape.value.parse(stored),
+        layer,
+      });
       if (!reply.ok) throw new Error("Couldn't save that setting. Check the value and try again.");
     },
     [client, key],

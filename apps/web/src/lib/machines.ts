@@ -1,3 +1,4 @@
+import type { MachineIcon } from "@ace/protocol";
 import type { ClientApi, ConnectionState } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
@@ -18,6 +19,7 @@ export interface Machine {
   /** The daemon's host id; `primaryMachineId` for this window's daemon while it is unnamed. */
   id: string;
   name: string;
+  icon?: MachineIcon | undefined;
   status: MachineStatus;
   /** Set only while the machine is online. */
   client: ClientApi | undefined;
@@ -73,6 +75,7 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
           {
             id: machine.entry.hostId,
             name: machine.entry.displayName,
+            icon: machine.entry.icon,
             status: reach ? machine.status : online ? "offline" : machine.status,
             client: reach,
             primary: false,
@@ -92,6 +95,7 @@ export function usePrimaryMachine(): Machine {
     () => ({
       id: identity?.hostId ?? primaryMachineId,
       name: identity?.displayName ?? "This machine",
+      icon: identity?.icon,
       status: statusOf(state),
       client: state === "ready" ? client : undefined,
       primary: true,
