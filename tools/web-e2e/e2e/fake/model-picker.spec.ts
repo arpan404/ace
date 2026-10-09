@@ -50,7 +50,7 @@ test("the picker keeps its size and its search in place across tabs, a search an
     expect(await search.boundingBox()).toEqual(firstSearch);
   };
 
-  await page.getByRole("tab", { name: "Codex" }).click();
+  await page.getByRole("tab", { name: "Codex · Personal", exact: true }).click();
   await same();
   await search.fill("sonnet");
   await same();
@@ -61,7 +61,7 @@ test("the picker keeps its size and its search in place across tabs, a search an
   await page.getByRole("tab", { name: "Favorites" }).click();
   await expect(page.getByText("No favorites yet")).toBeVisible();
   await same();
-  await page.getByRole("tab", { name: "Claude Code" }).click();
+  await page.getByRole("tab", { name: "Claude Code · Work", exact: true }).click();
   await page.getByRole("option", { name: "Haiku 4.5, Claude Code" }).hover();
   await page.getByRole("button", { name: "Add Haiku 4.5 to favorites" }).click();
   await page.getByRole("tab", { name: "Favorites" }).click();
