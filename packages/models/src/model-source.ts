@@ -1,18 +1,7 @@
 import type { ModelSource } from "@ace/protocol";
 
-const labels: Readonly<Record<string, string>> = {
-  "opencode-go": "OpenCode Go",
-  opencode: "OpenCode Zen",
-  "opencode-zen": "OpenCode Zen",
-  "github-copilot": "GitHub Copilot",
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  google: "Google",
-  openrouter: "OpenRouter",
-  ollama: "Ollama",
-  lmstudio: "LM Studio",
-  "llama.cpp": "llama.cpp",
-};
+import { serviceLabel } from "./service-labels.ts";
+
 export function providerSource(
   id: string,
   info: {
@@ -40,7 +29,7 @@ export function providerSource(
     types.includes("local") ||
     (!info.baseURL && ["ollama", "lmstudio", "llama.cpp"].includes(id))
       ? "local"
-      : ["opencode-go", "github-copilot"].includes(id) ||
+      : ["opencode-go", "github-copilot", "openai-codex", "openai-chatgpt"].includes(id) ||
           info.authType === "oauth" ||
           types.includes("oauth")
         ? "subscription"
@@ -53,11 +42,35 @@ export function providerSource(
   return {
     kind,
     id,
-    label: info.name ?? labels[id] ?? id,
+    label: serviceLabel(id) !== id ? serviceLabel(id) : (info.name ?? id),
     ...(id === "opencode-go"
       ? { service: "opencode_go" }
       : ["opencode", "opencode-zen"].includes(id)
         ? { service: "opencode_zen" }
         : {}),
   };
+}
+
+/** Ollama's cloud suffix is model-specific, even when served through a local endpoint. */
+export function modelSource(id: string, modelId: string, source = providerSource(id)): ModelSource {
+  const label = serviceLabel(source.id);
+  const named =
+    source.kind !== "account" && label !== source.id
+      ? {
+          ...source,
+          label,
+          ...(["openai-codex", "openai-chatgpt"].includes(source.id)
+            ? { kind: "subscription" as const }
+            : {}),
+        }
+      : source;
+  return id === "ollama" && /(?::cloud|-cloud)$/i.test(modelId)
+    ? {
+        ...named,
+        id: "ollama-cloud",
+        kind: "api_key",
+        requiresAuth: true,
+        label: serviceLabel("ollama-cloud"),
+      }
+    : named;
 }

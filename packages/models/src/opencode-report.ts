@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ModelSource, ModelSourceStatus, CatalogModel } from "@ace/protocol";
 import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { freeOpenCodeModel } from "./opencode-free.ts";
-import { providerSource } from "./model-source.ts";
+import { providerSource, modelSource } from "./model-source.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { discoveryError } from "./discovery-errors.ts";
 import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
@@ -32,7 +32,7 @@ export function normalizeOpenCodeReport(
     if (!identity.success) continue;
     const id = identity.data.providerID;
     if (!connected.has(id)) {
-      if (!freeOpenCodeModel(raw)) continue;
+      if (!freeOpenCodeModel(raw) && providerSource(id).kind !== "local") continue;
       available.set(id, { ...providerSource(id), requiresAuth: false });
     }
     const group = grouped.get(identity.data.providerID) ?? [];
@@ -68,8 +68,14 @@ export function normalizeOpenCodeReport(
           error: discoveryError(undefined, "no_models", { ...instance, source: id }),
         });
       } else {
-        models.push(...rows.map((row) => Object.assign({}, row, { source })));
-        sources.push({ source, status: "fresh" });
+        models.push(
+          ...rows.map((row) => Object.assign({}, row, { source: modelSource(id, row.id, source) })),
+        );
+        for (const model of rows) {
+          const routed = modelSource(id, model.id, source);
+          if (!sources.some((entry) => entry.source.id === routed.id))
+            sources.push({ source: routed, status: "fresh" });
+        }
       }
     } catch (error) {
       failedSource(source, error);

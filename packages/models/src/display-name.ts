@@ -1,3 +1,13 @@
+/** Internal free-preview tags are pricing metadata, never a visible snapshot label. */
+export function modelDetail(detail: string | undefined): string | undefined {
+  return (
+    detail
+      ?.split(" · ")
+      .filter((part) => !/^preview[-_]free$/i.test(part))
+      .join(" · ") || undefined
+  );
+}
+
 /** Snapshot identifiers describe an execution route, never the model's version. */
 export function modelIdentity(id: string): {
   name: string;
@@ -18,7 +28,7 @@ export function modelIdentity(id: string): {
     name = name.slice(0, suffix.index);
   }
   name = name.replace(/^(glm)-(\d+)p(\d+)(?=-|$)/i, "$1-$2.$3");
-  const detail = snapshots.length ? snapshots.join(" · ") : undefined;
+  const detail = modelDetail(snapshots.join(" · "));
   const oldClaude = /^claude-(\d+(?:[.-]\d+)?)-(opus|sonnet|haiku|fable)$/i.exec(name);
   const claude =
     /^(?:claude-)?(opus|sonnet|haiku|fable)(?:[- ](\d+(?:[.-]\d+)?))?$/i.exec(name) ??
