@@ -5,11 +5,11 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 
 /** The daemon has no such thread: deleted, or it belongs to another daemon. */
-const missing = new Set(["not_found", "thread_not_found"]);
+const missing = new Set(["not_found", "thread_not_found", "read_denied"]);
 /** The connection failed, not the thread: the agents on the daemon carry on regardless. */
 const transport = new Set(["offline", "timeout", "unavailable"]);
 
-/** What a thread that couldn't be opened says, in words; the raw code waits behind Details. */
+/** What a thread that couldn't be opened says, in words; with a way back home. */
 export function threadLoadFailure(error: unknown): {
   title: string;
   description: string;
@@ -30,7 +30,7 @@ export function threadLoadFailure(error: unknown): {
   };
 }
 
-/** The thread screen when its thread couldn't be opened: why, the way Home, and the code. */
+/** The thread screen when its thread couldn't be opened: why and the way Home. */
 export function ThreadLoadError(props: { error: unknown }) {
   const failure = threadLoadFailure(props.error);
   return (
@@ -40,19 +40,9 @@ export function ThreadLoadError(props: { error: unknown }) {
         title={failure.title}
         description={failure.description}
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Link to="/" className={buttonVariants({ size: "sm" })}>
-              Back to Home
-            </Link>
-            <details className="text-xs text-subtle-foreground">
-              <summary className="cursor-pointer select-none hover:text-muted-foreground">
-                Details
-              </summary>
-              <p className="mt-1">
-                ace said: <code className="font-mono">{failure.code}</code>
-              </p>
-            </details>
-          </div>
+          <Link to="/" className={buttonVariants({ size: "sm" })}>
+            Back to Home
+          </Link>
         }
       />
     </div>

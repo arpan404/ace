@@ -6,6 +6,7 @@ import {
   fakeTransport,
   hostFolders,
   seedPanels,
+  seedRealThreadState,
   turnStatuses,
   workbenchServices,
 } from "@ace/fake-daemon";
@@ -54,11 +55,12 @@ export function bootFake(): {
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
     new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
   const empty = world === "empty";
+  if (world === "real-thread-state") seedRealThreadState(daemon);
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
-  for (const thread of empty ? [] : devWorld()) {
+  for (const thread of empty || world === "real-thread-state" ? [] : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
     if (thread.through) player.runThrough(thread.through);
     else if (!thread.live) player.runUntilBlocked();
@@ -88,7 +90,8 @@ export function bootFake(): {
   });
   // This device last read the five-day migration after checkpoint 20, so opening it shows
   // what happened since (the catch-up card).
-  if (!empty) daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
+  if (!empty && world !== "real-thread-state")
+    daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
   // The hero thread was last read before reconnect-audit's finding arrived ("New activity").
   if (!empty && daemon.itemId("thread-dedupe", "relay"))
     daemon.markReadThrough("thread-dedupe", "relay", "web-fake-device");

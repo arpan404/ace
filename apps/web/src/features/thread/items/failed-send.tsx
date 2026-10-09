@@ -1,7 +1,7 @@
 import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, ThreadId } from "@ace/protocol";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
@@ -62,8 +62,8 @@ export function FailedSend(props: {
 }
 
 /**
- * Retry sends a failed message again under a new command id (the daemon keeps its refusal of
- * the old one); Edit hands it back to its composer. Either way the failed bubble goes.
+ * Retry releases the original retained message, or sends a refused command under a new id.
+ * Edit hands it back to its composer.
  */
 export function useSendActions(threadId: string) {
   const client = useClient();
@@ -72,19 +72,46 @@ export function useSendActions(threadId: string) {
   const { storage } = useLayout();
   return {
     retry(commandId: string, payload: SendPayload) {
-      const id = crypto.randomUUID();
-      // A thread.create retried is a new thread start: its pending route moves with it.
-      void client.enqueue(payload, id).then(
-        () => {
-          dismissSend(storage, commandId);
-          if (payload.type === "thread.create")
-            void navigate({
-              to: "/t/$threadId",
-              params: { threadId: `pending:${id}` },
-              replace: true,
+      void (async () => {
+        if (payload.type === "thread.send") {
+          let after: CommandId | undefined;
+          let revision: number | undefined;
+          do {
+            const { queue } = await client.request({
+              type: "queue.get",
+              threadId: payload.threadId,
+              limit: 32,
+              ...(after ? { after: CommandId.parse(after), expectedRevision: revision } : {}),
             });
-        },
-        () => toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+            revision = queue.revision;
+            if (queue.messages.some((message) => message.id === commandId)) {
+              const result = await client.command({
+                type: "queue.resume",
+                threadId: payload.threadId,
+                expectedRevision: revision,
+              });
+              if (!result.ok) throw new Error(result.error);
+              return;
+            }
+            after = queue.next ?? undefined;
+          } while (after);
+        }
+        const id = crypto.randomUUID();
+        // A thread.create retried is a new thread start: its pending route moves with it.
+        await client.enqueue(payload, id).then(
+          () => {
+            dismissSend(storage, commandId);
+            if (payload.type === "thread.create")
+              void navigate({
+                to: "/t/$threadId",
+                params: { threadId: `pending:${id}` },
+                replace: true,
+              });
+          },
+          () => toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+        );
+      })().catch(() =>
+        toast.add({ title: "Couldn't send it again", description: "It is still here." }),
       );
     },
     edit(commandId: string, payload: SendPayload) {

@@ -1,3 +1,4 @@
+import { noticeText } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useConnectionState, useItem, useThread } from "@ace/client-react";
 import type { ReactNode } from "react";
@@ -75,11 +76,13 @@ export function SendStatus(props: {
   const refused = send?.state === "failed";
   // Admission can inherit an older active run. Only a later run supersedes this failure.
   if (notice?.type === "notice" && run && run.startedAt > notice.createdAt) return props.otherwise;
+  if ((item?.type === "message" && item.nativeId) || send?.state === "delivered")
+    return props.otherwise;
   if (refused || notice?.type === "notice") {
     const reason = refused
       ? sendFailure(send?.error, send?.payload)
       : notice?.type === "notice"
-        ? (notice.detail ?? notice.text).replace(/^thread\.(send|create): /, "")
+        ? noticeText(notice.detail ?? notice.text)
         : undefined;
     return (
       <FailedSend threadId={props.threadId} itemId={props.itemId} send={send} reason={reason} />

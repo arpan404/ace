@@ -56,7 +56,13 @@ export function QueueNotice(props: {
   const { unavailable } = useThreadModelAvailability(props.threadId);
   const notice = queueNotice(
     props.status,
-    live ?? props.queue.page,
+    {
+      ...(live ?? props.queue.page),
+      pendingCount: live?.pendingCount ?? props.queue.page?.total ?? props.queue.messages.length,
+      paused: live?.paused ?? props.queue.page?.paused ?? false,
+      reason: live?.reason ?? props.queue.page?.reason ?? null,
+      resumeAt: live?.resumeAt ?? props.queue.page?.resumeAt ?? null,
+    },
     now,
     undefined,
     context,
