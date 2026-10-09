@@ -41,7 +41,8 @@
     "desktop:build": "node apps/desktop/scripts/package.ts",
     "desktop:package": "node apps/desktop/scripts/package.ts --full",
     "desktop:rebuild-native": "node apps/desktop/scripts/rebuild-native.ts",
-    "desktop:e2e": "node apps/desktop/scripts/e2e.ts"
+    "desktop:e2e": "node apps/desktop/scripts/e2e.ts",
+    "smoke:real": "node tools/real-smoke/src/cli.ts"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",
