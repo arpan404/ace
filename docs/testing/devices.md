@@ -108,6 +108,11 @@ also need an explicitly selected, initially shut down device through
 requires macOS, `ACE_DEVICE_GESTURE_LIVE=1` and helper permissions. These tests
 operate only on the named device or the dedicated test window.
 
+`capture.live.process.test.ts` uses the same opt-in and selected devices. It streams
+real frames from the emulator and checks a quarter turn shows in the stream, and
+streams the Simulator window through the built screen helper
+(`native/screen-helper/build.sh`; the terminal needs Screen Recording).
+
 `video.live.process.test.ts` skips unless `ACE_DEVICE_VIDEO_LIVE=1`. With
 ffmpeg and ffprobe available, it generates its own RGB pixels, encodes valid JPEGs,
 exports MP4 and checks decoded colors, presentation times and duration. No captured
