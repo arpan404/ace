@@ -42,6 +42,9 @@ export class IdleWorker extends EventEmitter {
   private runtime: IdleWorkerRuntime;
   private idleMs: number;
   private failed = false;
+  private restartAttempts = 0;
+  private cancelRestart: (() => void) | undefined;
+  private resumeRestart: (() => void) | undefined;
   private retirementFailure: Error | undefined;
   constructor(entry: URL, options: WorkerOptions, runtime = systemRuntime, idleMs = 5000) {
     super();
@@ -61,7 +64,10 @@ export class IdleWorker extends EventEmitter {
     const worker = this.runtime.spawn(this.entry, this.options);
     this.worker = worker;
     worker.on("message", (input: unknown) => {
-      if (this.worker === worker && !isWorkerRuntimeMessage(input)) this.emit("message", input);
+      if (this.worker === worker && !isWorkerRuntimeMessage(input)) {
+        this.restartAttempts = 0;
+        this.emit("message", input);
+      }
     });
     worker.on("error", (error: Error) => {
       if (this.worker === worker) this.emit("error", error);
@@ -69,7 +75,22 @@ export class IdleWorker extends EventEmitter {
     worker.on("exit", (code: number) => {
       if (this.worker !== worker) return;
       this.worker = undefined;
-      this.failed = true;
+      this.cancelIdle?.();
+      this.cancelIdle = undefined;
+      const delay = Math.min(30_000, 250 * 2 ** Math.min(this.restartAttempts++, 7));
+      this.stopping = new Promise<void>((resolve) => {
+        this.resumeRestart = resolve;
+        this.cancelRestart = this.runtime.delay(resolve, delay);
+      }).then(() => {
+        this.stopping = undefined;
+        this.cancelRestart = undefined;
+        this.resumeRestart = undefined;
+        if (this.closing) return;
+        const deferred = this.deferred.splice(0);
+        if (!deferred.length) return;
+        this.start();
+        for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
+      });
       this.emit("exit", code);
     });
   }
@@ -114,6 +135,8 @@ export class IdleWorker extends EventEmitter {
   terminate(): Promise<number> {
     if (!this.closing) {
       this.cancelIdle?.();
+      this.cancelRestart?.();
+      this.resumeRestart?.();
       this.deferred = [];
       const worker = this.worker;
       this.worker = undefined;

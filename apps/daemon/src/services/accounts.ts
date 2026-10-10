@@ -34,6 +34,16 @@ export async function startAccounts(context: ServiceContext) {
     }
   });
   await validation;
+  for (const account of registry.summaries(now()))
+    if (account.quota.blockers.homeUnavailable)
+      context.log.log(
+        "warn",
+        "Account folder unavailable",
+        logFields([
+          ["instance", account.id],
+          ["reason", account.quota.blockers.homeUnavailable],
+        ]),
+      );
   services.accountRegistry = registry;
   services.accounts = new AccountService({
     registry,
@@ -125,22 +135,26 @@ export function createAccountsSession(context: SocketContext): SocketService {
           });
         else {
           pending++;
-          try {
-            const management = context.options.accountManagement;
-            const login = context.options.providerLogin;
-            if (!management || !login) throw new Error("Unavailable");
-            const result = await providerAccounts(management, login, device, request.data);
-            if (context.connected() && context.authorize(scope)) context.send(result);
-          } catch {
-            if (context.connected() && context.authorize(scope))
-              context.send({
-                type: "provider.accounts.result",
-                requestId: request.data.requestId,
-                result: { ok: false, error: "failed" },
-              });
-          } finally {
-            pending--;
-          }
+          const task = (async () => {
+            try {
+              const management = context.options.accountManagement;
+              const login = context.options.providerLogin;
+              if (!management || !login) throw new Error("Unavailable");
+              const result = await providerAccounts(management, login, device, request.data);
+              if (context.connected() && context.authorize(scope)) context.send(result);
+            } catch (cause) {
+              context.options.log?.(cause);
+              if (context.connected() && context.authorize(scope))
+                context.send({
+                  type: "provider.accounts.result",
+                  requestId: request.data.requestId,
+                  result: { ok: false, error: "failed" },
+                });
+            } finally {
+              pending--;
+            }
+          })().finally(() => context.tasks.delete(task));
+          context.tasks.add(task);
         }
         return true;
       }
@@ -188,9 +202,11 @@ export function createAccountsSession(context: SocketContext): SocketService {
           .then((result) => {
             if (context.connected() && context.authorize(scope)) context.send(result);
           })
-          .catch(() =>
-            reject("accounts_failed", "Account request failed validation or safety checks"),
-          )
+          .catch((cause: unknown) => {
+            context.options.log?.(cause);
+            if (context.connected())
+              reject("accounts_failed", "Account request failed validation or safety checks");
+          })
           .finally(() => {
             pending--;
             context.tasks.delete(task);

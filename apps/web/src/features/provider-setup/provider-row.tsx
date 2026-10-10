@@ -52,10 +52,7 @@ export function ProviderSetupRow(props: {
   const needsSignIn =
     (provider === "cursor" && missing) ||
     plan?.status === "sign_in" ||
-    (!missing &&
-      (props.view?.primary ||
-        props.view?.state === "unconfirmed" ||
-        (provider === "acp" && !props.view?.ready)));
+    (!missing && (props.view?.primary || (provider === "acp" && !props.view?.ready)));
   const updateAvailable = props.updateAvailable && !needsSignIn;
   const status = busy
     ? progress?.state === "running"
@@ -104,7 +101,7 @@ export function ProviderSetupRow(props: {
             text={props.view.ready ? "Ready" : props.view.summary}
           />
         ) : (
-          <StatusLabel tone="needs-you" label="Sign in" />
+          <StatusLabel tone="idle" label="Checking…" />
         )}
         {busy ? (
           <IconButton

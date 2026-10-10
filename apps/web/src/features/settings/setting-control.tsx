@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
-import { useSettingsLoaded, type SettingControl } from "./data/use-settings.ts";
+import { ProviderReadError } from "@/components/provider-read-error.tsx";
+import {
+  useSettingsReadError,
+  useSettingsLoaded,
+  type SettingControl,
+} from "./data/use-settings.ts";
 
 export const offlineReason = "Reconnect to change settings stored on ace";
 
@@ -17,6 +22,9 @@ export function DaemonSlot(props: {
   children: ReactNode;
 }) {
   const { control } = props;
+  const error = useSettingsReadError();
+  if (!control.loaded && error.failed)
+    return <ProviderReadError message="Couldn't load settings" retry={error.retry} />;
   if (!control.loaded) return <Skeleton className="h-7 w-28 rounded-md" />;
   return (
     <>

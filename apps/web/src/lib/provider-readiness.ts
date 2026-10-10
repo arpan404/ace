@@ -78,7 +78,6 @@ function watchProviders(client: ClientApi, queryClient: QueryClient): () => void
               ? known.map((entry) => (entry.id === account.id ? account : entry))
               : [...known, account];
           });
-          void queryClient.invalidateQueries({ queryKey: ["usage"] });
           void queryClient.invalidateQueries({ queryKey: ["providers", "statuses"] });
           return;
         }
@@ -119,7 +118,19 @@ export function useProvidersWatch(): void {
 /** Every provider's readiness, live; undefined until it arrives. */
 export function useProviderReadiness() {
   useProvidersWatch();
-  return useDaemonQuery({ queryKey: readinessKey, read: readReadiness });
+  const query = useDaemonQuery<ProviderStatus[] | null>({
+    queryKey: readinessKey,
+    read: async (client, signal) => {
+      try {
+        return await readReadiness(client, signal);
+      } catch {
+        signal.throwIfAborted();
+        return null;
+      }
+    },
+  });
+  // A failed read is known. Keep that result across mounts until Retry, a push or reconnect.
+  return { ...query, data: query.data ?? undefined, isError: query.isError || query.data === null };
 }
 
 /** This device's first-run checklist, live. */

@@ -188,19 +188,25 @@ export function createProviderStatusesSession(context: SocketContext): SocketSer
       else if (pending >= 8) reply({ ok: false, error: "busy" });
       else {
         pending++;
-        try {
-          if (message.operation === "refresh") await context.options.providerStatuses.refresh();
-          if (context.connected() && context.authorize("read"))
-            reply({
-              ok: true,
-              providers:
-                message.operation === "readiness"
-                  ? context.options.providerStatuses.readiness()
-                  : context.options.providerStatuses.list(),
-            });
-        } finally {
-          pending--;
-        }
+        const statuses = context.options.providerStatuses;
+        const task = (async () => {
+          try {
+            if (message.operation === "refresh") await statuses.refresh();
+            if (context.connected() && context.authorize("read"))
+              reply({
+                ok: true,
+                providers:
+                  message.operation === "readiness" ? statuses.readiness() : statuses.list(),
+              });
+          } catch (error) {
+            context.options.log?.(error);
+            if (context.connected() && context.authorize("read"))
+              reply({ ok: false, error: "unavailable" });
+          } finally {
+            pending--;
+          }
+        })().finally(() => context.tasks.delete(task));
+        context.tasks.add(task);
       }
       return true;
     },

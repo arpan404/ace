@@ -28,12 +28,11 @@ The only ace source files opened are `settings.json` and these SQLite stores:
 
 - `events.sqlite`
 - `models.sqlite`
-- `accounts.sqlite`
 - `automations.sqlite`
 - `onboarding.sqlite`
 - `history/index.sqlite`
 
-This is an explicit allowlist, with no directory crawl. Symlinked state files and
+Accounts start empty so foreign instance homes never enter scratch. This is an explicit allowlist, with no directory crawl. Symlinked state files and
 redirected history directories are refused. SQLite's backup API includes committed
 WAL rows. The copy process cannot write outside scratch, so SQLite cannot create
 sidecars in the source. A closed WAL store can require immutable mode to avoid

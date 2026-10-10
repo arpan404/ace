@@ -1,3 +1,4 @@
+import { subscribeSettings } from "@/lib/settings-subscription.ts";
 import type { ClientApi } from "@ace/client";
 import { SettingsKey, type SettingsEntry } from "@ace/protocol";
 import { z } from "zod";
@@ -23,11 +24,10 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
       return parsed.success ? [parsed.data] : [];
     })
     .slice(0, maxKeys);
-  const subscriptionId = "web-settings";
   const listeners = new Set<() => void>();
   let values: SettingsValuesMap = {};
-  let started = false;
-  let subscribed = false;
+  let subscription: ReturnType<typeof subscribeSettings> | undefined;
+  let failed = false;
 
   const emit = () => {
     for (const listener of listeners) listener();
@@ -39,39 +39,34 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
     values = next;
     emit();
   };
-  const subscribe = () => {
-    if (subscribed || client.state !== "ready" || !watched.length) return;
-    subscribed = true;
-    client
-      .request({ type: "settings.subscribe", subscriptionId, keys: watched, scope: {} })
-      .then((reply) => apply(reply.entries, true))
-      .catch(() => {
-        subscribed = false;
-      });
-  };
-  const start = () => {
-    if (started) return;
-    started = true;
-    client.onMessage((message) => {
-      if (message.type === "settings.changed" && message.subscriptionId === subscriptionId)
-        apply(message.entries, false);
-    });
-    const connection = client.connectionState();
-    connection.subscribe(() => {
-      // A new socket has no subscriptions; ask again once it is ready.
-      if (connection.getSnapshot() !== "ready") subscribed = false;
-      else subscribe();
-    });
-    subscribe();
-  };
 
   return {
     subscribe(listener) {
-      start();
       listeners.add(listener);
-      return () => void listeners.delete(listener);
+      subscription ??= subscribeSettings(
+        client,
+        watched,
+        {},
+        (entries, replace) => {
+          failed = false;
+          apply(entries, replace);
+        },
+        () => {
+          failed = true;
+          emit();
+        },
+      );
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) {
+          subscription?.stop();
+          subscription = undefined;
+        }
+      };
     },
     get: () => values,
+    failed: () => failed,
+    retry: () => subscription?.retry(),
     async set(key, value) {
       const parsedKey = SettingsKey.safeParse(key);
       if (!parsedKey.success)

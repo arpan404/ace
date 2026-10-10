@@ -12,21 +12,53 @@ import { probeOutput } from "@ace/provider-kit/process";
 import { createModelDiscovery } from "@ace/models";
 import { harness, poll } from "./account-management-test-support.ts";
 
-// Reproductions are written before the fixes; execution is deferred to merge.
-test("restart refuses a managed home replaced with an outside symlink before any discovery", async () => {
+test("restart isolates an outside home while healthy managed accounts restore their models", async () => {
   const f = await harness();
+  let registry: Awaited<ReturnType<typeof openRegistry>> | undefined;
+  let management: AccountManagement | undefined;
   try {
-    const account = await f.add();
-    const home = join(f.dataDir, "account-homes", account.id);
+    const bad = await f.add("claude");
+    const healthy = await f.add("codex");
+    await f.flow(healthy.id, "login");
+    const home = join(f.dataDir, "account-homes", bad.id);
     await rm(home, { recursive: true });
     await symlink(f.normalHome, home);
-    await expect(openRegistry(join(f.dataDir, "accounts.sqlite"))).rejects.toThrow();
-    await expect(f.management.initialize()).rejects.toThrow();
-    await expect(readFile(join(f.dataDir, "fixture-invocations.jsonl"))).rejects.toMatchObject({
-      code: "ENOENT",
+    const restarted = await openRegistry(join(f.dataDir, "accounts.sqlite"));
+    registry = restarted;
+    management = new AccountManagement({
+      registry: restarted,
+      accounts: new AccountService({
+        registry: restarted,
+        env: f.env,
+        now: () => 100,
+        timeZone: "UTC",
+      }),
+      dataDir: f.dataDir,
+      env: f.env,
+      now: () => 100,
+      id: randomUUID,
+      models: () => f.models,
     });
+    await management.initialize();
+    await management.close();
+    management = undefined;
+    expect(restarted.summary(bad.id, 100)).toMatchObject({
+      availability: "unknown",
+      quota: { blockers: { homeUnavailable: "home_unreadable" } },
+    });
+    expect(f.models.resolveCached({ role: "thread", instance: healthy.id })).toMatchObject({
+      ok: true,
+    });
+    const invocations = (await readFile(join(f.dataDir, "fixture-invocations.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => z.object({ home: z.string() }).parse(JSON.parse(line)).home);
+    expect(invocations).not.toContain(home);
+    expect(invocations).toContain(join(f.dataDir, "account-homes", healthy.id));
     expect(await readFile(join(f.normalHome, "untouched"), "utf8")).toBe("normal CLI home");
   } finally {
+    await management?.close();
+    registry?.close();
     await f.close();
   }
 });

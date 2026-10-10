@@ -1,3 +1,4 @@
+import { subscribeSettings } from "./settings-subscription.ts";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
@@ -25,25 +26,18 @@ class SettingWatch {
   private provenance: SettingsProvenance | undefined;
   private listeners = new Set<() => void>();
   private stops: (() => void)[] = [];
-  private subscribed = false;
+  private failed = false;
   private readonly client: ClientApi;
   private readonly key: SettingsKey;
   private readonly scope: SettingsScope;
-  private readonly subscriptionId: string;
   private readonly onEmpty: () => void;
-  constructor(
-    client: ClientApi,
-    key: SettingsKey,
-    scope: SettingsScope,
-    subscriptionId: string,
-    onEmpty: () => void,
-  ) {
+  constructor(client: ClientApi, key: SettingsKey, scope: SettingsScope, onEmpty: () => void) {
     this.client = client;
     this.key = key;
     this.scope = scope;
-    this.subscriptionId = subscriptionId;
     this.onEmpty = onEmpty;
   }
+  getFailed = (): boolean => this.failed;
   get = (): unknown => this.value;
   getLocal = (): unknown => this.localValue;
   getProvenance = (): SettingsProvenance | undefined => this.provenance;
@@ -56,6 +50,7 @@ class SettingWatch {
     };
   };
   private apply(entries: readonly SettingsEntry[]) {
+    this.failed = false;
     const entry = entries.find((candidate) => candidate.key === this.key);
     if (!entry) return;
     const parsed = SettingsValues.shape[this.key].safeParse(entry.value);
@@ -64,51 +59,26 @@ class SettingWatch {
     this.localValue = entry.localValue;
     for (const listener of this.listeners) listener();
   }
-  private ask() {
-    if (this.subscribed || this.client.state !== "ready") return;
-    this.subscribed = true;
-    this.client
-      .request({
-        type: "settings.subscribe",
-        subscriptionId: this.subscriptionId,
-        keys: [this.key],
-        scope: this.scope,
-      })
-      .then((reply) => this.apply(reply.entries))
-      .catch(() => {
-        this.subscribed = false;
-      });
-  }
   private start() {
-    this.stops.push(
-      this.client.onMessage((message) => {
-        if (message.type === "settings.changed" && message.subscriptionId === this.subscriptionId)
-          this.apply(message.entries);
-      }),
+    const subscription = subscribeSettings(
+      this.client,
+      [this.key],
+      this.scope,
+      (entries) => this.apply(entries),
+      () => {
+        this.failed = true;
+        for (const listener of this.listeners) listener();
+      },
     );
-    const connection = this.client.connectionState();
-    this.stops.push(
-      connection.subscribe(() => {
-        // A new socket has no subscriptions; ask again once it is ready.
-        if (connection.getSnapshot() !== "ready") this.subscribed = false;
-        else this.ask();
-      }),
-    );
-    this.ask();
+    this.stops.push(subscription.stop);
   }
   private stop() {
     for (const stop of this.stops.splice(0)) stop();
-    if (this.subscribed && this.client.state === "ready")
-      void this.client
-        .request({ type: "settings.unsubscribe", subscriptionId: this.subscriptionId })
-        .catch(() => {});
-    this.subscribed = false;
     this.onEmpty();
   }
 }
 
 const watches = new WeakMap<ClientApi, Map<string, SettingWatch>>();
-let next = 0;
 
 function watchFor(client: ClientApi, key: SettingsKey, scope: SettingsScope): SettingWatch {
   let byKey = watches.get(client);
@@ -120,7 +90,7 @@ function watchFor(client: ClientApi, key: SettingsKey, scope: SettingsScope): Se
   let watch = byKey.get(id);
   if (!watch) {
     const map = byKey;
-    watch = new SettingWatch(client, key, scope, `web-setting-${++next}`, () => map.delete(id));
+    watch = new SettingWatch(client, key, scope, () => map.delete(id));
     byKey.set(id, watch);
   }
   return watch;
@@ -172,9 +142,10 @@ export function useExplicitDaemonSetting<K extends SettingsKey>(
     watch.getProvenance,
     watch.getProvenance,
   );
+  const failed = useSyncExternalStore(watch.subscribe, watch.getFailed, watch.getFailed);
   return {
     value: provenance === undefined || provenance === "defaults" ? undefined : value,
-    loaded: provenance !== undefined,
+    loaded: provenance !== undefined || failed,
   };
 }
 
