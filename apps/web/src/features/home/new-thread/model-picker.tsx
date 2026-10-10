@@ -1,3 +1,4 @@
+import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import {
   accountDisplayName,
   modelControlName,
@@ -35,6 +36,7 @@ export function ModelPicker(props: {
 }) {
   const { model, account, effort, fast, provider } = props.resolved;
   const compact = useComposerCompact();
+  const error = useProviderReadError();
   const statuses = useProviderStatuses();
   const catalog = useModelCatalogState();
   // Say what's missing rather than wait for models that won't come or make one up.
@@ -109,6 +111,8 @@ export function ModelPicker(props: {
     // New thread waits for the catalog before the chip opens; the accounts and providers too.
     catalog: props.options ? catalog : "loading",
   };
+  const problem = error.providers ?? error.models;
+  if (!model && problem) return <ProviderReadError message={problem} retry={error.retry} />;
   return (
     <ModelControl
       view={view}

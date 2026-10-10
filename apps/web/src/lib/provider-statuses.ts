@@ -1,7 +1,6 @@
 import { type ClientApi } from "@ace/client";
 import { ProviderKind } from "@ace/protocol";
 import {
-  accountView,
   providerStatuses,
   providerAccountState,
   readJson,
@@ -22,18 +21,16 @@ export async function readProviderStatuses(
   client: ClientApi,
   signal?: AbortSignal,
 ): Promise<ProviderStatus[]> {
-  const [accounts, discovery] = await Promise.all([
-    client.request({ type: "accounts.list" }, signal ? { signal } : {}),
-    client.request({ type: "providers.request", operation: "list" }, signal ? { signal } : {}),
-  ]);
-  if (!discovery.result.ok) throw new Error("Provider discovery unavailable");
+  const discovery = await client.request(
+    { type: "providers.request", operation: "list" },
+    signal ? { signal } : {},
+  );
+  if (!discovery.result.ok) throw new Error("Couldn't check providers. Try again.");
   const rows = discovery.result.providers;
   const installed = new Set(
     rows.filter((row) => row.installed === true).map((row) => row.provider),
   );
-  const views = accounts.accounts.map(accountView);
-  const now = Date.now();
-  return providerStatuses(installed, views, rows, now);
+  return providerStatuses(installed, [], rows, Date.now());
 }
 
 export const providerStatusesKey = ["providers", "statuses"] as const;

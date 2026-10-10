@@ -1,3 +1,4 @@
+import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
 import { providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
@@ -87,6 +88,7 @@ export function GeneralSettings() {
  */
 function DefaultProvider() {
   const statuses = useProviderStatuses();
+  const error = useProviderReadError();
   const start = useStartingProvider();
   const row = settingRow("providers.default");
   const [, setProvider] = useDaemonSetting("providers.default");
@@ -108,19 +110,23 @@ function DefaultProvider() {
     : "Until you pick one, new threads start on the provider you used last, else the first one installed. You can change it per thread in the composer.";
   return (
     <SettingRow {...row} description={description}>
-      <DaemonSlot control={{ loaded: start.loaded, offline, pending: write.pending }}>
-        {value ? (
-          <Select<ProviderKind>
-            label={row.title}
-            value={value}
-            options={options}
-            disabled={offline}
-            onValueChange={(next) => write.run(() => setProvider(next))}
-          />
-        ) : (
-          <span className="text-ui text-muted-foreground">No provider CLI installed</span>
-        )}
-      </DaemonSlot>
+      {error.providers ? (
+        <ProviderReadError message={error.providers} retry={error.retry} />
+      ) : (
+        <DaemonSlot control={{ loaded: start.loaded, offline, pending: write.pending }}>
+          {value ? (
+            <Select<ProviderKind>
+              label={row.title}
+              value={value}
+              options={options}
+              disabled={offline}
+              onValueChange={(next) => write.run(() => setProvider(next))}
+            />
+          ) : (
+            <span className="text-ui text-muted-foreground">No provider CLI installed</span>
+          )}
+        </DaemonSlot>
+      )}
     </SettingRow>
   );
 }

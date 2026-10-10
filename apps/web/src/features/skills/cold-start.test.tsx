@@ -134,3 +134,28 @@ test("the composer discovers skills before the first slash so a warm tdd menu ne
     discovery.release();
   }
 });
+
+test("Skills discovers fallback-provider entries while provider readiness never answers", async () => {
+  const app = cold();
+  app.daemon.holdRequests("providers.request", "models.list");
+  app.daemon.seedServices({
+    extensionCatalogs: {
+      claude: [],
+      codex: [{ ...tdd, id: "codex-tdd", source: { provider: "codex", scope: "global" } }],
+    },
+  });
+  await app.open("/skills");
+  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
+});
+
+test("a failed slash catalog offers Retry and restores suggestions without closing the menu", async () => {
+  const app = cold();
+  app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } });
+  app.daemon.failRequests("catalog.list");
+  await app.open("/t/cold");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "/tdd");
+  await screen.findByText("Couldn't load suggestions.");
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Retry suggestions" }));
+  expect(await screen.findByRole("option", { name: /^Test Driven Development / })).toBeTruthy();
+});

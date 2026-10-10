@@ -84,10 +84,10 @@ export function useSkills() {
   return {
     ...query,
     data:
-      query.data && !discovered.pending
+      query.data && (query.data.length > 0 || !discovered.pending)
         ? withDiscoveredSkills(query.data, discovered.entries)
         : undefined,
-    isError: query.isError || discovered.failed,
+    isError: query.isError || (discovered.failed && !query.data?.length),
     refetch: (options?: Parameters<typeof query.refetch>[0]) => {
       discovered.retry();
       return query.refetch(options);
