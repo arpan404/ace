@@ -42,11 +42,12 @@ Both gates also report Chrome's `Memory.getDOMCounters` node count as a diagnost
 counter includes detached nodes and can rise while a transcript churns, even just after
 forced GC under host load. It does not decide the live DOM budget. Heap measurements still
 use forced collection and retain their existing growth limits.
-`dom-budget.test.ts` exercises the shared sampler and gate in isolated Chromium: 700 hidden
+`dom-budget.process.test.ts` exercises the shared sampler and gate in isolated Chromium: 700 hidden
 mounted elements pass with 5,000 detached elements retained, mounting 1,000 more elements
 fails, and removing them passes again. Text and open shadow nodes count, and exactly 1,500
 attached nodes pass while 1,501 fail. Run it with
-`bunx vitest run --project unit tools/web-perf/src/dom-budget.test.ts`.
+`bun run test --project process tools/web-perf/src/dom-budget.process.test.ts`.
+It launches Chromium and awaits its shutdown, so it uses the shared process-test deadline.
 
 The streaming browser journey also gets one complete repeat for a timing violation. Its
 throughput floor is 5,000 events/s, including a small shortfall such as 4,997.42. The old

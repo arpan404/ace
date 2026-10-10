@@ -233,17 +233,7 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
     unstage(commandId, true);
     return true;
   } catch {
-    // A failed local save already has a recoverable outbox copy.
-    if (
-      client
-        .pendingSends(send.threadId)
-        .getSnapshot()
-        .some((entry) => entry.commandId === commandId)
-    ) {
-      unstage(commandId, true);
-      return false;
-    }
-    // Rejections before the outbox record exists keep the held copy.
+    // Failed local writes are only held in outbox memory. Preserve the durable held copy.
     patch(commandId, { failed: "This device couldn't save the message" });
     return false;
   }

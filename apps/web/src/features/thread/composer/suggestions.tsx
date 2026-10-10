@@ -63,12 +63,15 @@ export function useSuggestions(
     if (commandOpen && draft && provider && !id) retryScope?.();
   }, [commandOpen, draft, provider, id, retryScope]);
   useEffect(() => {
-    if (!scoped || !ready || !commandOpen || (draft && !provider)) return;
+    // Discover before typing, then re-watch when the menu opens so failed reads can recover.
+    if (!scoped || !ready || (draft && !provider)) return;
     return sources.commands.watch(
       reference,
       (entries, stale) => setCatalog({ reference, entries, stale, failed: false }),
       () => setCatalog({ reference, entries: [], stale: false, failed: true }),
     );
+    // Opening the menu retries discovery even when its target is unchanged.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [sources, scoped, ready, reference, commandOpen, draft, provider]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],

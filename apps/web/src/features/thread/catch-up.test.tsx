@@ -1,4 +1,5 @@
 import { multiDayDemo } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -17,7 +18,11 @@ function awayFromThread() {
 test("returning to a thread never fetches or offers an automatic summary", async () => {
   const app = awayFromThread();
   const digest = vi.spyOn(app.client, "threadCatchUp");
-  const commands = vi.spyOn(app.client, "command");
+  const before = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(threadId) });
+  if (before?.kind !== "thread") throw new Error("Missing thread");
+  const inputs = Object.values(before.items).filter(
+    (item) => item.type === "message" && item.role === "user",
+  );
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText(
@@ -27,7 +32,11 @@ test("returning to a thread never fetches or offers an automatic summary", async
   expect(screen.queryByRole("region", { name: "While you were away" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Summarise" })).toBeNull();
   expect(digest).not.toHaveBeenCalled();
-  expect(commands).not.toHaveBeenCalled();
+  const after = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(threadId) });
+  expect(
+    after?.kind === "thread" &&
+      Object.values(after.items).filter((item) => item.type === "message" && item.role === "user"),
+  ).toEqual(inputs);
 });
 
 test("the reader can ask for a summary through ordinary chat", async () => {

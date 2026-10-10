@@ -3,7 +3,6 @@ import { ThreadId } from "@ace/protocol";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { activityOf } from "@ace/ui-core";
 import { useLayout } from "@/lib/layout.tsx";
 import { rememberThread } from "./last-thread.ts";
 /**
@@ -20,9 +19,11 @@ export function useSeenWhileOpen() {
   const { storage } = useLayout();
   const ready = useConnectionState() === "ready";
   const queries = useQueryClient();
-  const activity = entry ? activityOf(entry) : undefined;
+  // updatedAt also advances on read acknowledgements and organization changes.
+  const activity = entry?.activitySeq ?? entry?.activityAt ?? entry?.createdAt;
   const sent = useRef<string>(undefined);
   useEffect(() => {
+    sent.current = undefined;
     if (threadId && !threadId.startsWith("pending:")) rememberThread(storage, threadId);
   }, [storage, threadId]);
   useEffect(() => {
@@ -37,7 +38,7 @@ export function useSeenWhileOpen() {
       .then(() => queries.invalidateQueries({ queryKey: ["sidebar-thread-read", threadId] }))
       .catch(() => {
         // Offline: try again when the list next changes.
-        sent.current = undefined;
+        if (sent.current === key) sent.current = undefined;
       });
   }, [client, threadId, ready, activity, queries]);
 }

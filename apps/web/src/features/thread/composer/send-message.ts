@@ -2,8 +2,8 @@ import type { ClientApi } from "@ace/client";
 import { ThreadId, type TurnOptions } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { Draft } from "./draft.ts";
-import { rememberAttachments } from "./send-store.ts";
-import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
+import { rememberAttachments, type StagedSend } from "./send-store.ts";
+import { sendWhenUploaded, stage, stagedSends, unstage } from "./staged-sends.ts";
 
 /*
  * Sending one message from the thread's composer (UX audit SY-2, AT-2). Loaded with the
@@ -30,28 +30,32 @@ export interface SendRequest {
 export async function sendMessage(request: SendRequest): Promise<boolean> {
   const { client, threadId, commandId, draft } = request;
   const { files } = draft;
+  const local = { files: files.files, previews: files.local.map((file) => file.previewUrl) };
   // Nothing uploading: what the daemon holds is known now.
   const ready = files.uploading ? undefined : await files.settled;
   if (!ready || ready.length < files.local.length) {
     stagedSends(request.storage);
     stage(
       {
-        commandId,
-        threadId,
-        text: draft.text,
-        mentions: draft.mentions.map((mention) => mention.path),
-        input: draft.input,
-        context: { mentions: draft.mentions, attachments: [], items: draft.threadRefs },
+        ...heldMessage(request),
         attachments: files.local,
-        ...(request.options ? { options: request.options } : {}),
-        ...(request.delivery ? { delivery: request.delivery } : {}),
       },
-      { files: files.files, previews: files.local.map((file) => file.previewUrl) },
+      local,
     );
     void sendWhenUploaded(client, commandId, files.outcomes);
     return true;
   }
   rememberAttachments(files.local, ready);
+  // The page can close while the worker is still saving. Hold a durable recovery copy
+  // before awaiting the outbox, then remove it only after the outbox owns the message.
+  stagedSends(request.storage);
+  const held = {
+    ...heldMessage(request),
+    attachments: files.local.map((file, index) =>
+      Object.assign({}, file, { sha256: ready[index]?.sha256 }),
+    ),
+  };
+  stage(held, local);
   try {
     await client.enqueue(
       {
@@ -68,6 +72,7 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
       },
       commandId,
     );
+    unstage(commandId, true);
     return true;
   } catch {
     if (
@@ -76,13 +81,31 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
         .getSnapshot()
         .some((send) => send.commandId === commandId)
     ) {
+      // Failed local outbox writes retain only an in-memory record. Keep a reload-safe
+      // recovery copy in the existing held-send store until it is saved or edited.
+      stage({ ...held, failed: "This device couldn't save the message" }, local);
       request.notify("Message not sent", "Use Retry or Edit on the message to send it again.");
       return true;
     }
+    unstage(commandId, true);
     request.notify(
       "Couldn't send the message",
       "This device couldn't save it. It is back in the composer.",
     );
     return false;
   }
+}
+
+function heldMessage(request: SendRequest): Omit<StagedSend, "owner" | "attachments"> {
+  const { commandId, threadId, draft } = request;
+  return {
+    commandId,
+    threadId,
+    text: draft.text,
+    mentions: draft.mentions.map((mention) => mention.path),
+    input: draft.input,
+    context: { mentions: draft.mentions, attachments: [], items: draft.threadRefs },
+    ...(request.options ? { options: request.options } : {}),
+    ...(request.delivery ? { delivery: request.delivery } : {}),
+  };
 }

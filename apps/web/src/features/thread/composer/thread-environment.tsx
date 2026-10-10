@@ -37,7 +37,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef }) {
       () => toast.add({ title: "Couldn't copy the path" }),
     );
   return (
-    <section aria-label="Where this thread runs">
+    <section aria-label="Checkout details">
       <div className="px-2.5 py-2">
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">

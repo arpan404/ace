@@ -77,11 +77,15 @@ function StartedRow(props: { send: PendingSend }) {
   const name = useProjectName();
   const failed = send.state === "failed";
   const label = failed ? "Not sent" : accepted ? "Starting" : "Sending";
+  const project = name(send.payload.type === "thread.create" ? send.payload.workspaceId : "");
+  const provider =
+    send.payload.type === "thread.create" ? providerNames[send.payload.provider] : "";
   return (
     <li>
       <Link
         to="/t/$threadId"
         params={{ threadId: realId(send) ?? `pending:${send.commandId}` }}
+        aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
           "flex h-20 compact:h-18 w-full flex-col justify-center items-stretch gap-1 compact:gap-0.5 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
@@ -90,9 +94,7 @@ function StartedRow(props: { send: PendingSend }) {
         )}
       >
         <span className="flex items-center justify-between gap-2 text-xs">
-          <span className="truncate text-muted-foreground">
-            {name(send.payload.type === "thread.create" ? send.payload.workspaceId : "")}
-          </span>
+          <span className="truncate text-muted-foreground">{project}</span>
           <StatusLabel
             tone={failed ? "failed" : "working"}
             label={label}
@@ -100,9 +102,7 @@ function StartedRow(props: { send: PendingSend }) {
           />
         </span>
         <span className="truncate">{titleOf(send)}</span>
-        <span className="text-xs text-subtle-foreground">
-          {send.payload.type === "thread.create" ? providerNames[send.payload.provider] : ""}
-        </span>
+        <span className="text-xs text-subtle-foreground">{provider}</span>
       </Link>
     </li>
   );

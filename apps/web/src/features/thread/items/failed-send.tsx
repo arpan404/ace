@@ -182,14 +182,20 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const sources = useThreadSources();
   const meta = useThreadMeta(leasable(props.threadId));
   const { storage } = useLayout();
+  const inFlight = useRef(false);
   const retry = () => {
-    if (!meta) return;
+    if (!meta || inFlight.current) return;
+    inFlight.current = true;
     const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
     void retryStaged(client, staged.commandId, (file) =>
       sources.context.upload(thread, file, () => {}),
-    ).then((sent) => {
-      if (!sent) toast.add({ title: "It still didn't go", description: "It is still here." });
-    });
+    )
+      .then((sent) => {
+        if (!sent) toast.add({ title: "It still didn't go", description: "It is still here." });
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
   };
   const edit = () => {
     const draft = {
@@ -202,6 +208,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       options: staged.options,
     };
     unstage(staged.commandId);
+    dismissSend(storage, staged.commandId);
     const key = `thread:${props.threadId}`;
     if (!returnDraft(key, draft))
       void import("../composer/draft-store.ts").then(({ writeDraft }) =>

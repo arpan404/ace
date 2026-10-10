@@ -115,6 +115,40 @@ test("a narrow thread marks its activity read and remembers the thread with the 
   expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull();
 });
 
+test("opening a thread without activity metadata does not repeatedly append read events", async () => {
+  const made = app();
+  const snapshot = made.daemon.snapshot.bind(made.daemon);
+  made.daemon.snapshot = (scope) => {
+    const view = snapshot(scope);
+    if (view?.kind === "threads")
+      for (const thread of Object.values(view.threads))
+        Reflect.deleteProperty(thread, "activityAt");
+    if (view?.kind === "thread") Reflect.deleteProperty(view.thread, "activityAt");
+    return view;
+  };
+  const id = ThreadId.parse("thread-dedupe");
+  const receive = made.daemon.command.bind(made.daemon);
+  let reads = 0;
+  made.daemon.command = (command) => {
+    // Bound the broken feedback loop so a failing test can finish and inspect its events.
+    if (command.payload.type === "thread.read" && ++reads > 2)
+      made.daemon.refuseCommands("unavailable", "thread.read");
+    return receive(command);
+  };
+  const before = made.daemon.head;
+  await made.open("/t/thread-dedupe");
+  await screen.findByRole("combobox", { name: "Message" });
+  await made.client.command({ type: "thread.rename", threadId: id, title: "Still read" });
+  await act(async () => {});
+  const events = made.daemon.replay({ kind: "thread", threadId: id }, before);
+  expect(
+    events.filter(
+      (event) =>
+        event.payload.type === "thread.client.updated" && event.payload.changes.unread === false,
+    ),
+  ).toHaveLength(1);
+});
+
 test("a filtered empty state names the project rather than its opaque id", async () => {
   const storage = memoryKeyValue();
   const project = {

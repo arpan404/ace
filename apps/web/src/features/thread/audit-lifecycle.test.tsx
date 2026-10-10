@@ -391,7 +391,7 @@ test("Retry after a local save failure still retains only one recoverable messag
   fail = true;
   await userEvent.type(field(), "Keep the retry once{Enter}");
   await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
-  await screen.findByText("Couldn't send it again");
+  await screen.findByText("It still didn't go");
   await waitFor(() =>
     expect(
       within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),

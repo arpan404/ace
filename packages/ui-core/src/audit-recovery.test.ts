@@ -40,6 +40,26 @@ test("a local save failure gets the same attention even when the daemon is idle"
   expect(card.dimmed).toBe(false);
 });
 
+test.each([
+  ["approval", "Approve", "Waiting for your approval"],
+  ["question", "Answer", "Waiting for your answer"],
+  ["plan_review", "Needs you", "Waiting for your review"],
+])("an unsent message does not hide a pending %s", (kind, compact, label) => {
+  const thread = entry("asking", { state: "needs_you", interactions: 1 }, 100, {
+    queue,
+    live: { asking: [{ id: "ask", kind }] },
+  });
+  const card = threadCard({
+    entry: thread,
+    baseline: 200,
+    settled: false,
+    now: 200,
+    failedSend: true,
+  });
+  expect(card.status).toMatchObject({ compact, label, tone: "needs-you", mark: "needs-you" });
+  expect(card.pill).toMatchObject({ label, tone: "needs-you", icon: "needs-you" });
+});
+
 function notice(text: string) {
   const item = Item.parse({
     id: "notice",

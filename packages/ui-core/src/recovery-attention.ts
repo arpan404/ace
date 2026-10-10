@@ -15,6 +15,8 @@ export function recoveryAttention(
   models: readonly CatalogModel[] | undefined,
   failedSend = false,
 ): RecoveryAttention | undefined {
+  // A pending human interaction is the primary status even with an unsent message.
+  if (thread.status.state === "needs_you") return undefined;
   const reason = threadAttention(thread);
   if (reason === "not_sent" || failedSend)
     return { label: "Not sent", tone: "failed", mark: "failed" };

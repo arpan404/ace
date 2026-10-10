@@ -113,7 +113,13 @@ export async function openCursorSession(
   void host.process.exited.then(() => {
     exited = true;
     context.signal.removeEventListener("abort", abort);
-    frame("note", "host-exit", { deliberate }, operation, segment);
+    frame(
+      "note",
+      "host-exit",
+      { deliberate, ...(host.failureMessage ? { detail: host.failureMessage } : {}) },
+      operation,
+      segment,
+    );
     context.onExit({
       deliberate,
       ...(deliberate

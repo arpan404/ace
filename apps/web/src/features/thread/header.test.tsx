@@ -98,8 +98,10 @@ test("a usage limit remains on the sidebar and leaves the thread title clear", a
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/t/thread-limit-flags");
   await screen.findByRole("feed", { name: "Transcript" });
-  const list = screen.getByRole("navigation", { name: "Threads" });
-  const row = within(list).getByRole("link", { name: /Remove the legacy feature-flag reader/ });
+  const list = await screen.findByRole("navigation", { name: "Threads" });
+  const row = await within(list).findByRole("link", {
+    name: /Remove the legacy feature-flag reader/,
+  });
   expect(row.getAttribute("aria-label")).toContain("Limited");
   expect(within(header()).queryByRole("status")).toBeNull();
 });
@@ -671,7 +673,7 @@ test("environment details move into the work card while project actions only cha
   const move = within(menu).getByRole("menuitem", { name: /Move to a worktree/ });
   expect(move.getAttribute("aria-disabled")).toBe("true");
   await userEvent.keyboard("{Escape}");
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
+  const environment = await screen.findByRole("region", { name: "Checkout details" });
   expect(within(environment).getByText("Machine")).toBeTruthy();
   expect(within(environment).getByText("Fake machine")).toBeTruthy();
   expect(within(environment).getByText("Commit")).toBeTruthy();
@@ -698,7 +700,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
+  const environment = await screen.findByRole("region", { name: "Checkout details" });
   expect(within(environment).getByText("Its own worktree")).toBeTruthy();
 });
 
