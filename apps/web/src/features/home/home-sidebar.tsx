@@ -1,14 +1,15 @@
-import { ChatsIcon } from "@phosphor-icons/react";
+import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { Icon } from "@/components/icon.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { SidebarHeader } from "@/features/shell/index.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
@@ -25,8 +26,8 @@ const DeferredStartedRows = deferredComponent(() =>
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Settled folded away at the end. New thread sits above it; the project
- * filter in the heading narrows it to one project.
+ * of what is owed, with Settled folded away at the end. The toolbar pairs the project filter
+ * with New thread, or offers Add project while there are none.
  */
 export function HomeSidebar() {
   const list = useHomeList();
@@ -40,7 +41,20 @@ export function HomeSidebar() {
   const noProjects = directory.loaded && directory.projects.length === 0;
   return (
     <>
-      <SidebarHeader title="Threads" actions={<ThreadsActions />} />
+      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-2">
+        <ThreadsActions />
+        {!noProjects && (
+          <Tip label="New thread" shortcut="newThread">
+            <Link
+              to="/new"
+              aria-label="New thread"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
+            >
+              <Icon icon={NotePencilIcon} />
+            </Link>
+          </Tip>
+        )}
+      </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>

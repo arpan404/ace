@@ -1,3 +1,4 @@
+import { openProfileMenu, openProfileView } from "@/test/navigation.ts";
 import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,47 +19,50 @@ function workbenchApp(storage = memoryKeyValue()) {
   return app;
 }
 
-test("each place replaces the sidebar list and returning to New thread restores threads", async () => {
+test("profile views replace app navigation and return to the thread list", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
-  expect(within(appNav()).queryByRole("link", { name: /^Activity/ })).toBeNull();
-  // One sidebar: no rail of views beside it.
   expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
-  for (const place of ["Automations", "Skills"]) {
-    const link = within(appNav()).getByRole("link", { name: place });
-    await userEvent.click(link);
-    // The current place owns the single sidebar list.
+  for (const place of ["Automations", "Skills"] as const) {
+    expect(within(appNav()).queryByRole("link", { name: place })).toBeNull();
+    await openProfileView(place);
     expect(await screen.findByRole("complementary", { name: place })).toBeTruthy();
-    expect(link.getAttribute("aria-current")).toBe("page");
     expect(list("Threads")).toBeNull();
+    expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^You, account/ })).toBeNull();
+    expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+    await title("New thread");
+    expect(list("Threads")).toBeTruthy();
+    expect(button(/^You, account/)).toBeTruthy();
   }
-  // One of the sidebar's places is current at a time.
-  expect(within(appNav()).getAllByRole("link", { current: "page" })).toEqual([
-    within(appNav()).getByRole("link", { name: "Skills" }),
-  ]);
-
-  await userEvent.click(within(appNav()).getByRole("link", { name: /^New thread/ }));
-  await title("New thread");
-  expect(list("Threads")).toBeTruthy();
-  expect(within(appNav()).getAllByRole("link", { current: "page" })).toEqual([
-    within(appNav()).getByRole("link", { name: /^New thread/ }),
-  ]);
 });
 
-test("Settings is the gear beside the profile, and its pages take the thread list's place", async () => {
+test("Settings hides app navigation and returns through Back to app", async () => {
   await harness().open("/new");
   await title("New thread");
   const gear = screen.getByRole("link", { name: "Settings" });
   await userEvent.click(gear);
   await title("Settings");
-  expect(gear.getAttribute("aria-current")).toBe("page");
+  expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
+  expect(within(appNav()).queryByRole("button", { name: "Search" })).toBeNull();
+  expect(screen.queryByRole("heading", { level: 2, name: "Settings" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^You, account/ })).toBeNull();
+  for (const name of [/^New thread/, /^Add project/, "Automations", "Skills"]) {
+    expect(within(appNav()).queryByRole("link", { name })).toBeNull();
+    expect(within(appNav()).queryByRole("button", { name })).toBeNull();
+  }
   expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
   expect(list("Threads")).toBeNull();
 
-  await userEvent.click(within(appNav()).getByRole("link", { name: "Automations" }));
-  await title("Automations");
-  expect(await screen.findByRole("complementary", { name: "Automations" })).toBeTruthy();
-  expect(list("Threads")).toBeNull();
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await title("New thread");
+  expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
+  expect(within(appNav()).queryByRole("link", { name: "Automations" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
+  expect(button(/^You, account/)).toBeTruthy();
+  expect(list("Threads")).toBeTruthy();
 });
 
 test("the sidebar's title is the daemon's menu, and the profile at its foot the person's", async () => {
@@ -69,17 +73,25 @@ test("the sidebar's title is the daemon's menu, and the profile at its foot the 
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
   await screen.findByRole("heading", { level: 2, name: "Remote devices" });
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await title("New thread");
 
   const profile = button(/^You, account/);
   expect(profile.textContent).toBe("You");
-  await userEvent.click(profile);
-  const account = await screen.findByRole("menu");
+  const account = await openProfileMenu();
   // Settings is the gear beside the profile, so the menu doesn't repeat it.
   expect(
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Appearance", "Keyboard shortcuts", "Usage & accounts", "Archived threads"]);
+  ).toEqual([
+    "Automations",
+    "Skills",
+    "Appearance",
+    "Keyboard shortcuts",
+    "Usage & accounts",
+    "Archived threads",
+  ]);
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage & accounts" }));
   await title("Usage & accounts");
   expect(list("Threads")).toBeTruthy();
@@ -144,9 +156,12 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
 });
 
 test("with no project yet, the sidebar, ⌘N and the palette all lead to Add project", async () => {
-  await harness().open("/activity");
-  await title("Activity");
-  const add = await within(appNav()).findByRole("button", { name: /^Add project/ });
+  await harness().open("/new");
+  await title("New thread");
+  const add = await within(
+    await screen.findByRole("complementary", { name: "Threads" }),
+  ).findByRole("button", { name: /^Add project/ });
+  expect(screen.queryByRole("button", { name: /^Project filter:/ })).toBeNull();
   expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
   await userEvent.click(add);
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();

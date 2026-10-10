@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -15,11 +16,7 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
   fireEvent.keyDown(settings, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
   expect(settings.textContent).toBe("Shift+Ctrl+Y");
 
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: "Automations",
-    }),
-  );
+  await openProfileView("Automations");
   await heading("Automations");
   await userEvent.keyboard("{Control>},{/Control}");
   expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
@@ -63,7 +60,8 @@ test("in a browser tab New thread is Ctrl+Alt+N, which the browser leaves to the
   await app.open("/t/thread-cold-start");
   await heading("Cap cold-start replay at 200 events");
   const link = await screen.findByRole("link", { name: /^New thread/ });
-  expect(link.textContent).toMatch(/Alt\+Ctrl\+N$/);
+  await userEvent.hover(link);
+  expect((await screen.findByRole("tooltip")).textContent).toMatch(/Alt\+Ctrl\+N$/);
   await userEvent.keyboard("{Control>}{Alt>}n{/Alt}{/Control}");
   await heading("New thread");
 });

@@ -61,8 +61,8 @@ test("the first run offers one Add project entry in each area, and a searched fo
   const made = firstRun();
   await made.open("/");
   await screen.findByRole("heading", { level: 1, name: "Add your first project" });
-  const sidebar = screen.getByRole("navigation", { name: "App" });
-  expect(within(sidebar).getAllByRole("button", { name: /^Add project/ })).toHaveLength(1);
+  const sidebar = screen.getByRole("complementary", { name: "Threads" });
+  expect(await within(sidebar).findAllByRole("button", { name: /^Add project/ })).toHaveLength(1);
   const main = screen.getByRole("main");
   expect(within(main).getAllByRole("button", { name: "Add a project" })).toHaveLength(1);
   expect(within(main).getByText(/folder on this machine/)).toBeTruthy();

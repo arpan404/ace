@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { closeModelControl, openModelControl, openModelPicker } from "@/test/model-control.ts";
+import { openProfileMenu } from "@/test/navigation.ts";
 
 beforeEach(() => localStorage.clear());
 const thread = "thread-replay-cursor";
@@ -130,7 +131,9 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.click(await screen.findByRole("option", { name: "Violet" }));
   await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
   await within(accounts).findByRole("img", { name: "Claude Code · Studio" });
-  await userEvent.click(screen.getByRole("button", { name: /, account/ }));
+  await userEvent.click(await screen.findByRole("link", { name: "Back to app" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  await openProfileMenu();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
   await waitFor(() =>
     expect(

@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -18,10 +19,8 @@ test("empty Home and sidebar show the browser's New thread shortcut", async () =
   expect(within(threads).getByText(/Start one with Alt\+Ctrl\+N/)).toBeTruthy();
   const main = screen.getByRole("main");
   expect(await within(main).findByText("Alt+Ctrl+N")).toBeTruthy();
-  const app = screen.getByRole("navigation", { name: "App" });
-  expect(within(app).getByRole("link", { name: /^New thread/ }).textContent).toContain(
-    "Alt+Ctrl+N",
-  );
+  await userEvent.hover(screen.getByRole("link", { name: "New thread" }));
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Alt+Ctrl+N");
 });
 
 test("changing New thread in the keymap updates both empty hints and the working shortcut", async () => {
@@ -29,7 +28,7 @@ test("changing New thread in the keymap updates both empty hints and the working
   const recorder = await screen.findByRole("button", { name: "New thread shortcut" });
   await userEvent.click(recorder);
   fireEvent.keyDown(recorder, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
-  await userEvent.click(screen.getByRole("link", { name: "Automations" }));
+  await openProfileView("Automations");
   await screen.findByRole("heading", { name: "Automations", level: 1 });
   await userEvent.keyboard("gh");
   await screen.findByRole("heading", { name: "Home", level: 1 });
@@ -46,7 +45,7 @@ test("the project's Add action shows its rebound shortcut and that shortcut open
   const recorder = await screen.findByRole("button", { name: "Add project shortcut" });
   await userEvent.click(recorder);
   fireEvent.keyDown(recorder, { key: "j", code: "KeyJ", ctrlKey: true, shiftKey: true });
-  await userEvent.click(screen.getByRole("link", { name: "Automations" }));
+  await openProfileView("Automations");
   await screen.findByRole("heading", { name: "Automations", level: 1 });
   await userEvent.keyboard("gh");
   await screen.findByRole("heading", { name: "Home", level: 1 });

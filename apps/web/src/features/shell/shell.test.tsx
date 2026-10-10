@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { failingSubagent, longHistory } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -65,18 +66,15 @@ test("old addresses land where their pages live now", async () => {
   await title("Home");
 });
 
-test("the sidebar marks the current view and the header's back and forward follow history", async () => {
+test("the header's back and forward follow profile view history", async () => {
   await harness().open("/");
   await title("Home");
-  const views = screen.getByRole("navigation", { name: "App" });
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(views).getByRole("link", { name: "Automations" }));
+  await openProfileView("Automations");
   await title("Automations");
-  expect(
-    within(views).getByRole("link", { name: "Automations" }).getAttribute("aria-current"),
-  ).toBe("page");
+  expect(screen.getByRole("link", { name: "Back to app" })).toBeTruthy();
   expect(button("Back").disabled).toBe(false);
 
   await userEvent.click(button("Back"));

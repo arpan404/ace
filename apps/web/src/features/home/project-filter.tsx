@@ -1,4 +1,9 @@
-import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import {
+  FolderPlusIcon,
+  CaretDownIcon,
+  FolderSimpleIcon,
+  DotsThreeIcon,
+} from "@phosphor-icons/react";
 import { projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -8,7 +13,6 @@ import {
   ContextMenuTrigger,
   ContextMenuContent,
 } from "@/components/ui/context-menu.tsx";
-import { cn } from "@/lib/cn.ts";
 import {
   Menu,
   MenuContent,
@@ -22,21 +26,31 @@ import {
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
-import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
+import {
+  useProjectDialogs,
+  AddProjectItem,
+  ManageProjectItems,
+} from "@/features/projects/index.ts";
 
-/**
- * The Threads heading's project filter: out of the way until the pointer or
- * keyboard is on the heading, or a filter narrows the list.
- */
+/** The task list's project filter is always visible. */
 export function ThreadsActions() {
-  const { project } = useOrganizerState();
+  const directory = useProjectDirectory();
+  const projects = useProjectDialogs();
+  if (directory.loaded && directory.projects.length === 0) {
+    return (
+      <button
+        type="button"
+        className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground focus-ring hover:bg-sidebar-accent hover:text-foreground"
+        onClick={() => projects.open({ kind: "add", tab: "open" })}
+        onPointerEnter={projects.preload}
+      >
+        <Icon icon={FolderPlusIcon} size={14} />
+        Add project
+      </button>
+    );
+  }
   return (
-    <span
-      className={cn(
-        "flex items-center gap-0.5 opacity-0 transition-opacity duration-(--dur-1) group-focus-within/heading:opacity-100 group-hover/heading:opacity-100",
-        project !== null && "opacity-100",
-      )}
-    >
+    <span className="flex items-center gap-0.5">
       <ProjectFilter />
     </span>
   );

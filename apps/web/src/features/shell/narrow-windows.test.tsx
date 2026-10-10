@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { coldStartReplay, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -74,7 +75,7 @@ test("on a narrow window the sidebar is a sheet from the header, closing once a 
   expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
   expect(within(sheet).getByRole("button", { name: /^You, account/ })).toBeTruthy();
   expect(within(sheet).getByRole("link", { name: "Settings" })).toBeTruthy();
-  await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
+  await openProfileView("Automations");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
   // On a phone a view opens on its list (ViewListPage); a row opens the item.
   const page = within(screen.getByRole("main"));

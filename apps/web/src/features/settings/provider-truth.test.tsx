@@ -6,6 +6,8 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 async function openAccounts() {
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
   await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
   await screen.findByRole("heading", { name: "Usage & accounts", level: 1 });

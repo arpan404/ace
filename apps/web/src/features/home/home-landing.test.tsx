@@ -1,3 +1,4 @@
+import { openProfileView } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -21,8 +22,7 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
   await userEvent.click(within(threads).getByRole("link", { name: /Backpressure/ }));
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
 
-  const sidebarTop = screen.getByRole("navigation", { name: "App" });
-  await userEvent.click(within(sidebarTop).getByRole("link", { name: "Automations" }));
+  await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   await userEvent.keyboard("gh");
   expect(

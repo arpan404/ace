@@ -12,13 +12,13 @@ export interface View {
   shortcut?: KeymapId;
 }
 
-/** A view listed in the sidebar's group under New thread, with its icon. */
-export interface NavView extends View {
+/** A view listed in the profile dropdown, with its icon. */
+export interface MenuView extends View {
   icon: IconGlyph;
 }
 
-/** The sidebar's places under New thread, top to bottom. */
-export const navViews: readonly NavView[] = [
+/** The profile dropdown's views, top to bottom. */
+export const menuViews: readonly MenuView[] = [
   {
     id: "automations",
     label: "Automations",
@@ -50,7 +50,7 @@ export const views: readonly View[] = [
     matches: ["/activity"],
     shortcut: "goActivity",
   },
-  ...navViews,
+  ...menuViews,
 ];
 
 export function activeView(pathname: string): View["id"] | "settings" | undefined {
