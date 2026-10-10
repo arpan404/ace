@@ -1,3 +1,4 @@
+import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
 import type { ForgeCheck, ForgePrStatus } from "@ace/protocol";
 import {
@@ -15,12 +16,11 @@ import {
   CheckCircleIcon,
   ClockIcon,
   GitMergeIcon,
-  GitPullRequestIcon,
+  LinkIcon,
   MinusCircleIcon,
   UserPlusIcon,
   WarningIcon,
   XCircleIcon,
-  LinkBreakIcon,
   DotsThreeIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -41,8 +41,7 @@ import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
 import { PrLinkForm } from "./pr-link-form.tsx";
-import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
-import { TruncatedText, RowButton, RowNote, rowIcon, WorkSection } from "./work-card-parts.tsx";
+import { TruncatedText, RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -69,103 +68,51 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 
 const open = (url: string, onError: () => void) => void openExternal(url).catch(onError);
 
-/** Linked PR rows and an inline field, with details for the primary link. */
+/** Compact links; the validated field appears only when requested. */
 export function PullRequestsSection(props: { git: GitFlow }) {
-  const { checkout } = props.git;
-  const pr = checkout?.pr;
+  const { git } = props;
+  const checkout = git.checkout;
+  const [linking, setLinking] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const toast = useToast();
-  const links = props.git.linkedPrs;
+  const links = git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : [];
   return (
-    <WorkSection
-      id="work-card-prs"
-      title="Pull requests"
-      controls={
-        (pr || !!links?.length) && (
-          <Menu>
-            <MenuTrigger
-              render={<IconButton icon={DotsThreeIcon} label="Pull request actions" size="sm" />}
-            />
-            <MenuContent align="end">
-              <MenuItem onClick={() => setConfirm(true)}>Unlink all</MenuItem>
-            </MenuContent>
-          </Menu>
-        )
-      }
-    >
-      {pr && checkout ? (
-        <>
-          <PrDisclosure key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
-        </>
-      ) : !links?.length ? (
-        <RowNote>
-          <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
-          {!checkout
-            ? "No branch to open one from"
-            : checkout.repository?.forge === "gitlab"
-              ? "GitLab merge requests aren't supported yet"
-              : "None for this branch yet"}
-        </RowNote>
-      ) : null}
-      {(pr && checkout ? links?.slice(1) : links)?.map((link) => (
-        <div
-          key={`${link.repo.host}/${link.repo.owner}/${link.repo.name}/${link.number}`}
-          className="flex h-8 min-w-0 items-center gap-2 px-2.5 text-ui"
-        >
-          <PullRequestGlyph state={link.state} size={16} />
-          <Tip label={link.title ?? `Pull request #${link.number}`}>
-            <TruncatedText>
-              #{link.number} {link.title}
-            </TruncatedText>
-          </Tip>
-          <Tip
-            label={
-              link.deleted
-                ? "This pull request was deleted on GitHub"
-                : link.unverified
-                  ? "Not checked yet. ace will refresh when GitHub is reachable."
-                  : link.state
-            }
-          >
-            <span className={`text-xs ${prTone(link.state)}`}>{link.state}</span>
-          </Tip>
-          <IconButton
-            icon={ArrowSquareOutIcon}
-            label={`Open PR #${link.number} on GitHub`}
-            size="sm"
-            onClick={() => open(link.url, () => toast.error({ title: "Couldn’t open the PR" }))}
-          />
-          <IconButton
-            icon={LinkBreakIcon}
-            label={`Unlink PR #${link.number}`}
-            size="sm"
-            disabled={props.git.pending}
-            onClick={() =>
-              props.git.run({ kind: "unlink-pr", number: link.number, repo: link.repo })
-            }
-          />
-        </div>
-      ))}
-      {checkout?.repository?.forge !== "gitlab" && (
-        <PrLinkForm
-          repository={checkout?.repository}
-          pending={props.git.pending}
-          onLink={(number, repository) =>
-            props.git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
-          }
+    <section aria-label="Pull requests">
+      {links.map((pr) => (
+        <PrDisclosure
+          key={`${pr.repo?.host}/${pr.repo?.owner}/${pr.repo?.name}/${pr.number}`}
+          git={git}
+          pr={pr}
+          base={checkout?.baseBranch ?? "main"}
+          onUnlinkAll={() => setConfirm(true)}
         />
-      )}
+      ))}
+      {checkout?.repository?.forge !== "gitlab" &&
+        (linking ? (
+          <PrLinkForm
+            repository={checkout?.repository}
+            pending={git.pending}
+            onDone={() => setLinking(false)}
+            onLink={(number, repository) =>
+              git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
+            }
+          />
+        ) : (
+          <RowButton className="text-subtle-foreground" onClick={() => setLinking(true)}>
+            <LinkIcon aria-hidden size={14} />
+            Link a pull request
+          </RowButton>
+        ))}
       {confirm && (
         <PrUnlinkDialog
           onClose={() => setConfirm(false)}
-          onUnlink={() => props.git.submit({ kind: "unlink-pr", all: true })}
+          onUnlink={() => git.submit({ kind: "unlink-pr", all: true })}
         />
       )}
-    </WorkSection>
+    </section>
   );
 }
 
-function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
+function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnlinkAll(): void }) {
   const { git, pr } = props;
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
@@ -187,57 +134,57 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
   const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
     <div>
-      <div className="flex min-w-0 items-center">
+      <div className="group/pr relative flex h-7 min-w-0 items-center">
         <RowButton
+          className="flex-1"
           aria-expanded={openNow}
           aria-controls={`pr-${pr.number}`}
           onClick={() => {
             setOpen(!openNow);
-            if (!openNow) refresh();
+            if (!openNow && pr.number === git.checkout?.pr?.number) refresh();
           }}
           aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
         >
-          <PullRequestGlyph state={pr.state} size={16} />
-          <Tip label={pr.title ?? git.checkout?.branch}>
+          <PullRequestGlyph state={pr.state} size={14} />
+          <Tip label={pr.title ?? `Pull request #${pr.number}`}>
             <TruncatedText>
-              <span className="text-subtle-foreground">#{pr.number}</span>{" "}
+              <span className={prTone(pr.state)}>#{pr.number}</span>{" "}
               {pr.title ?? git.checkout?.branch}
             </TruncatedText>
           </Tip>
-          <Tip
-            label={
-              pr.deleted
-                ? "This pull request was deleted on GitHub"
-                : pr.unverified
-                  ? "Not checked yet. ace will refresh when GitHub is reachable."
-                  : state
-            }
-          >
-            <span className={`shrink-0 text-xs ${prTone(pr.state)}`}>{state}</span>
-          </Tip>
-          {ci && ci !== "none" && <ToneIcon tone={ci} />}
         </RowButton>
         {url && (
           <IconButton
             icon={ArrowSquareOutIcon}
-            label="Open on GitHub"
+            label={`Open PR #${pr.number} on GitHub`}
             size="sm"
             onClick={() => open(url, () => toast.error({ title: "Couldn’t open the PR" }))}
           />
         )}
-        <IconButton
-          icon={LinkBreakIcon}
-          label={`Unlink PR #${pr.number}`}
-          size="sm"
-          disabled={git.pending}
-          onClick={() =>
-            git.run({
-              kind: "unlink-pr",
-              number: pr.number,
-              ...(git.linkedPrs?.[0]?.repo ? { repo: git.linkedPrs[0].repo } : {}),
-            })
-          }
-        />
+        <span className="absolute right-6 hidden bg-panel group-focus-within/pr:inline-flex group-hover/pr:inline-flex">
+          <Menu>
+            <MenuTrigger
+              render={
+                <IconButton icon={DotsThreeIcon} label={`PR #${pr.number} actions`} size="sm" />
+              }
+            />
+            <MenuContent align="end">
+              <MenuItem
+                disabled={git.pending}
+                onClick={() =>
+                  git.run({
+                    kind: "unlink-pr",
+                    number: pr.number,
+                    ...(pr.repo ? { repo: pr.repo } : {}),
+                  })
+                }
+              >
+                Unlink PR #{pr.number}
+              </MenuItem>
+              <MenuItem onClick={props.onUnlinkAll}>Unlink all</MenuItem>
+            </MenuContent>
+          </Menu>
+        </span>
       </div>
       {openNow && (
         <section id={`pr-${pr.number}`} aria-label={`Pull request #${pr.number}`}>
@@ -265,7 +212,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
                 {failure(error)}
               </p>
             </>
-          ) : git.status ? (
+          ) : git.status && git.status.ref.number === pr.number ? (
             <PrDetails
               git={git}
               status={git.status}

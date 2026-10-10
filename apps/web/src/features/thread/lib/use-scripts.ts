@@ -1,3 +1,4 @@
+import { backgroundCommand } from "@ace/ui-core";
 import type { ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -20,7 +21,15 @@ const runningShells = (reader: ThreadReader): Shell[] =>
   reader.taskIds().flatMap((id) => {
     const task = reader.task(id);
     return task?.kind === "shell" && task.status === "running"
-      ? [{ id, command: task.title.trim() }]
+      ? [
+          {
+            id,
+            command: backgroundCommand(
+              task,
+              task.toolCallId ? reader.item(task.toolCallId) : undefined,
+            ).trim(),
+          },
+        ]
       : [];
   });
 const sameShells = (a: readonly Shell[], b: readonly Shell[]) =>

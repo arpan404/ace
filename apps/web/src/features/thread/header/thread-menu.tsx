@@ -5,17 +5,10 @@ import {
   MagnifyingGlassIcon,
   TreeStructureIcon,
   PaperclipIcon,
-  ArrowSquareOutIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
-import {
-  MenuItem,
-  MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
-  MenuContent,
-} from "@/components/ui/menu.tsx";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import {
   ThreadActionItems,
   useOrganizerState,
@@ -29,12 +22,6 @@ import type { ThreadRef } from "../sources/index.ts";
 import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
 import { findInThread } from "../long/nav-keys.tsx";
 import { useThreadNav } from "../long/nav.tsx";
-import { Suspense } from "react";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
-
-const DeferredOpenIn = deferredComponent(() =>
-  import("./thread-open-in.tsx").then((module) => module.ThreadOpenIn),
-);
 
 /**
  * The header's ⋯ menu: the same thread actions as the Home row's context menu, with the open
@@ -79,16 +66,6 @@ export function ThreadMenuItems(props: {
           <MenuItem icon={<PaperclipIcon aria-hidden size={16} />} onClick={props.onAttachments}>
             Attachments
           </MenuItem>
-          <MenuSub>
-            <MenuSubTrigger icon={<ArrowSquareOutIcon aria-hidden size={16} />}>
-              Open in…
-            </MenuSubTrigger>
-            <MenuContent>
-              <Suspense fallback={<MenuItem disabled>Looking for editors…</MenuItem>}>
-                <DeferredOpenIn.Component thread={props.thread} />
-              </Suspense>
-            </MenuContent>
-          </MenuSub>
           <MenuSeparator />
           <MenuItem
             icon={<MagnifyingGlassIcon aria-hidden size={16} />}
