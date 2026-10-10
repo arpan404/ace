@@ -68,6 +68,8 @@ export const ProjectInspection = z.object({
   path,
   defaultIcon: ProjectIcon.nullable().optional(),
   git: ProjectGit.nullable(),
+  /** Registration can succeed while uncertain Git cleanup still fences execution. */
+  gitUnavailable: z.literal("git_quarantined").optional(),
   suggestedRepoRoot: path.optional(),
 });
 export const ProjectCommands = [

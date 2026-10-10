@@ -1,5 +1,5 @@
 /** The Add project dialog's tabs. */
-export type AddTab = "open" | "create" | "clone";
+export type AddTab = "sources" | "open" | "create" | "clone";
 
 /** A folder that couldn't be added directly, and why: Add project opens beside it. */
 export interface FolderAttempt {

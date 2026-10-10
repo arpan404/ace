@@ -77,7 +77,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       label: "Add project…",
       keys: keymap.addProject.keys,
       icon: "action",
-      run: run(() => projects.open({ kind: "add", tab: "open" })),
+      run: run(() => projects.open({ kind: "add", tab: "sources" })),
     };
     const create: PaletteCommand[] = [
       {

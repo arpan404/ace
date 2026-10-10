@@ -20,6 +20,7 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
   codex: {
     binary: "codex",
     package: "@openai/codex",
+    bun: true,
     nodeMajor: 16,
     sourceUrl: "https://learn.chatgpt.com/docs/codex/cli",
     brew: { name: "codex", cask: true },

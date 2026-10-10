@@ -23,8 +23,9 @@ function titleOf(send: PendingSend): string {
 /**
  * Threads started from this window that the list doesn't show yet (UX audit SY-2): each is a
  * row at the top at once, dimmed until the daemon accepts it, opening the thread on its pending
- * route or its real one. Once the daemon lists the thread, its own row takes over, reading the
- * title published here while the daemon's still says "New thread".
+ * route or its real one. Once the daemon accepts the create, its own row takes over, reading
+ * the title published here while the daemon's still says "New thread". Successful receipts
+ * must never become provisional rows again when a thread leaves the list.
  */
 export function StartedRows() {
   const pending = usePendingSends();
@@ -44,7 +45,7 @@ export function StartedRows() {
   }, [creates]);
   const waiting = creates.filter((send) => {
     const id = realId(send);
-    return !id || !listed.includes(id);
+    return (send.state === "saving" || send.state === "sent") && (!id || !listed.includes(id));
   });
   if (!waiting.length) return null;
   return (

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { writeFile, symlink, readFile } from "node:fs/promises";
+import { writeFile, symlink, readFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { installFixture } from "./testing.ts";
 
@@ -74,7 +74,7 @@ test.each(["npm", "brew", "script", "bun"] as const)(
       expect(plan).toMatchObject({
         method,
         status: "ready",
-        installedVersion: "1.0.0",
+        installedVersion: provider === "opencode" ? "2.0.0" : "1.0.0",
         needsAdmin: false,
       });
       if (method === "npm")
@@ -227,6 +227,70 @@ test("readiness carries cached update facts and clears update availability after
       latestVersion: "2.0.0",
       updateAvailable: false,
     });
+  } finally {
+    await f.close();
+  }
+});
+
+test("Codex installed by Bun updates that installation instead of reporting an unknown installer", async () => {
+  const f = await installFixture();
+  try {
+    await f.existing("codex", "bun");
+    const plan = await f.installs.plan({ provider: "codex" }, "update");
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "bun",
+      installedVersion: "1.0.0",
+      verify: { command: join(f.bin, "codex") },
+    });
+    expect(plan.commands[0]?.args).toEqual(["install", "-g", "--trust", "@openai/codex"]);
+    await f.request({
+      type: "provider.install.run",
+      requestId: "bun-codex-update",
+      provider: "codex",
+      action: "update",
+      method: "bun",
+    });
+    expect(await f.wait((event) => ["succeeded", "failed"].includes(event.state))).toMatchObject({
+      state: "succeeded",
+      version: "2.0.0",
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("Bun-only Codex installs detect available updates without requiring npm", async () => {
+  const f = await installFixture({ managers: ["bun"] });
+  try {
+    await f.existing("codex", "bun");
+    expect(await f.installs.plan({ provider: "codex" }, "update")).toMatchObject({
+      status: "ready",
+      method: "bun",
+      latestVersion: "2.0.0",
+      updateAvailable: true,
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("OpenCode install verification skips earlier v1 and uninstall ignores remaining v1", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    const old = join(f.home, "old");
+    await mkdir(old);
+    await writeFile(join(old, "opencode"), `#!${process.execPath}\nconsole.log('1.18.4');`, {
+      mode: 0o755,
+    });
+    f.env.PATH = old + ":" + f.bin;
+    const install = await f.installs.plan({ provider: "opencode" }, "install");
+    expect(install).toMatchObject({ status: "ready", method: "npm" });
+    await f.existing("opencode", "npm");
+    expect(await f.installs.planner.verify(install)).toBe("2.0.0");
+    const uninstall = await f.installs.plan({ provider: "opencode" }, "uninstall");
+    await unlink(join(f.bin, "opencode"));
+    expect(await f.installs.planner.verify(uninstall)).toBe("removed");
   } finally {
     await f.close();
   }

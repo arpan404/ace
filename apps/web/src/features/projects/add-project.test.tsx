@@ -37,9 +37,7 @@ const names = (group: HTMLElement) =>
     .map((each) => each.textContent?.match(/^[\w.-]+/)?.[0]);
 
 /** The selected tab's label. */
-const selected = () =>
-  screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")
-    ?.textContent;
+const selected = () => screen.getByRole("dialog", { name: "Add project" }).textContent;
 
 /** A project registered before the app opens, as another device would have. */
 async function addProject(made: ReturnType<typeof harness>, input: { path: string }) {
@@ -54,6 +52,7 @@ async function openFolder(made: ReturnType<typeof harness>) {
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   await dialog();
+  await userEvent.click(screen.getByRole("option", { name: "Local folder" }));
   return box();
 }
 
@@ -67,13 +66,12 @@ test("the first run offers one Add project entry in each area, and a searched fo
   expect(within(main).getAllByRole("button", { name: "Add a project" })).toHaveLength(1);
   expect(within(main).getByText(/folder on this machine/)).toBeTruthy();
   await userEvent.click(within(main).getByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
 
   const search = await box();
   expect(document.activeElement).toBe(search);
-  await userEvent.type(
-    within(await dialog()).getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/weather.png",
-  );
+  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
   await userEvent.type(search, "weath");
   await option("weather");
   expect((await active())?.textContent).toMatch(/^weather/);
@@ -82,7 +80,7 @@ test("the first run offers one Add project entry in each area, and a searched fo
   // A project with no threads yet opens at New thread.
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
-  expect(made.daemon.projects.list().workspaces[0]?.icon).toBe("https://example.com/weather.png");
+  expect(made.daemon.projects.list().workspaces[0]?.icon).toBeUndefined();
 });
 
 test("search ranks an exact name, then a prefix, then a name containing it, then scattered letters", async () => {
@@ -241,6 +239,7 @@ test("Enter opens a project with threads at its threads; ⌘Enter starts a new t
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   await box();
   await option("weather");
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
@@ -248,6 +247,7 @@ test("Enter opens a project with threads at its threads; ⌘Enter starts a new t
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
 
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   await option("weather");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("heading", { level: 1, name: "Fix the forecast" })).toBeTruthy();
@@ -259,26 +259,26 @@ test("⌘1–⌘3 switch tabs, and so do ← and → from an empty box", async (
   const made = firstRun();
   await openFolder(made);
   await userEvent.keyboard("{Control>}2{/Control}");
-  await waitFor(() => expect(selected()).toMatch(/^New project/));
+  await waitFor(() => expect(selected()).toMatch(/New project/));
   const name = await screen.findByRole("textbox", { name: "Name" });
   await waitFor(() => expect(document.activeElement).toBe(name));
   await userEvent.keyboard("{ArrowRight}");
-  await waitFor(() => expect(selected()).toMatch(/^Clone/));
+  await waitFor(() => expect(selected()).toMatch(/Clone/));
   await userEvent.click(await screen.findByRole("textbox", { name: "Repository address" }));
   await userEvent.keyboard("{ArrowLeft}");
-  await waitFor(() => expect(selected()).toMatch(/^New project/));
+  await waitFor(() => expect(selected()).toMatch(/New project/));
   // With text in the box the arrows move the caret instead.
   await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "x{ArrowLeft}");
-  expect(selected()).toMatch(/^New project/);
+  expect(selected()).toMatch(/New project/);
   await userEvent.keyboard("{Control>}1{/Control}");
-  await waitFor(() => expect(selected()).toMatch(/^Open folder/));
+  await waitFor(() => expect(selected()).toMatch(/Open folder/));
 });
 
 test("a new project's name is checked as you type, and it can start as a Git repository", async () => {
   const made = firstRun();
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(within(await dialog()).getByRole("tab", { name: /^New project/ }));
+  await userEvent.click(within(await dialog()).getByRole("option", { name: /^New project/ }));
   await dialog();
   const name = screen.getByRole("textbox", { name: "Name" });
   await userEvent.type(name, "a/b");
@@ -290,17 +290,15 @@ test("a new project's name is checked as you type, and it can start as a Git rep
   await userEvent.clear(name);
   await userEvent.type(name, "forecast");
   expect(await screen.findByText("Creates ~/forecast")).toBeTruthy();
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/forecast.png",
-  );
+  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
   await userEvent.type(screen.getByRole("textbox", { name: "Initial branch" }), "trunk");
   await userEvent.click(screen.getByRole("button", { name: "Create project" }));
 
   await screen.findByRole("button", { name: "Project: forecast" });
   expect(
     made.daemon.projects.list().workspaces.find((project) => project.name === "forecast")?.icon,
-  ).toBe("https://example.com/forecast.png");
+  ).toBeUndefined();
   const inspected = await made.client.projects.inspect(`${home}/forecast`);
   expect(inspected.result).toMatchObject({
     kind: "inspection",
@@ -312,7 +310,7 @@ test("New project goes where the location search points, and ⌘Enter creates it
   const made = firstRun();
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(within(await dialog()).getByRole("tab", { name: /^New project/ }));
+  await userEvent.click(within(await dialog()).getByRole("option", { name: /^New project/ }));
   await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "notes");
   const location = screen.getByRole("combobox", { name: "Search for a location" });
   await userEvent.type(location, "cod");
@@ -351,6 +349,7 @@ test("with home outside projects.roots, browsing opens the first root and adds f
   });
   await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   const search = await box();
   expect(within(await folders()).getByRole("group", { name: "In /srv" })).toBeTruthy();
   await userEvent.type(search, "/srv/www/");
@@ -370,6 +369,7 @@ test("a home reached through a symlink still opens at home when a root holds its
   );
   await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   await dialog();
   expect(await option("code")).toBeTruthy();
   expect(within(await folders()).queryByRole("option", { name: /^www/ })).toBeNull();
@@ -435,12 +435,31 @@ test("a folder whose later folders can't be read keeps the rest and reads again 
   expect(screen.queryByText(/Couldn't read the rest of this folder/)).toBeNull();
 });
 
-test("double-clicking a folder adds it once and shows one confirmation", async () => {
+test("clicking a folder browses it and Add registers it once", async () => {
   const made = firstRun();
   const search = await openFolder(made);
   await userEvent.type(search, "weather");
-  await userEvent.dblClick(await option("weather"));
+  await userEvent.click(await option("weather"));
+  await waitFor(() => expect(search).toHaveProperty("value", "~/code/weather/"));
+  expect(registered(made)).toEqual([]);
+  await userEvent.click(screen.getByRole("button", { name: "Add weather" }));
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
   expect(await screen.findAllByText("Added weather")).toHaveLength(1);
+});
+
+test("source search selects with arrows and Enter while left/right only move the caret", async () => {
+  const made = firstRun();
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  const search = await screen.findByRole("combobox", { name: "Search project sources" });
+  await userEvent.keyboard("{ArrowRight}{ArrowLeft}");
+  expect(document.activeElement).toBe(search);
+  await userEvent.type(search, "git");
+  await userEvent.keyboard("{Enter}");
+  expect(await screen.findByRole("textbox", { name: "Repository address" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Back to sources" }));
+  await screen.findByRole("combobox", { name: "Search project sources" });
+  await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+  expect(await screen.findByRole("textbox", { name: "Name" })).toBeTruthy();
 });

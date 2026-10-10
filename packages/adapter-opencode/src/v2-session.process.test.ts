@@ -65,7 +65,7 @@ it.each([
 ])(
   "unsupported versions, HTML or missing operations prevent session creation: %j",
   async ({ env }) => {
-    await expect(setup({ discovery: { env } })).rejects.toThrow("2.0.22");
+    await expect(setup({ discovery: { env } })).rejects.toThrow(/OpenCode startup failed/);
   },
 );
 it("native steer and queue each admit a distinct input without a local retry queue", async () => {

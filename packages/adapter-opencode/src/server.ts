@@ -171,7 +171,9 @@ export class OpenCodeServer {
         expected = cli.version ?? "";
         if (!version(expected))
           throw Object.assign(
-            new Error("OpenCode 2.0.22 is required; upgrade v1 or review the new contract"),
+            new Error(
+              "OpenCode 2.0.22 or 2.0.26 is required; upgrade v1 or review the new contract",
+            ),
             { code: "cli_too_old" },
           );
         const password = this.runtime.entropy(32);
@@ -246,7 +248,9 @@ export class OpenCodeServer {
         });
       }
       if (!version(expected))
-        throw Object.assign(new Error("OpenCode 2.0.22 is required"), { code: "cli_too_old" });
+        throw Object.assign(new Error("OpenCode 2.0.22 or 2.0.26 is required"), {
+          code: "cli_too_old",
+        });
       this.factory = (await import("@opencode/client")).OpenCode;
       this.controller.signal.throwIfAborted();
       this.client = this.scoped("", this.frame, this.controller.signal);
@@ -281,7 +285,7 @@ export class OpenCodeServer {
       await handshake;
     } catch (error) {
       const failure = new SessionOpenError(
-        "OpenCode startup failed: requires 2.0.22 and matching JSON API contract",
+        "OpenCode startup failed: requires a reviewed OpenCode v2 release and matching JSON API contract",
         metadataFailure(error),
         { env: this.options.discovery?.env },
         (value) => this.redact(value),

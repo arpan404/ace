@@ -42,7 +42,7 @@ export function ThreadsActions() {
       <button
         type="button"
         className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground focus-ring hover:bg-sidebar-accent hover:text-foreground"
-        onClick={() => projects.open({ kind: "add", tab: "open" })}
+        onClick={() => projects.open({ kind: "add", tab: "sources" })}
         onPointerEnter={projects.preload}
       >
         <Icon icon={FolderPlusIcon} size={14} />

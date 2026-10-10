@@ -1,5 +1,5 @@
 import { useSidebarStore } from "@ace/client-react";
-import { folderName } from "@ace/ui-core";
+import { folderName, projectProblem } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -57,6 +57,9 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
         const root = added.suggestedRoot;
         const toastId = toast.add({
           title: `${said} ${added.project.name}`,
+          ...(added.gitUnavailable
+            ? { description: projectProblem(added.gitUnavailable).message, timeout: 10_000 }
+            : {}),
           ...(root
             ? {
                 description: `It's inside the ${folderName(root)} repository.`,

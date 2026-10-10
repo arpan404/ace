@@ -15,7 +15,11 @@ import {
 import { providerConfiguration } from "@ace/models/preferences";
 import { z } from "zod";
 import type { ClientMessage, ServerMessage, ProviderKind } from "@ace/protocol";
-import { findExecutable, defaultProviderExecutable } from "@ace/provider-kit/discovery";
+import {
+  findExecutable,
+  findOpenCodeExecutable,
+  defaultProviderExecutable,
+} from "@ace/provider-kit/discovery";
 import {
   assertTestHomeIsolation,
   assertTestEnvironmentIsolation,
@@ -43,7 +47,7 @@ export function readModelInstances(
   assertModelTestIsolation(instances);
   return instances;
 }
-/** Filesystem-only admission. Actual metadata probes remain lazy, cached catalog work. */
+/** Admit installed CLIs; OpenCode also needs a v2 version before registering its binding. */
 export async function registerDefaultModelInstances(
   catalog: ModelCatalog,
   cwd: string,
@@ -64,9 +68,15 @@ export async function registerDefaultModelInstances(
       .filter((candidate) => !registeredProviders.has(candidate.provider))
       .map(async (candidate) => {
         const override = providerConfiguration(preferences, candidate.provider).binaryPath;
-        const path = await findExecutable(override ?? candidate.executable, env);
+        const path =
+          candidate.provider === "opencode"
+            ? (await findOpenCodeExecutable(override ?? candidate.executable, { env, signal }))
+                ?.path
+            : await findExecutable(override ?? candidate.executable, env);
         const executable = override
-          ? ((await findExecutable(candidate.executable, env)) ?? candidate.executable)
+          ? ((candidate.provider === "opencode"
+              ? (await findOpenCodeExecutable(candidate.executable, { env, signal }))?.path
+              : await findExecutable(candidate.executable, env)) ?? candidate.executable)
           : (path ?? candidate.executable);
         return { provider: candidate.provider, path, executable };
       }),

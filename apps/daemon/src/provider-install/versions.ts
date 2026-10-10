@@ -107,16 +107,20 @@ export class InstallVersions {
         return undefined;
       }
     }
-    const npm = spec.package && (await findExecutable("npm", this.planner.env));
+    const manager =
+      spec.package &&
+      (await findExecutable(plan.method === "bun" ? "bun" : "npm", this.planner.env));
     const raw =
-      npm &&
+      manager &&
       spec.package &&
       (await this.planner.probe(
-        npm,
-        ["view", spec.package, "version", "--registry=https://registry.npmjs.org"],
+        manager,
+        plan.method === "bun"
+          ? ["info", spec.package, "version", "--registry=https://registry.npmjs.org"]
+          : ["view", spec.package, "version", "--registry=https://registry.npmjs.org"],
         signal,
       ));
-    const parsed = Version.safeParse(raw);
+    const parsed = Version.safeParse(raw?.trim());
     return parsed.success ? parsed.data : undefined;
   }
 }

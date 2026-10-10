@@ -52,7 +52,7 @@ export function ProjectsHost(props: { children: ReactNode }) {
   }, []);
   const api = useMemo(() => ({ open: show, preload: () => void loadDialogs() }), [show]);
   useProjectListSync();
-  useHotkey(keymap.addProject.keys, () => show({ kind: "add", tab: "open" }));
+  useHotkey(keymap.addProject.keys, () => show({ kind: "add", tab: "sources" }));
   useFolderDrop(show);
   // Warm the dialogs once the first screen has painted, so they open without a wait.
   useEffect(() => whenIdle(() => void loadDialogs(), 4_000), []);

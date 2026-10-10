@@ -50,6 +50,27 @@ describe("provider discovery", () => {
     controller.abort(new Error("cancelled"));
     await rejected;
   });
+  it("OpenCode configured connections are recognized without claiming verified authentication", async () => {
+    const root = await directory();
+    const path = await binary(root, "opencode", healthy);
+    const result = await discoverProvider("opencode", {
+      overrides: { opencode: path },
+      probe: async (_path, args) => ({
+        code: 0,
+        stderr: "",
+        stdout:
+          args[0] === "--version"
+            ? "opencode v2.0.26"
+            : JSON.stringify([{ id: "opencode-go", connections: [{ type: "credential" }] }]),
+      }),
+    });
+    expect(result).toMatchObject({
+      installed: true,
+      auth: "unknown",
+      authEvidence: "credentials_configured",
+    });
+    expect(result.error).toBeUndefined();
+  });
   it("reports missing binaries independently without probing installed CLIs", async () => {
     const root = await directory();
     expect(await discoverProviders({ env: { PATH: root } })).toEqual({
@@ -128,11 +149,7 @@ describe("provider discovery", () => {
       auth: "unknown",
       error: "Version probe exited unsuccessfully; Authentication probe exited unsuccessfully",
     });
-    expect(result.opencode).toMatchObject({
-      installed: true,
-      auth: "unknown",
-      error: "Version probe timed out; Authentication probe timed out",
-    });
+    expect(result.opencode).toMatchObject({ installed: false, auth: "unknown" });
     expect(JSON.stringify(result)).not.toMatch(/private@example\.test|sk-synthetic-secret/);
   });
   it("discovers Codex from captured stderr auth output with empty stdout", async () => {
@@ -247,4 +264,28 @@ describe("provider discovery", () => {
       );
     }
   });
+});
+
+it("OpenCode v1 alone is not installed and a later v2 is selected without probing v1 auth", async () => {
+  const root = await directory();
+  const later = await directory();
+  const old = await binary(root, "opencode", {
+    version: { stdout: "1.18.4", stderr: "", code: 0 },
+    auth: { stdout: "should not probe auth", stderr: "", code: 1 },
+  });
+  const env = { PATH: root, HOME: root };
+  expect(await discoverProvider("opencode", { env })).toMatchObject({ installed: false });
+  const current = await binary(later, "opencode", {
+    version: { stdout: "2.0.26", stderr: "", code: 0 },
+    auth: { stdout: "[]", stderr: "", code: 0 },
+  });
+  expect(
+    await discoverProvider("opencode", { env: { ...env, PATH: root + delimiter + later } }),
+  ).toMatchObject({ installed: true, path: current, version: "2.0.26", auth: "logged_out" });
+  expect(
+    await discoverProvider("opencode", {
+      env: { ...env, PATH: later },
+      overrides: { opencode: old },
+    }),
+  ).toMatchObject({ installed: false });
 });

@@ -53,7 +53,7 @@ async function ready(client: ClientApi) {
   await vi.waitFor(() => expect(client.state).toBe("ready"));
 }
 
-test("the project menu edits the name and icon of a project without threads", async () => {
+test("the project menu edits the name of a project without threads", async () => {
   const made = withProjects(false);
   const other = fakeClient(made.daemon);
   await ready(other);
@@ -67,10 +67,8 @@ test("the project menu edits the name and icon of a project without threads", as
   const field = within(dialog).getByRole("textbox", { name: "Name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Marketing site");
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/favicon.ico",
-  );
+  expect(within(dialog).queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "Upload image" })).toBeNull();
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
 
   await screen.findByRole("button", { name: "Project filter: Marketing site" });
@@ -78,7 +76,7 @@ test("the project menu edits the name and icon of a project without threads", as
   expect(
     made.daemon.projects.list().workspaces.find((project) => project.name === "Marketing site")
       ?.icon,
-  ).toBe("https://example.com/favicon.ico");
+  ).toBeUndefined();
 });
 
 test("removing a project keeps its files and stops listing it", async () => {
@@ -162,28 +160,19 @@ test("an unselected project has Edit, Remove and Open in from its context menu",
   }
 });
 
-test("a refused edit keeps its draft and retries the name and icon together", async () => {
+test("a refused edit keeps its draft and retries the name", async () => {
   const made = withProjects(false);
   await made.open("/new");
   await filterTo("docs");
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
   const dialog = await screen.findByRole("dialog", { name: "Edit project" });
   const name = within(dialog).getByRole("textbox", { name: "Name" });
-  const icon = within(dialog).getByRole("textbox", { name: "Icon URL" });
   await userEvent.clear(name);
   await userEvent.type(name, "Documentation");
-  await userEvent.type(icon, "javascript:alert(1)");
-  expect(
-    within(dialog).getByRole("button", { name: "Save changes" }).hasAttribute("disabled"),
-  ).toBe(true);
-  expect(listed(made)).toContain("docs");
-  await userEvent.clear(icon);
-  await userEvent.type(icon, "https://example.com/docs.png");
-  made.daemon.refuseCommands("project_failed", "workspace.update");
+  made.daemon.refuseCommands("project_failed", "workspace.rename");
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
   await within(dialog).findByRole("alert");
   expect(name).toHaveProperty("value", "Documentation");
-  expect(icon).toHaveProperty("value", "https://example.com/docs.png");
   expect(listed(made)).toContain("docs");
   made.daemon.restoreRequests();
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
@@ -191,41 +180,12 @@ test("a refused edit keeps its draft and retries the name and icon together", as
   expect(
     made.daemon.projects.list().workspaces.find((project) => project.name === "Documentation")
       ?.icon,
-  ).toBe("https://example.com/docs.png");
+  ).toBeUndefined();
 });
 
-test("removing custom artwork saves the default mark, and reopening starts from saved metadata", async () => {
-  const made = withProjects(false);
-  await made.open("/new");
-  await filterTo("docs");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
-  let dialog = await screen.findByRole("dialog", { name: "Edit project" });
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/docs.png",
-  );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit project" })).toBeNull());
-  await filterTo("docs");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
-  dialog = await screen.findByRole("dialog", { name: "Edit project" });
-  expect(within(dialog).getByRole("textbox", { name: "Icon URL" })).toHaveProperty(
-    "value",
-    "https://example.com/docs.png",
-  );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Remove icon" }));
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
-  await waitFor(() =>
-    expect(
-      made.daemon.projects.list().workspaces.find((project) => project.name === "docs")?.icon,
-    ).toBeNull(),
-  );
-});
-
-test("a project starts with its local favicon and clearing custom artwork restores it", async () => {
+test("renaming a project keeps its detected favicon and offers no artwork editing", async () => {
   const made = harness();
-  const favicon =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==";
+  const favicon = "data:image/png;base64,aGVsbG8=";
   made.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", favicon }]);
   await ready(made.client);
   await made.client.projects.add({ path: "/home/dev/site" });
@@ -234,21 +194,14 @@ test("a project starts with its local favicon and clearing custom artwork restor
   await waitFor(() => expect(picker.querySelector("img")?.getAttribute("src")).toBe(favicon));
   await filterTo("site");
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
-  let dialog = await screen.findByRole("dialog", { name: "Edit project" });
+  const dialog = await screen.findByRole("dialog", { name: "Edit project" });
   expect(dialog.querySelector("img")?.getAttribute("src")).toBe(favicon);
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/custom.png",
-  );
+  expect(within(dialog).queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "Upload image" })).toBeNull();
+  const name = within(dialog).getByRole("textbox", { name: "Name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Website");
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
-  await waitFor(() =>
-    expect(picker.querySelector("img")?.getAttribute("src")).toBe("https://example.com/custom.png"),
-  );
-  await filterTo("site");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
-  dialog = await screen.findByRole("dialog", { name: "Edit project" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Use project favicon" }));
-  expect(dialog.querySelector("img")?.getAttribute("src")).toBe(favicon);
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(picker.querySelector("img")?.getAttribute("src")).toBe(favicon));
+  await screen.findByRole("button", { name: "Project filter: Website" });
+  expect(made.daemon.projects.list().workspaces[0]?.defaultIcon).toBe(favicon);
 });

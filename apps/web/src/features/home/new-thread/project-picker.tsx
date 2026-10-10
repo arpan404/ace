@@ -144,7 +144,7 @@ export function ProjectPicker(props: {
             onPointerEnter={dialogs.preload}
             onClick={() => {
               changeOpen(false);
-              dialogs.open({ kind: "add", tab: "open" });
+              dialogs.open({ kind: "add", tab: "sources" });
             }}
           >
             <FolderPlusIcon aria-hidden size={16} />

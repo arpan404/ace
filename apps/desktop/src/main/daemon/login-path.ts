@@ -6,9 +6,9 @@ const marker = "__ACE_PATH__";
 /**
  * GUI apps on macOS and many Linux desktops start with a minimal PATH (`/usr/bin:/bin`), so
  * provider CLIs installed by Homebrew, npm or installers are invisible. Ask the user's login
- * shell once for its PATH. Falls back to the current PATH on any failure.
+ * shell once for its PATH. Allow slow shell startup before selecting an installation. Falls back to the current PATH on any failure.
  */
-export function loginShellPath(env: NodeJS.ProcessEnv, timeoutMs = 3_000): Promise<string> {
+export function loginShellPath(env: NodeJS.ProcessEnv, timeoutMs = 10_000): Promise<string> {
   const current = env.PATH ?? "";
   if (process.platform === "win32") return Promise.resolve(current);
   const shell = env.SHELL || "/bin/sh";

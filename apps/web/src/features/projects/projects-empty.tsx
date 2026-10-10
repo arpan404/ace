@@ -16,7 +16,7 @@ export function ProjectsEmptyState(props: { heading?: boolean; className?: strin
       description="A project is a folder on this machine. Open one you have, start a new one, or clone a repository; agents work there with your own tools."
       action={
         <Button
-          onClick={() => projects.open({ kind: "add", tab: "open" })}
+          onClick={() => projects.open({ kind: "add", tab: "sources" })}
           onPointerEnter={projects.preload}
           onFocus={projects.preload}
         >

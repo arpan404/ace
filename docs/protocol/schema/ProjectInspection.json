@@ -22,6 +22,10 @@
         }
       ]
     },
+    "gitUnavailable": {
+      "const": "git_quarantined",
+      "type": "string"
+    },
     "path": {
       "maxLength": 4096,
       "minLength": 1,
