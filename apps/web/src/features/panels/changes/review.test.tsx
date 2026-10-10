@@ -13,6 +13,7 @@ async function openChanges() {
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const replay = await within(panel).findByRole("region", { name: path });
@@ -126,11 +127,8 @@ test("a comment from another device shows with its replies, and a reply here rea
   const commentId = added.review?.comment?.id;
   remote({ type: "review.reply", sessionId, commentId, text: "The agent agreed" });
 
-  // The review bar's refresh reads what the daemon holds now.
-  const review = within(panel).getByRole("region", { name: "Review" });
-  await userEvent.click(
-    within(review).getByRole("button", { name: "Check what ace holds for these comments" }),
-  );
+  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
   const card = await within(panel).findByRole("article", { name: `Comment on line ${line}` });
   const replies = await within(card).findByRole("list", { name: "Replies" });
   expect(replies.textContent).toBe("The agent agreed");
@@ -146,11 +144,18 @@ test("a comment from another device shows with its replies, and a reply here rea
 });
 
 test("Approve marks the thread's review approved for every device", async () => {
-  const { panel, remote } = await openChanges();
-  const review = within(panel).getByRole("region", { name: "Review" });
-  expect(within(review).getByRole("status").textContent).toMatch(/^No comments/);
+  const { panel, remote, replay } = await openChanges();
+  expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
+  const [cell, , line] = adjacentNewLines(replay);
+  await userEvent.click(within(cell).getByRole("button", { name: `Comment on line ${line}` }));
+  await userEvent.type(
+    within(replay).getByRole("textbox", { name: `Comment on line ${line}` }),
+    "Looks good",
+  );
+  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
+  const review = await within(panel).findByRole("region", { name: "Review" });
   await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
-  await waitFor(() => expect(within(review).getByRole("status").textContent).toBe("Approved"));
+  await waitFor(() => expect(within(review).getByRole("status").textContent).toMatch(/^Approved/));
   expect(remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions).toEqual(
     [expect.objectContaining({ status: "approved" })],
   );
@@ -166,9 +171,7 @@ test("Request changes sends the unsent comments to the agent as a queued turn", 
   );
   await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
   const review = within(panel).getByRole("region", { name: "Review" });
-  await userEvent.click(
-    within(review).getByRole("button", { name: /^Request changes: send the comments/ }),
-  );
+  await userEvent.click(within(review).getByRole("button", { name: "Request changes" }));
   await waitFor(() =>
     expect(within(review).getByRole("status").textContent).toBe("1 waiting for the agent"),
   );

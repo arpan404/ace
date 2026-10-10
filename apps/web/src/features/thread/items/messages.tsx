@@ -26,7 +26,7 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
   return (
     <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
-      {name && <p className="mb-1 text-ui font-medium text-muted-foreground">{name}</p>}
+      {name && <p className="mb-1 text-ui text-muted-foreground">From {name}</p>}
       <Prose
         text={text}
         thread={{

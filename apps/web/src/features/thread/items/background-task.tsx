@@ -82,7 +82,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
               void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
             }
           >
-            {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
+            {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} weight="fill" />}
             {stopping ? "Stopping" : "Stop"}
           </Button>
         )}

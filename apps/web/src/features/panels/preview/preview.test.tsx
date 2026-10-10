@@ -141,7 +141,7 @@ test("while a dev server's page loads, the frame waits behind a spinner and its 
   release();
 });
 
-test("a dev server that doesn't answer keeps its address, says so and offers Reload", async () => {
+test("a dev server that doesn't answer keeps its address, says so and offers Retry", async () => {
   const { panel, browser } = await openPreview();
   act(() =>
     browser.serve("thread-settings", {
@@ -158,7 +158,7 @@ test("a dev server that doesn't answer keeps its address, says so and offers Rel
   expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
     "127.0.0.1:1",
   );
-  await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
+  await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
   expect(
     await within(panel).findByRole("heading", { name: "Couldn't reach 127.0.0.1:1" }),
   ).toBeTruthy();

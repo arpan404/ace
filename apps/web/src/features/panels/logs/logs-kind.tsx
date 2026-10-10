@@ -15,6 +15,5 @@ export const logsKind = defineTabKind({
   launcher: 80,
   title: (tab) => logScopeTitle(tab.id, tab.title),
   Skeleton: OutputSkeleton,
-  load: () =>
-    import("./logs-tab.tsx").then((m) => ({ default: m.default, Actions: m.LogsActions })),
+  load: () => import("./logs-tab.tsx"),
 });

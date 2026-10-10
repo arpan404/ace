@@ -11,18 +11,16 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { overlaySurface } from "@/components/ui/menu-styles.ts";
 import { cn } from "@/lib/cn.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
-import { DigestFacts } from "./digest-facts.tsx";
 import { useWatched, type ThreadNav } from "./nav.tsx";
 import { useTurnHead, useTurnSummary } from "./turn-index.ts";
 
 /** Fixed row height: the list never measures, so a 100,000-turn thread scrolls at once. */
-const rowHeight = 52;
+const rowHeight = 36;
 const page = 10;
 const optionId = (ordinal: number) => `turn-option-${ordinal}`;
 
@@ -91,7 +89,10 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
   return (
     <aside
       aria-label="Turns"
-      className="glass fx-rise-in absolute top-3 right-4 z-[7] flex w-[340px] flex-col rounded-lg shadow-[var(--glass-shadow)]"
+      className={cn(
+        overlaySurface,
+        "fx-rise-in absolute top-3 right-4 z-[7] flex w-[min(340px,calc(100vw-2rem))] flex-col rounded-[12px] p-1",
+      )}
       style={{ height: "min(70vh, 640px)" }}
     >
       <div className="flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-3">
@@ -153,10 +154,6 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
           </div>
         )}
       </div>
-      <p className="flex h-8 shrink-0 items-center gap-1.5 border-t border-border px-3 text-2xs text-subtle-foreground">
-        <Kbd>↑↓</Kbd> move <Kbd>↵</Kbd> jump <Kbd keys={keymap.previousTurn.keys} />
-        <Kbd keys={keymap.nextTurn.keys} /> between turns
-      </p>
     </aside>
   );
 }
@@ -186,13 +183,13 @@ function TurnOption(props: {
       }
       onClick={props.onPick}
       className={cn(
-        "flex h-full cursor-pointer flex-col justify-center gap-0.5 rounded-md px-2.5 hover:bg-accent",
+        "flex h-full cursor-pointer items-center gap-0.5 rounded-md px-2.5 hover:bg-accent",
         props.active && "bg-accent",
         props.reading && "shadow-[inset_2px_0_0_var(--ring)]",
       )}
     >
       <span className="flex min-w-0 items-center gap-2 text-ui">
-        <span className="shrink-0 font-mono text-xs tabular-nums text-subtle-foreground">
+        <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">
           {props.ordinal}
         </span>
         {summary?.outcome === "active" ? (
@@ -212,9 +209,6 @@ function TurnOption(props: {
             {turnSpan(summary, now)}
           </span>
         )}
-      </span>
-      <span className="min-w-0 pl-[30px] text-xs text-subtle-foreground">
-        {facts.length ? <DigestFacts facts={facts} /> : summary ? <span>{outcome}</span> : null}
       </span>
     </div>
   );

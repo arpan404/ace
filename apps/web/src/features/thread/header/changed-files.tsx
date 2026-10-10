@@ -88,7 +88,6 @@ export function ChangedFiles(props: {
           />
           {count}
         </button>
-        <span className="text-muted-foreground">· {picked.size} picked</span>
         <button
           type="button"
           onClick={props.onViewDiff}

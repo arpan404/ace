@@ -284,7 +284,7 @@ test("a provider without native images still accepts image files", async () => {
   await app.open("/t/thread-no-images");
   const message = await screen.findByRole("combobox", { name: "Message" });
   await user.click(screen.getByRole("button", { name: "Add files and context" }));
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Add" });
   expect(
     within(menu)
       .getByRole("option", { name: /Attach files/ })
@@ -377,8 +377,12 @@ test("the Attachments sheet lists kept files and removal clears a ready chip and
   );
   const chips = await screen.findByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Attachments" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }),
+    "Attachments",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /^Attachments/ }));
   const sheet = await screen.findByRole("dialog", { name: "Attachments" });
   expect(await within(sheet).findByText("1 of 256 attachments")).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("button", { name: "Remove notes.txt" }));

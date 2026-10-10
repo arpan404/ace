@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import {
@@ -33,7 +33,7 @@ import {
 
 const heading = "px-1 text-xs font-medium text-muted-foreground";
 const card =
-  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) bg-foreground/3 hover:bg-accent";
+  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) hover:bg-accent";
 
 /**
  * The Tools grid is one Tab stop: arrows move by its columns (two, or one below 30rem), Home
@@ -98,37 +98,33 @@ export function LauncherTab(props: TabViewProps) {
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
           <h2 className={heading}>Tools</h2>
-          <ul
-            aria-label="Tools"
-            onKeyDown={grid.onKeyDown}
-            className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 @min-[30rem]:grid-cols-2"
-          >
+          <ul aria-label="Tools" onKeyDown={grid.onKeyDown} className="mt-2 flex flex-col gap-px">
             {tools.map((kind, index) => {
               const keys = definition?.shortcut(kind.kind);
               return (
                 <li key={kind.kind} className="relative min-w-0">
-                  <button
-                    type="button"
-                    data-tool
-                    tabIndex={grid.active === index ? 0 : -1}
-                    onFocus={() => {
-                      grid.setActive(index);
-                      kind.preload();
-                    }}
-                    className={card}
-                    onPointerEnter={kind.preload}
-                    onClick={() => openHere({ kind: kind.kind })}
-                  >
-                    <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-                    {kind.unavailable ? (
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {kind.unavailable}
-                      </span>
-                    ) : (
-                      keys && <Kbd keys={keymap[keys].keys} />
-                    )}
-                  </button>
+                  <Tip label={kind.label} {...(keys ? { keys: keymap[keys].keys } : {})}>
+                    <button
+                      type="button"
+                      data-tool
+                      tabIndex={grid.active === index ? 0 : -1}
+                      onFocus={() => {
+                        grid.setActive(index);
+                        kind.preload();
+                      }}
+                      className={card}
+                      onPointerEnter={kind.preload}
+                      onClick={() => openHere({ kind: kind.kind })}
+                    >
+                      <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate">{kind.label}</span>
+                      {kind.unavailable ? (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {kind.unavailable}
+                        </span>
+                      ) : null}
+                    </button>
+                  </Tip>
                 </li>
               );
             })}
@@ -266,7 +262,7 @@ function SuggestionRow(props: {
       <button
         type="button"
         onClick={props.onClick}
-        className="focus-ring flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-3 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent"
+        className="focus-ring flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-3 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent"
       >
         <Icon icon={props.icon} size={16} className="text-muted-foreground" />
         <span

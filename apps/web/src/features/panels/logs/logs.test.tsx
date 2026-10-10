@@ -90,7 +90,8 @@ test("Clear hides what is logged so far; new lines still appear and Show brings 
   await waitFor(() => expect(lines(panel).length).toBeGreaterThan(0));
   const before = lines(panel).length;
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Clear logs" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Log options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Clear logs" }));
   expect(within(panel).getByText(`${before} earlier lines cleared`, { exact: false })).toBeTruthy();
 
   await act(async () => script.runThrough("turn-2"));

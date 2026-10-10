@@ -14,7 +14,7 @@ import { toolbarButton } from "../browser/page-toolbar.tsx";
 export type FramePhase = "loading" | "loaded" | "blank" | "failed";
 
 /** A dev server that never finishes loading is treated as failed after this long. */
-const loadTimeoutMs = 20_000;
+const loadTimeoutMs = 5_000;
 
 /**
  * Whether anything answers at `url`. A no-cors request resolves with an opaque response from
@@ -39,7 +39,7 @@ const unreachable = (url: string): BrowserFailure => ({
 });
 const tooSlow = (url: string): BrowserFailure => ({
   title: `${addressHost(url) ?? displayAddress(url)} didn't finish loading`,
-  detail: "The page took more than 20 seconds. Try again once the dev server has settled.",
+  detail: "The page took more than 5 seconds. Try again once the dev server has settled.",
 });
 
 /**
@@ -60,7 +60,7 @@ function isBlank(frame: HTMLIFrameElement, url: string): boolean {
 /**
  * Loading a dev server into a frame: `loading` until the frame's load event and the server
  * answering, then `loaded`, `blank` (an empty document), or `failed` (nothing answered, or the
- * load ran past 20 seconds). `url` is the address probed; a new `load` loads again. Nothing
+ * load ran past 5 seconds). `url` is the address probed; a new `load` loads again. Nothing
  * runs while there is no `src` yet (the preview is still signing in).
  */
 function useFrameLoad(url: string, src: string | undefined, load: string) {
@@ -188,7 +188,7 @@ export function DevServerFrame(props: {
       )}
       {phase === "failed" && failure && (
         <div className="absolute inset-0 overflow-auto">
-          <LoadFailed url={url} failure={failure} onReload={props.onRetry} />
+          <LoadFailed url={url} failure={failure} onReload={props.onRetry} reloadLabel="Retry" />
         </div>
       )}
       {phase === "blank" && (

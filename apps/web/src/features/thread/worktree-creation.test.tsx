@@ -83,16 +83,14 @@ test("a worktree's steps advance under the first message, with checkout's percen
 
   // Progress lives once in the transcript. The next message can be drafted, but not sent.
   expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
-  expect(
-    screen.getByRole("button", { name: /^Model:/ }).closest('[data-slot="composer"]'),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
   expect(screen.getByRole("button", { name: /^Approvals:/ })).toBeTruthy();
   const input = screen.getByRole("combobox", { name: "Message" });
   await userEvent.type(input, "Also cover the reconnect case");
   expect(input.textContent).toBe("Also cover the reconnect case");
   expect(screen.getByRole("button", { name: /^Send$/ }).getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  expect(await screen.findByRole("listbox", { name: "Add and commands" })).toBeTruthy();
+  expect(await screen.findByRole("listbox", { name: "Add" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   // The bubble leaves its sending state to the card.
   expect(screen.queryByText(/Sending…|Still waiting/)).toBeNull();

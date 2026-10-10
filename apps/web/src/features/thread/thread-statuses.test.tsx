@@ -29,10 +29,10 @@ async function open(scenario: Scenario) {
   return { app, feed, header, row };
 }
 
-test("a thread watching a background command says so in its live line and row", async () => {
-  const { header, row } = await open(watchingRelay());
-  const line = await screen.findByRole("status", { name: "Watching bun run dev:relay" });
-  expect(within(line).getByText("bun run dev:relay").tagName).toBe("CODE");
+test("a background command appears once in the transcript while its row keeps the status", async () => {
+  const { header, row, feed } = await open(watchingRelay());
+  expect(within(feed).getAllByText("bun run dev:relay")).toHaveLength(1);
+  expect(screen.queryByRole("status", { name: "Watching bun run dev:relay" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Watching bun run dev:relay");
   expect(within(header).queryByRole("status")).toBeNull();
 });
@@ -50,7 +50,8 @@ test("a thread waiting on subagents shows their count in its row and all active 
 
 test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
   const { header, row } = await open(askingQuestion());
-  expect(await screen.findByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Waiting for your answer" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
 });

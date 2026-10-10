@@ -1,12 +1,4 @@
-import {
-  ArrowElbowDownLeftIcon,
-  ArrowsInLineVerticalIcon,
-  ArrowsOutLineVerticalIcon,
-  CaretDownIcon,
-  ColumnsIcon,
-  RowsIcon,
-  TreeViewIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
 export { scopeLabel, type Scope };
@@ -14,8 +6,8 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
   MenuContent,
-  MenuGroup,
   MenuItem,
+  MenuCheckboxItem,
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
@@ -33,14 +25,6 @@ const control = "size-7";
  * `thread.details` carries uncommitted counts, never the hunks, and nothing reports the index or
  * a base branch's diff.
  */
-const unavailable = [
-  { label: "Staged", reason: "Staged changes aren't available yet" },
-  {
-    label: "Branch",
-    reason: "Comparing with the base branch isn't available yet",
-  },
-] as const;
-
 /** The scope menu: last turn, all turns, one turn, and the checkout scopes that can't open yet. */
 export function ScopeMenu(props: {
   scope: Scope;
@@ -82,15 +66,6 @@ export function ScopeMenu(props: {
             </>
           )}
         </MenuRadioGroup>
-        <MenuSeparator />
-        <MenuGroup>
-          <MenuLabel>Checkout</MenuLabel>
-          {unavailable.map((entry) => (
-            <MenuItem key={entry.label} disabled reason={entry.reason}>
-              {entry.label}
-            </MenuItem>
-          ))}
-        </MenuGroup>
       </MenuContent>
     </Menu>
   );
@@ -101,53 +76,6 @@ const modeLabels: Record<DiffPrefs["mode"], string> = {
   unified: "Unified",
   split: "Split",
 };
-
-/** Auto, Unified or Split; Auto names the layout it picked for the panel's width. */
-function LayoutMenu(props: {
-  mode: DiffPrefs["mode"];
-  shown: "unified" | "split";
-  /** Split is chosen but the panel is too narrow for it: unified shows until it widens. */
-  splitTooNarrow: boolean;
-  onMode(mode: DiffPrefs["mode"]): void;
-}) {
-  const note =
-    props.mode === "auto"
-      ? ` (${modeLabels[props.shown]})`
-      : props.splitTooNarrow
-        ? " (needs a wider panel)"
-        : "";
-  const label = `Diff layout: ${modeLabels[props.mode]}${note}`;
-  return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <IconButton
-            icon={props.shown === "split" ? ColumnsIcon : RowsIcon}
-            label={label}
-            className={control}
-          />
-        }
-      />
-      <MenuContent align="end">
-        <MenuRadioGroup
-          value={props.mode}
-          onValueChange={(mode: DiffPrefs["mode"]) => props.onMode(mode)}
-        >
-          <MenuLabel>Diff layout</MenuLabel>
-          <MenuRadioItem closeOnClick value="auto">
-            Auto · {modeLabels[props.shown]} at this width
-          </MenuRadioItem>
-          <MenuRadioItem closeOnClick value="unified">
-            Unified
-          </MenuRadioItem>
-          <MenuRadioItem closeOnClick value="split">
-            Split{props.splitTooNarrow && " · needs a wider panel"}
-          </MenuRadioItem>
-        </MenuRadioGroup>
-      </MenuContent>
-    </Menu>
-  );
-}
 
 /**
  * Changes' toolbar: scope and its totals on the left; wrap, fold every file, layout and the
@@ -166,6 +94,7 @@ export function ChangesToolbar(props: {
   onCollapseAll(folded: boolean): void;
   /** The tree only helps with more than one file. */
   canShowTree: boolean;
+  onRefreshReview(): void;
 }) {
   const { prefs } = props;
   return (
@@ -177,34 +106,49 @@ export function ChangesToolbar(props: {
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />
       <DiffStat {...props.stat} className="ml-1 shrink-0 text-sm" />
       <span className="flex-1" />
-      <IconButton
-        icon={ArrowElbowDownLeftIcon}
-        label="Wrap long lines"
-        pressed={prefs.wrap}
-        className={control}
-        onClick={() => props.onPrefs((value) => ({ ...value, wrap: !value.wrap }))}
-      />
-      <IconButton
-        icon={props.allCollapsed ? ArrowsOutLineVerticalIcon : ArrowsInLineVerticalIcon}
-        label={props.allCollapsed ? "Expand all files" : "Collapse all files"}
-        className={control}
-        onClick={() => props.onCollapseAll(!props.allCollapsed)}
-      />
-      <LayoutMenu
-        mode={prefs.mode}
-        shown={props.shown}
-        splitTooNarrow={props.splitTooNarrow}
-        onMode={(mode) => props.onPrefs((value) => ({ ...value, mode }))}
-      />
-      {props.canShowTree && (
-        <IconButton
-          icon={TreeViewIcon}
-          label={prefs.tree ? "Hide files" : "Show files"}
-          pressed={prefs.tree}
-          className={control}
-          onClick={() => props.onPrefs((value) => ({ ...value, tree: !value.tree }))}
+      <Menu>
+        <MenuTrigger
+          render={<IconButton icon={DotsThreeIcon} label="Diff options" className={control} />}
         />
-      )}
+        <MenuContent align="end">
+          <MenuCheckboxItem
+            checked={prefs.wrap}
+            onCheckedChange={(wrap) => props.onPrefs((value) => ({ ...value, wrap }))}
+          >
+            Wrap long lines
+          </MenuCheckboxItem>
+          <MenuItem onClick={() => props.onCollapseAll(!props.allCollapsed)}>
+            {props.allCollapsed ? "Expand all files" : "Collapse all files"}
+          </MenuItem>
+          {props.canShowTree && (
+            <MenuCheckboxItem
+              checked={prefs.tree}
+              onCheckedChange={(tree) => props.onPrefs((value) => ({ ...value, tree }))}
+            >
+              Show files
+            </MenuCheckboxItem>
+          )}
+          <MenuItem onClick={props.onRefreshReview}>Refresh comments</MenuItem>
+          <MenuSeparator />
+          <MenuRadioGroup
+            value={prefs.mode}
+            onValueChange={(mode: DiffPrefs["mode"]) =>
+              props.onPrefs((value) => ({ ...value, mode }))
+            }
+          >
+            <MenuLabel>Diff layout</MenuLabel>
+            <MenuRadioItem closeOnClick value="auto">
+              Auto · {modeLabels[props.shown]}
+            </MenuRadioItem>
+            <MenuRadioItem closeOnClick value="unified">
+              Unified
+            </MenuRadioItem>
+            <MenuRadioItem closeOnClick value="split">
+              Split{props.splitTooNarrow && " · needs a wider panel"}
+            </MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
     </div>
   );
 }

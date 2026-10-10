@@ -1,21 +1,9 @@
 import { useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import {
-  ChatCircleTextIcon,
-  MagnifyingGlassIcon,
-  TreeStructureIcon,
-  PaperclipIcon,
-  ArrowSquareOutIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
-import {
-  MenuItem,
-  MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
-  MenuContent,
-} from "@/components/ui/menu.tsx";
+import { MenuItem, MenuSub, MenuSubTrigger, MenuContent } from "@/components/ui/menu.tsx";
 import {
   ThreadActionItems,
   useOrganizerState,
@@ -23,12 +11,9 @@ import {
 } from "@/features/organize/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
-import { findInThread } from "../long/nav-keys.tsx";
-import { useThreadNav } from "../long/nav.tsx";
 import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
@@ -54,8 +39,6 @@ export function ThreadMenuItems(props: {
   const { baseline } = useOrganizerState();
   const now = useNow();
   const navigate = useNavigate();
-  const workspace = useWorkspaceActions(props.thread.id);
-  const nav = useThreadNav();
   if (!meta) return null;
   const flags = threadRowFlags(meta, { baseline, now, settled: meta.settledAt !== undefined });
   return (
@@ -64,21 +47,12 @@ export function ThreadMenuItems(props: {
       flags={flags}
       onRename={props.onRename}
       fork={{ point, onFork: props.onFork }}
+      compact
       shortcuts
       onLeave={() => void navigate({ to: "/" })}
       extra={
         <>
           {meta.lineage && <MenuItem onClick={props.onMerge}>Bring back to parent…</MenuItem>}
-          <MenuItem
-            icon={<TreeStructureIcon aria-hidden size={16} />}
-            keys={keymap.agents.keys}
-            onClick={() => workspace.open({ kind: "agents" })}
-          >
-            Open agent tree
-          </MenuItem>
-          <MenuItem icon={<PaperclipIcon aria-hidden size={16} />} onClick={props.onAttachments}>
-            Attachments
-          </MenuItem>
           <MenuSub>
             <MenuSubTrigger icon={<ArrowSquareOutIcon aria-hidden size={16} />}>
               Open in…
@@ -89,21 +63,6 @@ export function ThreadMenuItems(props: {
               </Suspense>
             </MenuContent>
           </MenuSub>
-          <MenuSeparator />
-          <MenuItem
-            icon={<MagnifyingGlassIcon aria-hidden size={16} />}
-            shortcut="findInThread"
-            onClick={() => findInThread(nav)}
-          >
-            Search this thread
-          </MenuItem>
-          <MenuItem
-            icon={<ChatCircleTextIcon aria-hidden size={16} />}
-            shortcut="turns"
-            onClick={() => nav.setTurnsOpen(!nav.turnsOpen)}
-          >
-            {nav.turnsOpen ? "Hide turns" : "Turns"}
-          </MenuItem>
         </>
       }
     />

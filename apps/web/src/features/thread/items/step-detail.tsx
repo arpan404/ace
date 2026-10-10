@@ -81,27 +81,9 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
         detail.changes.map((change) => (
           <ChangeDiff key={change.path} change={change} cwd={props.cwd} />
         ))}
-      {detail.kind === "file.read" && (
+      {detail.kind === "search" && detail.matches !== undefined && (
         <p className="text-ui text-muted-foreground">
-          <code className="font-mono text-[12px] break-all text-foreground">{detail.path}</code>
-          {detail.range && (
-            <span>
-              {" "}
-              · lines {detail.range.start}–{detail.range.end}
-            </span>
-          )}
-        </p>
-      )}
-      {detail.kind === "search" && (
-        <p className="text-ui text-muted-foreground">
-          <code className="font-mono text-foreground">{detail.query}</code>
-          {detail.path && (
-            <>
-              {" "}
-              in <code className="font-mono">{stepPath(detail.path, context).text}</code>
-            </>
-          )}
-          {detail.matches !== undefined && <> · {detail.matches} matches</>}
+          {detail.matches} {detail.matches === 1 ? "match" : "matches"}
         </p>
       )}
       {detail.kind === "web.search" && (
@@ -294,10 +276,6 @@ function ShellOutput(props: {
   const text = full ?? props.output?.tail ?? "";
   return (
     <div className="overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
-      <pre className="overflow-x-auto px-3 pt-2.5 font-mono text-[12px] leading-[1.55] whitespace-pre-wrap">
-        <span className="text-subtle-foreground">$ </span>
-        {props.command}
-      </pre>
       {text && (
         <pre
           aria-label="Output"
@@ -319,7 +297,7 @@ function ShellOutput(props: {
           </>
         ) : props.exitCode !== undefined && props.exitCode !== null ? (
           <span className={cn(props.exitCode !== 0 && "text-status-failed")}>
-            Exit code {props.exitCode}
+            {props.exitCode === 0 ? "" : "Failed"}
           </span>
         ) : null}
         {props.cwd && <span className="truncate font-mono">{props.cwd}</span>}

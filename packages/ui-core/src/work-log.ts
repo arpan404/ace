@@ -333,13 +333,8 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
   };
   // A failed command run again later with success was retried, not failed (TS-6).
   const failures: { id: string; key: string }[] = [];
-  const succeeded = new Map<string, number>();
-  items.forEach((item, index) => {
-    if (item?.type !== "tool_call") return;
-    const key = retryKey(item);
-    if (key && item.call.status === "succeeded") succeeded.set(key, index);
-  });
-  for (const [index, item] of items.entries()) {
+  const retried = retriedStepIds(items);
+  for (const item of items) {
     if (!item) continue;
     summary.startedAt = Math.min(summary.startedAt, item.createdAt);
     summary.endedAt = Math.max(summary.endedAt, item.createdAt);
@@ -357,7 +352,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     if (call.status === "awaiting_approval") summary.awaiting = true;
     if (call.status === "failed") {
       const key = retryKey(item);
-      if (key && (succeeded.get(key) ?? -1) > index) summary.retried++;
+      if (retried.has(item.id)) summary.retried++;
       else failures.push({ id: item.id, key: key ?? item.id });
     }
     const detail = call.detail;
@@ -373,6 +368,21 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
   summary.edited = edits.size;
   if (summary.startedAt === Number.POSITIVE_INFINITY) summary.startedAt = summary.endedAt;
   return summary;
+}
+
+/** Failed steps whose exact operation later succeeded in this work log. */
+export function retriedStepIds(items: readonly (Item | undefined)[]): ReadonlySet<string> {
+  const succeeded = new Set<string>();
+  const retried = new Set<string>();
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item?.type !== "tool_call") continue;
+    const key = retryKey(item);
+    if (!key) continue;
+    if (item.call.status === "succeeded") succeeded.add(key);
+    else if (item.call.status === "failed" && succeeded.has(key)) retried.add(item.id);
+  }
+  return retried;
 }
 
 /**

@@ -3,9 +3,9 @@ import { arrayEqual, useThread } from "@ace/client-react";
 import { CaretRightIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useCallback, useId, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
-import { keymap } from "@/lib/keymap.ts";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentBranch } from "./agent-row.tsx";
 
@@ -70,16 +70,18 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
               <AgentBranch key={child} threadId={props.threadId} agentId={child} depth={0} />
             ))}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1"
-            onClick={() => workspace.open({ kind: "agents" })}
-          >
-            <TreeStructureIcon aria-hidden size={14} />
-            Open agent tree
-            <Kbd keys={keymap.agents.keys} />
-          </Button>
+          <Menu>
+            <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Subagent actions" />} />
+            <MenuContent>
+              <MenuItem
+                icon={<TreeStructureIcon aria-hidden />}
+                shortcut="agents"
+                onClick={() => workspace.open({ kind: "agents" })}
+              >
+                Open agent tree
+              </MenuItem>
+            </MenuContent>
+          </Menu>
         </div>
       )}
     </div>

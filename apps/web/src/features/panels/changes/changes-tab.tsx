@@ -35,7 +35,6 @@ import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
 import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
 import { WorkingTreeDiff } from "./working-tree-diff.tsx";
-import { WorkingTree } from "./working-tree.tsx";
 
 /** Past this many rows across the files shown, only the files near the viewport mount. */
 const virtualRowsAbove = 2_000;
@@ -186,7 +185,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         view={view}
         onView={(next) => setView(file.path, next)}
         mode={mode}
-        wrap={prefs.wrap}
+        wrap={width < 640 || prefs.wrap}
         viewed={isViewed}
         actions={
           <FileActions
@@ -290,15 +289,14 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           setViews(new Map(files.map((file) => [file.path, { ...viewOf(file), open: !folded }])))
         }
         canShowTree={files.length > 1}
+        onRefreshReview={() => void session.refetch()}
       />
-      <WorkingTree details={thread?.details} />
       <ReviewBar
         drafts={drafts}
         session={session.data ?? undefined}
         onReview={review}
         onSend={(keys) => void send(keys)}
         onJump={jump}
-        onRefresh={async () => void (await session.refetch())}
       />
       <div className={cn("flex min-h-0 flex-1", beside ? "flex-row" : "flex-col")}>
         {!beside && tree}

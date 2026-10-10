@@ -66,12 +66,7 @@ test("an approval is answered on the card attached to the composer, never inside
   });
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByRole("article", { name: /^Run rm -rf/ })).toBeNull();
-  // The step that asked keeps its place in the work log, marked as waiting for the person.
-  expect(
-    await within(feed).findByRole("button", {
-      name: "Run rm -rf node_modules/.cache/vitest Waiting for your approval",
-    }),
-  ).toBeTruthy();
+  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
@@ -176,26 +171,21 @@ test("a question is answered on the deck; the transcript keeps one line with the
   app.play(question).runUntilBlocked();
   await app.open("/t/thread-sheet-rotate");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const line = await within(feed).findByRole("group", {
-    name: "Question: How should the sheet recover after rotate?",
-  });
-  expect(line.textContent).toContain("is asking");
+  expect(
+    within(feed).queryByRole("group", {
+      name: "Question: How should the sheet recover after rotate?",
+    }),
+  ).toBeNull();
   expect(within(feed).queryByRole("radio")).toBeNull();
-
   const card = await within(await stack()).findByRole("article", {
     name: "How should the sheet recover after rotate?",
   });
-  // The line points at the card: "Answer below" puts focus on its first option.
-  await userEvent.click(within(line).getByRole("button", { name: "Answer below" }));
-  expect(document.activeElement).toBe(
-    within(card).getByRole("radio", { name: /Persist the draft/ }),
-  );
   // No Stop while the agent asks, and nothing to submit until an option is picked.
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(within(card).getByRole("radio", { name: /Persist the draft/ }));
-  // The pick turns the composer's send button into Submit.
-  await userEvent.click(await screen.findByRole("button", { name: "Submit" }));
+  // The pick enables the composer's Answer button.
+  await userEvent.click(await screen.findByRole("button", { name: "Answer" }));
   await waitFor(() =>
     expect(app.daemon.isPending("thread-sheet-rotate", "ask-recovery")).toBe(false),
   );
@@ -274,7 +264,7 @@ function twoQuestions(): Scenario {
   };
 }
 
-test("several questions are answered one at a time: Next through them, then Submit sends all", async () => {
+test("several questions are answered one at a time: Next through them, then Answer sends all", async () => {
   const app = harness();
   app.play(twoQuestions()).runUntilBlocked();
   await app.open("/t/thread-two");
@@ -285,7 +275,8 @@ test("several questions are answered one at a time: Next through them, then Subm
   await userEvent.click(within(region).getByRole("radio", { name: "SQLite" }));
   await userEvent.click(await screen.findByRole("button", { name: "Next" }));
   expect(await within(region).findByText("2 of 2")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /^(Next|Submit)$/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBe("true");
 
   // Back keeps what was picked.
   await userEvent.click(within(region).getByRole("button", { name: "Back" }));

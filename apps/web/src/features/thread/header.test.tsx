@@ -399,7 +399,7 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
   const app = await openThread("checkout");
   const opened = vi.spyOn(window, "open").mockImplementation(() => null);
   await userEvent.click(await gitStep("Commit & push"));
-  const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  const commit = await screen.findByRole("dialog", { name: /^Commit to / });
   const message = within(commit).getByRole("textbox", { name: "Commit message" });
   expect((message as HTMLInputElement).value).toBe("Fix flaky checkout test");
   await userEvent.clear(message);
@@ -449,9 +449,9 @@ test("Commit lists exactly the files git reports, preselects new and tracked fil
     },
   ]);
   await userEvent.click(await gitStep("Commit & push"));
-  const form = await screen.findByRole("dialog", { name: "Commit changes" });
+  const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   const list = await within(dialog).findByRole("list", { name: "Files to commit" });
   const box = (path: string) => within(list).getByRole("checkbox", { name: path });
   // In git's order, one row per file.
@@ -481,9 +481,9 @@ test("Commit can't run with nothing picked, and View diff shows the changes inst
     { path: "notes.md", status: "untracked", additions: 1, deletions: 0, binary: false },
   ]);
   await userEvent.click(await gitStep("Commit & push"));
-  const form = await screen.findByRole("dialog", { name: "Commit changes" });
+  const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   const files = await within(dialog).findByRole("list", { name: "Files to commit" });
   await userEvent.click(within(files).getByRole("checkbox", { name: "notes.md" }));
   expect(within(dialog).getByRole("button", { name: commitButton }).hasAttribute("disabled")).toBe(
@@ -491,7 +491,7 @@ test("Commit can't run with nothing picked, and View diff shows the changes inst
   );
 
   await userEvent.click(within(dialog).getByRole("button", { name: "View diff" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
   const panel = await sidePanel();
   expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
@@ -571,9 +571,9 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
 test("the commit dialog lists the checkout's uncommitted files and can push too, with ⌘↵", async () => {
   const app = await openThread("checkout");
   await userEvent.click(await gitStep("Commit & push"));
-  const form = await screen.findByRole("dialog", { name: "Commit changes" });
+  const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
-  const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  const commit = await screen.findByRole("dialog", { name: /^Commit to / });
   // The fake checkout reports 3 uncommitted files, all picked.
   expect(await within(commit).findByRole("button", { name: "3 files" })).toBeTruthy();
   expect(within(commit).getByText("· 3 picked")).toBeTruthy();
@@ -595,7 +595,7 @@ test("the commit dialog lists the checkout's uncommitted files and can push too,
 test("the PR dialog's Draft option opens a draft pull request", async () => {
   await openThread("checkout");
   await userEvent.click(await gitStep("Commit & push"));
-  const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  const commit = await screen.findByRole("dialog", { name: /^Commit to / });
   await within(commit).findByRole("list", { name: "Files to commit" });
   await userEvent.click(within(commit).getByRole("button", { name: /^Commit & push/ }));
   await userEvent.click(await gitStep("Create PR"));
@@ -621,9 +621,9 @@ test("a full page of renames commits in one go: each names both its paths", asyn
     Array.from({ length: 251 }, (_, index) => renamed(index)),
   );
   await userEvent.click(await gitStep("Commit & push"));
-  const form = await screen.findByRole("dialog", { name: "Commit changes" });
+  const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   expect(await within(dialog).findByText("· 251 picked")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
   expect(await screen.findByText("Committed")).toBeTruthy();
@@ -643,9 +643,9 @@ test("past 500 files the list says it is cut short, and commits only what it lis
     })),
   );
   await userEvent.click(await gitStep("Commit & push"));
-  const form = await screen.findByRole("dialog", { name: "Commit changes" });
+  const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   expect(await within(dialog).findByRole("button", { name: "500+ files" })).toBeTruthy();
   expect(
     within(dialog).getByText("Only the first 500 files are listed; the rest stay uncommitted."),

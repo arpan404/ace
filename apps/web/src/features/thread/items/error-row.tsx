@@ -7,12 +7,12 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
 
-const linkButton = buttonVariants({ variant: "secondary", size: "sm" });
+const linkButton = buttonVariants({ variant: "primary", size: "sm" });
 
 /** The composer's own model control: the one place a thread's model changes. */
 function openModelPicker(from: HTMLElement | null) {
   const scope = from?.closest("main") ?? document;
-  scope.querySelector<HTMLButtonElement>('button[aria-label^="Change model"]')?.click();
+  scope.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')?.click();
 }
 
 /** A notice's structured error fields (C-A `code`/`title`/`detail`, #116 `details`), if any. */
@@ -71,13 +71,13 @@ export function ErrorRow(props: {
         {message && <span className="min-w-0 text-muted-foreground">· {message}</span>}
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {view.action === "change_model" && (
-            <Button size="sm" variant="secondary" onClick={() => openModelPicker(row)}>
+            <Button size="sm" variant="primary" onClick={() => openModelPicker(row)}>
               Change model
             </Button>
           )}
           {view.action === "sign_in" &&
             (signIn && signInTo ? (
-              <Button size="sm" variant="secondary" onClick={() => signIn({ provider: signInTo })}>
+              <Button size="sm" variant="primary" onClick={() => signIn({ provider: signInTo })}>
                 Sign in
               </Button>
             ) : (
@@ -91,7 +91,7 @@ export function ErrorRow(props: {
             </Link>
           )}
           {props.onRetry && (
-            <Button size="sm" variant="secondary" disabled={props.retrying} onClick={props.onRetry}>
+            <Button size="sm" variant="primary" disabled={props.retrying} onClick={props.onRetry}>
               Retry
             </Button>
           )}
@@ -114,12 +114,12 @@ export function ErrorRow(props: {
         </span>
       </div>
       {open && raw && (
-        <pre
+        <p
           id={details}
-          className="fx-rise-in mt-1 ml-6 max-h-60 overflow-auto rounded-md bg-code px-3 py-2 font-mono text-[12px] leading-[1.5] whitespace-pre-wrap text-muted-foreground"
+          className="fx-rise-in mt-1 ml-6 text-ui leading-normal whitespace-pre-wrap text-muted-foreground"
         >
           {raw}
-        </pre>
+        </p>
       )}
     </div>
   );
