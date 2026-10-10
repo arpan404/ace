@@ -84,17 +84,18 @@ port.on("message", async (value: unknown) => {
       scanning = true;
       const progress = progressReporter(
         () => performance.now(),
-        (value: { progress: number; result: z.infer<typeof ScanResult> }) =>
-          port.postMessage(value),
+        (report: { progress: number; result: z.infer<typeof ScanResult> }) =>
+          port.postMessage(report),
       );
-      result = await scan(
+      const inventory = await scan(
         catalog,
         options.instances,
         controller.signal,
         (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
         request.changes,
       );
-      progress.finish({ progress: result.files, result });
+      result = inventory;
+      progress.finish({ progress: inventory.files, result: inventory });
     } else if (request.op === "list") result = catalog.list(request.request);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;
     else if (request.op === "reference") {
