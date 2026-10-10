@@ -36,10 +36,17 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
           },
           { theme, request },
         );
+        const waitForSidebar = async () => {
+          if (surface === "usage" && width === 1440)
+            await expect(
+              page.getByText("Dedupe thread events after reconnect", { exact: true }).first(),
+            ).toBeVisible();
+        };
         await page.goto(route);
         await expect(
           page.getByRole("status", { name: `Loading ${loading}`, exact: true }),
         ).toBeVisible();
+        await waitForSidebar();
         await page.screenshot({
           path: `${output}/${surface}-loading-${theme}-${width}.png`,
           animations: "disabled",
@@ -49,6 +56,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         await page.reload();
         const retry = page.getByRole("button", { name: "Retry", exact: true });
         await expect(retry).toBeVisible();
+        await waitForSidebar();
         await page.screenshot({
           path: `${output}/${surface}-error-${theme}-${width}.png`,
           animations: "disabled",
@@ -77,6 +85,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
             exact: true,
           }),
         ).toBeVisible();
+        await waitForSidebar();
         await page.screenshot({
           path: `${output}/${surface}-empty-${theme}-${width}.png`,
           animations: "disabled",

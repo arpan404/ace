@@ -213,6 +213,8 @@ try {
                 .getByRole("listitem")
                 .first(),
             ).toBeVisible();
+          if (id !== "antigravity")
+            await expect(page.getByRole("button", { name: /^Default model:/ })).toBeVisible();
           await capture(page, `provider-${id?.split(":")[0]}-${theme}-${width}`, target);
           await expect
             .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
