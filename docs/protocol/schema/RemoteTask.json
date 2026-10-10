@@ -6,6 +6,13 @@
     "artifacts": {
       "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
     },
+    "artifactsUnavailable": {
+      "type": "boolean"
+    },
+    "cancellingAt": {
+      "minimum": 0,
+      "type": "number"
+    },
     "context": {
       "$ref": "https://ace.local/protocol/v1/RemoteContextManifest.json"
     },
@@ -22,6 +29,10 @@
     "error": {
       "maxLength": 256,
       "type": "string"
+    },
+    "finishedAt": {
+      "minimum": 0,
+      "type": "number"
     },
     "id": {
       "pattern": "^[a-f0-9]{64}$",
@@ -82,6 +93,9 @@
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "truncated": {
+      "type": "boolean"
     },
     "usage": {
       "$ref": "https://ace.local/protocol/v1/RemoteTaskUsage.json",

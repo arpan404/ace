@@ -482,8 +482,8 @@ export class Engine {
               agent,
               task: key,
               kind: "subagent",
-              title: `${task.request.role} · ${task.request.hostId}`,
-              stoppable: false,
+              title: task.request.role,
+              stoppable: true,
             },
           ],
       this.clock.now(),
@@ -588,6 +588,20 @@ export class Engine {
   ): void {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
+  }
+  bindRemoteTaskStop(stop: (id: string) => void): void {
+    this.bindHostInteractions((command) => {
+      if (command.payload.type !== "background_task.stop") return;
+      const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
+      if (!owner) return;
+      const key = this.repo.nativeEntity(owner, "tasks", command.payload.taskId);
+      if (!key?.startsWith("ace-remote:")) return;
+      const task = this.repo.state(owner)?.tasks[key];
+      if (task?.status !== "running")
+        return { commandId: command.id, ok: false, error: "task_not_stoppable" };
+      stop(key.slice("ace-remote:".length));
+      return { commandId: command.id, ok: true };
+    });
   }
   /**
    * A thread's root agent id. A prepared thread has only its configured root until a fact

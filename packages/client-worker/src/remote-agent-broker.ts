@@ -24,6 +24,7 @@ export class RemoteAgentBroker {
   private cache = new Map<string, { client: RemoteClient; at: number; host: RemoteAgentHost }>();
   private now: () => number;
   private refreshes = new Map<string, Promise<void>>();
+  private importFailures = new Map<string, number>();
   private cursor: string | undefined;
   private jobs = new Map<string, { host: string; work: Promise<void> }>();
   constructor(options: {
@@ -45,6 +46,7 @@ export class RemoteAgentBroker {
     this.closed = true;
     this.timer?.();
     this.cache.clear();
+    this.importFailures.clear();
   }
   private tick() {
     if (this.closed) return;
@@ -84,6 +86,11 @@ export class RemoteAgentBroker {
     return found;
   }
   private async refreshHost(id: string, client: RemoteClient) {
+    const transport = await client.request({ type: "delegation.remote.transport" });
+    if (!transport.ok || !transport.relay) {
+      this.cache.delete(id);
+      return;
+    }
     const [projects, models] = await Promise.all([
       client.projects.recentFolders(100),
       client.request({ type: "models.list", limit: 100 }),
@@ -147,6 +154,9 @@ export class RemoteAgentBroker {
     const reply = await this.primary.request({ type: "delegation.broker.poll", lease });
     if (!reply.ok || this.closed) return;
     const tasks = reply.tasks ?? [];
+    const active = new Set(tasks.map((task) => task.id));
+    for (const id of this.importFailures.keys())
+      if (!active.has(id)) this.importFailures.delete(id);
     const after = this.cursor ? tasks.findIndex((task) => task.id === this.cursor) + 1 : 0;
     const ordered = [...tasks.slice(after), ...tasks.slice(0, after)].toSorted(
       (a, b) => Number(b.phase === "cancelling") - Number(a.phase === "cancelling"),
@@ -181,28 +191,41 @@ export class RemoteAgentBroker {
     if (!reply.ok || !reply.phase) throw new ClientError("offline");
     if (["completed", "failed"].includes(reply.phase) && !reply.artifacts)
       throw new ClientError("protocol", "Remote device does not support sealed return manifests");
-    if (reply.artifacts)
-      await returnRemoteArtifacts(
-        task,
-        reply.artifacts,
-        lease,
-        this.primary,
-        client,
-        (relay) => {
-          if (!this.pool.contextRelay) throw new ClientError("offline");
-          return this.pool.contextRelay(task.request.hostId, relay);
-        },
-        () =>
-          !this.closed &&
-          this.primary.state === "ready" &&
-          this.pool.machine(task.request.hostId)?.status === "online",
-      );
+    let artifactsUnavailable = false;
+    let importError: string | undefined;
+    try {
+      if (reply.artifacts)
+        await returnRemoteArtifacts(
+          task,
+          reply.artifacts,
+          lease,
+          this.primary,
+          client,
+          (relay) => {
+            if (!this.pool.contextRelay) throw new ClientError("offline");
+            return this.pool.contextRelay(task.request.hostId, relay);
+          },
+          () =>
+            !this.closed &&
+            this.primary.state === "ready" &&
+            this.pool.machine(task.request.hostId)?.status === "online",
+        );
+      this.importFailures.delete(task.id);
+    } catch (error) {
+      const failures = (this.importFailures.get(task.id) ?? 0) + 1;
+      this.importFailures.set(task.id, failures);
+      if (failures < 3 && task.phase !== "cancelling") throw error;
+      artifactsUnavailable = true;
+      importError = `Couldn't import: ${(reply.artifacts?.attachments.map((file) => file.name).join(", ") ?? "published files").slice(0, 120)}. The answer is preserved. Retrieve these files on the remote computer.`;
+    }
     await this.report(lease, {
       taskId: task.id,
+      ...(reply.truncated !== undefined ? { truncated: reply.truncated } : {}),
+      ...(artifactsUnavailable ? { artifactsUnavailable: true, error: importError } : {}),
       phase: reply.phase === "queued" ? "running" : reply.phase,
       ...(reply.result !== undefined ? { result: reply.result } : {}),
       ...(reply.usage ? { usage: reply.usage } : {}),
-      ...(reply.artifacts ? { artifacts: reply.artifacts } : {}),
+      ...(reply.artifacts && !artifactsUnavailable ? { artifacts: reply.artifacts } : {}),
     });
   }
   private async route(task: RemoteTask, lease: string) {
@@ -286,7 +309,29 @@ export class RemoteAgentBroker {
     }
   }
   private async cancel(client: RemoteClient, task: RemoteTask, lease: string) {
+    const status = await client.request({ type: "delegation.remote.status", taskId: task.id });
+    if (status.ok && ["completed", "failed"].includes(status.phase ?? "")) {
+      await this.outcome(client, task, lease, status);
+      // Preserve a sealed answer even if the source has already requested cancellation.
+      await this.report(lease, {
+        taskId: task.id,
+        phase: "cancelled",
+        result: status.result,
+        truncated: status.truncated,
+      });
+      return;
+    }
     const reply = await client.request({ type: "delegation.remote.cancel", taskId: task.id });
+    if (reply.ok && ["completed", "failed"].includes(reply.phase ?? "")) {
+      await this.outcome(client, task, lease, reply);
+      await this.report(lease, {
+        taskId: task.id,
+        phase: "cancelled",
+        result: reply.result,
+        truncated: reply.truncated,
+      });
+      return;
+    }
     if (reply.ok && reply.phase)
       await this.report(lease, {
         taskId: task.id,

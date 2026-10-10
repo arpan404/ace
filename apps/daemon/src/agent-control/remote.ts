@@ -44,6 +44,8 @@ export class RemoteDelegations {
   private waiters = new Map<string, number>();
   private cancelTimer: (() => void) | undefined;
   private closed = false;
+  private pruneAt = 0;
+  private deliveryRetry = new Map<string, number>();
   private clock: EngineClock | undefined;
   private onError: (error: unknown) => void;
   private resolveArtifacts: ((task: RemoteTask) => Promise<unknown>) | undefined;
@@ -99,6 +101,8 @@ export class RemoteDelegations {
     this.admit = options.admit;
     this.hostId = options.hostId;
     this.journal = new RemoteTaskJournal(this.store);
+    this.journal.prune(this.now());
+    this.engine.bindRemoteTaskStop((id) => this.stopTask(id));
     for (const task of this.journal.active())
       if (!remoteTerminal(task) && this.store.getThread(task.parentThreadId))
         this.engine.remoteDelegation(task);
@@ -127,6 +131,10 @@ export class RemoteDelegations {
   drain() {
     if (this.closed) return;
     this.store.atomic(() => {
+      if (this.now() >= this.pruneAt) {
+        this.journal.prune(this.now());
+        this.pruneAt = this.now() + 60000;
+      }
       for (const task of this.journal.active()) {
         if (!remoteTerminal(task)) {
           this.revalidate(task);
@@ -141,7 +149,6 @@ export class RemoteDelegations {
     const tasks = this.journal.active();
     if (
       tasks.length >= 64 ||
-      this.journal.count() >= 10000 ||
       this.local.journal.ancestorStopped(parent) ||
       this.local.journal.stopped(parent)
     )
@@ -239,7 +246,8 @@ export class RemoteDelegations {
         task.phase !== "cancelling" &&
         ["completed", "failed"].includes(report.phase) &&
         this.pendingArtifacts?.(task) &&
-        !report.artifacts
+        !report.artifacts &&
+        !report.artifactsUnavailable
       )
         return undefined;
       if (report.artifacts && task.phase !== "cancelling") {
@@ -251,11 +259,17 @@ export class RemoteDelegations {
         task.phase === "cancelling" && !["cancelled", "failed"].includes(report.phase)
           ? "cancelling"
           : report.phase;
+      if (task.phase === "cancelling") task.cancellingAt ??= this.now();
       if (report.usage)
         task.usage = {
           tokens: Math.max(task.usage.tokens, report.usage.tokens),
           cost: Math.max(task.usage.cost, report.usage.cost),
         };
+      if (report.truncated !== undefined) task.truncated = report.truncated;
+      if (report.artifactsUnavailable) {
+        task.artifactsUnavailable = true;
+        this.onReturnCancel?.(task);
+      }
       if (report.result !== undefined) task.result = report.result;
       if (report.error !== undefined) task.error = report.error;
       this.journal.save(task);
@@ -264,9 +278,18 @@ export class RemoteDelegations {
     });
   }
   private revalidate(task: RemoteTask) {
+    if (task.phase === "cancelling") {
+      task.cancellingAt ??= this.now();
+      if (this.now() - task.cancellingAt >= 30000) {
+        task.phase = "failed";
+        task.error = "Cancellation could not be confirmed. The remote task may still be running.";
+      }
+      return;
+    }
     const parent = this.store.getThread(task.parentThreadId);
     if (!parent || parent.deletedAt !== undefined) {
       task.phase = "cancelling";
+      task.cancellingAt ??= this.now();
       return;
     }
     const tree = this.local.journal.tree(task.parentThreadId, this.now());
@@ -281,45 +304,56 @@ export class RemoteDelegations {
       this.now() - tree.startedAt >= this.local.policy.durationMs ||
       tree.usage.tokens + remote.usage.tokens >= this.local.policy.tokens ||
       tree.usage.cost + remote.usage.cost >= this.local.policy.cost
-    )
+    ) {
       task.phase = "cancelling";
+      task.cancellingAt ??= this.now();
+    }
   }
   private finish(task: RemoteTask) {
     if (["cancelling", "cancelled"].includes(task.phase)) this.onReturnCancel?.(task);
     if (!remoteTerminal(task) || task.delivered) return;
-    this.store.atomic(() => {
-      const parent = this.store.getThread(task.parentThreadId);
-      if (parent && parent.deletedAt === undefined) {
-        this.engine.remoteDelegation(task);
-        // Results are context on the originating host, with explicit remote identity.
-        if (this.waiters.has(task.id)) return;
-        if (task.phase !== "cancelled") {
-          const commandId = CommandId.parse(`remote-result:${task.id}`);
-          const text = `[ace remote task ${task.id}; host ${task.request.hostId}; thread ${task.threadId}; ${task.phase}]\n${task.result ?? task.error ?? "No text result returned."}\n${task.artifacts?.attachments.length ? "Published images/files are attached as immutable copies on this source device. Their producing host/thread remain in the task provenance." : "No files were published for this task."} No workspace changes are overwritten or merged.`;
-          const result = this.local.command(commandId, {
-            type: "thread.send",
-            threadId: task.parentThreadId,
-            input: [{ type: "text", text }],
-            ...(task.artifacts?.attachments.length
-              ? {
-                  context: {
-                    mentions: [],
-                    attachments: task.artifacts.attachments.map((file) => ({
-                      sha256: file.sha256,
-                    })),
-                  },
-                }
-              : {}),
-            delivery: "queue",
-            trigger: "subagent_result",
-            origin: { kind: "subagent_result" },
-          });
-          if (!result.ok) throw new Error("Remote result delivery unavailable");
+    task.finishedAt ??= this.now();
+    this.journal.save(task);
+    if ((this.deliveryRetry.get(task.id) ?? 0) > this.now()) return;
+    try {
+      this.store.atomic(() => {
+        const parent = this.store.getThread(task.parentThreadId);
+        if (parent && parent.deletedAt === undefined) {
+          this.engine.remoteDelegation(task);
+          // Results are context on the originating host, with explicit remote identity.
+          if (this.waiters.has(task.id)) return;
+          if (task.phase !== "cancelled" || task.result !== undefined) {
+            const commandId = CommandId.parse(`remote-result:${task.id}`);
+            const text = `[ace remote task ${task.id}; host ${task.request.hostId}; thread ${task.threadId}; ${task.phase}]\n${task.result ?? task.error ?? "No text result returned."}${task.truncated ? "\n[Remote answer truncated.]" : ""}${task.result && task.error ? `\n${task.error}` : ""}\n${task.artifacts?.attachments.length ? "Published images/files are attached as immutable copies on this source device. Their producing host/thread remain in the task provenance." : "No files were published for this task."} No workspace changes are overwritten or merged.`;
+            const result = this.local.command(commandId, {
+              type: "thread.send",
+              threadId: task.parentThreadId,
+              input: [{ type: "text", text }],
+              ...(task.artifacts?.attachments.length
+                ? {
+                    context: {
+                      mentions: [],
+                      attachments: task.artifacts.attachments.map((file) => ({
+                        sha256: file.sha256,
+                      })),
+                    },
+                  }
+                : {}),
+              delivery: "queue",
+              trigger: "subagent_result",
+              origin: { kind: "subagent_result" },
+            });
+            if (!result.ok) throw new Error("Remote result delivery unavailable");
+          }
         }
-      }
-      task.delivered = true;
-      this.journal.save(task);
-    });
+        task.delivered = true;
+        this.journal.save(task);
+      });
+      this.deliveryRetry.delete(task.id);
+    } catch (error) {
+      this.deliveryRetry.set(task.id, this.now() + 5000);
+      this.onError(error);
+    }
   }
   retains(parent: string, hash: string): boolean {
     return this.journal
@@ -338,16 +372,25 @@ export class RemoteDelegations {
           this.local.journal.isDescendant(task.parentThreadId, parent)
         ) {
           if (remoteTerminal(task)) {
-            task.delivered = true;
-            this.journal.save(task);
+            this.finish(task);
             continue;
           }
           task.phase = task.dispatched ? "cancelling" : "cancelled";
+          task.cancellingAt ??= this.now();
           this.journal.save(task);
           this.engine.remoteDelegation(task);
           this.finish(task);
         }
     });
+  }
+  stopTask(id: string) {
+    const task = this.journal.get(id);
+    if (!task || remoteTerminal(task)) return;
+    task.phase = task.dispatched ? "cancelling" : "cancelled";
+    task.cancellingAt ??= this.now();
+    this.journal.save(task);
+    this.engine.remoteDelegation(task);
+    this.finish(task);
   }
   async execute(
     caller: McpAttribution,
@@ -479,10 +522,12 @@ export class RemoteDelegations {
       return { ok: false, code: "forbidden" };
     if (operation.op === "device.task_cancel" && !remoteTerminal(task)) {
       task.phase = task.dispatched ? "cancelling" : "cancelled";
+      task.cancellingAt ??= this.now();
+      const cancelled = task;
       this.store.atomic(() => {
-        this.journal.save(task!);
-        this.engine.remoteDelegation(task!);
-        this.finish(task!);
+        this.journal.save(cancelled);
+        this.engine.remoteDelegation(cancelled);
+        this.finish(cancelled);
       });
     }
     if (operation.op === "device.task_wait") {

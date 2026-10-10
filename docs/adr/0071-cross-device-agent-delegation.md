@@ -57,8 +57,9 @@ turns or changed workspace files cannot mutate that sealed outcome.
 
 The broker reads only sealed selected hashes over the target's encrypted files
 relay and imports them into the originating parent thread. A shared acknowledged
-64 KiB pump resumes offsets after disconnect. Source completion requires every
-selected output to be committed; missing or changed manifests cannot replace an
+64 KiB pump resumes offsets after disconnect. Source completion normally requires every
+selected output to be committed; after bounded import retries the sealed text
+is delivered with an explicit unavailable-files warning. Missing or changed manifests cannot replace an
 already bound selection. `ace_device_task_wait` and status expose source-local
 resolved paths alongside producing-device provenance, and background results
 carry actual parent-owned attachments. Foreign filesystem paths are never used
@@ -68,8 +69,12 @@ separate operations.
 Stop drops temporary output retention and durably records unfinished owned uploads
 for bounded cancellation cleanup at startup, during maintenance and shutdown.
 Transient cleanup failures retry without removing pre-existing attachment refs.
-Completed source and sealed target outputs retain their bytes while their owning
-threads exist. Both devices need this protocol version; an older target lacking a
+Delivered terminal rows expire after seven days once their root is idle; deleting
+the owner also releases them. Active and undelivered rows remain retained.
+Cancellation without target acknowledgement fails after thirty seconds and
+explicitly warns that the remote task may still be running. Sealed results survive
+cancellation and failed imports. Result text is bounded to 4,096 UTF-16 units and
+truncation propagates through the broker. Both devices need this protocol version; an older target lacking a
 sealed manifest is reported unavailable rather than treated as a completed task.
 
 Remote task roots and their local descendants cannot recursively delegate to a

@@ -1,3 +1,4 @@
+import { pruneRemoteRows } from "./remote-retention.ts";
 import { remoteOutputRead } from "./remote-return.ts";
 import { incomingRemoteContext, remoteContextTransfer } from "./remote-context-transfer.ts";
 import { fingerprint } from "@ace/secure-channel";
@@ -84,6 +85,7 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
         message.type !== "delegation.remote.cancel"
       )
         return false;
+      pruneRemoteRows(store, context.options.now?.() ?? 0);
       const id = message.type === "delegation.remote.start" ? message.task.id : message.taskId;
       const base = { type: "delegation.broker.result" as const, requestId: message.requestId };
       const task = read(id);
@@ -300,6 +302,11 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
                   : "waiting",
           ...(sealed ? { result: sealed.result, truncated: sealed.truncated } : {}),
         });
+        return true;
+      }
+      const sealed = context.options.agentControl?.publications.outcome(id);
+      if (sealed) {
+        context.send({ ...base, ok: true, ...sealed });
         return true;
       }
       // The same task-owned receipt fences a delayed start, including another broker device.

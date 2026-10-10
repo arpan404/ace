@@ -1,3 +1,4 @@
+import { pruneRemoteRows } from "./remote-retention.ts";
 import { z } from "zod";
 import { RemoteTask } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -63,10 +64,14 @@ export class RemoteTaskJournal {
       ),
     };
   }
+  prune(now: number) {
+    pruneRemoteRows(this.store, now);
+  }
   count(): number {
     return Number(
       this.store.atomic(
-        (db) => db.prepare("SELECT COUNT(*) AS n FROM remote_agent_tasks").get()?.n,
+        (db) =>
+          db.prepare("SELECT COUNT(*) AS n FROM remote_agent_tasks WHERE terminal=0").get()?.n,
       ),
     );
   }
