@@ -1088,12 +1088,12 @@ export class ModelCatalog implements ModelCatalogApi {
       const failures = writes.flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],
       );
-      if (failures.length) throw new AggregateError(failures, "Session model persistence failed");
       await Promise.all(this.#discoveries);
       await Promise.allSettled(this.#removals.values());
       await this.#deletions.flush();
       await this.#options.storage.close();
       this.#metadata.clear();
+      if (failures.length) throw new AggregateError(failures, "Session model persistence failed");
     })();
     this.#closing = closing;
     // A failed durable deletion must remain retryable with the storage still open.
