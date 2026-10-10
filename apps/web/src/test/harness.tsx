@@ -1,3 +1,4 @@
+import { documentVisibility } from "@/lib/page-visibility.ts";
 import { Client, type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, type Scenario } from "@ace/fake-daemon";
@@ -190,7 +191,7 @@ function workerClient(daemon: FakeDaemon): ClientApi {
   });
   const { port1, port2 } = new MessageChannel();
   host.attach(port1);
-  const remote = new RemoteClient(port2, {}, { scheduler: timers });
+  const remote = new RemoteClient(port2, {}, { scheduler: timers, visibility: documentVisibility });
   running.push(remote);
   return remote;
 }

@@ -1,8 +1,8 @@
 import { Client } from "@ace/client";
-import { FakeDaemon, flakyCheckout, ScenarioPlayer } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { FakeDaemon, fakeTransport, flakyCheckout, ScenarioPlayer } from "@ace/fake-daemon";
+import { DeviceId, ServerMessage } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
@@ -211,13 +211,84 @@ test("desktop startup stays visible and withholds the composer until authenticat
     remembered: true,
     createClient: silentClient,
   });
-  expect(await screen.findByRole("status")).toHaveProperty(
-    "textContent",
-    "Loading your workspace…",
-  );
+  expect(await screen.findByRole("status")).toHaveProperty("textContent", "Starting ace…");
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
+});
+
+test("a cold start says Starting after ace answers, rather than unreachable at the first-attempt deadline", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token });
+  new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
+  let welcome: (() => void) | undefined;
+  const gate = boot({
+    remembered: true,
+    createClient: () =>
+      new Client({
+        deviceId: DeviceId.parse("startup-device"),
+        credential: async () => token,
+        transport: () => {
+          const inner = fakeTransport(daemon);
+          return {
+            ...inner,
+            open(events) {
+              inner.open({
+                ...events,
+                message(text) {
+                  const message = ServerMessage.parse(JSON.parse(text));
+                  if (message.type === "welcome") {
+                    welcome = () => events.message(text);
+                    events.message(JSON.stringify({ type: "starting" }));
+                  } else events.message(text);
+                },
+              });
+            },
+          };
+        },
+        storage: memoryStorage(),
+        scheduler: { set: () => () => {} },
+        random: () => 0.5,
+        id: () => crypto.randomUUID(),
+      }),
+  });
+  expect(await screen.findByText("Starting ace…")).toBeTruthy();
+  gate.runOutFirstAttempt();
+  expect(screen.queryByText(/Couldn't reach/)).toBeNull();
+  act(() => welcome?.());
+  expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
+});
+
+test("Try again recovers a fatal connection after the workspace has opened", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token });
+  new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
+  let corrupt: (() => void) | undefined;
+  boot({
+    remembered: true,
+    createClient: () =>
+      new Client({
+        deviceId: DeviceId.parse("fatal-device"),
+        credential: async () => token,
+        transport: () => {
+          const inner = fakeTransport(daemon);
+          return {
+            ...inner,
+            open(events) {
+              corrupt = () => events.message("{");
+              inner.open(events);
+            },
+          };
+        },
+        storage: memoryStorage(),
+        scheduler: { set: () => () => {} },
+        random: () => 0.5,
+        id: () => crypto.randomUUID(),
+      }),
+  });
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  act(() => corrupt?.());
+  await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(screen.queryByText(/Can't connect:/)).toBeNull());
+  expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
 });

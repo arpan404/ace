@@ -366,6 +366,7 @@ export async function startServer(options: ServerOptions): Promise<{
         try {
           // HTTP discovery is available while listener features initialize. A
           // welcome promises the socket can use the published service registry.
+          if (message.channel === undefined && !ready) send({ type: "starting" });
           await options.ready;
           if (authorize("read")) await options.notifications?.connectDevice(actor.id);
         } catch {

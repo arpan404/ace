@@ -19,7 +19,7 @@ import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire
  * The worker side (ADR 0056). One `Client` per daemon target is shared by every tab attached
  * to this worker: one socket, one decode, one projection and one intents outbox. Each tab holds
  * leases on stores; the host forwards the keys those stores emit, coalesced per frame, and
- * nothing at all to a hidden tab until it is visible again.
+ * only sidebar changes to a hidden tab, for notifications and title counts.
  */
 
 export interface HostOptions {
@@ -398,20 +398,25 @@ class Tab {
       held.dirty = "all";
       held.sent.clear();
     }
-    this.schedule();
+    if (this.visible || held.scope.kind !== "thread") this.schedule();
   }
   private schedule(): void {
-    if (this.flushing || !this.visible) return;
+    if (this.flushing) return;
+    if (
+      !this.visible &&
+      ![...this.leases.values()].some((held) => held.scope.kind !== "thread" && held.dirty)
+    )
+      return;
     this.flushing = this.options.scheduler.set(this.options.frameMs ?? 16, () => {
       this.flushing = undefined;
       this.flush();
     });
   }
   private flush(): void {
-    if (!this.visible) return;
-    this.flushPending();
+    if (this.visible) this.flushPending();
     const leases: LeaseChanges[] = [];
     for (const [lease, held] of this.leases) {
+      if (!this.visible && held.scope.kind === "thread") continue;
       const dirty = held.dirty;
       if (!dirty) continue;
       held.dirty = undefined;

@@ -181,7 +181,7 @@ export class Connection {
     }
     this.setState(this.attempt ? "reconnecting" : "connecting");
     const epoch = this.epoch;
-    this.cancel = this.options.scheduler.set(this.limits.requestMs, () => this.lost(1006));
+    this.cancel = this.options.scheduler.set(this.limits.handshakeMs, () => this.lost(1006));
     try {
       const transport = this.options.transport();
       this.transport = transport;
@@ -259,6 +259,10 @@ export class Connection {
       )
         throw new ClientError("auth", "Unexpected daemon identity");
       if (this.state !== "ready") {
+        if (message.type === "starting") {
+          this.setState("starting");
+          return;
+        }
         if (message.type !== "welcome") throw new ClientError("protocol");
         this.cancel?.();
         this.cancel = undefined;

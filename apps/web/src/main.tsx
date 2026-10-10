@@ -1,3 +1,4 @@
+import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
@@ -32,8 +33,8 @@ const environment = {
   root: document.documentElement,
 };
 const stores = { local, session };
-// Store changes reach React once per animation frame (none while the tab is hidden).
-const batch = frameBatch((flush) => requestAnimationFrame(flush));
+// Sidebar status stays live in hidden tabs; transcript streams stay in the worker.
+const batch = frameBatch(nextFrame);
 const app = (client: ClientApi, machines?: MachinePool) => (
   <App client={client} storage={local} batch={batch} machines={machines} />
 );

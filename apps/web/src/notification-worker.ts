@@ -15,7 +15,17 @@ declare const self: {
   addEventListener(type: "push", listener: (event: PushEvent) => void): void;
   addEventListener(type: "notificationclick", listener: (event: ClickEvent) => void): void;
   registration: { showNotification(title: string, options: NotificationOptions): Promise<void> };
-  clients: { openWindow(url: string): Promise<unknown> };
+  clients: {
+    matchAll(options: { type: "window"; includeUncontrolled: boolean }): Promise<
+      {
+        url: string;
+        focused: boolean;
+        navigate(url: string): Promise<unknown>;
+        focus(): Promise<unknown>;
+      }[]
+    >;
+    openWindow(url: string): Promise<unknown>;
+  };
   location: { origin: string };
 };
 const target = z.object({
@@ -47,5 +57,17 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const parsed = target.safeParse(event.notification.data);
   if (!parsed.success) return;
-  event.waitUntil(self.clients.openWindow(new URL(parsed.data.path, self.location.origin).href));
+  event.waitUntil(
+    (async () => {
+      const url = new URL(parsed.data.path, self.location.origin).href;
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = windows
+        .filter((client) => new URL(client.url).origin === self.location.origin)
+        .toSorted((a, b) => Number(b.focused) - Number(a.focused))[0];
+      if (existing) {
+        await existing.navigate(url);
+        await existing.focus();
+      } else await self.clients.openWindow(url);
+    })(),
+  );
 });
