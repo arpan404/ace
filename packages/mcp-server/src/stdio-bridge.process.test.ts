@@ -145,7 +145,7 @@ test("stdio requests can finish after two minutes and a timed-out request leaves
   });
   const advance = (ms: number) => {
     now += ms;
-    for (const timer of [...timers])
+    for (const timer of timers)
       if (timer.at <= now) {
         timers.delete(timer);
         timer.run();

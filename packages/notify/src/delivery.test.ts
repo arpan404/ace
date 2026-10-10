@@ -37,7 +37,7 @@ it("phone alerts are suppressed only by recent input on the same focused thread 
     f.deliveries
       .slice(1)
       .map((d) => d.device.id)
-      .sort(),
+      .toSorted(),
   ).toEqual([f.desktop, f.phone]);
 });
 it("presence expires after heartbeat or input inactivity and disconnect removes suppression", async () => {

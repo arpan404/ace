@@ -98,13 +98,10 @@ export async function legacySessions(
         server: product,
         transport,
         watch(signal) {
-          const lost = () => {
-            void session.close().catch(() => {});
-          };
-          const stop = () => signal.removeEventListener("abort", lost);
+          const stop = () => signal.removeEventListener("abort", abort);
           streamStops.add(stop);
-          signal.addEventListener("abort", lost, { once: true });
-          if (signal.aborted) lost();
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
         },
         close() {
           if (closing) return closing;
@@ -128,6 +125,8 @@ export async function legacySessions(
       try {
         await product.connect(transport);
         const closed = transport.onclose;
+        // The SDK transport exposes a callback property, not an EventTarget.
+        // oxlint-disable-next-line unicorn/prefer-add-event-listener
         transport.onclose = () => {
           closed?.();
           abort();

@@ -155,9 +155,13 @@ export class NotificationWorker {
         if (!this.closing && !this.options.signal?.aborted) {
           try {
             this.worker = this.start();
-          } catch (error) {
+          } catch (restartError) {
             this.failed = undefined;
-            this.fail(error instanceof Error ? error : new Error("Notification worker failed"));
+            this.fail(
+              restartError instanceof Error
+                ? restartError
+                : new Error("Notification worker failed"),
+            );
           }
         }
       });
