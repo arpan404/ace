@@ -27,7 +27,7 @@ async function capture(page: Page, name: string, target: Buffer) {
   const shot = await page.screenshot({ path: `${out}/${name}.png`, animations: "disabled" });
   files.push(`${name}.png`);
   await comparison.setContent(
-    `<style>body{margin:0;background:#777;font:14px system-ui;color:white}main{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}img{width:100%;object-fit:contain;object-position:top}h2{font-size:14px}</style><main><div><h2>ace · ${name}</h2><img src="data:image/png;base64,${shot.toString("base64")}"></div><div><h2>Target</h2><img src="data:image/png;base64,${target.toString("base64")}"></div></main>`,
+    `<style>body{margin:0;background:#777;font:14px system-ui;color:white}main{display:grid;grid-template-columns:max-content max-content;gap:16px;padding:16px}img{display:block;object-fit:contain;object-position:top}h2{font-size:14px}</style><main><div><h2>ace · ${name}</h2><img src="data:image/png;base64,${shot.toString("base64")}"></div><div><h2>Target</h2><img src="data:image/png;base64,${target.toString("base64")}"></div></main>`,
   );
   await comparison
     .locator("img")
