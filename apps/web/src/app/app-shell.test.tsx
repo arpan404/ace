@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 test("an unknown address keeps the shell and says the page doesn't exist", async () => {
@@ -27,3 +27,53 @@ test("after following a rail link, focus lands on the new view's title", async (
     expect(focused?.closest("header")).not.toBeNull();
   });
 });
+
+test.each(["trigger", "item"])(
+  "navigation focus preserves an open profile menu's %s focus",
+  async (focus) => {
+    await harness().open("/settings/providers");
+    await screen.findByRole("region", { name: "On this computer" });
+    const frames = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    const schedule = vi
+      .spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frames.set(++id, callback);
+        return id;
+      });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((frame) => {
+      frames.delete(frame);
+    });
+    const flushFrames = () =>
+      act(async () => {
+        const pending = new Map(frames);
+        for (const [frame, callback] of pending) {
+          if (frames.delete(frame)) callback(0);
+        }
+      });
+    try {
+      await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+      await screen.findByRole("heading", { level: 1, name: "New thread" });
+      await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
+      await screen.findByRole("menuitem", { name: "Usage & accounts" });
+      if (focus === "item") {
+        await userEvent.keyboard("{ArrowDown}");
+        await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("menuitem"));
+      } else {
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: /^You, account/ }));
+      }
+      expect(frames.size).toBeGreaterThan(0);
+      // Run the actual navigation frame after the person's next interaction, as a busy
+      // renderer can. The route's title must not steal focus and dismiss the open menu.
+      await flushFrames();
+      expect(screen.getByRole("menuitem", { name: "Usage & accounts" })).toBeTruthy();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Usage & accounts" }));
+      const title = await screen.findByRole("heading", { level: 1, name: "Usage & accounts" });
+      await flushFrames();
+      expect(document.activeElement).toBe(title);
+    } finally {
+      schedule.mockRestore();
+      cancel.mockRestore();
+    }
+  },
+);
