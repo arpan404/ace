@@ -10,6 +10,7 @@ const failures = vi.hoisted(() => ({
   palette: false,
   message: false,
   composer: false,
+  files: false,
 }));
 vi.mock("@/features/home/index.ts", async (original) => {
   const actual = await original<typeof import("@/features/home/index.ts")>();
@@ -52,8 +53,27 @@ vi.mock("@/features/thread/composer/message-input.tsx", async (original) => {
   };
 });
 
+vi.mock("@/features/panels/files/quick-open-overlay.tsx", async (original) => {
+  const actual = await original<typeof import("@/features/panels/files/quick-open-overlay.tsx")>();
+  return {
+    ...actual,
+    QuickOpenOverlay(props: ComponentProps<typeof actual.QuickOpenOverlay>) {
+      if (failures.files) throw new Error("broken file palette");
+      return <actual.QuickOpenOverlay {...props} />;
+    },
+  };
+});
+
+await import("@/features/panels/files/quick-open.tsx");
+
 afterEach(() => {
-  Object.assign(failures, { sidebar: false, palette: false, message: false, composer: false });
+  Object.assign(failures, {
+    sidebar: false,
+    palette: false,
+    message: false,
+    composer: false,
+    files: false,
+  });
   vi.restoreAllMocks();
 });
 
@@ -98,4 +118,20 @@ test("a broken composer leaves the thread visible and can be reopened", async ()
   if (!failed.parentElement) throw new Error("Missing composer recovery");
   await userEvent.click(within(failed.parentElement).getByRole("button", { name: "Try again" }));
   expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
+});
+
+test("a broken workspace overlay leaves the conversation open and can be retried", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  failures.files = true;
+  await app.open("/t/thread-fan-out");
+  const toast = await screen.findByRole("alertdialog", { name: "Couldn't show Files" });
+  expect(screen.getByRole("feed", { name: "Transcript" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Message" })).toBeTruthy();
+  expect(screen.queryByText("ace couldn't start")).toBeNull();
+  failures.files = false;
+  await userEvent.click(within(toast).getByRole("button", { name: "Try again" }));
+  await userEvent.keyboard("{Meta>}p{/Meta}");
+  expect(await screen.findByRole("combobox", { name: "Search files" })).toBeTruthy();
 });

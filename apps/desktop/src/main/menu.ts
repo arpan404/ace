@@ -5,7 +5,7 @@ import { keymapAccelerator, shortcuts } from "./shortcuts.ts";
 /**
  * Menu items show the shortcut but do not capture it (`registerAccelerator: false`): the key
  * still reaches the page, where the web keymap handles it, including while typing. Choosing
- * the item with the mouse replays the same chord into the page through `trigger`.
+ * the item with the mouse dispatches its keymap id through `trigger`.
  */
 export function applicationMenu(options: {
   platform: NodeJS.Platform;
