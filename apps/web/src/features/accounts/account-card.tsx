@@ -1,4 +1,4 @@
-import { accountLimit, liveWindows } from "@ace/ui-core";
+import { accountLimit } from "@ace/ui-core";
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -10,9 +10,8 @@ import { formatResets } from "./format.ts";
 export function AccountCard(props: { account: Account }) {
   const { account } = props;
   const now = useNow();
-  const windows = liveWindows(account, now);
   const limit = accountLimit(account, now);
-  const reset = limit.resetsAt ?? windows.find((window) => window.resetsAt !== null)?.resetsAt;
+  const reset = limit.level === "reached" ? limit.resetsAt : limit.window?.resetsAt;
   const threads = account.threads;
   const tip = [
     `${account.providerLabel} · ${account.label}`,

@@ -116,3 +116,27 @@ test("a provider limit without meter readings never claims No limits", async () 
   expect(within(row).getByText("Limit reached")).toBeTruthy();
   expect(within(row).queryByText("No limits")).toBeNull();
 });
+
+test("a blocking limit with an unknown reset never borrows another window's reset", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((row) => row.id === "codex-team");
+  if (!account) throw new Error("Missing Team account fixture");
+  account.quota.blockers.limitError = { usedPercent: 100, resetsAt: null };
+  await app.open("/accounts");
+  const row = await card("Codex Team");
+  expect(within(row).getByText("Limit reached")).toBeTruthy();
+  expect(within(row).queryByText(/^Resets/)).toBeNull();
+});
+
+test("a near-limit weekly window with an unknown reset does not show the five-hour reset", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((row) => row.id === "claude-work");
+  if (!account) throw new Error("Missing Work account fixture");
+  account.quota.windows.seven_day = { usedPercent: 90, resetsAt: null };
+  await app.open("/accounts");
+  const row = await card("Claude Code Work");
+  expect(
+    within(row).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuenow"),
+  ).toBe("90");
+  expect(within(row).queryByText(/^Resets/)).toBeNull();
+});
