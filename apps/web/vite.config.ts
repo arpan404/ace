@@ -67,6 +67,16 @@ export default defineConfig(({ mode }) => ({
     ],
     // Vite strips annotation, JSDoc and legal comments from the page's minified chunks but not from
     // workers', where `@__PURE__` and `@__NO_SIDE_EFFECTS__` alone were 0.5 KB gzip.
-    rolldownOptions: { output: { comments: { annotation: false, jsdoc: false, legal: false } } },
+    rolldownOptions: {
+      output: {
+        comments: { annotation: false, jsdoc: false, legal: false },
+        // `check:perf` budgets syntax grammars one at a time: a code fence loads only its own.
+        chunkFileNames: (chunk) =>
+          chunk.moduleIds.length > 0 &&
+          chunk.moduleIds.every((id) => /\/(@shikijs\/langs\/dist|shiki\/dist\/langs)\//.test(id))
+            ? "assets/grammar-[name]-[hash].js"
+            : "assets/[name]-[hash].js",
+      },
+    },
   },
 }));

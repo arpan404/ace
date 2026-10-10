@@ -18,8 +18,17 @@ export const budgets = {
     cssKb: 21,
     /** A worker's eager script (client 56, markdown 33, diff 24 KB). */
     workerKb: 60,
-    /** A worker with the chunks it loads later, so splitting a worker never hides bytes. 69 KB. */
-    workerTotalKb: 73,
+    /**
+     * A worker with the chunks it loads later, so splitting a worker never hides bytes. 69 KB
+     * on 2026-10-03; 73.6 KB on 2026-10-10 after the browser, devices and plugin protocol
+     * families joined the service wire (ADR 0056).
+     */
+    workerTotalKb: 75,
+    /**
+     * One syntax grammar with the grammars it embeds: a code fence loads only its own language,
+     * so grammars are weighed apart from the markdown worker. C++ is the largest, 63 KB.
+     */
+    grammarKb: 64,
   },
   soak: {
     /** Events in the accelerated month-long run: 30 days at one event every 0.86 s. */

@@ -124,14 +124,30 @@ try {
       weigh([...files].map((file) => join("assets", file)));
     report(label, weighOf(eager), budgets.bundle.workerKb);
     const lazy = new Set<string>();
+    const grammars = new Map<string, Set<string>>();
     const queue = [...eager];
     for (const file of queue)
-      for (const next of imports(file).lazy)
+      for (const next of imports(file).lazy) {
+        // A syntax grammar loads only for a fence in its language: weighed on its own below.
+        if (next.startsWith("grammar-")) {
+          grammars.set(next, workerClosure(next));
+          continue;
+        }
         for (const chunk of workerClosure(next))
           if (!eager.has(chunk) && !lazy.has(chunk)) {
             lazy.add(chunk);
             queue.push(chunk);
           }
+      }
+    const grammar = [...grammars]
+      .map(([file, files]) => ({ file, size: weighOf(files) }))
+      .toSorted((a, b) => b.size - a.size)[0];
+    if (grammar)
+      report(
+        `${label} heaviest grammar (${grammar.file.replace(/^grammar-|-[\w-]{8}\.js$/g, "")})`,
+        grammar.size,
+        budgets.bundle.grammarKb,
+      );
     if (lazy.size)
       report(
         `${label} with its lazy chunks`,
