@@ -75,7 +75,7 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     "keeps the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
     async () => {
       // The traffic lights end 68 px from the window's left edge and 28 px from its top.
-      const title = page.getByRole("button", { name: "ace menu" });
+      const title = page.getByRole("navigation", { name: "App" }).getByText("ace", { exact: true });
       expect((await title.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       await page.getByRole("button", { name: "Hide sidebar" }).click();
       const show = page.getByRole("button", { name: "Show sidebar" });
@@ -84,10 +84,8 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
       await show.click();
       await title.waitFor();
       // The sidebar's places sit below the lights.
-      const automations = page
-        .getByRole("navigation", { name: "App" })
-        .getByRole("link", { name: "Automations" });
-      expect((await automations.boundingBox())?.y).toBeGreaterThanOrEqual(28);
+      const newThread = page.getByRole("link", { name: "New thread", exact: true });
+      expect((await newThread.boundingBox())?.y).toBeGreaterThanOrEqual(28);
     },
   );
 
