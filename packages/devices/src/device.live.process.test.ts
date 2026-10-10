@@ -5,7 +5,7 @@ const live = process.env["ACE_DEVICE_LIVE"] === "1";
 function platform() {
   const devices = new DevicePlatform({
     platform: process.platform,
-    home: homedir(),
+    home: process.env["ACE_TEST_REAL_HOME"] ?? homedir(),
     env: process.env,
   });
   onTestFinished(() => devices.close());
