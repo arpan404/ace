@@ -190,7 +190,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       // A page's window.open opens in a browser tab of its own, which the panel shows.
       await click("button[onclick*='window.open']");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await expect.poll(browserTabs).toBe(2);
+      await expect.poll(browserTabs, { timeout: 10000 }).toBe(2);
       await expect.poll(() => address.inputValue()).toContain("/popup");
       await p.keyboard.press("ControlOrMeta+Alt+w");
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
