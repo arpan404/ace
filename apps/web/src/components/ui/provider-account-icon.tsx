@@ -1,11 +1,9 @@
-import type { CSSProperties } from "react";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
-import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -53,19 +51,6 @@ export function ProviderAccountIcon(
         className={undefined}
         decorative
       />
-      {multiple && account && (
-        <span
-          role="img"
-          title={hoverTitle(props.tooltip, `${account.label} account`)}
-          aria-label={`${account.label} account`}
-          style={
-            { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
-          }
-          className={accountBadgeOverlayStyle}
-        >
-          {accountBadge(account.label, account.shortLabel)}
-        </span>
-      )}
     </span>
   );
 }

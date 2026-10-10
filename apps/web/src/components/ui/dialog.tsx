@@ -17,7 +17,7 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { IconButton } from "./icon-button.tsx";
 import { Kbd } from "./kbd.tsx";
-import { layers } from "./menu-styles.ts";
+import { layers, overlaySurface } from "./menu-styles.ts";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -42,7 +42,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
 const sizes = {
   sm: "w-[min(420px,calc(100vw-2rem))]",
   md: "w-[min(480px,calc(100vw-2rem))]",
-  lg: "w-[min(640px,calc(100vw-2rem))]",
+  lg: "w-[min(620px,calc(100vw-2rem))]",
 } as const;
 
 /**
@@ -89,7 +89,8 @@ function DialogContent({
         finalFocus={finalFocus ?? returnFocus}
         className={cn(
           layers.modal,
-          "glass fixed top-1/2 left-1/2 flex max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl bg-popover p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
+          overlaySurface,
+          "fixed top-1/2 left-1/2 flex max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg bg-popover p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
           "transition-[opacity,transform] duration-(--dur-2) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-ending-style:ease-exit data-starting-style:translate-y-[calc(-50%+var(--rise))] data-starting-style:scale-[0.97] data-starting-style:opacity-0",
           sizes[size],
           className,
@@ -191,7 +192,7 @@ function withSubmitHint(children: ReactNode): ReactNode {
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("text-md font-medium tracking-[-0.005em]", className)}
+      className={cn("text-md font-semibold tracking-[-0.005em]", className)}
       {...props}
     />
   );

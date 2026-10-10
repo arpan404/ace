@@ -4,10 +4,10 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { cn } from "@/lib/cn.ts";
 import { buttonVariants } from "./button.tsx";
 import { Tip } from "./tooltip.tsx";
-import { layers } from "./menu-styles.ts";
+import { layers, overlaySurface } from "./menu-styles.ts";
 
 /** How long a toast stays: plain confirmations go quickly, anything to act on or read stays. */
-export const toastTimeouts = { plain: 4000, action: 8000, error: 8000 } as const;
+export const toastTimeouts = { plain: 5000, action: 8000, error: 8000 } as const;
 /** Toasts shown at once; older ones wait (an action's timer paused) until there's room. */
 const limit = 3;
 
@@ -34,7 +34,7 @@ function ToastProvider(props: { children: ReactNode }) {
             data-slot="toast-viewport"
             className={cn(
               layers.toast,
-              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
+              "pointer-events-none fixed bottom-16 left-3 flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] flex-col items-start gap-2 outline-none [-webkit-app-region:no-drag]",
             )}
           >
             <ToastList />
@@ -83,7 +83,8 @@ function ToastList() {
       // region reads it out); an error's Retry and Dismiss must still be reachable.
       aria-hidden={false}
       className={cn(
-        "group/toast glass pointer-events-auto relative w-max max-w-full rounded-lg text-ui font-medium text-popover-foreground",
+        overlaySurface,
+        "group/toast pointer-events-auto relative w-max max-w-full rounded-[12px] text-ui font-medium text-popover-foreground",
         "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
@@ -92,25 +93,27 @@ function ToastList() {
           <WarningCircleIcon aria-hidden size={14} className="shrink-0 text-status-failed" />
         )}
         <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
-          <Toast.Title className="line-clamp-2" />
+          <Toast.Title className="truncate" />
           <Toast.Description className="text-sm font-normal text-muted-foreground empty:hidden" />
         </div>
         <Toast.Action
           className={cn(buttonVariants({ size: "sm" }), "ml-1.5 shrink-0 empty:hidden")}
         />
       </Toast.Content>
-      <Tip label="Dismiss notification">
-        <Toast.Close
-          aria-label="Dismiss"
-          aria-hidden={false}
-          className={cn(
-            "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
-            "hover:bg-accent hover:text-foreground",
-          )}
-        >
-          <XIcon aria-hidden size={14} />
-        </Toast.Close>
-      </Tip>
+      {toast.timeout === 0 && (
+        <Tip label="Dismiss notification">
+          <Toast.Close
+            aria-label="Dismiss"
+            aria-hidden={false}
+            className={cn(
+              "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
+              "hover:bg-accent hover:text-foreground",
+            )}
+          >
+            <XIcon aria-hidden size={14} />
+          </Toast.Close>
+        </Tip>
+      )}
     </Toast.Root>
   ));
 }

@@ -58,7 +58,7 @@ function PopoverContent({
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
-          className={cn(popupSurface, popupBounds, "p-3", className)}
+          className={cn(popupSurface, popupBounds, className)}
           {...props}
         />
       </PopoverPrimitive.Positioner>

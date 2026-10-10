@@ -18,6 +18,7 @@ function ContextMenuContent({ className, ...props }: ContextMenuPrimitive.Popup.
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
           className={cn(popupSurface, "min-w-[220px]", className)}
+          finalFocus={() => !document.querySelector('[role="dialog"], [data-inline-rename]')}
           {...props}
         />
       </ContextMenuPrimitive.Positioner>
