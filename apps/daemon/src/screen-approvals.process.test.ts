@@ -565,3 +565,28 @@ test("denying a requested device leaves devices disabled and gives the agent no 
   expect(devices.isEnabled()).toBe(false);
   expect(devices.states()).toEqual([]);
 });
+
+test.each([
+  "com.mitchellh.ghostty",
+  "dev.warp.Warp-Stable",
+  "net.kovidgoyal.kitty",
+  "org.alacritty",
+  "com.github.wez.wezterm",
+  "co.zeit.hyper",
+])("%s requires a fresh turn grant even with a saved Always grant", async (bundleId) => {
+  const h = await fixture();
+  h.grants.enable(true);
+  h.grants.approve(bundleId, true, "always");
+  expect(h.grants.allows(bundleId, h.caller)).toBe(false);
+  const requested = h.approvals.request(
+    bundleId,
+    "Use a terminal",
+    h.caller,
+    new AbortController().signal,
+  );
+  expect(h.resolve("allow_once")?.ok).toBe(true);
+  await requested;
+  expect(h.grants.allows(bundleId, h.caller)).toBe(true);
+  h.nextTurn();
+  expect(h.grants.allows(bundleId, h.caller)).toBe(false);
+});
