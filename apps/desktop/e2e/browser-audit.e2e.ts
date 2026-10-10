@@ -67,6 +67,14 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(() => browser.state(thread).controller).toBe("human");
       await p.mouse.move(0, 0);
       await expect.poll(native.placed).toBe(true);
+      await read(
+        "(()=>{const button=document.createElement('button');button.id='copy-fixture';button.textContent='Copy fixture';button.style='position:fixed;left:16px;top:80px;z-index:10';button.onclick=()=>navigator.clipboard.writeText('native-clipboard-fixture');document.body.append(button)})();void 0",
+      );
+      await native.personClicks("#copy-fixture");
+      await expect
+        .poll(() => s.app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toBe("native-clipboard-fixture");
+      await read("document.querySelector('#copy-fixture').remove();void 0");
       await read("navigator.geolocation.getCurrentPosition(()=>{},()=>{});void 0");
       await p.getByRole("status", { name: "Site access blocked: location" }).waitFor();
       await read(
