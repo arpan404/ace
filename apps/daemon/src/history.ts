@@ -171,13 +171,21 @@ export class DaemonHistory {
     })
       .then(
         (result) => {
-          for (const entry of result.unsupported)
+          const reasons = new Map<string, { instanceId: string; reason: string; count: number }>();
+          for (const entry of result.unsupported) {
+            const key = JSON.stringify([entry.instanceId, entry.reason]);
+            const group = reasons.get(key);
+            if (group) group.count++;
+            else reasons.set(key, { ...entry, count: 1 });
+          }
+          for (const entry of reasons.values())
             this.log?.log(
               "warn",
               "Saved history could not be read",
               logFields([
                 ["instanceId", entry.instanceId],
                 ["reason", entry.reason],
+                ["count", entry.count],
               ]),
             );
           this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });

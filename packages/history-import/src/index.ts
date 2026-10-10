@@ -248,6 +248,7 @@ export class HistoryService {
     try {
       const result = ScanResult.parse(await this.request(request, signal));
       this.inventory?.commit();
+      this.inventory?.retry(result.retry);
       return result;
     } catch (error) {
       this.inventory?.reset();

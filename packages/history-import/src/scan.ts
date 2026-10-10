@@ -45,6 +45,7 @@ export async function scan(
     bytes: 0,
     skipped: 0,
     unsupported: [] as { instanceId: string; reason: string }[],
+    retry: [] as { instanceId: string; path: string }[],
   };
   await catalog.cleanup(signal);
   catalog.updates.begin();
@@ -96,9 +97,11 @@ export async function scan(
         }
         const info = await lstat(path);
         const fp = isStorage ? await storageFingerprint(instance, path, signal) : fingerprint(info);
-        if (catalog.touch(instance.id, path, fp, epoch)) {
+        if (catalog.matches(instance.id, path, fp)) {
           result.skipped++;
-          return;
+          return () => {
+            catalog.touch(instance.id, path, fp, epoch);
+          };
         }
         const sample = await readHeadTail(instance.homeDir, path, signal);
         result.reads++;
@@ -150,7 +153,7 @@ export async function scan(
                   signal,
                   catalog.scratchRoot,
                 )
-              : readJsonLines(instance.homeDir, path, signal, 128 * 1024)) {
+              : readJsonLines(instance.homeDir, path, signal)) {
               if (!isStorage) result.bytes += record.bytes;
               if ("oversized" in record) oversized = true;
               if ("value" in record) {
@@ -197,38 +200,68 @@ export async function scan(
             ),
           };
         }
-        catalog.put(
-          {
-            summary: s,
-            hidden: !input,
-            path,
-            fingerprint: fp,
-            kind: isStorage ? "storage" : "jsonl",
-            instanceId: instance.id,
-          },
-          epoch,
-        );
-        catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
+        return () => {
+          catalog.put(
+            {
+              summary: s,
+              hidden: !input,
+              path,
+              fingerprint: fp,
+              kind: isStorage ? "storage" : "jsonl",
+              instanceId: instance.id,
+            },
+            epoch,
+          );
+          catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
+        };
+      };
+      const sampleFile = async (path: string) => {
+        try {
+          return await processFile(path);
+        } catch (error) {
+          signal.throwIfAborted();
+          const changed =
+            error instanceof Error &&
+            (error.message === "Session changed before sampling" ||
+              error.message === "Session changed while sampling");
+          const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
+          if (changed && result.retry.length < 4096)
+            result.retry.push({ instanceId: instance.id, path });
+          else if (!missing && result.unsupported.length < 256)
+            result.unsupported.push({
+              instanceId: instance.id,
+              reason: error instanceof Error ? error.message : "Unreadable saved conversation",
+            });
+          result.skipped++;
+          // A sampling race never changes or prunes the last successfully indexed row.
+          return missing ? undefined : () => catalog.preservePath(instance.id, path, epoch);
+        }
       };
       const flush = async () => {
+        const writes: (() => void)[] = [];
+        for (let offset = 0; offset < batch.length; offset += 16) {
+          for (const write of await Promise.all(batch.slice(offset, offset + 16).map(sampleFile)))
+            if (write) writes.push(write);
+        }
+        signal.throwIfAborted();
         catalog.db.exec("BEGIN IMMEDIATE");
-        let results: PromiseSettledResult<void>[];
         try {
-          results = await Promise.allSettled(batch.map(processFile));
-        } finally {
+          for (const write of writes) write();
           catalog.db.exec("COMMIT");
+        } catch (error) {
+          catalog.db.exec("ROLLBACK");
+          throw error;
         }
         batch = [];
         await setImmediate();
         signal.throwIfAborted();
-        for (const outcome of results) if (outcome.status === "rejected") throw outcome.reason;
       };
       for (const root of roots)
         for await (const path of changed === undefined
           ? walkFiles(root, signal, budget)
           : changedFiles(root, signal, budget)) {
           batch.push(path);
-          if (batch.length === 2) await flush();
+          if (batch.length === 64) await flush();
         }
       if (batch.length) await flush();
       // Only recognized database names in the home root are opened. No auth/config files.
