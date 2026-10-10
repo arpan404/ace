@@ -263,9 +263,11 @@ struct ShareableContent {
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
-        let scale = settings.map { min(Double($0.maxWidth) / window.frame.width, Double($0.maxHeight) / window.frame.height) } ?? min(density, min(3840 / window.frame.width, 2160 / window.frame.height))
+        let windowWidth = Double(window.frame.width), windowHeight = Double(window.frame.height)
+        let requested: Double? = settings.map { min(Double($0.maxWidth) / windowWidth, Double($0.maxHeight) / windowHeight) }
+        let scale: Double = requested ?? min(density, min(3840 / windowWidth, 2160 / windowHeight))
         let config = configuration.config
-        config.width = max(2, Int(window.frame.width * scale) / 2 * 2); config.height = max(2, Int(window.frame.height * scale) / 2 * 2)
+        config.width = max(2, Int(windowWidth * scale) / 2 * 2); config.height = max(2, Int(windowHeight * scale) / 2 * 2)
         do { try await stream.updateConfiguration(config) } catch { return }
         frame = window.frame; width = config.width; height = config.height
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
