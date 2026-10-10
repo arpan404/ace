@@ -16,7 +16,7 @@ import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
 import { availability, blockedUntil } from "@ace/accounts/availability";
 import { commandCatalog, listCommands } from "./commands.ts";
-import { search } from "./search.ts";
+import { search, searchTitles } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
@@ -27,6 +27,7 @@ type AccountSummary = z.infer<typeof Summary>;
 
 export interface ServiceHost {
   clock(): number;
+  threads?(): readonly import("@ace/protocol").Thread[];
   /** Sends to every authenticated connection, as the daemon's pushes do (none when absent). */
   broadcast?(message: ServerMessage): void;
   /** The thread's project and provider, or undefined when the thread doesn't exist. */
@@ -666,7 +667,9 @@ export class FakeServices {
         return {
           type: "search.results",
           requestId: message.requestId,
-          ...search(message, this.host.clock()),
+          ...(message.scope === "threads" && this.host.threads
+            ? searchTitles(message, this.host.threads())
+            : search(message, this.host.clock())),
         };
       case "search.status":
         return {

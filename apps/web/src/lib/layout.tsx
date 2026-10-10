@@ -51,13 +51,20 @@ export function LayoutProvider(props: {
   const [layout, setLayout] = useState(() =>
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpen, setPaletteState] = useState(false);
   const [search, setSearch] = useState<{ query: string }>();
-  // Stable, so a screen that opens search from an effect runs it once.
-  const openSearch = useCallback((query = "") => {
-    setPaletteOpen(false);
-    setSearch({ query });
+  const setPaletteOpen = useCallback((open: boolean) => {
+    if (open) setSearch(undefined);
+    setPaletteState(open);
   }, []);
+  // Stable, so a screen that opens search from an effect runs it once.
+  const openSearch = useCallback(
+    (query = "") => {
+      setPaletteOpen(false);
+      setSearch({ query });
+    },
+    [setPaletteOpen],
+  );
   const closeSearch = useCallback(() => setSearch(undefined), []);
   const [rightPanel, setRightPanelState] = useState<{ hide(): void }>();
   // Stable, so the panel registering itself doesn't re-run on every layout change.
@@ -96,6 +103,7 @@ export function LayoutProvider(props: {
     [
       layout,
       paletteOpen,
+      setPaletteOpen,
       search,
       openSearch,
       closeSearch,

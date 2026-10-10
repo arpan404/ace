@@ -69,9 +69,13 @@ function ListSkeleton(props: {
         const width = `${62 + ((index * 23) % 30)}%`;
         if (props.shape === "thread")
           return (
-            <span key={index} className="flex h-8 items-center gap-2 px-2">
+            <span
+              key={index}
+              className="flex h-20 compact:h-18 flex-col justify-center gap-1 compact:gap-0.5 px-2"
+            >
               <Skeleton className="h-4 w-5 rounded-xs" style={style} />
               <Skeleton className="h-3" style={{ ...style, width }} />
+              <Skeleton className="h-3 w-28" style={style} />
             </span>
           );
         return props.shape === "card" ? (

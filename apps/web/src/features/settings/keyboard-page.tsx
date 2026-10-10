@@ -99,7 +99,19 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
 };
 
 /** Chords the browser (or the system, in the app) keeps for itself; a page never sees them. */
-const reserved = ["mod+w", "mod+q", "mod+t", "mod+l", "mod+r", "shift+mod+w", "shift+mod+t"];
+function reservedKeys() {
+  const env = keyboardEnv();
+  return [
+    "mod+w",
+    "mod+q",
+    "mod+t",
+    "mod+l",
+    "mod+r",
+    "shift+mod+w",
+    "shift+mod+t",
+    ...(env.web ? ["mod+n", "shift+mod+n"] : env.apple ? ["mod+h", "mod+m", "mod+tab"] : []),
+  ];
+}
 
 /** Why a shortcut can't be recorded here, or undefined when it can. */
 function readOnlyReason(id: KeymapId): string | undefined {
@@ -177,7 +189,7 @@ export function KeyboardShortcuts() {
       return;
     }
     const keys = result.keys;
-    if (reserved.some((chord) => normalizeKeys(chord) === normalizeKeys(keys))) {
+    if (reservedKeys().some((chord) => normalizeKeys(chord) === normalizeKeys(keys))) {
       setProblem({
         id,
         text: `${formatKeys(keys)} is used by ${env.web ? "the browser" : "the system"}.`,

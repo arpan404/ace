@@ -1,8 +1,12 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { useState } from "react";
 import { modelLabel } from "@ace/ui-core";
-import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
+import {
+  useRefusedTitle,
+  useSelected,
+  useHomeSelection,
+  useRenameTitle,
+} from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Dot } from "@/components/ui/dot.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
@@ -35,11 +39,12 @@ export function ThreadRow(props: {
 }) {
   const { settled } = props;
   const data = useThreadCard(props.threadId, settled, props.leaving);
-  const [editing, setRenaming] = useState(false);
+  const selection = useHomeSelection();
+  const editing = useRenameTitle(props.threadId);
   const hover = useThreadHover();
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
-  const renaming = editing || refused !== undefined;
+  const renaming = editing !== undefined || refused !== undefined;
   const started = useStartedTitle(props.threadId);
   const selected = useSelected(props.threadId);
   const current = useLocation({
@@ -61,7 +66,11 @@ export function ThreadRow(props: {
     entry.execution?.instanceId;
   return (
     <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
-      <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
+      <ThreadMenu
+        entry={entry}
+        state={card.flags}
+        onRename={() => selection.rename(props.threadId, card.title)}
+      >
         <HoverCardTrigger
           delay={180}
           closeDelay={100}
@@ -84,8 +93,8 @@ export function ThreadRow(props: {
               <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
               <RenameField
                 entry={entry}
-                title={refused ?? card.title}
-                onDone={() => setRenaming(false)}
+                title={editing ?? refused ?? card.title}
+                onDone={() => selection.finishRename()}
               />
             </div>
           ) : (

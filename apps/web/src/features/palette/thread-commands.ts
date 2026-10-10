@@ -3,7 +3,7 @@ import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { arrange, isSettled, isUnread, projectCounts, projectTint } from "@ace/ui-core";
+import { arrange, isSettled, isUnread, projectTint } from "@ace/ui-core";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -13,7 +13,9 @@ import {
   useThreadMover,
 } from "@/features/organize/index.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useDebouncedValue, searchSettleMs } from "@/lib/debounced.ts";
+import { useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -30,7 +32,7 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
  * Home and on the open thread. Mounted only while the palette is open, so the whole-list
  * subscription is short-lived.
  */
-export function useThreadCommands(close: () => void): PaletteGroup[] {
+export function useThreadCommands(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
   const organizer = useOrganizer();
   const state = useOrganizerState();
@@ -42,6 +44,18 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
   const picked = useHomeSelectionState().ids;
   const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
   const projectName = useProjectName();
+  const directory = useProjectDirectory();
+  const settledQuery = useDebouncedValue(query.trim(), searchSettleMs);
+  const found = useDaemonQuery({
+    queryKey: ["palette-threads", settledQuery],
+    read: async (client, signal) => {
+      const reply = await client.request(
+        { type: "search.query", scope: "threads", text: settledQuery, limit: 100 },
+        { signal },
+      );
+      return reply.type === "search.results" ? reply.hits : [];
+    },
+  });
 
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
@@ -67,10 +81,22 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
         ];
       },
     );
-    const projects = projectCounts(entries).map((project): PaletteCommand => ({
+    const seen = new Set(threads.map((thread) => thread.id));
+    for (const hit of found.data ?? []) {
+      const id = `thread-${hit.threadId}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      threads.push({
+        id,
+        label: hit.threadTitle,
+        detail: projectName(hit.workspaceId),
+        icon: "thread",
+        run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: hit.threadId } })),
+      });
+    }
+    const projects = directory.projects.map((project): PaletteCommand => ({
       id: `project-${project.id}`,
       label: projectName(project.id),
-      detail: `${project.threads} thread${project.threads === 1 ? "" : "s"}`,
       icon: "project",
       tint: projectTint(project.id),
       run: run(() => {
@@ -191,6 +217,8 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     return groups;
   }, [
     entries,
+    found.data,
+    directory.projects,
     state,
     now,
     current,

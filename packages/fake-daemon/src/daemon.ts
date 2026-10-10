@@ -266,6 +266,7 @@ export class FakeDaemon implements Host {
     };
     this.services = new FakeServices({
       clock: options.clock,
+      threads: () => [...this.threads.values()].map((host) => host.view.thread),
       broadcast: (message) => {
         for (const connection of this.connections)
           if (connection.authenticated) connection.push(message);
