@@ -26,6 +26,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
+import { shutdownStage } from "./shutdown.ts";
 import {
   serviceFactories,
   requireService,
@@ -113,10 +114,20 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const disposeResources = async () => {
     resources.beginShutdown();
     try {
-      await server?.close();
+      await shutdownStage(
+        "connections",
+        () => server?.close(),
+        2000,
+        options.startup?.schedule ?? systemStartup.schedule,
+      );
     } finally {
       try {
-        await resources.close();
+        await shutdownStage(
+          "resources",
+          () => resources.close(),
+          5000,
+          options.startup?.schedule ?? systemStartup.schedule,
+        );
       } finally {
         try {
           if (endpointPath) unlinkSync(endpointPath);
