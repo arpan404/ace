@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "artifacts": {
+      "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
+    },
     "context": {
       "oneOf": [
         {

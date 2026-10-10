@@ -1,3 +1,4 @@
+import { remoteOutputRead } from "./remote-return.ts";
 import { incomingRemoteContext, remoteContextTransfer } from "./remote-context-transfer.ts";
 import { fingerprint } from "@ace/secure-channel";
 import { validRemoteTask } from "./remote-identity.ts";
@@ -38,6 +39,19 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
       creations.clear();
     },
     async handle(message) {
+      if (message.type === "delegation.remote.output") {
+        context.send(
+          await remoteOutputRead(
+            context.options,
+            message,
+            (thread) =>
+              context.connected() &&
+              context.authorize("read") &&
+              (!thread || context.canReadThread(ThreadId.parse(thread))),
+          ),
+        );
+        return true;
+      }
       if (message.type === "delegation.remote.transport") {
         const relay = context.options.relay;
         context.send({
@@ -167,7 +181,7 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
             input: [
               {
                 type: "text",
-                text: `Delegated task ${id} from host ${input.sourceHostId}, thread ${input.parentThreadId}. Work on this device/project only. Return a concise result. Files remain on this device.\n\n${input.request.task}\n\n${input.context ? `Source thread context from ${input.context.sourceHostId}/${input.context.sourceThreadId} (read-only snapshot):\n${input.context.summary}\nAttachments: ${JSON.stringify(input.context.attachments.map((file) => ({ name: file.name, sha256: file.sha256, sourcePath: file.sourcePath })))}` : ""}`,
+                text: `Delegated task ${id} from host ${input.sourceHostId}, thread ${input.parentThreadId}. Work on this device/project only. Return a concise result. Use ace_device_task_publish with selected attachment hashes or relative files to return images/files to the origin. Publish once before finishing; no workspace overwrite or merge.\n\n${input.request.task}\n\n${input.context ? `Source thread context from ${input.context.sourceHostId}/${input.context.sourceThreadId} (read-only snapshot):\n${input.context.summary}\nAttachments: ${JSON.stringify(input.context.attachments.map((file) => ({ name: file.name, sha256: file.sha256, sourcePath: file.sourcePath })))}` : ""}`,
               },
             ],
           },
@@ -219,6 +233,11 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
           return true;
         }
 
+        const previous = context.options.agentControl?.publications.outcome(task.id);
+        if (previous) {
+          context.send({ ...base, ok: true, ...previous });
+          return true;
+        }
         const family =
           context.options.agentControl?.delegations.journal
             .family(thread.id)
@@ -254,10 +273,23 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
         const status = current.status.state;
         const terminal = status === "done" || status === "failed";
         const outcome = terminal ? threadOutcome(store, current) : undefined;
+        const sealed =
+          terminal && outcome
+            ? context.options.agentControl?.publications.seal(task, {
+                phase: status === "done" ? "completed" : "failed",
+                result: outcome.result,
+                truncated: outcome.truncated,
+                usage,
+              })
+            : undefined;
+        if (terminal && !sealed) {
+          context.send({ ...base, ok: true, phase: "waiting", usage });
+          return true;
+        }
         context.send({
           ...base,
           ok: true,
-          usage,
+          ...(sealed ?? { usage }),
           phase:
             status === "done"
               ? "completed"
@@ -266,7 +298,7 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
                 : status === "working"
                   ? "running"
                   : "waiting",
-          ...(outcome ? { result: outcome.result, truncated: outcome.truncated } : {}),
+          ...(sealed ? { result: sealed.result, truncated: sealed.truncated } : {}),
         });
         return true;
       }

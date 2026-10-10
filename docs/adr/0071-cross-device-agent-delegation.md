@@ -46,8 +46,31 @@ Main conversation and task control retain the direct/Tailscale MachinePool route
 from ADR0059 and ADR0070. This change adds no relay pairing/conversation transport.
 A connected client and configured target files relay are required. Result text is
 bounded and delivered to the originating agent once, or returned directly to an
-active waiter. Output files stay on their producing device; automatic artifact
-return, workspace copying and Git merging are separate work.
+active waiter.
+
+A receiving root agent can call `ace_device_task_publish` once before finishing.
+It explicitly selects thread attachment hashes or relative workspace files under
+its current task authority. The target freezes these bytes with the same bounds
+and seals their immutable manifest together with the canonical terminal outcome.
+Selected names and aliases retain producing host/thread/path provenance. Further
+turns or changed workspace files cannot mutate that sealed outcome.
+
+The broker reads only sealed selected hashes over the target's encrypted files
+relay and imports them into the originating parent thread. A shared acknowledged
+64 KiB pump resumes offsets after disconnect. Source completion requires every
+selected output to be committed; missing or changed manifests cannot replace an
+already bound selection. `ace_device_task_wait` and status expose source-local
+resolved paths alongside producing-device provenance, and background results
+carry actual parent-owned attachments. Foreign filesystem paths are never used
+as local paths. Workspace copying, automatic overwrite and Git merging remain
+separate operations.
+
+Stop drops temporary output retention and durably records unfinished owned uploads
+for bounded cancellation cleanup at startup, during maintenance and shutdown.
+Transient cleanup failures retry without removing pre-existing attachment refs.
+Completed source and sealed target outputs retain their bytes while their owning
+threads exist. Both devices need this protocol version; an older target lacking a
+sealed manifest is reported unavailable rather than treated as a completed task.
 
 Remote task roots and their local descendants cannot recursively delegate to a
 third device. This keeps parent budgets, cancellation ownership and the current
@@ -61,4 +84,8 @@ missing context, repeated admission, cancellation and relay disconnects. Owner
 tests cover durable identity, broker replacement, provider exit, policy changes,
 concurrent waiters, Stop during context preparation and offline deadlines. Client
 broker tests cover recovery without duplicate uploads and authority revalidation
-after transfer. No real provider prompts are used.
+after transfer. Reverse-sharing tests exercise a real target MCP publication,
+PNG/text bytes, aliases, immutable outcomes, source-local resolution, partial
+reconnect, manifest downgrade rejection and Stop during upload admission with
+transient cancellation failure followed by recovered cleanup. No real provider
+prompts are used.

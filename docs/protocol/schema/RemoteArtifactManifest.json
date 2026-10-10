@@ -1,5 +1,5 @@
 {
-  "$id": "https://ace.local/protocol/v1/RemoteContextManifest.json",
+  "$id": "https://ace.local/protocol/v1/RemoteArtifactManifest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -79,34 +79,29 @@
       "maxItems": 16,
       "type": "array"
     },
-    "before": {
-      "anyOf": [
-        {
-          "maximum": 9007199254740991,
-          "minimum": 0,
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ]
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "parentThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
     "sourceHostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },
-    "sourceThreadId": {
-      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-    },
-    "summary": {
-      "maxLength": 8192,
+    "taskId": {
+      "pattern": "^[a-f0-9]{64}$",
       "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }
   },
   "required": [
+    "taskId",
     "sourceHostId",
-    "sourceThreadId",
-    "summary",
-    "before",
+    "parentThreadId",
+    "hostId",
+    "threadId",
     "attachments"
   ],
   "type": "object"

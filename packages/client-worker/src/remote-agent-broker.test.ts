@@ -42,11 +42,12 @@ const reply = <Q extends ServiceRequest>(input: Q, body: object): ServiceRespons
     ...body,
   }) as ServiceResponse<Q>;
 function world(
-  status: "completed" | "not_found",
+  status: "completed" | "not_found" | "legacy",
   afterTransfer: "running" | "cancelling" | "expired" = "running",
   tasks: RemoteTask[] = [task],
 ) {
   const calls: string[] = [];
+  const phases: string[] = [];
   let reports = 0;
   let transferFinished = false;
   const relay = RemoteRelayTarget.parse({
@@ -60,6 +61,7 @@ function world(
     if (input.type === "delegation.broker.poll") return reply(input, { ok: true, tasks });
     if (input.type !== "delegation.broker.report") throw new Error("Unexpected source request");
     reports++;
+    phases.push(input.report.phase);
     if (reports === 2 && transferFinished && afterTransfer === "expired")
       return reply(input, { ok: false, error: "forbidden" });
     return reply(input, {
@@ -76,8 +78,25 @@ function world(
       case "delegation.remote.status":
         return reply(
           input,
-          status === "completed"
-            ? { ok: true, phase: "completed", result: "Already finished" }
+          status !== "not_found"
+            ? {
+                ok: true,
+                phase: "completed",
+                result: "Already finished",
+                ...(status === "completed"
+                  ? {
+                      artifacts: {
+                        taskId: input.taskId,
+                        sourceHostId: task.sourceHostId,
+                        parentThreadId: task.parentThreadId,
+                        hostId: task.request.hostId,
+                        threadId:
+                          tasks.find((t) => t.id === input.taskId)?.threadId ?? task.threadId,
+                        attachments: [],
+                      },
+                    }
+                  : {}),
+              }
             : { ok: false, error: "not_found" },
         );
       case "delegation.remote.transport":
@@ -129,7 +148,7 @@ function world(
     scheduler: { set: () => () => {} },
     now: () => 0,
   });
-  return { broker, calls };
+  return { broker, calls, phases };
 }
 
 test("broker recovers adopted target status without repeating context uploads or admission", async () => {
@@ -138,6 +157,7 @@ test("broker recovers adopted target status without repeating context uploads or
   await vi.waitFor(() =>
     expect(f.calls.filter((call) => call === "delegation.broker.report")).toHaveLength(2),
   );
+  expect(f.phases).toContain("completed");
   expect(f.calls).not.toContain("delegation.remote.start");
   expect(f.calls).not.toContain("delegation.remote.transport");
   f.broker.close();
@@ -174,5 +194,13 @@ test("broker rotates tasks on the same host rather than starving later task iden
   );
   await f.broker.cycle();
   await vi.waitFor(() => expect(f.calls).toContain(`status:${second.id}`));
+  f.broker.close();
+});
+
+test("broker reports incompatible target outcomes as unavailable rather than losing returned artifacts", async () => {
+  const f = world("legacy");
+  await f.broker.cycle();
+  await vi.waitFor(() => expect(f.phases).toContain("unavailable"));
+  expect(f.phases).not.toContain("completed");
   f.broker.close();
 });

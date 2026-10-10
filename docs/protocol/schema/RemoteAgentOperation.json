@@ -158,6 +158,44 @@
         "taskId"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "attachments": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "op": {
+          "const": "device.task_publish",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "requestId"
+      ],
+      "type": "object"
     }
   ]
 }

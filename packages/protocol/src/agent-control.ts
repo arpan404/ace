@@ -86,10 +86,16 @@ export const RemoteDelegationRequest = z.strictObject({
 export type RemoteDelegationRequest = z.infer<typeof RemoteDelegationRequest>;
 export const RemoteAgentOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("device.list") }),
+
   z.strictObject({ op: z.literal("device.delegate"), ...RemoteDelegationRequest.shape }),
   z.strictObject({ op: z.literal("device.task_status"), taskId: key }),
   z.strictObject({ op: z.literal("device.task_wait"), taskId: key }),
   z.strictObject({ op: z.literal("device.task_cancel"), taskId: key }),
+  z.strictObject({
+    op: z.literal("device.task_publish"),
+    requestId: key,
+    ...RemoteContextSelection.omit({ threadBudgetBytes: true }).shape,
+  }),
 ]);
 export type RemoteAgentOperation = z.infer<typeof RemoteAgentOperation>;
 export const AgentControlOperation = z.discriminatedUnion("op", [

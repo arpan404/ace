@@ -261,7 +261,7 @@ Example:
 
 ## ace_device_delegate
 
-Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Files are not copied or merged.
+Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Selected context is imported through the encrypted relay. Explicit published outputs return as originating-thread attachments; workspaces are not copied or merged.
 
 Required capability: agents. Timeout: 10000 ms.
 
@@ -451,6 +451,48 @@ Example:
 }
 ```
 
+## ace_device_task_publish
+
+Publish selected owned attachment hashes or relative files from this remote task to its originating thread. One immutable selection per task, stable requestId, at most 16 items/128 MiB. No workspace overwrite or merge.
+
+Required capability: thread_control. Timeout: 300000 ms.
+
+## ace_device_task_publish.input
+
+[JSON Schema](schema/ace_device_task_publish.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| attachments | no | array | {"default":[],"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"}} |
+| files | no | array | {"default":[],"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1024}} |
+
+Example:
+
+```json
+{
+  "requestId": "d"
+}
+```
+
+## ace_device_task_publish.output
+
+[JSON Schema](schema/ace_device_task_publish.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
 ## delegate_task
 
 Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe.
@@ -481,15 +523,12 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "estimatedLoad": 9,
-  "model": "example",
-  "options": {},
-  "provider": "cursor",
-  "requestId": "d",
+  "acpAgentId": "example",
+  "instanceId": "example",
+  "provider": "acp",
+  "requestId": "wa",
   "role": "example",
-  "task": "example",
-  "wait": false
+  "task": "example"
 }
 ```
 
@@ -507,6 +546,8 @@ Example:
 
 ```json
 {
+  "code": "invalid",
+  "data": null,
   "ok": false
 }
 ```
@@ -538,11 +579,11 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "model": "example",
-  "permissionMode": "example",
-  "provider": "codex",
-  "requestId": "5bWlheTUSw",
+  "acpAgentId": "example",
+  "installationId": "example",
+  "instanceId": "example",
+  "provider": "antigravity",
+  "requestId": "eT",
   "title": "example"
 }
 ```
@@ -561,8 +602,8 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -586,7 +627,7 @@ Example:
 
 ```json
 {
-  "requestId": "ecex",
+  "requestId": "A",
   "text": "example",
   "threadId": "example"
 }
@@ -606,6 +647,7 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
   "data": null,
   "ok": false
 }
@@ -632,7 +674,7 @@ Example:
 
 ```json
 {
-  "requestId": "nMtpuepa",
+  "requestId": "x",
   "text": "example",
   "threadId": "example"
 }
@@ -652,9 +694,9 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
+  "code": "not_ready",
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -694,6 +736,7 @@ Example:
 
 ```json
 {
+  "code": "forbidden",
   "data": null,
   "ok": false
 }
@@ -719,7 +762,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
+  "before": 3,
+  "limit": 8,
   "threadId": "example"
 }
 ```
@@ -738,6 +782,7 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
   "data": null,
   "ok": true
 }
@@ -764,7 +809,7 @@ Example:
 
 ```json
 {
-  "offset": 3,
+  "offset": 8,
   "streamId": "example",
   "threadId": "example"
 }
@@ -785,7 +830,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -810,6 +855,8 @@ Example:
 
 ```json
 {
+  "cursor": "example",
+  "limit": 9,
   "query": "example",
   "threadId": "example"
 }
@@ -829,8 +876,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "code": "invalid",
+  "ok": true
 }
 ```
 
@@ -853,7 +900,7 @@ Example:
 
 ```json
 {
-  "requestId": "cIHG",
+  "requestId": "vZUIxstcIHG",
   "threadId": "example"
 }
 ```

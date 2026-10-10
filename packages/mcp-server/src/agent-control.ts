@@ -39,7 +39,12 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
               ? ("agents" as const)
               : ("thread_control" as const),
     timeoutMs:
-      op === "delegate_task" || op === "thread.wait" || op === "device.task_wait" ? 300000 : 10000,
+      op === "delegate_task" ||
+      op === "thread.wait" ||
+      op === "device.task_wait" ||
+      op === "device.task_publish"
+        ? 300000
+        : 10000,
   };
 });
 export function agentControlToolkit(port: AgentControlPort): Toolkit {

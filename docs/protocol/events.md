@@ -25,14 +25,18 @@ Example:
   "at": 8,
   "id": "example",
   "payload": {
-    "checkpoints": {
-      "error": "example",
-      "state": "unavailable"
-    },
-    "runId": "example",
-    "type": "run.client.updated"
+    "agentId": "example",
+    "billingMode": "api",
+    "cachedInputTokens": 8,
+    "costUsd": 5,
+    "counterKey": "example",
+    "counterMode": "cumulative",
+    "inputTokens": 7,
+    "outputTokens": 5,
+    "reasoningTokens": 1,
+    "type": "usage.updated"
   },
-  "seq": 4,
+  "seq": 0,
   "threadId": "example"
 }
 ```
@@ -53,6 +57,27 @@ Example:
 ```json
 {
   "changes": {
+    "activitySeq": 1,
+    "autoSettleAt": 0,
+    "details": {
+      "machine": {
+        "host": "example",
+        "icon": {
+          "color": "blue",
+          "kind": "phone"
+        },
+        "name": "example"
+      },
+      "mode": "worktree",
+      "workspace": {
+        "defaultIcon": "data:image/x-icon;base64,i9C=",
+        "icon": "HTTPS://例え.テスト/icon.png",
+        "id": "example",
+        "name": "example",
+        "path": "example"
+      }
+    },
+    "readAt": 2,
     "settledAt": 7
   },
   "type": "thread.client.updated"
@@ -71,16 +96,11 @@ Example:
 ```json
 {
   "review": {
-    "decision": "approve",
+    "decision": "deny",
     "interactionId": "example",
     "mode": "example",
     "reason": "example",
-    "reviewer": "ace-risk-policy",
-    "target": {
-      "access": "write",
-      "description": "example",
-      "tool": "example"
-    }
+    "reviewer": "ace-risk-policy"
   },
   "type": "permission.reviewed"
 }

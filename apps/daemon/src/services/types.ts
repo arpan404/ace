@@ -42,6 +42,8 @@ export interface Services {
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   agentControl?: {
+    publications: import("../agent-control/remote-publication.ts").RemotePublications;
+    returns: import("../agent-control/remote-return.ts").RemoteReturns;
     remote: import("../agent-control/remote.ts").RemoteDelegations;
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;
