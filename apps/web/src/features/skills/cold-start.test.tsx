@@ -159,3 +159,12 @@ test("a failed slash catalog offers Retry and restores suggestions without closi
   await userEvent.click(screen.getByRole("button", { name: "Retry suggestions" }));
   expect(await screen.findByRole("option", { name: /^Test Driven Development / })).toBeTruthy();
 });
+
+test("native skills appear while the portable plugin read is still pending", async () => {
+  const app = cold();
+  app.daemon.holdRequests("pluginRequest", "providers.request");
+  app.daemon.seedServices({ extensionCatalogs: { codex: [tdd] } });
+  await app.open("/skills");
+  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
+  expect(screen.queryByText("No skills yet")).toBeNull();
+});

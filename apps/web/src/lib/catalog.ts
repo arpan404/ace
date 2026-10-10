@@ -15,20 +15,27 @@ export function watchCatalog(
   const requestId = crypto.randomUUID();
   const controller = new AbortController();
   let receivedPush = false;
+  let unavailable = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const fail = () => {
     if (timer) clearTimeout(timer);
-    if (!controller.signal.aborted) failed();
+    timer = undefined;
+    if (!controller.signal.aborted && !unavailable) {
+      unavailable = true;
+      failed();
+    }
   };
   const accept = (entries: readonly CatalogEntry[], stale: boolean) => {
-    if (stale) timer ??= setTimeout(fail, 15_000);
+    if (unavailable && stale) return;
+    if (stale) timer ??= setTimeout(fail, 10_000);
     else {
+      unavailable = false;
       clearTimeout(timer);
       timer = undefined;
     }
     receive(entries, stale);
   };
-  timer = setTimeout(fail, 15_000);
+  timer = setTimeout(fail, 10_000);
   const stop = client.onMessage((message) => {
     if (message.type === "catalog.changed" && message.requestId === requestId) {
       receivedPush = true;

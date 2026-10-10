@@ -81,13 +81,12 @@ export function useSkills() {
   );
   const discovered = useSkillDiscovery();
   const query = useDaemonQuery({ queryKey: key, read: readCatalog, select });
+  const combined = withDiscoveredSkills(query.data ?? [], discovered.entries);
+  const data = combined.length || (query.data && !discovered.pending) ? combined : undefined;
   return {
     ...query,
-    data:
-      query.data && (query.data.length > 0 || !discovered.pending)
-        ? withDiscoveredSkills(query.data, discovered.entries)
-        : undefined,
-    isError: query.isError || (discovered.failed && !query.data?.length),
+    data,
+    isError: (query.isError || discovered.failed) && !combined.length,
     refetch: (options?: Parameters<typeof query.refetch>[0]) => {
       discovered.retry();
       return query.refetch(options);

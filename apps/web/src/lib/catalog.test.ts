@@ -1,5 +1,5 @@
 import { FakeDaemon } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, ServerMessage } from "@ace/protocol";
 import { waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
@@ -9,6 +9,26 @@ test("an empty stale catalog becomes a recoverable error when its discovery neve
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({ id: "cold", workspaceId: "project", provider: "codex", title: "Cold" });
   daemon.seedServices({ extensionCatalogs: { codex: [] }, catalogLoading: ["codex"] });
+  const connect = daemon.connect.bind(daemon);
+  let push: ((stale: boolean) => void) | undefined;
+  daemon.connect = (wire) =>
+    connect({
+      ...wire,
+      send(text) {
+        const message = ServerMessage.parse(JSON.parse(text));
+        if (message.type === "catalog.list.result")
+          push = (stale) =>
+            wire.send(
+              JSON.stringify({
+                type: "catalog.changed",
+                requestId: message.requestId,
+                entries: [],
+                stale,
+              }),
+            );
+        wire.send(text);
+      },
+    });
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
@@ -32,9 +52,15 @@ test("an empty stale catalog becomes a recoverable error when its discovery neve
     await vi.advanceTimersByTimeAsync(100);
     await initial.promise;
     expect(state).toBe("loading");
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(10_000);
     await failure.promise;
     expect(state).toBe("failed");
+    push?.(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(state).toBe("failed");
+    push?.(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(state).toBe("ready");
   } finally {
     stop();
     vi.useRealTimers();

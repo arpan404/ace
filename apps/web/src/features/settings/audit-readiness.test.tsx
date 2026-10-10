@@ -189,3 +189,36 @@ test("a committed account limit push updates Usage without reading its history a
   });
   expect(requests.filter((type) => type.startsWith("usage."))).toEqual([]);
 });
+
+test("General keeps its provider choice through a failed live refetch", async () => {
+  const made = app();
+  const connect = made.daemon.connect.bind(made.daemon);
+  let publish: ((message: ServerMessage) => void) | undefined;
+  made.daemon.connect = (wire) => {
+    const connection = connect(wire);
+    publish = (message) => connection.push(message);
+    return connection;
+  };
+  await made.open("/settings/general");
+  await screen.findByRole("combobox", { name: "Default provider for new threads" });
+  const readiness = await made.client.request({
+    type: "providers.request",
+    operation: "readiness",
+  });
+  if (!readiness.result.ok) throw new Error("Missing readiness fixture");
+  const providers = readiness.result.providers;
+  let failures = 0;
+  const failed = Promise.withResolvers<void>();
+  const stop = made.client.onMessage((message) => {
+    if (message.type === "error" && message.code === "unavailable" && ++failures === 2)
+      failed.resolve();
+  });
+  made.daemon.failRequests("providers.request");
+  await act(async () => {
+    publish?.({ type: "providers.changed", providers });
+    await failed.promise;
+  });
+  stop();
+  expect(screen.getByRole("combobox", { name: "Default provider for new threads" })).toBeTruthy();
+  expect(screen.queryByText("No provider CLI installed")).toBeNull();
+});

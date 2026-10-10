@@ -12,7 +12,10 @@ export function useProviderReadError() {
   const catalog = useCatalogQuery();
   const queries = useQueryClient();
   return {
-    providers: providers.isError || readiness.isError ? "Couldn't check providers" : undefined,
+    providers:
+      (providers.isError || readiness.isError) && !providers.data
+        ? "Couldn't check providers"
+        : undefined,
     models: catalog.isError ? "Couldn't load models" : undefined,
     retry() {
       refreshProviders(queries);
