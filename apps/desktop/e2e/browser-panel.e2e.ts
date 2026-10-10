@@ -66,6 +66,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       const click = async (selector: string) => {
         // Leave renderer tooltips and wait for the native surface before native input.
         await p.mouse.move(0, 0);
+        // Toasts (Address copied) stand over the conversation, never over the native page.
         await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
         await pageView.personClicks(selector);
       };
@@ -318,7 +319,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Show sidebar", exact: true }).click();
-      await p.getByRole("link", { name: /Other fixture/ }).click();
+      // Prepared threads stay out of the sidebar until they start; leave the thread in-app.
+      await p.keyboard.press("ControlOrMeta+n");
+      await p.getByRole("heading", { level: 1, name: "New thread" }).waitFor();
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
       await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
       await s.daemon.browser.closeThread(s.thread.id, { kind: "agent" });
