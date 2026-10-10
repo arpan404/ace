@@ -22,21 +22,21 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 6,
   "id": "example",
   "payload": {
-    "agentId": "example",
-    "billingMode": "api",
-    "cachedInputTokens": 8,
-    "costUsd": 5,
-    "counterKey": "example",
-    "counterMode": "cumulative",
-    "inputTokens": 7,
-    "outputTokens": 5,
-    "reasoningTokens": 1,
-    "type": "usage.updated"
+    "change": {
+      "destination": "example",
+      "id": "example",
+      "op": "example",
+      "path": "example",
+      "trashId": "example",
+      "version": null
+    },
+    "type": "workspace.files_changed",
+    "workspaceId": "example"
   },
-  "seq": 0,
+  "seq": 3,
   "threadId": "example"
 }
 ```
@@ -57,28 +57,19 @@ Example:
 ```json
 {
   "changes": {
-    "activitySeq": 1,
-    "autoSettleAt": 0,
-    "details": {
-      "machine": {
-        "host": "example",
-        "icon": {
-          "color": "blue",
-          "kind": "phone"
-        },
-        "name": "example"
+    "activityAt": 2,
+    "live": {
+      "contextMeter": {
+        "at": 5,
+        "limit": 2,
+        "used": 5
       },
-      "mode": "worktree",
-      "workspace": {
-        "defaultIcon": "data:image/x-icon;base64,i9C=",
-        "icon": "HTTPS://例え.テスト/icon.png",
-        "id": "example",
-        "name": "example",
-        "path": "example"
-      }
+      "model": "example",
+      "runningSubagentCount": 5,
+      "watching": []
     },
-    "readAt": 2,
-    "settledAt": 7
+    "settledReason": "inactivity",
+    "unread": false
   },
   "type": "thread.client.updated"
 }
@@ -134,49 +125,57 @@ Example:
       },
       "visibility": "limited"
     },
+    "activityAt": 5,
+    "activitySeq": 7,
     "archivedAt": 9,
     "backend": "acp",
     "createdAt": 6,
     "details": {
-      "base": {
-        "head": "35c78a377b27a922a30c30405f6b87f18e39e60bfb0d6a68fa97c9ec0ce9",
-        "ref": "example"
-      },
       "baseBranch": "example",
+      "behind": 4,
+      "branch": "example",
+      "head": "df0af9f6fa1410e0a5cd65c83b464acc8654d154bd6be817ff3e51",
       "linkedPr": null,
       "machine": {
         "host": "example",
         "name": "example"
       },
-      "repository": {
-        "forge": "github",
-        "host": "cKm",
-        "name": "OYT",
-        "owner": "ycx-v/cCQF/rBbUi/WVk/KfQYQbji5WT/nEVOgnYd/4E2x/MpUFP/C"
-      },
+      "mode": "worktree",
       "workspace": {
+        "defaultIcon": "https://example.invalid/icon.png",
         "id": "example",
         "name": "example",
         "path": "example"
       },
-      "worktree": "example"
+      "worktreeCreation": {
+        "actions": [],
+        "attempt": 3,
+        "cleanupComplete": false,
+        "commandId": "example",
+        "details": [],
+        "elapsedMs": 3,
+        "message": "example",
+        "percent": 7,
+        "startedAt": 9,
+        "state": "cancelling",
+        "step": "setup",
+        "steps": [],
+        "threadId": "example"
+      }
     },
-    "hasSentMessage": false,
     "id": "example",
     "installationId": "example",
     "instanceId": "example",
-    "pinOrder": 1,
-    "pinned": true,
     "provider": "opencode",
+    "readAt": 9,
     "rootAgentId": "example",
-    "settledAt": 6,
-    "settledReason": "pr_closed",
     "status": {
       "on": "network",
       "state": "waiting"
     },
     "title": "example",
     "titleSource": "person",
+    "unread": false,
     "updatedAt": 6,
     "workspaceId": "example"
   },

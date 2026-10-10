@@ -23,3 +23,5 @@ export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
 export { ForkDialog } from "./transitions/fork-dialog-lazy.tsx";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
+
+export { PrLinksDialog } from "./pr-links-dialog-lazy.tsx";

@@ -97,13 +97,14 @@ test("a PR is named by its number, #number or its address in this repository", (
     number: 188,
   });
   expect(parsePrReference("https://github.com/acme/api/issues/9", repository)).toEqual({
-    error: "That address isn't a pull request",
+    error: "Enter a PR number like #42, or its HTTPS pull request address on GitHub",
   });
   expect(parsePrReference("https://github.com/Acme/API/pull/188/", repository)).toEqual({
     number: 188,
   });
   expect(parsePrReference("https://github.com/other/api/pull/3", repository)).toEqual({
-    error: "That PR isn't in acme/api",
+    number: 3,
+    repository: { ...repository, owner: "other" },
   });
   expect(parsePrReference("fix the build", repository)).toMatchObject({ error: /PR number/ });
   expect(parsePrReference("#0", repository)).toMatchObject({ error: /start at 1/ });

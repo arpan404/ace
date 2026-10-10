@@ -1,3 +1,4 @@
+import { prFromUrl } from "@ace/forge/pr-reference";
 import type { ForgeCheck, ForgePrStatus, ForgeRepository } from "@ace/protocol";
 
 /*
@@ -93,33 +94,28 @@ export const mergeMethods: readonly { method: MergeMethod; label: string }[] = [
 ];
 
 /**
- * The PR a person means by "42", "#42" or its address, in this repository. An address of
- * another repository or forge is refused with the reason.
+ * A number uses the checkout’s origin; an HTTPS address identifies its own repository.
  */
 export function parsePrReference(
   text: string,
-  repository: ForgeRepository,
-): { number: number } | { error: string } {
+  repository: ForgeRepository | undefined,
+): { number: number; repository?: ForgeRepository } | { error: string } {
   const value = text.trim();
   const bare = /^#?(\d{1,9})$/.exec(value);
-  if (bare) return valid(Number(bare[1]));
-  let url: URL;
+  if (bare)
+    return repository
+      ? valid(Number(bare[1]))
+      : { error: "Paste the pull request’s GitHub address. This checkout has no origin remote." };
   try {
-    url = new URL(value);
+    const ref = prFromUrl(value);
+    const ours =
+      repository &&
+      `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`.toLowerCase() ===
+        `${repository.host}/${repository.owner}/${repository.name}`.toLowerCase();
+    return ours ? { number: ref.number } : { number: ref.number, repository: ref.repository };
   } catch {
-    return { error: "Enter a PR number like 42, or its address on GitHub" };
+    return { error: "Enter a PR number like #42, or its HTTPS pull request address on GitHub" };
   }
-  // github.com/<owner>/<name>/pull/<number>, perhaps with /files or /checks after it.
-  const path = url.pathname.split("/").filter(Boolean);
-  const at = path.lastIndexOf("pull");
-  const number = path[at + 1] ?? "";
-  if (at < 2 || !/^\d{1,9}$/.test(number)) return { error: "That address isn't a pull request" };
-  const ours =
-    url.hostname.toLowerCase() === repository.host.toLowerCase() &&
-    path.slice(0, at).join("/").toLowerCase() ===
-      `${repository.owner}/${repository.name}`.toLowerCase();
-  if (!ours) return { error: `That PR isn't in ${repository.owner}/${repository.name}` };
-  return valid(Number(number));
 }
 
 const valid = (number: number) => (number > 0 ? { number } : { error: "PR numbers start at 1" });

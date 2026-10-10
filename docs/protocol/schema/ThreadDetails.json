@@ -104,6 +104,13 @@
         }
       ]
     },
+    "linkedPrs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/LinkedPullRequest.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "machine": {
       "properties": {
         "host": {

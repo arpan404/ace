@@ -154,6 +154,16 @@ export function startAgentControl(context: ServiceContext): void {
         ? publications.publish(caller, operation, signal)
         : remote?.execute(caller, operation, signal)) ??
       Promise.resolve({ ok: false, code: "not_ready" as const }),
+    pr: async (caller, operation, signal) => {
+      const workspace = services.workspaceActions;
+      if (!workspace) return { ok: false, code: "unsupported" };
+      return workspace.forge.agent(
+        caller.threadId,
+        workspace.root(caller.threadId),
+        operation,
+        signal,
+      );
+    },
     execute: async (caller, operation, signal) => {
       const result = await owners.execute(caller, operation, signal);
       return result.code === "unsupported" && options.agentControl?.extensions?.execute

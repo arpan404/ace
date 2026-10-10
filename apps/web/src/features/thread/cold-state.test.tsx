@@ -66,6 +66,12 @@ test("one input repeated under uncertain and queued states shows one message to 
   expect(within(queue).getAllByText("yo")).toHaveLength(1);
   expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
   expect(within(queue).queryByText("Queued", { exact: true })).toBeNull();
+  expect(
+    within(queue).getByRole("listitem", { name: /^This message may have been sent\./ }),
+  ).toBeTruthy();
+  expect(
+    within(queue).queryByRole("listitem", { name: "Queued message, not yet sent" }),
+  ).toBeNull();
 });
 
 test("a model waiting for its first catalog never shows Unavailable", async () => {
@@ -98,4 +104,10 @@ test("separate queued inputs with identical text remain individually visible", a
   expect(within(queue).getAllByText("yo")).toHaveLength(2);
   expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
   expect(within(queue).getByRole("button", { name: "Send now" })).toBeTruthy();
+  expect(
+    within(queue).getByRole("listitem", { name: /^This message may have been sent\./ }),
+  ).toBeTruthy();
+  expect(
+    within(queue).getByRole("listitem", { name: "Queued message, not yet sent" }),
+  ).toBeTruthy();
 });

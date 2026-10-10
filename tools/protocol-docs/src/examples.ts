@@ -18,6 +18,21 @@ function pick<T>(values: readonly T[], random: Random): T {
   if (value === undefined) throw new Error("Cannot choose from an empty schema");
   return value;
 }
+function alternatives(node: JsonSchema): JsonSchema[] {
+  const choices = nodes(node.anyOf ?? node.oneOf);
+  if (!node.properties) return choices;
+  // Required-only alternatives constrain the parent object rather than replace its fields.
+  const { anyOf: _anyOf, oneOf: _oneOf, ...parent } = node;
+  const result: JsonSchema[] = [];
+  for (const choice of choices)
+    result.push({
+      ...parent,
+      ...choice,
+      properties: { ...parent.properties, ...choice.properties },
+      required: [...strings(parent.required), ...strings(choice.required)],
+    });
+  return result;
+}
 export function candidate(
   schema: JsonSchema,
   schemas: Snapshot["schemas"],
@@ -31,8 +46,8 @@ export function candidate(
   if (node.examples?.length) return pick(node.examples, random);
   if (Object.hasOwn(node, "const")) return node.const;
   if (node.enum) return pick(node.enum, random);
-  const choices = node.anyOf ?? node.oneOf;
-  if (choices) return candidate(pick(choices, random), schemas, random, depth + 1);
+  const choices = alternatives(node);
+  if (choices.length) return candidate(pick(choices, random), schemas, random, depth + 1);
   if (node.allOf) {
     const values = node.allOf.map((part) => candidate(part, schemas, random, depth + 1));
     if (values.every((value) => typeof value === "string"))
@@ -136,5 +151,6 @@ export function validExample(
 }
 export function variants(schema: JsonSchema, snapshot: Snapshot): JsonSchema[] {
   const node = resolve(schema, snapshot.schemas);
-  return nodes(node.anyOf ?? node.oneOf).length ? nodes(node.anyOf ?? node.oneOf) : [schema];
+  const choices = alternatives(node);
+  return choices.length ? choices : [schema];
 }

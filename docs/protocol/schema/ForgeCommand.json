@@ -59,7 +59,31 @@
       "type": "object"
     },
     {
+      "oneOf": [
+        {
+          "required": [
+            "number"
+          ]
+        },
+        {
+          "required": [
+            "all"
+          ]
+        }
+      ],
       "properties": {
+        "all": {
+          "const": true,
+          "type": "boolean"
+        },
+        "number": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "repo": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
         "threadId": {
           "type": "string"
         },
@@ -72,7 +96,8 @@
         "type",
         "threadId"
       ],
-      "type": "object"
+      "type": "object",
+      "x-ace-constraint": "Exactly one of number or all is required"
     },
     {
       "properties": {
