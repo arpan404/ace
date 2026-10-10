@@ -1,3 +1,5 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
+import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { ClientProvider, type NotifyBatch } from "@ace/client-react";
@@ -36,6 +38,9 @@ export function AppFrame(props: {
         <TooltipProvider>
           <ToastProvider>
             <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
+              <LocalBoundary label="update status" fallback={null}>
+                <DesktopUpdates />
+              </LocalBoundary>
               {props.children}
             </BootErrorBoundary>
           </ToastProvider>
@@ -71,4 +76,9 @@ export function App(props: {
       </QueryClientProvider>
     </ClientProvider>
   );
+}
+
+function DesktopUpdates() {
+  useDesktopUpdates();
+  return null;
 }

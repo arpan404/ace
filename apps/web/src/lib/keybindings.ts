@@ -1,3 +1,4 @@
+import { syncDesktopKeymap } from "@/boot/desktop-keymap.ts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
 import { useDaemonSetting } from "./daemon-setting.ts";
@@ -255,6 +256,7 @@ export function useKeybindingsSync(): void {
   const [stored] = useDaemonSetting("clients.keybindings");
   useEffect(() => {
     if (stored !== undefined) setKeybindingOverrides(cleanOverrides(stored));
+    return syncDesktopKeymap(resolveKeymap(cleanOverrides(stored)));
   }, [stored]);
   // Another daemon (or none) may have other rebindings: drop these when the shell goes.
   useEffect(() => () => setKeybindingOverrides({}), []);

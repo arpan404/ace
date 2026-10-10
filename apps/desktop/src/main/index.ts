@@ -1,3 +1,4 @@
+import { deliverAfterLoads } from "./deep-link-delivery.ts";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -27,7 +28,6 @@ import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
-import { replayChord } from "./shortcuts.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
 
@@ -174,9 +174,7 @@ function main(target: DaemonTarget): void {
         focusChanged();
       },
     });
-    window.webContents.once("did-finish-load", () => {
-      for (const link of pending.splice(0)) emit(contents(), "deep-link", link);
-    });
+    deliverAfterLoads(window.webContents, pending, (link) => emit(contents(), "deep-link", link));
     // A reloaded or crashed page can no longer hide the browser views it placed.
     const renderer = window.webContents;
     const rendererId = renderer.id;
@@ -293,6 +291,7 @@ function main(target: DaemonTarget): void {
       if (!path) return false;
       return (await shell.openPath(path)) === "";
     };
+    let bindings: Readonly<Record<string, string>> | undefined;
     const handlers = createHandlers({
       info,
       runtime,
@@ -303,31 +302,35 @@ function main(target: DaemonTarget): void {
       connection,
       quit: () => app.quit(),
       showLogs,
+      updateKeymap: (next) => {
+        bindings = next;
+        installMenu();
+      },
     });
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        applicationMenu({
-          platform: process.platform,
-          appName: app.name,
-          developer: !app.isPackaged,
-          trigger: (accelerator) => {
-            if (window && !window.isDestroyed())
-              replayChord(window.webContents, accelerator, process.platform);
-          },
-          checkForUpdates: () =>
-            void checkWithFeedback({
-              check: async () => handlers["updates.check"](undefined),
-              report: (status) => emit(contents(), "updates.status", status),
-              timers,
-            }),
-          openUrl: (url) => void shell.openExternal(url).catch(() => {}),
-          showLogs: () =>
-            void showLogs().catch((error: unknown) =>
-              log("warn", `Could not show the logs: ${String(error)}`),
-            ),
-        }),
-      ),
-    );
+    const installMenu = () =>
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          applicationMenu({
+            platform: process.platform,
+            appName: app.name,
+            developer: !app.isPackaged,
+            bindings,
+            trigger: (id) => emit(contents(), "keymap.action", id),
+            checkForUpdates: () =>
+              void checkWithFeedback({
+                check: async () => handlers["updates.check"](undefined),
+                report: (status) => emit(contents(), "updates.status", status),
+                timers,
+              }),
+            openUrl: (url) => void shell.openExternal(url).catch(() => {}),
+            showLogs: () =>
+              void showLogs().catch((error: unknown) =>
+                log("warn", `Could not show the logs: ${String(error)}`),
+              ),
+          }),
+        ),
+      );
+    installMenu();
     registerHandlers({
       rendererUrl,
       isAppWindow: (sender) => sender === window?.webContents,

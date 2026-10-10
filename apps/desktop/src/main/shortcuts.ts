@@ -151,3 +151,22 @@ export function browserChord(input: KeyInput, platform: NodeJS.Platform): string
   const key = pressedKey(input);
   return key && ["T", "L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
 }
+
+/** A single keymap chord can be shown by Electron; sequences have no native accelerator. */
+export function keymapAccelerator(keys: string): string | undefined {
+  if (keys.includes(" ")) return undefined;
+  return keys
+    .split("+")
+    .map((part) =>
+      part === "mod"
+        ? "CmdOrCtrl"
+        : part === "ctrl"
+          ? "Ctrl"
+          : part === "shift"
+            ? "Shift"
+            : part === "alt"
+              ? "Alt"
+              : part.toUpperCase(),
+    )
+    .join("+");
+}
