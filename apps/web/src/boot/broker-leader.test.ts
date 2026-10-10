@@ -39,3 +39,17 @@ test("only the leader window polls and a standby takes over after the leader clo
     await browser.close();
   }
 });
+
+test("a browser without leader coordination does not start competing broker polling", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    await context.route("http://remote.test/", (route) => route.fulfill({ body: "<html></html>" }));
+    const page = await context.newPage();
+    await page.goto("http://remote.test/");
+    await page.evaluate(install, brokerLeader.toString());
+    expect(await page.evaluate(() => Reflect.get(globalThis, "windowState").polls)).toBe(0);
+  } finally {
+    await browser.close();
+  }
+});

@@ -9,7 +9,6 @@ export function useRemoteAgentBroker(primary: ClientApi, pool: MachinePool | und
   const { url } = useDaemonConnection();
   useEffect(() => {
     if (!pool) return;
-    if (!navigator.locks) return startRemoteAgentBroker(primary, pool);
     return brokerLeader(navigator.locks, url, () => startRemoteAgentBroker(primary, pool));
   }, [primary, pool, url]);
 }
