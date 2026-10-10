@@ -32,7 +32,7 @@ export function AccountsPage() {
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-230 px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
+        <div className="mx-auto px-4 pt-6 pb-20 sm:px-8 sm:pt-11" style={{ maxWidth: 920 }}>
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <PageTitle

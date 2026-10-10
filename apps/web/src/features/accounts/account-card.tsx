@@ -16,6 +16,7 @@ export function AccountCard(props: { account: Account }) {
     windows.find((window) => window.resetsAt !== null)?.resetsAt;
   const threads = account.threads;
   const tip = [
+    `${account.providerLabel} · ${account.label}`,
     `${threads?.running ?? 0} running threads`,
     `${threads?.limited ?? 0} threads at a limit`,
     account.quota.observedAt
@@ -29,11 +30,15 @@ export function AccountCard(props: { account: Account }) {
     >
       <AccountBadge account={account} />
       <Tip label={tip}>
-        <span tabIndex={0} className="min-w-0 flex-1 truncate rounded-xs focus-ring">
+        <span
+          tabIndex={0}
+          style={{ minWidth: 160 }}
+          className="flex-1 truncate rounded-xs focus-ring"
+        >
           {account.providerLabel} · {account.label}
         </span>
       </Tip>
-      <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 pl-8 sm:w-auto sm:pl-0">
+      <div className="flex max-w-full flex-wrap items-center gap-x-4 gap-y-1 pl-8">
         {account.windows.length ? (
           account.windows.map((window) => (
             <CompactWindow key={window.id} window={window} now={now} />

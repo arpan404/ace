@@ -89,8 +89,11 @@ function BadgeColours(props: {
             aria-label={`Use ${color} badge`}
             aria-pressed={props.color === color}
             onClick={() => props.onColorChange?.(color)}
-            className="rounded-full p-1 focus-ring aria-pressed:ring-1"
-            style={{ color: accountColors[color] }}
+            className="rounded-full p-1 focus-ring"
+            style={{
+              color: accountColors[color],
+              outline: props.color === color ? "1px solid currentColor" : undefined,
+            }}
           >
             <AccountBadge
               decorative

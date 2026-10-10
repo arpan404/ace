@@ -77,7 +77,7 @@ function ProviderRow(props: { entry: ProviderEntry }) {
         secondary={
           !isMissing(props.entry) && (
             <>
-              <span className="flex items-center -space-x-1 sm:space-x-1">
+              <span className="flex items-center gap-1">
                 {own?.map((account) => (
                   <AccountBadge key={account.id} account={account} />
                 ))}
@@ -98,10 +98,10 @@ function ProviderRow(props: { entry: ProviderEntry }) {
             to="/settings/providers/$provider"
             params={{ provider: props.entry.id }}
             aria-label={install.name}
-            className="font-medium hover:underline"
+            className="inline-flex items-center gap-2 font-medium hover:underline"
           >
             {install.name}
-            <span className="ml-2 hidden text-xs font-normal sm:inline text-subtle-foreground">
+            <span className="hidden text-xs font-normal sm:flex text-subtle-foreground">
               {row?.version ?? install.version}
             </span>
           </Link>

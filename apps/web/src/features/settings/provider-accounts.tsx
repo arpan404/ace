@@ -3,6 +3,7 @@ import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { accountStatus, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
+import { useLocation } from "@tanstack/react-router";
 import { useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
@@ -91,6 +92,8 @@ function AccountItem(props: {
   manageable: boolean;
 }) {
   const { account } = props;
+  const highlighted =
+    useLocation({ select: (location) => location.hash }) === `account-${account.id}`;
   const now = useNow();
   const signIn = useSignIn();
   const keyLogin = useInlineSignIn();
@@ -111,7 +114,8 @@ function AccountItem(props: {
     <li
       id={`account-${account.id}`}
       tabIndex={-1}
-      className="group rounded-md py-0.5 focus-ring target:bg-accent hover:bg-accent/50"
+      style={highlighted ? { background: "var(--accent)" } : undefined}
+      className="group rounded-md py-0.5 focus-ring hover:bg-accent"
     >
       <div className="flex min-h-8 flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -138,7 +142,7 @@ function AccountItem(props: {
           )}
           {account.implicit && account.cliHome && (
             <span
-              className="hidden truncate text-xs text-subtle-foreground sm:inline"
+              className="hidden truncate text-xs text-subtle-foreground sm:flex"
               title={account.cliHome}
             >
               {account.cliHome}
@@ -192,7 +196,7 @@ function AccountItem(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="hidden group-hover:inline-flex group-focus-within:inline-flex [@media(hover:none)]:inline-flex"
+            className="hidden group-hover:inline-flex group-focus-within:inline-flex pointer-coarse:inline-flex"
             onClick={() =>
               actions
                 .setDefault(native, account.id)
@@ -210,7 +214,7 @@ function AccountItem(props: {
                   icon={DotsThreeIcon}
                   label={`Manage ${label}`}
                   size="sm"
-                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
                   onPointerEnter={() => void preloadSignIn()}
                 />
               }

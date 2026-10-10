@@ -28,7 +28,10 @@ export interface ProviderSetupActions {
 }
 
 /** All provider surfaces share the same action, installation recovery and login flow. */
-export function ProviderSetupRow(props: {
+export function ProviderSetupRow({
+  ref: actionsRef,
+  ...props
+}: {
   ref?: Ref<ProviderSetupActions>;
   provider: ProviderKind;
   acpAgentId?: string | undefined;
@@ -51,7 +54,7 @@ export function ProviderSetupRow(props: {
     setDetails(true);
     void controller.plan("uninstall");
   };
-  useImperativeHandle(props.ref, () => ({ requestRemoval }));
+  useImperativeHandle(actionsRef, () => ({ requestRemoval }));
   const progress = view.kind === "progress" ? view.progress : undefined;
   const confirmation = useRef<HTMLButtonElement>(null);
   const plan = view.kind === "plan" ? view.plan : progress?.plan;
