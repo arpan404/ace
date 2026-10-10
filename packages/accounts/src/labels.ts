@@ -1,4 +1,6 @@
-/** A named account starts with its first letter; the CLI login needs no badge. */
+/** Account badges default to the first grapheme of the label, including CLI logins. */
+const graphemes = new Intl.Segmenter("en", { granularity: "grapheme" });
+
 export function accountShortLabel(account: {
   label: string;
   implicit?: boolean | undefined;
@@ -6,6 +8,6 @@ export function accountShortLabel(account: {
 }): string | undefined {
   return (
     account.shortLabel ??
-    (account.implicit ? undefined : Array.from(account.label.trim())[0]?.toLocaleUpperCase())
+    [...graphemes.segment(account.label.trim())][0]?.segment.toLocaleUpperCase()
   );
 }

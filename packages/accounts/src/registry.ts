@@ -26,7 +26,10 @@ const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanc
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
-  const parsed = ProviderInstance.parse({ ...input, shortLabel: accountShortLabel(input) });
+  const parsed = ProviderInstance.parse({
+    ...input,
+    ...(input.implicit ? { badgeColor: input.badgeColor ?? "neutral" } : {}),
+  });
   instanceEnv(parsed, {});
   if (parsed.implicit) return parsed;
   // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
@@ -52,6 +55,7 @@ function summarize(
     provider: instance.provider,
     label: instance.label,
     shortLabel: accountShortLabel(instance),
+    badgeUsesInitial: instance.shortLabel === undefined,
     badgeColor: instance.badgeColor,
     authMethod: instance.authMethod ?? "unknown",
     ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
@@ -124,6 +128,9 @@ export class AccountRegistry {
     // Retire metadata before home canonicalization. Never inspect the old CLI home.
     db.exec(`DELETE FROM account_selection WHERE instance_id='cursor-cli-default';
       DELETE FROM accounts WHERE id='cursor-cli-default' AND json_extract(instance,'$.implicit')=1;`);
+    // Existing CLI logins acquire a neutral badge without inspecting their homes.
+    db.exec(`UPDATE accounts SET instance=json_set(instance,'$.badgeColor','neutral')
+      WHERE json_extract(instance,'$.implicit')=1 AND json_extract(instance,'$.badgeColor') IS NULL`);
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
@@ -264,6 +271,13 @@ export class AccountRegistry {
         instance.id,
         JSON.stringify({
           ...instance,
+          ...(instance.implicit && current
+            ? {
+                label: current.instance.label,
+                shortLabel: current.instance.shortLabel,
+                badgeColor: current.instance.badgeColor ?? "neutral",
+              }
+            : {}),
           loginRevision: current?.instance.loginRevision ?? instance.loginRevision ?? "0",
         }),
         JSON.stringify(current?.quota ?? initialQuota()),
@@ -462,11 +476,12 @@ export class AccountRegistry {
     label: string,
     badge: {
       shortLabel?: string | undefined;
+      badgeUsesInitial?: boolean | undefined;
       badgeColor?: ProviderInstance["badgeColor"] | null | undefined;
     } = {},
   ): void {
     const account = this.get(id);
-    if (!account || account.instance.implicit) throw new Error("Account is immutable");
+    if (!account) throw new Error("Unknown account");
     if (badge.shortLabel !== undefined) AccountBadgeInput.parse(badge.shortLabel);
     this.upsert.run(
       id,
@@ -474,8 +489,9 @@ export class AccountRegistry {
         ProviderInstance.parse({
           ...account.instance,
           label,
-          shortLabel:
-            badge.shortLabel ?? account.instance.shortLabel ?? accountShortLabel({ label }),
+          shortLabel: badge.badgeUsesInitial
+            ? undefined
+            : (badge.shortLabel ?? account.instance.shortLabel),
           badgeColor:
             badge.badgeColor === null
               ? undefined

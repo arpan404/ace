@@ -19,6 +19,9 @@
     "badgeColor": {
       "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
     },
+    "badgeUsesInitial": {
+      "type": "boolean"
+    },
     "blockedUntil": {
       "anyOf": [
         {

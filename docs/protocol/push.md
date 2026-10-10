@@ -1239,8 +1239,7 @@ Example:
     "loginRevision": "example",
     "provider": "acp",
     "quota": {
-      "auth": "unknown",
-      "billingMode": "subscription",
+      "auth": "logged_in",
       "blockers": {
         "limitError": {
           "resetsAt": null,
@@ -1249,9 +1248,9 @@ Example:
       },
       "cursorSdkAuth": {
         "source": "none",
-        "status": "logged-in"
+        "status": "logged-out"
       },
-      "observedAt": 8,
+      "observedAt": 1,
       "usage": {
         "costUsd": 5,
         "inputTokens": 8
@@ -1571,7 +1570,8 @@ Example:
 {
   "account": {
     "authMethod": "api_key",
-    "availability": "exhausted",
+    "availability": "logged_out",
+    "badgeColor": "amber",
     "id": "example",
     "implicit": false,
     "installationId": "example",
@@ -1579,8 +1579,8 @@ Example:
     "profileRevision": "example",
     "provider": "opencode",
     "quota": {
-      "auth": "logged_in",
-      "observedAt": 4,
+      "auth": "logged_out",
+      "observedAt": 8,
       "usage": {},
       "windows": {}
     },
@@ -1644,11 +1644,12 @@ Example:
 {
   "account": {
     "availability": "unknown",
+    "badgeUsesInitial": true,
+    "cliHome": "example",
+    "homeStrategy": "default_cli",
     "id": "example",
-    "implicit": true,
-    "isolation": "unsupported",
     "label": "example",
-    "provider": "acp",
+    "provider": "claude",
     "quota": {
       "auth": "unknown",
       "billingMode": "subscription",
@@ -1663,8 +1664,7 @@ Example:
         "costUsd": 7
       },
       "windows": {}
-    },
-    "shortLabel": "$"
+    }
   },
   "requestId": "example",
   "type": "accounts.status"

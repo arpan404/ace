@@ -175,8 +175,8 @@ The owner's one-click sign-in request permits the new `provider.login.*` and
 `provider.logout` service to authenticate the implicit native CLI account under
 `operate` authority. It preserves the normal launch environment and home, so the
 terminal CLI uses the resulting login. Explicit managed profiles remain supported.
-These requests do not change the existing `accounts.*` authority or allow renaming,
-removing or migrating implicit accounts. SDK identity, fencing and isolated default
+These requests do not change the existing `accounts.*` authority or allow removing
+or migrating implicit accounts. The metadata-only rename amendment below applies. SDK identity, fencing and isolated default
 stores remain governed by ADR 0043. Browser challenges are device-owned and ephemeral;
 only a per-device onboarding dismissal flag is persisted by first-run setup.
 
@@ -202,3 +202,17 @@ supersedes this ADR's prohibition on accepting a credential over the wire. Only
 non-secret auth method and identity metadata enter the account registry. A Cursor
 instance with pasted-key authentication suppresses the ambient `CURSOR_API_KEY`
 override so future launches use the SDK's selected credential store.
+
+## Amendment: normal CLI account names and badges
+
+Accepted 2026-10-10. The provider page can rename and change the badge of the normal
+CLI login through the existing account rename commands and validation. The registry
+stores the label and optional symbol or colour as metadata. Discovery preserves that
+metadata; it never moves, creates or writes the CLI home. Existing implicit records
+receive the neutral theme-aware badge. Removal and session migration remain refused.
+Renaming does not change default selection.
+
+Optional `badgeUsesInitial` on summaries distinguishes a name-derived initial from an
+explicit symbol. Optional `badgeUsesInitial: true` on either rename command resets a
+custom symbol to the current name's initial. Older requests retain explicit symbols.
+No credentials or provider execution are involved in these metadata changes.

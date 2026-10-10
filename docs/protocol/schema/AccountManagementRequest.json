@@ -45,6 +45,9 @@
             }
           ]
         },
+        "badgeUsesInitial": {
+          "type": "boolean"
+        },
         "instanceId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },

@@ -1,3 +1,4 @@
+export { accountShortLabel } from "@ace/accounts/labels";
 export { threadAttention, withoutPortableHandoff } from "@ace/projection";
 export * from "./notice-text.ts";
 /*

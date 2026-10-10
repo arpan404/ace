@@ -22,7 +22,7 @@ const account = (
     AccountSummary.parse({
       id,
       provider: "codex",
-      label: id,
+      label: implicit ? "Your CLI login" : id,
       implicit,
       availability: "unknown",
       quota: {
