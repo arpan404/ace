@@ -32,6 +32,8 @@ export type SettingsValuesMap = Readonly<Record<string, unknown>>;
 export interface ValuesStore {
   subscribe(listener: () => void): () => void;
   get(): SettingsValuesMap;
+  failed?(): boolean;
+  retry?(): void;
 }
 
 export interface ProviderAccount {
