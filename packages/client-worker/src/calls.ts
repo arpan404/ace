@@ -5,6 +5,7 @@ import {
   type Client,
   type RegistryQuery,
   type ServiceRequest,
+  type ServiceResponse,
   type ServiceWire,
 } from "@ace/client";
 import { CommandPayload, TextSource, ThreadMarkReadCommand } from "@ace/protocol";
@@ -184,10 +185,8 @@ export async function callArgs(
       const [read, parsed] = decode(schemas.outputRead, args);
       return client.outputRead(read, options(parsed, signal));
     }
-    case "request": {
-      const [input, parsed] = decode(schemas.request, args);
-      return client.request(input, options(parsed, signal));
-    }
+    case "request":
+      return requestArgs(client, args, signal);
     case "networkOnline": {
       const [online] = decode(schemas.networkOnline, args);
       client.networkOnline(online);
@@ -196,6 +195,16 @@ export async function callArgs(
     default:
       throw new ClientError("protocol", "Unknown worker request");
   }
+}
+
+/** Preserve the fully validated response type across channel lifetime tracking. */
+export function requestArgs(
+  client: Client,
+  args: unknown[],
+  signal: AbortSignal,
+): Promise<ServiceResponse<ServiceRequest>> {
+  const [input, parsed] = decode(schemas.request, args);
+  return client.request(input, options(parsed, signal));
 }
 
 /**

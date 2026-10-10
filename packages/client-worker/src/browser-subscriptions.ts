@@ -6,12 +6,12 @@ export class BrowserSubscriptions {
   private entries = new Map<string, { held: boolean; pending: number; tail: Promise<void> }>();
   private pending = 0;
   private closed = false;
-  run(
+  run<T>(
     thread: string,
     type: "browser.subscribe" | "browser.unsubscribe",
-    request: () => Promise<unknown>,
+    request: () => Promise<T>,
     cleanup: () => void,
-  ): Promise<unknown> {
+  ): Promise<T> {
     if (this.closed) return Promise.reject(new ClientError("offline"));
     if (this.pending >= 32) return Promise.reject(new ClientError("limit"));
     let entry = this.entries.get(thread);
@@ -25,7 +25,7 @@ export class BrowserSubscriptions {
     this.pending++;
     const result = owned.tail.then(async () => {
       if (this.closed) throw new ClientError("offline");
-      let value: unknown;
+      let value: T;
       try {
         value = await request();
       } catch (error) {

@@ -213,7 +213,7 @@ test("picked threads move together from the selection bar, with one Undo", async
     await user.click(target);
     await user.keyboard("{/Meta}");
   }
-  const bar = screen.getByRole("toolbar", { name: "Selected threads" });
+  const bar = await screen.findByRole("toolbar", { name: "Selected threads" });
   await user.click(within(bar).getByRole("button", { name: "Move 2 threads to project…" }));
   await pickProject("docs");
   expect(await screen.findByText("Moved 2 threads to docs-site")).toBeTruthy();

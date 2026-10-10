@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { useMemo, useState, type ReactNode } from "react";
-import { highlight, type CodeToken } from "./highlight.ts";
+import type { CodeToken } from "./highlight.ts";
 
 import { useCodeLines } from "./use-code-lines.ts";
 import { CodeTokens } from "./code-tokens.tsx";
@@ -34,15 +34,8 @@ export function CodeBlock(props: {
   plain?: boolean;
   tail?: ReactNode;
 }) {
-  const local = useMemo(
-    () =>
-      props.tokens
-        ? undefined
-        : props.plain
-          ? [{ kind: "plain" as const, text: props.code }]
-          : highlight(props.code, props.lang),
-    [props.tokens, props.plain, props.code, props.lang],
-  );
+  // The first render must not tokenize the whole fence while its worker job is pending.
+  const local = useMemo(() => [{ kind: "plain" as const, text: props.code }], [props.code]);
   const colored = useCodeLines(props.plain ? undefined : props.code, props.lang);
   const tokens = useMemo(
     () =>

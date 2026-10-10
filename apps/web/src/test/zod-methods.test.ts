@@ -15,6 +15,7 @@ import {
   zodWithoutUnusedMethods,
 } from "../../zod-methods.ts";
 import { zodPureSchemas } from "../../zod-pure-schemas.ts";
+import { workerJsonZod } from "../../worker-json-zod.ts";
 import { workerZod } from "../../worker-zod.ts";
 import { protocolCorpus, type ProtocolCorpus } from "./protocol-corpus.ts";
 
@@ -29,7 +30,7 @@ const web = join(import.meta.dirname, "../..");
 // Not a file on disk: the `entry` plugin supplies its source.
 const entryFile = join(web, "zod-methods-entry.js");
 const entrySource = `
-export { ClientMessage, ServerMessage } from "@ace/protocol";
+export { ClientMessage, ServerMessage, ScreenUITreeResult } from "@ace/protocol";
 export { DaemonTarget } from "@/boot/connection-settings.ts";
 export { WorkerTarget } from "@/boot/worker-target.ts";
 export { MachineTarget } from "@/boot/machine-target.ts";
@@ -100,7 +101,16 @@ type Bundled = Record<string, Schema> & {
 function load(code: string): Bundled {
   const module = { exports: {} };
   const require = createRequire(join(web, "package.json"));
-  new Function("module", "exports", "require", code)(module, module.exports, require);
+  // Each bundle has its own Zod configuration, as workers do in production. A default
+  // memoizer installed by the baseline must not leak into the optimized build's realm.
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "__zod_globalConfig");
+  Reflect.deleteProperty(globalThis, "__zod_globalConfig");
+  try {
+    new Function("module", "exports", "require", code)(module, module.exports, require);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "__zod_globalConfig", previous);
+    else Reflect.deleteProperty(globalThis, "__zod_globalConfig");
+  }
   return module.exports as Bundled;
 }
 
@@ -288,13 +298,14 @@ beforeAll(async () => {
   const workerCode = await bundle(
     [
       workerZodWithoutJsonSchema(),
+      workerJsonZod(),
       zodWithoutMetadata(),
       zodWithoutUnusedMethods(droppedWorkerZodMethods),
       zodPureSchemas(),
       workerZod(),
     ],
     `
-      export { ClientMessage, ServerMessage } from "@ace/protocol";
+      export { ClientMessage, ServerMessage, ScreenUITreeResult } from "@ace/protocol";
       export { WorkerTarget } from "@/boot/worker-target.ts";
       export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
@@ -340,6 +351,16 @@ function disagreements(name: string, inputs: unknown[], actual = trimmed): strin
   return found;
 }
 
+const uiNode = (ref: string, children: unknown[] = []) => ({
+  ref,
+  role: "button",
+  name: "Example",
+  bounds: { x: 0, y: 0, w: 10, h: 10 },
+  states: [],
+  actions: ["press"],
+  children,
+});
+
 describe("zodWithoutUnusedMethods", () => {
   it("decodes every server frame, and edge cases made from them, as the full build does", () => {
     for (const frame of corpus.server) expect(outcome(full.ServerMessage!, frame).ok).toBe(true);
@@ -370,6 +391,33 @@ describe("zodWithoutUnusedMethods", () => {
       disagreements(name, inputs),
     );
     expect(found).toEqual([]);
+  });
+
+  it("keeps recursive UI JSON trees and invalid descendant paths identical", () => {
+    const valid = {
+      nodes: [uiNode("root", [uiNode("child", [uiNode("leaf")])])],
+      truncated: false,
+    };
+    const invalid = {
+      nodes: [
+        uiNode("root", [
+          uiNode("child", [{ ...uiNode("leaf"), bounds: { x: "wrong", y: 0, w: 10, h: 10 } }]),
+        ]),
+      ],
+      truncated: false,
+    };
+    expect(outcome(full.ScreenUITreeResult!, valid)).toMatchObject({ ok: true });
+    expect(outcome(full.ScreenUITreeResult!, invalid)).toMatchObject({
+      ok: false,
+      issues: [{ path: ["nodes", 0, "children", 0, "children", 0, "bounds", "x"] }],
+    });
+    expect(
+      disagreements(
+        "ScreenUITreeResult",
+        [valid, invalid, { nodes: [], truncated: false }],
+        worker,
+      ),
+    ).toEqual([]);
   });
 
   it("takes the dropped methods' code out of the bundle", () => {

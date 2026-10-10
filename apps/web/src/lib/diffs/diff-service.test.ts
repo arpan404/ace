@@ -48,7 +48,7 @@ function worker() {
 }
 
 function service(compute: ReturnType<typeof worker>["compute"], batch: NotifyBatch = immediate) {
-  return createDiffService({ compute, batch, maxEntries: 2, maxRows: 50 });
+  return createDiffService({ compute, batch, maxEntries: 2, maxBytes: 4096 });
 }
 
 test("diffs stay on screen when more files are open than the cache holds", async () => {
@@ -128,4 +128,26 @@ test("a closed view's diffs go back to the bounded cache", async () => {
   expect(again.read().every((diff) => diff !== undefined)).toBe(true);
   expect(diffs.asked).toHaveLength(6);
   stopAgain();
+});
+
+test("folded text counts toward cache memory, but stays available while its view is open", async () => {
+  const text = `${"a very long unchanged source line".repeat(8)}\n`.repeat(5_000);
+  const file: FileChanges = {
+    path: "folded.ts",
+    changes: [{ path: "folded.ts", kind: "update", oldText: text, newText: text }],
+  };
+  const key = diffKey(file);
+  const shared = createDiffService({
+    compute: async () => diffFile(file),
+    batch: immediate,
+    maxEntries: 600,
+    maxBytes: 4096,
+  });
+  const view = diffView(shared, [{ file, key }]);
+  const stop = view.subscribe(() => {});
+  await settle();
+  expect(view.read()[0]?.rows).toHaveLength(1);
+  expect(view.read()[0]?.rows[0]).toMatchObject({ kind: "fold", count: 5_000 });
+  stop();
+  expect(shared.peek(key, file) === undefined).toBe(true);
 });

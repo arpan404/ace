@@ -1109,3 +1109,53 @@ test("a tab sees its send synchronously and another tab sees it while worker sto
   stopLeft();
   stopRight();
 });
+
+test("a worker refuses malformed file replies at the canonical boundary and never admits fractional channels", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({
+    id: "file-boundary",
+    workspaceId: "project",
+    title: "Files",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("file-boundary");
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const bytes = Buffer.from("bounded file");
+  await remote.uploadFile(
+    {
+      threadId,
+      path: "bounded",
+      expected: null,
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    (async function* () {
+      yield bytes;
+    })(),
+  );
+  faults.incoming = (message, text, deliver) => {
+    deliver(message.type === "files.ready" ? JSON.stringify({ ...message, channel: 0.5 }) : text);
+  };
+  const fractional = await remote.request({
+    type: "files.request",
+    threadId,
+    operation: { op: "download", path: "bounded", offset: 0 },
+  });
+  if (fractional.type !== "files.ready") throw new Error("Expected file reply");
+  await expect(
+    remote.request({ type: "files.pull", channel: fractional.channel }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  faults.incoming = (message, text, deliver) => {
+    deliver(message.type === "files.ready" ? JSON.stringify({ ...message, offset: -1 }) : text);
+  };
+  await expect(
+    remote.request({
+      type: "files.request",
+      threadId,
+      operation: { op: "download", path: "bounded", offset: 0 },
+    }),
+  ).rejects.toMatchObject({ code: "offline" });
+  await vi.waitFor(() => expect(remote.error?.code).toBe("protocol"));
+});

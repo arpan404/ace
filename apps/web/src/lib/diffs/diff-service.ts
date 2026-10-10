@@ -3,6 +3,7 @@ import type { FileChange } from "@ace/protocol";
 import {
   contentHash,
   diffFile,
+  diffBytes,
   fileDiffKey,
   LruCache,
   type FileChanges,
@@ -45,12 +46,12 @@ export function createDiffService(options: {
   batch: NotifyBatch;
   /** Bounds of the cache of diffs nobody is looking at. */
   maxEntries: number;
-  maxRows: number;
+  maxBytes: number;
 }): DiffService {
   const memory = new LruCache<string, FileDiff>({
     maxEntries: options.maxEntries,
-    maxWeight: options.maxRows,
-    weigh: (diff) => diff.rows.length + 1,
+    maxWeight: options.maxBytes,
+    weigh: diffBytes,
   });
   const held = new Map<string, Held>();
   const running = new Set<string>();
@@ -162,7 +163,7 @@ const worker = offThread<{ key: string; file: FileChanges }, FileDiff>({
   decode: (output) => output as FileDiff,
 });
 
-/** The app's diffs: the diff worker, ~200k rows cached beyond what is on screen. */
+/** The app's diffs: the diff worker, 16 MiB cached beyond what is on screen. */
 export const diffService = createDiffService({
   compute: (key, file) => worker.run({ key, file }),
   inPlace: worker.parallel ? undefined : diffFile,
@@ -172,5 +173,5 @@ export const diffService = createDiffService({
       ? frameBatch((flush) => requestAnimationFrame(flush))
       : immediate,
   maxEntries: 600,
-  maxRows: 200_000,
+  maxBytes: 16 * 1024 * 1024,
 });

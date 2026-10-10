@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { CodeBlock } from "./code-block.tsx";
 
-test("a streamed fenced block gains theme-aware Shiki colors when it settles and preserves its text", async () => {
+test("a streamed fenced block gains theme-aware syntax colors when it settles and preserves its text", async () => {
   const code = 'export const App = () => <button title="Hello">{42}</button>;\n// end\n';
   const view = render(<CodeBlock code={code} lang="tsx" plain />);
   const figure = screen.getByRole("figure");
@@ -28,4 +28,13 @@ test("an unrecognized fenced language remains readable with unchanged whitespace
   render(<CodeBlock code={code} lang="unknown-language" />);
   expect(screen.getByRole("figure").querySelector("code")?.textContent).toBe(code);
   expect(document.querySelector("not-html")).toBeNull();
+});
+
+test("a pending source highlight shows one readable text span before worker colors arrive", () => {
+  const code = 'const pending = "readable"; // preserve whitespace\n'.repeat(1_000);
+  const view = render(<CodeBlock code={code} lang="typescript" />);
+  const source = screen.getByRole("figure").querySelector("code");
+  expect(source?.textContent).toBe(code);
+  expect(source?.querySelectorAll("span").length).toBe(1);
+  view.unmount();
 });

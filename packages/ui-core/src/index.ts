@@ -20,6 +20,7 @@ export * from "./content-hash.ts";
 export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
+export { diffBytes } from "./diff-weight.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";

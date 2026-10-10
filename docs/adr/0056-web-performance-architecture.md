@@ -46,22 +46,22 @@ The app and its Vitest projects compile with React Compiler (Babel preset throug
 
 Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounded by entries and by weight) or an existing client limit:
 
-| Holder                                   | Bound                                                                                                                                 |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Thread window (client, and each mirror)  | 200 items; older history pages in on demand and the window stays at 200                                                               |
-| Cached thread stores                     | 32, least recently used released first                                                                                                |
-| Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation                                                             |
-| Agents, runs, interactions, tasks, usage | Soft target of 4,096 retained entities; settled entries are evicted, while active entries and required ancestors remain               |
-| Thread list order                        | Deleted threads leave it                                                                                                              |
-| A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                             |
-| Sent commands nobody watches (tab)       | The newest 64                                                                                                                         |
-| Markdown documents                       | 400 unwatched documents and 16 MB (page); 64 open streams and 8 MB of text, highlight 512 and 4 MB (worker)                           |
-| File diffs                               | 600 diffs and 200,000 rows in memory, shown diffs held; 2,000 entries and 128 MB in IndexedDB, oldest use pruned                      |
-| Terminal                                 | 1 M characters of raw output per watched PTY; unwatched ones released on exit, after 5 idle minutes or past 4; xterm scrollback 5,000 |
-| Preview and device frames                | One object URL per view, revoked when replaced; nothing decoded or acked while hidden; 8 unwatched threads' state                     |
-| Virtual lists                            | Measured sizes of rows no longer listed are forgotten; rows fading out at most 12 changes                                             |
-| Activity read marks                      | The newest 10,000                                                                                                                     |
-| Selection listeners                      | 4,096 per store                                                                                                                       |
+| Holder                                   | Bound                                                                                                                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Thread window (client, and each mirror)  | 200 items; older history pages in on demand and the window stays at 200                                                                                    |
+| Cached thread stores                     | 32, least recently used released first                                                                                                                     |
+| Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation                                                                                  |
+| Agents, runs, interactions, tasks, usage | Soft target of 4,096 retained entities; settled entries are evicted, while active entries and required ancestors remain                                    |
+| Thread list order                        | Deleted threads leave it                                                                                                                                   |
+| A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                                                  |
+| Sent commands nobody watches (tab)       | The newest 64                                                                                                                                              |
+| Markdown documents                       | 400 unwatched documents and 16 MB (page); 64 open streams and 8 MB of text, highlight 512 and 4 MB (worker)                                                |
+| File diffs                               | 600 diffs and 16 MiB estimated bytes in memory, including text hidden by folds, shown diffs held; 2,000 entries and 128 MB in IndexedDB, oldest use pruned |
+| Terminal                                 | 1 M characters of raw output per watched PTY; unwatched ones released on exit, after 5 idle minutes or past 4; xterm scrollback 5,000                      |
+| Preview and device frames                | One object URL per view, revoked when replaced; nothing decoded or acked while hidden; 8 unwatched threads' state                                          |
+| Virtual lists                            | Measured sizes of rows no longer listed are forgotten; rows fading out at most 12 changes                                                                  |
+| Activity read marks                      | The newest 10,000                                                                                                                                          |
+| Selection listeners                      | 4,096 per store                                                                                                                                            |
 
 The month-long soak found the first unbounded holder: every run stayed in the thread store, and after 4,096 turns the thread failed with "Entity capacity exceeded". Ended runs that no loaded item belongs to are now evicted oldest first; active runs and the window's runs stay, so status and turn grouping never depend on an evicted run. Closed interactions and ended tasks followed the same way (a pending interaction and a running or `unknown` task always stay). The browser memory run found the second: TanStack Virtual keeps the measured size of every row key it has seen, so a streaming transcript's page heap grew 12 MB in 10 minutes at 5,000 events/s; keys of rows that left are now forgotten.
 

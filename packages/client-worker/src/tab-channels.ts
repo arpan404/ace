@@ -1,6 +1,11 @@
-import { ClientError, type Client, type ServiceWire } from "@ace/client";
+import {
+  ClientError,
+  type Client,
+  type ServiceWire,
+  type ServiceRequest,
+  type ServiceResponse,
+} from "@ace/client";
 import { ThreadId, type ClientMessage } from "@ace/protocol";
-import { z } from "zod";
 import { BrowserSubscriptions } from "./browser-subscriptions.ts";
 import { objectInput } from "./calls.ts";
 
@@ -11,18 +16,6 @@ import { objectInput } from "./calls.ts";
  * `browser.*` request. Keeping this small module in the host avoids a separate chunk's
  * overhead while service schemas still load on demand (ADR 0056).
  */
-
-const ChannelReply = z.object({
-  type: z.string(),
-  channel: z.number().int(),
-  eof: z.boolean().optional(),
-  uploadId: z.string().optional(),
-});
-const FilesResult = z.object({ type: z.literal("files.result") });
-const UploadEnd = z.object({
-  type: z.literal("files.request"),
-  operation: z.object({ op: z.enum(["upload.commit", "upload.cancel"]), uploadId: z.string() }),
-});
 
 type BrowserTransition = Extract<
   ClientMessage,
@@ -35,7 +28,7 @@ export interface ChannelCall {
   args: unknown[];
   signal: AbortSignal;
   /** Send the (possibly rewritten) request arguments through the worker's client. */
-  forward(args: unknown[]): Promise<unknown>;
+  forward(args: unknown[]): Promise<ServiceResponse<ServiceRequest>>;
   /** The connection the request started on is still the client's current one. */
   current(): boolean;
   /** The tab still waits for this request's reply. */
@@ -138,22 +131,22 @@ export class TabChannels {
       (!call.current() || client.state !== "ready")
     )
       throw new ClientError("offline");
-    const reply = ChannelReply.safeParse(value);
-    if (reply.success && reply.data.type === "files.data" && reply.data.eof)
-      this.files.delete(reply.data.channel);
+    if (value.type === "files.data" && Number.isInteger(value.channel) && value.eof)
+      this.files.delete(value.channel);
     if (
-      reply.success &&
-      (reply.data.type === "files.ready" || reply.data.type === "files.upload")
+      (value.type === "files.ready" || value.type === "files.upload") &&
+      Number.isInteger(value.channel)
     ) {
       if (!call.current()) throw new ClientError("offline");
-      if (!call.pending()) client.send({ type: "files.cancel", channel: reply.data.channel });
-      else this.files.set(reply.data.channel, reply.data.uploadId);
+      if (!call.pending()) client.send({ type: "files.cancel", channel: value.channel });
+      else
+        this.files.set(value.channel, value.type === "files.upload" ? value.uploadId : undefined);
     }
-    if (FilesResult.safeParse(value).success) {
-      const ended = UploadEnd.safeParse(args[0]);
-      if (ended.success)
+    if (value.type === "files.result" && parsed.success && parsed.data.type === "files.request") {
+      const operation = parsed.data.operation;
+      if (operation.op === "upload.commit" || operation.op === "upload.cancel")
         for (const [channel, uploadId] of this.files)
-          if (uploadId === ended.data.operation.uploadId) this.files.delete(channel);
+          if (uploadId === operation.uploadId) this.files.delete(channel);
     }
     return value;
   }
