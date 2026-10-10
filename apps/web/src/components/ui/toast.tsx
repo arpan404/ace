@@ -2,6 +2,7 @@ import { Toast } from "@base-ui/react/toast";
 import { WarningCircleIcon, XIcon } from "@phosphor-icons/react";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useToastAnchor } from "@/lib/toast-anchor.ts";
 import { buttonVariants } from "./button.tsx";
 import { Tip } from "./tooltip.tsx";
 import { layers } from "./menu-styles.ts";
@@ -12,7 +13,8 @@ export const toastTimeouts = { plain: 4000, action: 8000, error: 8000 } as const
 const limit = 3;
 
 /**
- * Toasts sit below the header at the top centre, clear of composer and footer actions.
+ * Toasts sit below the header at the top centre of the main pane (`useToastAnchor`), clear of
+ * composer and footer actions and of the side panel.
  * Short confirmations take only the room their words need; descriptions and actions wrap
  * within a bounded card. Queue them under <ToastProvider> with useToast().add() or .error().
  * F6 moves focus to them (Base UI); hovering or focusing one pauses every timer.
@@ -34,7 +36,7 @@ function ToastProvider(props: { children: ReactNode }) {
             data-slot="toast-viewport"
             className={cn(
               layers.toast,
-              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-1/2 flex w-max max-w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
+              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
             )}
           >
             <ToastList />
@@ -75,6 +77,7 @@ function usePauseWaitingActions() {
 function ToastList() {
   const { toasts } = Toast.useToastManager();
   usePauseWaitingActions();
+  useToastAnchor(toasts);
   return toasts.map((toast) => (
     <Toast.Root
       key={toast.id}
