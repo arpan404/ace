@@ -94,42 +94,41 @@ it.skipIf(process.env["ACE_DEVICE_VIDEO_LIVE"] !== "1")(
     if (duration === undefined) throw new Error("Missing real video duration");
     expect(duration).toBeGreaterThanOrEqual(0.84);
     expect(duration).toBeLessThanOrEqual(1.04);
-    for (const expected of [0, 0.24, 0.8])
-      expect(
-        metadata.frames.some(
-          (frame) => Math.abs(frame.best_effort_timestamp_time - expected) < 0.041,
-        ),
-      ).toBe(true);
-    for (const [timestamp, dominant] of [
+    // Decode every frame in presentation order; seeking would skip frames that start before it.
+    const decoded = await execute(
+      ffmpeg,
+      [
+        "-loglevel",
+        "error",
+        "-i",
+        artifact.path,
+        "-vf",
+        "crop=720:720:280:0,scale=1:1",
+        "-fps_mode",
+        "passthrough",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "pipe:1",
+      ],
+      { encoding: "buffer", timeout: 30000, maxBuffer: 1024 * 1024 },
+    );
+    expect(decoded.stdout.length).toBe(metadata.frames.length * 3);
+    const expected = [
       [0, 0],
-      [0.3, 1],
-      [0.82, 2],
-    ] as const) {
-      const decoded = await execute(
-        ffmpeg,
-        [
-          "-loglevel",
-          "error",
-          "-ss",
-          String(timestamp),
-          "-i",
-          artifact.path,
-          "-vf",
-          "crop=720:720:280:0,scale=1:1",
-          "-frames:v",
-          "1",
-          "-f",
-          "rawvideo",
-          "-pix_fmt",
-          "rgb24",
-          "pipe:1",
-        ],
-        { encoding: "buffer", timeout: 30000, maxBuffer: 1024 * 1024 },
-      );
-      expect(decoded.stdout.length).toBe(3);
-      for (let channel = 0; channel < 3; channel++)
-        if (channel === dominant) expect(decoded.stdout[channel]).toBeGreaterThan(220);
-        else expect(decoded.stdout[channel]).toBeLessThan(35);
+      [0.24, 1],
+      [0.8, 2],
+    ] as const;
+    for (const [index, [timestamp, dominant]] of expected.entries()) {
+      const frame = metadata.frames[index];
+      if (!frame) throw new Error(`Missing decoded frame ${index}`);
+      expect(Math.abs(frame.best_effort_timestamp_time - timestamp)).toBeLessThan(0.041);
+      for (let channel = 0; channel < 3; channel++) {
+        const value = decoded.stdout[index * 3 + channel];
+        if (channel === dominant) expect(value).toBeGreaterThan(220);
+        else expect(value).toBeLessThan(35);
+      }
     }
     expect(await readFile(path)).toEqual(source);
   },
