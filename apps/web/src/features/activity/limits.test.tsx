@@ -24,7 +24,7 @@ afterEach(() => {
 type App = ReturnType<typeof harness>;
 
 const toasts = () => screen.getByRole("region", { name: "Notifications" });
-/** Usage & accounts reads quota again; every screen showing it gets the new reading. */
+/** Usage reads quota again; every screen showing it gets the new reading. */
 const refresh = () => userEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
 /**
@@ -54,7 +54,7 @@ function visibility(state: DocumentVisibilityState) {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
-/** Claude Code · Work at its 5-hour limit, a moment before that window resets, on Usage & accounts. */
+/** Claude Code · Work at its 5-hour limit, a moment before that window resets, on Usage. */
 async function workAtLimit(app: App) {
   report(app, "claude-work", { five_hour: [100, 1] });
   await app.open("/accounts");
@@ -123,12 +123,16 @@ test("with limit toasts turned off, an account reaching its limit stays quiet", 
   const app = harness();
   report(app, "claude-work", { five_hour: [60, 2 * hour] });
   await app.open("/accounts");
-  const work = await screen.findByRole("article", { name: "Claude Code Work" });
+  await screen.findByRole("article", { name: "Claude Code Work" });
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
   // The page has the new reading, and no toast came with it.
-  expect(await within(work).findByText("Limit reached")).toBeTruthy();
+  expect(
+    await within(await screen.findByRole("article", { name: "Claude Code Work" })).findByText(
+      "Limit reached",
+    ),
+  ).toBeTruthy();
   expect(screen.queryByText("Claude Code · Work reached its usage limit")).toBeNull();
 });
 

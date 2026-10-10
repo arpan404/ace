@@ -20,7 +20,7 @@ test("Providers still lists installed CLIs when account reads fail", async () =>
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
   expect(screen.queryByText("Couldn't check providers. Try again.")).toBeNull();
   await waitFor(() =>
-    expect(screen.getByRole("group", { name: "Claude Code" }).textContent).toContain("Ready"),
+    expect(screen.getByRole("group", { name: "Claude Code" }).textContent).toContain("2.1.4"),
   );
 });
 
@@ -103,7 +103,7 @@ test("a failed provider check keeps its loaded rows and reports the failed check
   await made.open("/settings/providers");
   await screen.findByRole("link", { name: "Claude Code" });
   await waitFor(() =>
-    expect(screen.getByRole("group", { name: "Claude Code" }).textContent).toContain("Ready"),
+    expect(screen.getByRole("group", { name: "Claude Code" }).textContent).toContain("2.1.4"),
   );
   made.daemon.failRequests("providers.request");
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));

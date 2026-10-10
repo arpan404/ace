@@ -87,9 +87,9 @@ test("the sidebar shows a plain ace label and profile connection actions", async
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Automations", "Skills", "Usage & accounts", "Archived threads", "Connection"]);
-  await userEvent.click(within(account).getByRole("menuitem", { name: "Usage & accounts" }));
-  await title("Usage & accounts");
+  ).toEqual(["Automations", "Skills", "Usage", "Archived threads", "Connection"]);
+  await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
+  await title("Usage");
   expect(list("Threads")).toBeTruthy();
 });
 

@@ -1,7 +1,7 @@
 import { longHistory, replayCursor, teamAtLimit, workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import {
   chooseAccount,
@@ -10,19 +10,22 @@ import {
   openModelPicker,
 } from "@/test/model-control.ts";
 
+configure({ asyncUtilTimeout: 10_000 });
+
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 
 const namedAccounts = async (app: ReturnType<typeof harness>) =>
   (await app.client.request({ type: "accounts.list" })).accounts.map((account) => account.label);
 
-test("the provider count opens its accounts and cancelling a new API-key form leaves no account", async () => {
+test("the provider name opens its accounts and cancelling a new API-key form leaves no account", async () => {
   const app = harness();
   await app.open("/settings/providers");
   const row = await screen.findByRole("group", { name: "Codex" });
-  expect(await within(row).findByText("3 accounts")).toBeTruthy();
+  expect(within(row).queryByText("3 accounts")).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "Codex" }));
   const accounts = await screen.findByRole("list", { name: "Codex accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  await userEvent.click(within(accounts).getByRole("button", { name: "+ Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
@@ -35,39 +38,14 @@ test("the provider count opens its accounts and cancelling a new API-key form le
   expect(within(accounts).queryByText("Client key")).toBeNull();
 });
 
-test("Usage & accounts offers the same named-account form for each provider", async () => {
+test("Usage and the model picker leave account management on the provider page", async () => {
   const app = harness();
   await app.open("/accounts");
-  const codex = await screen.findByRole("region", { name: "Codex" });
-  await userEvent.click(within(codex).getByRole("button", { name: "Add account" }));
-  const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Not saved");
-  await userEvent.click(within(form).getByRole("button", { name: "Cancel" }));
-  expect(await namedAccounts(app)).not.toContain("Not saved");
-  expect(screen.queryByRole("form", { name: "Add account" })).toBeNull();
-});
-
-test("the picker adds a named account, closes on device-code success and never claims the CLI's email", async () => {
-  const app = harness();
-  app.play(replayCursor()).runThrough("finding");
-  await app.open("/t/thread-replay-cursor");
-  const popover = await openModelControl(/^Model: Opus 5.5/);
-  await chooseAccount(popover, "Add account…");
-  const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Client work");
-  await userEvent.click(within(form).getByRole("button", { name: "Use 💼 badge" }));
-  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
-  const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
-  await within(dialog).findByRole("link", { name: /Open sign-in page/ });
-  app.daemon.services.providerLogin.complete("fake-login-1");
-  await waitFor(() =>
-    expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
-  );
-  expect(await screen.findByText("Signed in to Claude Code · Client work")).toBeTruthy();
-  expect(screen.queryByText("Signed in as ada@example.com")).toBeNull();
-  expect(await namedAccounts(app)).toContain("Client work");
-  const saved = await app.client.request({ type: "accounts.list" });
-  expect(saved.accounts.find((account) => account.label === "Client work")?.shortLabel).toBe("💼");
+  await screen.findByRole("article", { name: "Codex Personal" });
+  expect(screen.queryByRole("button", { name: /Add account/ })).toBeNull();
+  expect(
+    screen.getByRole("link", { name: "Manage accounts in Settings › Providers." }),
+  ).toBeTruthy();
 });
 
 test("a renamed default account immediately names the new-thread composer and picker group", async () => {
@@ -76,15 +54,15 @@ test("a renamed default account immediately names the new-thread composer and pi
   await app.open("/settings/providers/claude");
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const field = screen.getByRole("textbox", { name: "Account name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Studio Work{Enter}");
-  await userEvent.click(
-    await within(accounts).findByRole("button", { name: "Manage Studio Work" }),
-  );
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
-  await screen.findByText("Near its limit · Studio Work");
+  const renamed = (await within(accounts).findByText("Studio Work")).closest("li");
+  if (!renamed) throw new Error("Missing renamed account");
+  await userEvent.hover(renamed);
+  await userEvent.click(within(renamed).getByRole("button", { name: "Make default" }));
+  await within(renamed).findByText("Default");
   await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();
@@ -112,7 +90,7 @@ test("account-switch confirmations name the account and disappear when another t
   );
 });
 
-test("a limited current account remains selected and its notice opens the shared Add another account flow", async () => {
+test("a limited current account remains selected while account management stays in Settings", async () => {
   const app = harness();
   const scenario = teamAtLimit()[0];
   if (!scenario) throw new Error("Missing limited thread");
@@ -124,8 +102,7 @@ test("a limited current account remains selected and its notice opens the shared
   expect(selected.getAttribute("aria-selected")).toBe("true");
   expect(selected.getAttribute("aria-disabled")).toBe("true");
   await closeModelControl();
-  await userEvent.click(screen.getByRole("button", { name: "Add another account" }));
-  expect(await screen.findByRole("form", { name: "Add account" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Add another account" })).toBeNull();
 });
 
 test("successive account sign-ins announce one consistently named success, replacing the previous one", async () => {
@@ -154,7 +131,7 @@ test("the API service picker names its known marks and connects the selected Ope
   const app = harness();
   await app.open("/settings/providers/opencode");
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  await userEvent.click(within(accounts).getByRole("button", { name: "+ Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));

@@ -14,7 +14,7 @@ function stage(app: Harness, provider: ProviderKind, staged: Partial<ProviderSta
   Object.assign(found, staged);
 }
 
-const section = (name = "On this computer") =>
+const section = (name = "Installed providers") =>
   screen.findByRole("region", { name }, { timeout: 10_000 });
 
 /** The row of the list that holds the link to `name`'s page. */
@@ -27,19 +27,14 @@ test("the list says each provider's state in one line and asks only where someth
   // connected through their services, Cursor's sign-in expired, Antigravity not installed.
   await harness().open("/settings/providers");
   const installed = await section();
-  expect(within(await rowOf("Claude Code")).getByText("Ready")).toBeTruthy();
+  expect(within(await rowOf("Claude Code")).queryByText("Ready")).toBeNull();
   expect(within(await rowOf("Codex")).getByText("Update available")).toBeTruthy();
-  expect(await within(await rowOf("OpenCode")).findByText("Ready")).toBeTruthy();
+  expect(within(await rowOf("OpenCode")).queryByText("Ready")).toBeNull();
   expect(await within(await rowOf("Cursor")).findByText("Needs attention")).toBeTruthy();
   // The list opens each provider's one place for account and CLI actions.
-  expect(
-    within(installed)
-      .getAllByRole("button")
-      .map((button) => button.textContent),
-  ).toEqual(["", "Update", "Sign in"]);
-  // No CLI versions or "sign-in unknown" in the list; those live on each page.
-  expect(installed.textContent).not.toMatch(/2\.1\.4|unknown|opencode 1/);
-  const missing = await section("Not installed");
+  expect(within(await rowOf("Codex")).getByRole("button", { name: "Update" })).toBeTruthy();
+  expect(within(installed).getByText("2.1.4")).toBeTruthy();
+  const missing = await section("Available to install");
   expect(within(missing).getByRole("link", { name: "Antigravity" })).toBeTruthy();
 }, 30_000);
 
@@ -47,15 +42,18 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("link", { name: "Claude Code" }));
   expect(await screen.findByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy();
-  const about = await screen.findByRole("region", { name: "About" });
+  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+  const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(within(about).getByText("2.1.4")).toBeTruthy();
   expect(within(about).getByText("/opt/homebrew/bin/claude")).toBeTruthy();
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   expect(within(accounts).getByText("Your CLI login")).toBeTruthy();
-  expect((await screen.findAllByText("Signed in as ada@example.com")).length).toBeGreaterThan(0);
+  expect(within(accounts).queryByText("Signed in")).toBeNull();
   expect(within(accounts).getByText("Work")).toBeTruthy();
   // Sign out is on the page, apart from everything else.
-  expect(screen.getByRole("region", { name: "Sign out of Claude Code" })).toBeTruthy();
+  await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
+  expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
 
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
   expect(await section()).toBeTruthy();
@@ -69,9 +67,10 @@ test("a provider that needs attention leads its page with what's wrong and Recon
       account.availability = "logged_out";
     }
   await app.open("/settings/providers/cursor");
-  const alert = await screen.findByRole("region", { name: "Setup" }, { timeout: 10_000 });
-  expect(within(alert).getByText("Cursor sign-in has expired.")).toBeTruthy();
-  await userEvent.click(within(alert).getByRole("button", { name: "Sign in to Cursor" }));
+  const accounts = await screen.findByRole("list", { name: "Cursor accounts" });
+  const own = (await within(accounts).findByText("Your Cursor login")).closest("li");
+  if (!own) throw new Error("Missing Cursor login");
+  await userEvent.click(within(own).getByRole("button", { name: "Reconnect" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Cursor" })).toBeTruthy();
 }, 30_000);
 
@@ -85,7 +84,7 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
     { timeout: 10_000 },
   );
   expect(within(services).getAllByText("Needs attention")).toHaveLength(2);
-  expect(within(services).getAllByText("Connected").length).toBeGreaterThan(0);
+  expect(within(services).queryByText("Connected")).toBeNull();
   expect(within(services).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
   // Local runtimes need no sign-in; they're named once.
   expect(screen.getByText(/models running on this computer: LM Studio, Ollama/)).toBeTruthy();
@@ -101,6 +100,7 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
 
 test("Connect a service on Pi's page opens the CLI's own choices", async () => {
   await harness().open("/settings/providers/pi");
+  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
   // The native terminal recipe remains available alongside working catalog readiness.
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(about.textContent).toContain("Run pi, then type /login");
@@ -139,9 +139,11 @@ test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed 
   ).toBeTruthy();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
-  expect(
-    await within(await rowOf("Codex")).findByText("Ready", {}, { timeout: 10_000 }),
-  ).toBeTruthy();
+  await waitFor(async () =>
+    expect(
+      within(await rowOf("Codex")).queryByRole("button", { name: "Sign in to Codex" }),
+    ).toBeNull(),
+  );
 }, 30_000);
 
 test("a CLI that isn't installed offers the supervised installer on its page", async () => {
@@ -150,19 +152,18 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
   stage(app, "codex", { installed: false });
   await app.open("/settings/providers");
   await userEvent.click(
-    within(await section("Not installed")).getByRole("link", { name: "Codex" }),
+    within(await section("Available to install")).getByRole("link", { name: "Codex" }),
   );
-  const cli = await screen.findByRole("region", { name: "Setup" });
-  expect(within(cli).getByRole("button", { name: "Install" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Install" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Sign out of Codex" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
 }, 30_000);
 
 test("Show models offers named controls for current and older models without repeating accounts", async () => {
   await harness().open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
-  await userEvent.click(await within(models).findByRole("button", { name: /^Show models/ }));
-  const shown = await within(models).findByRole("list", { name: "Models" });
+  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
+  await userEvent.click(await within(models).findByRole("button", { name: "Manage" }));
+  const shown = await screen.findByRole("list", { name: "Models" });
   expect(within(shown).getByRole("button", { name: "Star GPT-6.1 Sol" })).toBeTruthy();
   expect(within(shown).getByRole("button", { name: "Hide GPT-5.5" })).toBeTruthy();
   expect(shown.textContent).not.toMatch(/gpt-6\.1-sol|gpt-5-codex/);
@@ -171,7 +172,7 @@ test("Show models offers named controls for current and older models without rep
 test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {
   const app = harness();
   await app.open("/settings/providers/claude");
-  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
+  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
   await userEvent.click(
     await within(models).findByRole("button", { name: "Default model: Opus 5.5" }),
   );
@@ -194,9 +195,8 @@ test("a provider's default model can be changed, even to a legacy one, and reads
 }, 30_000);
 
 test("a provider's page opens shared usage with daily tokens and API-price estimates", async () => {
-  await harness().open("/settings/providers/claude");
-  await userEvent.click(await screen.findByRole("link", { name: "View usage ›" }));
-  await screen.findByRole("heading", { level: 1, name: "Usage & accounts" });
+  await harness().open("/accounts");
+  await screen.findByRole("heading", { level: 1, name: "Usage" });
   const usage = await screen.findByRole("region", { name: "Usage" }, { timeout: 10_000 });
   await within(usage).findByRole("list", { name: "Tokens per day" });
   const table = await within(usage).findByRole("table", { name: "Usage by model" });
@@ -205,8 +205,8 @@ test("a provider's page opens shared usage with daily tokens and API-price estim
 
 test("an ACP agent added by command joins the list, and its page removes it", async () => {
   await harness().open("/settings/providers");
-  const agents = await section("ACP agents");
-  await userEvent.click(within(agents).getByRole("button", { name: "Add" }));
+  await section("Installed providers");
+  await userEvent.click(screen.getByRole("button", { name: "Add an ACP agent…" }));
   const dialog = await screen.findByRole(
     "dialog",
     { name: "Add an ACP agent" },
@@ -223,9 +223,12 @@ test("an ACP agent added by command joins the list, and its page removes it", as
     expect(screen.queryByRole("form", { name: "Add an ACP agent by command" })).toBeNull(),
   );
 
-  await userEvent.click(await within(agents).findByRole("link", { name: "Qwen Code" }));
+  await userEvent.click(
+    await screen.findByRole("link", { name: "Qwen Code" }, { timeout: 10_000 }),
+  );
+  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   await userEvent.click(await screen.findByRole("button", { name: "Remove Qwen Code" }));
-  expect(await section("ACP agents")).toBeTruthy();
+  expect(await section("Installed providers")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Qwen Code" })).toBeNull());
 }, 30_000);
 
@@ -245,8 +248,8 @@ test("a provider with one available model labels it in the singular", async () =
     .filter((entry) => entry.provider !== "codex")
     .concat(model);
   await app.open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Models" });
-  expect(await within(models).findByText("1 model")).toBeTruthy();
+  const models = await screen.findByRole("region", { name: "Behaviour" });
+  expect(await within(models).findByText("1 model · legacy models in a submenu")).toBeTruthy();
   expect(within(models).queryByText("1 models")).toBeNull();
 });
 
@@ -261,7 +264,7 @@ test("a vanished saved default stays unavailable until the person picks its reco
     (row) => row.id !== "opencode-go/muse-spark-1.3-contributor",
   );
   await app.open("/settings/providers/opencode");
-  const models = await screen.findByRole("region", { name: "Models" });
+  const models = await screen.findByRole("region", { name: "Behaviour" });
   await userEvent.click(
     await within(models).findByRole("button", {
       name: "Default model: Muse Spark 1.3 Contributor, Unavailable",

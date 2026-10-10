@@ -8,14 +8,18 @@ test("OpenCode accounts reflect their service failure while a working account st
   const app = harness();
   app.daemon.seedServices(workbenchServices(1_000));
   await app.open("/settings/providers/opencode");
-  const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
+  const accounts = await screen.findByRole(
+    "list",
+    { name: "OpenCode accounts" },
+    { timeout: 10_000 },
+  );
   const rows = within(accounts).getAllByRole("listitem");
   const failing = rows.find((row) => within(row).queryByText("OpenRouter API"));
   const working = rows.find((row) => within(row).queryByText("Work"));
   if (!failing || !working) throw new Error("Missing account fixtures");
   expect(await within(failing).findByText("Connection needs attention")).toBeTruthy();
   expect(within(failing).queryByText("Signed in")).toBeNull();
-  expect(within(working).getByText("Signed in")).toBeTruthy();
+  expect(within(working).queryByText("Signed in")).toBeNull();
   const services = within(await screen.findByRole("list", { name: "OpenCode services" }));
   expect(services.getByRole("button", { name: "Reconnect OpenRouter" })).toBeTruthy();
   expect(services.getByText("Connect a service")).toBeTruthy();
@@ -43,7 +47,7 @@ test("a delegated failure names the rejected model after replay without exposing
 
 test("an inline account login uses the same provider and account wording as a dialog login", async () => {
   await harness().open("/settings/providers/codex");
-  await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Add account" }));
   const form = within(await screen.findByRole("form", { name: "Add account" }));
   await userEvent.type(form.getByRole("textbox", { name: "Account name" }), "Work2");
   await userEvent.click(form.getByRole("combobox", { name: "Sign-in method" }));

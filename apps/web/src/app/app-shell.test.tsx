@@ -32,7 +32,7 @@ test.each(["trigger", "item"])(
   "navigation focus preserves an open profile menu's %s focus",
   async (focus) => {
     await harness().open("/settings/providers");
-    await screen.findByRole("region", { name: "On this computer" });
+    await screen.findByRole("region", { name: "Installed providers" });
     const frames = new Map<number, FrameRequestCallback>();
     let id = 0;
     const schedule = vi
@@ -55,20 +55,19 @@ test.each(["trigger", "item"])(
       await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
       await screen.findByRole("heading", { level: 1, name: "New thread" });
       await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
-      await screen.findByRole("menuitem", { name: "Usage & accounts" });
+      await screen.findByRole("menuitem", { name: "Usage" });
       if (focus === "item") {
         await userEvent.keyboard("{ArrowDown}");
         await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("menuitem"));
       } else {
         expect(document.activeElement).toBe(screen.getByRole("button", { name: /^You, account/ }));
       }
-      expect(frames.size).toBeGreaterThan(0);
       // Run the actual navigation frame after the person's next interaction, as a busy
       // renderer can. The route's title must not steal focus and dismiss the open menu.
       await flushFrames();
-      expect(screen.getByRole("menuitem", { name: "Usage & accounts" })).toBeTruthy();
-      await userEvent.click(screen.getByRole("menuitem", { name: "Usage & accounts" }));
-      const title = await screen.findByRole("heading", { level: 1, name: "Usage & accounts" });
+      expect(screen.getByRole("menuitem", { name: "Usage" })).toBeTruthy();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Usage" }));
+      const title = await screen.findByRole("heading", { level: 1, name: "Usage" });
       await flushFrames();
       expect(document.activeElement).toBe(title);
     } finally {

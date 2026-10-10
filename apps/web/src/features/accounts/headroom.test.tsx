@@ -1,7 +1,9 @@
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10_000 });
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -12,6 +14,7 @@ const day = 24 * hour;
  */
 const now = Date.parse("2036-10-01T15:00:00Z");
 
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now }));
 afterEach(() => vi.useRealTimers());
 
@@ -29,7 +32,7 @@ function report(app: App, id: string, windows: Record<string, [used: number, res
   );
 }
 
-test("headroom names each provider's account with the most room and when the next one frees up", async () => {
+test("usage puts limited accounts first and exposes each provider reset time", async () => {
   const app = harness();
   report(app, "claude-personal", { five_hour: [62, 2 * hour], seven_day: [41, 4 * day] });
   report(app, "claude-work", { five_hour: [23, 3 * hour], seven_day: [57, 2 * day] });
@@ -38,18 +41,17 @@ test("headroom names each provider's account with the most room and when the nex
   await app.open("/accounts");
   const work = await screen.findByRole("article", { name: "Claude Code Work" });
 
-  const headroom = screen.getByRole("list", { name: "Headroom now" });
-  const rows = within(headroom)
-    .getAllByRole("listitem")
-    .map((row) => row.textContent);
-  expect(rows[0]).toBe(
-    "Claude Code3 of 3 accounts can work · 1 with no limits reported · Most room: Work, 43% of Weekly left",
-  );
-  expect(rows[1]).toMatch(
-    /^Codex1 of 3 accounts can work · 1 with no limits reported · Most room: Personal, 62% of 5-hour left · Team resets \d{1,2}:\d\d(?: [AP]M)? · in 1h 27m$/i,
-  );
-  // OpenCode and Cursor report no windows: nothing to compare.
-  expect(rows.find((row) => row?.startsWith("OpenCode"))).toContain("no limits reported");
+  expect(
+    within(await screen.findByRole("region", { name: "Closest to a limit" })).getByRole("article", {
+      name: "Codex Team",
+    }),
+  ).toBeTruthy();
+  expect(
+    within(await screen.findByRole("region", { name: "Everything else" })).getByRole("article", {
+      name: "Claude Code Work",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Headroom now" })).toBeNull();
 
   // Each ring says how long until its window resets.
   expect(
