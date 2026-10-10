@@ -50,3 +50,39 @@ it.each([1, 2])(
     });
   },
 );
+
+it.each([1, 2])(
+  "legacy scroll coordinates on a v2 model image reach the centre at native scale %s",
+  async (scale) => {
+    const h = await manager(
+      {
+        FAKE_V2: "1",
+        MODEL_FRAME_WIDTH: "3072",
+        MODEL_FRAME_HEIGHT: "1536",
+        MODEL_NATIVE_SCALE: String(scale),
+      },
+      {
+        modelImageRuntime: {
+          encoder: async () => process.execPath,
+          spawn: () =>
+            spawn(
+              process.execPath,
+              [
+                "-e",
+                "process.stdin.resume();process.stdin.on('end',()=>process.stdout.write(Buffer.from([255,216,255,217])))",
+              ],
+              { stdio: ["pipe", "pipe", "pipe"] },
+            ),
+          after: () => () => {},
+        },
+      },
+    );
+    onTestFinished(h.close);
+    const state = await ready(h.screen);
+    h.screen.controller(state.sessionId, "agent", "agent");
+    const tool = computerUseHandler(h.screen, state.sessionId, "agent");
+    await tool("screen_screenshot", {});
+    await tool("screen_scroll", { x: 768, y: 384, deltaX: 0, deltaY: 50 });
+    expect((await h.screen.targets()).windows[0]?.title).toContain("clicked:centre");
+  },
+);
