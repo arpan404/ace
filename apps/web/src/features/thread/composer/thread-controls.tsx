@@ -8,9 +8,9 @@ import {
   modelControlName,
   nextOptions,
   optionEffort,
-  composerPermissionOption,
-  composerPermissionDefault,
-  composerPermissionOptions,
+  permissionOption,
+  resolvePermissionMode,
+  permissionOptions,
   permissionPendingNote,
   permissionUnavailable,
   pickerModelsFromChoices,
@@ -71,37 +71,29 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     live: (meta?.effectiveCapabilities ?? meta?.capabilities)?.permissions,
   });
   const defaultMode = meta
-    ? composerPermissionDefault(meta.provider, providerModes?.[meta.provider], capabilities)
+    ? resolvePermissionMode(meta.provider, providerModes?.[meta.provider], capabilities)
     : null;
   const summary = threadPermissionSummary(meta?.permission, capabilities, {
     chosen: permission.chosen,
     defaultMode,
   });
-  const wanted = summary?.next ?? summary?.mode ?? defaultMode;
+  const wanted = summary?.next !== undefined ? summary.next : (summary?.mode ?? defaultMode);
   const blocked =
     meta && wanted && permissionUnavailable(capabilities, wanted, providerNames[meta.provider]);
   return (
     <PermissionPicker
-      current={
-        summary &&
-        composerPermissionOption(meta?.provider, summary.mode ?? defaultMode, capabilities)
-      }
-      next={
-        summary?.next
-          ? composerPermissionOption(meta?.provider, summary.next, capabilities)
-          : undefined
-      }
-      note={summary?.next && (permission.note ?? permissionPendingNote())}
+      current={summary && permissionOption(summary.mode ?? defaultMode, capabilities)}
+      next={summary?.next !== undefined ? permissionOption(summary.next, capabilities) : undefined}
+      note={summary?.next !== undefined ? (permission.note ?? permissionPendingNote()) : undefined}
       detail={summary?.coverage}
       inherited={summary?.inherited}
       menu={{
-        options: composerPermissionOptions(meta?.provider, capabilities),
+        options: permissionOptions(capabilities),
         value: wanted ?? undefined,
         loading: loading || (!meta?.permission && !failed),
-        unavailable:
-          failed && !meta?.permission
-            ? "Couldn't load this thread's permissions. Reconnect and try again."
-            : undefined,
+        unavailable: failed
+          ? "Couldn't load this thread's permissions. Reconnect and try again."
+          : undefined,
 
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
       }}

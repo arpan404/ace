@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { permissionAdmission, permissionChoices, permissionFallback } from "./permissions.ts";
+import {
+  permissionAdmission,
+  permissionChoices,
+  permissionFallback,
+  threadPermissionSummary,
+} from "./permissions.ts";
 import { offeredOptions } from "./approvals.ts";
 const capabilities = {
   modes: ["default", "acceptEdits"],
@@ -29,4 +34,13 @@ test("native permanent approval options remain available in every provider mode"
     { id: "deny", label: "Deny", kind: "deny" as const },
   ];
   expect(offeredOptions(options, "default")).toEqual({ options, hidden: 0 });
+});
+
+test("returning to the provider default remains visible while the previous native mode is still effective", () => {
+  const summary = threadPermissionSummary(
+    { override: "acceptEdits", effective: "acceptEdits", pending: false },
+    capabilities,
+    { chosen: null },
+  );
+  expect(summary).toMatchObject({ mode: "acceptEdits", next: null, inherited: true });
 });
