@@ -1,6 +1,6 @@
 import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
 import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
-import { ClaudeSelectionOptions } from "./selection.ts";
+import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -258,8 +258,7 @@ export async function openSession(
         argumentHint: c.argumentHint,
       })),
     });
-    if (ctx.options !== undefined)
-      await q.applyFlagSettings({ effortLevel: selectedOptions.effort ?? null });
+    if (ctx.options !== undefined) await q.applyFlagSettings(claudeSelectionFlags(selectedOptions));
     ctx.signal.throwIfAborted();
   } catch (error) {
     await close();
@@ -288,7 +287,7 @@ export async function openSession(
       await q.setModel(selection.model);
       if (ctx.permissionMode)
         await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
-      await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
+      await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
     },
     async send(parts, delivery, commandId, origin) {
       ensureOpen();

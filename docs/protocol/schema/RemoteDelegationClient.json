@@ -1,0 +1,366 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteDelegationClient.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.remote.transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "additionalProperties": false,
+          "properties": {
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "read",
+              "type": "string"
+            },
+            "sha256": {
+              "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+            }
+          },
+          "required": [
+            "op",
+            "sha256",
+            "offset"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "taskId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.remote.output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "taskId",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
+        },
+        "lease": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "prepare",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "begin",
+                  "type": "string"
+                },
+                "sha256": {
+                  "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+                }
+              },
+              "required": [
+                "op",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "maxLength": 87384,
+                  "minLength": 4,
+                  "type": "string"
+                },
+                "offset": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "op": {
+                  "const": "chunk",
+                  "type": "string"
+                },
+                "uploadId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "uploadId",
+                "offset",
+                "data"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "commit",
+                  "type": "string"
+                },
+                "uploadId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "uploadId"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.broker.return",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "lease",
+        "artifacts",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "https://ace.local/protocol/v1/RemoteContextOperation.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "$ref": "https://ace.local/protocol/v1/RemoteTask.json"
+        },
+        "type": {
+          "const": "delegation.remote.context",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "task",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "$ref": "https://ace.local/protocol/v1/RemoteTask.json"
+        },
+        "type": {
+          "const": "delegation.remote.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "task"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "taskId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.remote.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "taskId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "taskId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.remote.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "taskId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RemoteAgentHost.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.broker.register",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "hosts"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.broker.poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "lease"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "report": {
+          "$ref": "https://ace.local/protocol/v1/RemoteTaskReport.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.broker.report",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "lease",
+        "report"
+      ],
+      "type": "object"
+    }
+  ]
+}

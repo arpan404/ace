@@ -1,3 +1,6 @@
+import { deviceImageStream } from "./stream-control.ts";
+import { simulatorCapture } from "./simulator-capture.ts";
+import type { DeviceInput } from "@ace/protocol/devices";
 import { H264AccessUnits } from "./h264.ts";
 import { framePacket, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
 import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
@@ -11,6 +14,8 @@ import type { Capture, DeviceRuntime } from "./runtime.ts";
 import { permissionDenied } from "./screen-failure.ts";
 
 export interface DeviceCapture extends Capture {
+  releaseInput?(): Promise<void>;
+  input?(input: DeviceInput, guard: () => void): Promise<void>;
   screenSessionId?: string;
   streamId?: string;
   configure?(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }>;
@@ -35,6 +40,22 @@ export async function startCapture(options: {
   };
   checkAbort();
   if (options.device.platform === "ios") {
+    const command = await discoverExecutable(
+      options.env["ACE_SERVE_SIM"] ?? "serve-sim",
+      options.env,
+    );
+    checkAbort();
+    if (command) {
+      const device = await options.platform.simulatorCaptureDevice(options.device);
+      checkAbort();
+      return simulatorCapture({ ...options, device, command });
+    }
+    if (options.env["ACE_SERVE_SIM"])
+      throw new DeviceError(
+        "tool_missing",
+        "serve-sim was not found",
+        "Install serve-sim on the device's Mac, or correct ACE_SERVE_SIM.",
+      );
     const screen = options.screen;
     if (!screen)
       throw new DeviceError(
@@ -142,7 +163,7 @@ export async function startCapture(options: {
   const { runtime } = options;
   let stopped = false;
   let sequence = 0;
-  let settings: ScreenStreamSettings | undefined;
+  let settings: ScreenStreamSettings = { ...deviceImageStream, fps: options.fps };
   let lastKeyframe = -Infinity;
   type Cycle = {
     input: RawSupervisedProcess;
@@ -185,7 +206,7 @@ export async function startCapture(options: {
     checkAbort();
     const factor = Math.min(
       1,
-      (settings?.maxWidth ?? 3840) / transport.width,
+      (settings?.maxWidth ?? 1920) / transport.width,
       (settings?.maxHeight ?? 2160) / transport.height,
     );
     const size = {
@@ -231,7 +252,7 @@ export async function startCapture(options: {
             ? ["-c:v", "copy", "-bsf:v", "h264_metadata=aud=insert", "-f", "h264"]
             : [
                 "-vf",
-                `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 3840},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
+                `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 1920},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
                 "-fps_mode",
                 "vfr",
                 "-c:v",

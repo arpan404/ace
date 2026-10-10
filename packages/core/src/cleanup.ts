@@ -91,7 +91,7 @@ export function exitProcess(
   }
   for (const key of runningTaskKeys(state)) {
     const task = state.tasks[key]!;
-    if (task.status !== "running") continue;
+    if (task.status !== "running" || task.owner === "ace") continue;
     task.status = "unknown";
     task.endedAt = ctx.now;
     refreshTaskIndex(state, key);

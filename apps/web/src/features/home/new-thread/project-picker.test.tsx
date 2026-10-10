@@ -13,7 +13,8 @@ test("project search keeps draft text, supports keyboard selection, no matches a
   await userEvent.type(message, "Keep my draft");
   await userEvent.click(await screen.findByRole("button", { name: "Project: ace" }));
   const popup = await screen.findByRole("dialog", { name: "Choose project" });
-  const search = within(popup).getByRole("combobox", { name: "Search projects" });
+  const search = await within(popup).findByRole("combobox", { name: "Search projects" });
+  expect(document.activeElement).toBe(search);
   await userEvent.type(search, "RELAY");
   expect(within(popup).getAllByRole("option")).toHaveLength(1);
   await userEvent.keyboard("{ArrowDown}{Enter}");
@@ -22,7 +23,7 @@ test("project search keeps draft text, supports keyboard selection, no matches a
   await userEvent.click(screen.getByRole("button", { name: "Project: relay" }));
   const reopened = await screen.findByRole("dialog", { name: "Choose project" });
   await userEvent.type(
-    within(reopened).getByRole("combobox", { name: "Search projects" }),
+    await within(reopened).findByRole("combobox", { name: "Search projects" }),
     "not-a-project",
   );
   expect(await within(reopened).findByText("No projects match.")).toBeTruthy();
@@ -49,9 +50,12 @@ test("the picker uses configured artwork and the shared initials fallback", asyn
   expect(image?.getAttribute("src")).toBe("https://example.com/ace.png");
   const path = app.daemon.projects.list().workspaces.find((project) => project.id === "ace")?.path;
   if (!path) throw new Error("Missing project path");
-  await userEvent.type(within(popup).getByRole("combobox", { name: "Search projects" }), path);
+  await userEvent.type(
+    await within(popup).findByRole("combobox", { name: "Search projects" }),
+    path,
+  );
   expect(within(popup).queryByRole("option", { name: "relay" })).toBeNull();
   expect(within(popup).getByRole("option", { name: "Application" })).toBeTruthy();
-  await userEvent.clear(within(popup).getByRole("combobox", { name: "Search projects" }));
+  await userEvent.clear(await within(popup).findByRole("combobox", { name: "Search projects" }));
   expect(within(popup).getByRole("option", { name: "relay" }).textContent).toContain("RE");
 });

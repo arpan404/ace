@@ -69,6 +69,12 @@ export type OutputData = Omit<Extract<ServerMessage, { type: "output.data" }>, "
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
+/** Wire/store operations used inside workers; convenience APIs stay in the page client. */
+export type ClientCoreApi = Omit<
+  ClientApi,
+  "attachmentBytes" | "projects" | "downloadFile" | "uploadFile"
+>;
+
 export interface ClientApi {
   /** Resolve a content id on this connection. Never use a global daemon URL. */
   attachmentBytes(

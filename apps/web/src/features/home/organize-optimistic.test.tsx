@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -163,3 +163,103 @@ test("offline Delete survives closing the window in the durable outbox", async (
     await fresh.close();
   }
 });
+
+test("deleting the open thread from the sidebar opens New thread", async () => {
+  const app = await openHome();
+  await userEvent.click(
+    card(/Invoice PDF/) ??
+      (() => {
+        throw Error("No invoice row");
+      })(),
+  );
+  await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
+  await choose(/Invoice PDF/, "Delete thread");
+  await waitFor(() => expect(listed(app, "thread-pdf-locale")).toBeUndefined());
+  expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
+  expect(screen.queryByText("Thread unavailable")).toBeNull();
+});
+
+test("deleting another thread and a refused active delete preserve the open thread", async () => {
+  const app = await openHome();
+  await userEvent.click(
+    card(/Invoice PDF/) ??
+      (() => {
+        throw Error("No invoice row");
+      })(),
+  );
+  await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
+  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
+  );
+  await waitFor(() => expect(card(/Bump Codex/)).toBeTruthy());
+  await choose(/Bump Codex/, "Delete thread");
+  await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Invoice PDF locale fallback" }),
+  ).toBeTruthy();
+  app.daemon.refuseCommands("forbidden", "thread.delete");
+  await choose(/Invoice PDF/, "Delete thread");
+  expect(await screen.findByText("Couldn't delete the thread")).toBeTruthy();
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Invoice PDF locale fallback" }),
+  ).toBeTruthy();
+});
+
+test("a delivered create never returns as a starting row after deleting its thread", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Temporary thread for deletion{Enter}",
+  );
+  await waitFor(() =>
+    expect(
+      app.client
+        .pendingSends()
+        .getSnapshot()
+        ?.some((send) => send.state === "delivered" && send.payload.type === "thread.create"),
+    ).toBe(true),
+  );
+  await waitFor(() => expect(card(/^Temporary thread for deletion/)).toBeTruthy());
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
+  await choose(/^Temporary thread for deletion/, "Delete thread");
+  await userEvent.click(await screen.findByRole("button", { name: "Stop and delete" }));
+  await screen.findByText("Deleted · Temporary thread for deletion");
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
+  expect(card(/^Temporary thread for deletion/)).toBeNull();
+  expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
+});
+
+test.each([false, true])(
+  "an accepted create listed without its transcript stays gone after deletion, worker=%s",
+  async (throughWorker) => {
+    const app = await openHome({ throughWorker });
+    await userEvent.click(
+      card(/Invoice PDF/) ??
+        (() => {
+          throw Error("No invoice row");
+        })(),
+    );
+    await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
+    const result = await app.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("relay"),
+      provider: "codex",
+      input: [{ type: "text", text: "Accepted thread without a transcript" }],
+    });
+    expect(result.ok).toBe(true);
+    await waitFor(() => expect(card(/^Accepted thread without a transcript/)).toBeTruthy());
+    expect(app.client.pendingSends().getSnapshot()).toContainEqual(
+      expect.objectContaining({ threadId: result.threadId, state: "accepted" }),
+    );
+    if (!result.threadId) throw Error("No created thread ID");
+    // A bulk or another-device delete doesn't open the single-row menu's transcript lease.
+    expect(
+      await app.client.command({ type: "thread.delete", threadId: result.threadId, force: true }),
+    ).toMatchObject({ ok: true });
+    await waitFor(() => expect(card(/^Accepted thread without a transcript/)).toBeNull());
+    expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull();
+  },
+);

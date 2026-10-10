@@ -31,6 +31,10 @@
                 }
               ]
             },
+            "gitUnavailable": {
+              "const": "git_quarantined",
+              "type": "string"
+            },
             "kind": {
               "const": "inspection",
               "type": "string"

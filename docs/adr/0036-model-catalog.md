@@ -234,3 +234,11 @@ in-process cache that is lost when a host exits. Its public catalog request
 has no configurable timeout or retries. We retain the daemon's bounded discovery
 deadline rather than altering SDK privacy behavior or caching credentials.
 The owner's exact ten-second latency remains unverified without a live request.
+
+Claude Fast selections use the session-scoped `fastMode` flag. Turning it off
+sets `false`, because SDK `null` clears the flag override and could reveal a
+persisted native Fast setting. OpenCode v2 effort choices are native model
+variants: creation, resume and live switching all preserve their variant id.
+There is no independent Fast toggle without native provider evidence; a
+provider's custom `fast` variant remains a selectable variant rather than an
+invented extra setting.

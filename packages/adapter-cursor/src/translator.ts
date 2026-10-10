@@ -197,15 +197,19 @@ export class CursorTranslator implements Translator {
         );
       }
       const stale = event.operationId !== this.operation || event.segment !== this.segment;
-      if (event.kind === "host-exit")
+      if (event.kind === "host-exit") {
+        const unsettled = [...this.children.calls.values()].some((child) => !child.settled);
+        const preserved = this.children.preserve();
+        if (object(event.body).deliberate === true && !this.active && !unsettled) return preserved;
         return [
-          ...this.children.preserve(),
+          ...preserved,
           this.notice(
             "SDK host exited; unresolved child/background work is uncertain",
             event,
             "warning",
           ),
         ];
+      }
       if (stale && !(event.kind === "error" && event.operationId === "open" && !this.rootSeen)) {
         // Surviving child facts belong to their original call namespace, never the replacement root.
         if (event.kind === "delta" && body.type === "tool-call-completed") {

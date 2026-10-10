@@ -142,6 +142,7 @@ export async function openCursorSession(
         threadId: context.threadId,
         generation: host.generation,
         ...(context.model ? { model: context.model } : {}),
+        modelParams: readCursorModelParams(context.options),
         ...(context.resume
           ? {
               nativeSessionId: context.resume.nativeSessionId,
@@ -160,6 +161,14 @@ export async function openCursorSession(
       nativeSessionId: reply.agentId,
       backend: "cursor-sdk",
       instanceId: options.instanceId,
+      async configure(selection) {
+        if (selection.provider !== "cursor" || !selection.model)
+          throw new Error("Invalid Cursor selection");
+        await host.request("configure", {
+          model: selection.model,
+          modelParams: readCursorModelParams(selection.options),
+        });
+      },
       async send(input: ContentPart[], delivery, commandId) {
         if (closing || exited) throw new Error("SDK host is closed");
         if (uncertain)
@@ -239,3 +248,4 @@ export async function openCursorSession(
   }
 }
 export type { CursorLimits };
+import { readCursorModelParams } from "@ace/provider-kit/cursor-selection";

@@ -5,7 +5,7 @@ import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
 import {
   adbDevices,
   avdNames,
-  avdName,
+  avdNameOrUndefined,
   nativeId,
   adbShell,
   androidDimensions,
@@ -61,8 +61,13 @@ export class AndroidPlatform {
     for (const { serial, state } of transports) {
       let name = this.serialNames.get(serial) ?? serial;
       if (state === "booted") {
-        name = avdName((await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout);
-        this.serialNames.set(serial, name);
+        const resolved = await this.emulatorName(adb, serial);
+        if (resolved) {
+          name = resolved;
+          this.serialNames.set(serial, name);
+        } else {
+          name = serial;
+        }
       }
       const existing = devices.get(name);
       if (existing?.serial && existing.serial !== serial)
@@ -114,9 +119,7 @@ export class AndroidPlatform {
         "Boot the emulator and authorize adb before retrying.",
       );
     const { adb } = await this.resolve();
-    const name = avdName(
-      (await this.run(adb, ["-s", current.serial, "emu", "avd", "name"], 4096)).stdout,
-    );
+    const name = await this.emulatorName(adb, current.serial);
     if (name !== nativeId(device))
       throw new DeviceError(
         "not_found",
@@ -181,8 +184,27 @@ export class AndroidPlatform {
       "Refresh the device list and start capture again.",
     );
   }
+  private async emulatorName(adb: string, serial: string): Promise<string | undefined> {
+    for (const args of [
+      ["shell", "getprop", "ro.boot.qemu.avd_name"],
+      ["shell", "getprop", "ro.kernel.qemu.avd_name"],
+      ["emu", "avd", "name"],
+    ]) {
+      try {
+        const name = avdNameOrUndefined(
+          (await this.run(adb, ["-s", serial, ...args], 4096)).stdout,
+        );
+        if (name) return name;
+      } catch {
+        // A transport can fail a property probe while the next naming source still works.
+        // Inventory retains an unnamed serial if all sources fail; identity checks decide
+        // whether it is safe to perform an operation on that device.
+      }
+    }
+    return undefined;
+  }
   private async verifyTransport(adb: string, device: Device, serial: string) {
-    const name = avdName((await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout);
+    const name = await this.emulatorName(adb, serial);
     if (name !== nativeId(device)) throw this.identityError();
   }
   async captureTransport(device: Device, expectedSerial?: string) {
@@ -337,11 +359,53 @@ export class AndroidPlatform {
     }
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
+    // Retain this process identity: another boot may replace the map entry while adb waits.
+    const emulator = this.emulators.get(device.id);
     try {
-      await this.adb(device, ["emu", "kill"], undefined, authorize);
+      const serial = await this.serial(device);
+      const { adb } = await this.resolve();
+      await this.verifyTransport(adb, device, serial);
+      authorize?.();
+      try {
+        await this.run(adb, ["-s", serial, "emu", "kill"]);
+      } catch {
+        // Emulator console unreachable or already dead; fall through to the wait below.
+      }
+      authorize?.();
+      await emulator?.stop({ graceMs: 0 });
+      if (await this.transportGone(adb, serial)) {
+        this.serialNames.delete(serial);
+        return;
+      }
+      // A lease or an emulator console port may have changed during the disconnect wait.
+      // Fence both outside the best-effort command catch so either failure stops shutdown.
+      await this.verifyTransport(adb, device, serial);
+      authorize?.();
+      try {
+        await this.run(adb, ["-s", serial, "shell", "reboot", "-p"], 4096, 10_000);
+      } catch {
+        // Power-off is best effort; the second wait decides the outcome.
+      }
+      if (await this.transportGone(adb, serial)) {
+        this.serialNames.delete(serial);
+        return;
+      }
+      throw new DeviceError(
+        "command_failed",
+        "Emulator did not shut down",
+        "Close the emulator window, then refresh the device list.",
+      );
     } finally {
       authorize?.();
-      await this.emulators.get(device.id)?.stop({ graceMs: 0 });
+      await emulator?.stop({ graceMs: 0 });
+    }
+  }
+  private async transportGone(adb: string, serial: string): Promise<boolean> {
+    try {
+      const result = await this.run(adb, ["-s", serial, "wait-for-any-disconnect"], 4096, 20_000);
+      return result.code === 0;
+    } catch {
+      return false;
     }
   }
   async logs(device: Device): Promise<{ command: string; args: string[] }> {

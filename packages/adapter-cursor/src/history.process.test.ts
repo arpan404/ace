@@ -4,7 +4,82 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { JsonlLocalAgentStore } from "@cursor/sdk";
 import { expect, it } from "vitest";
-import { snapshotInHost, CursorLimitsSchema } from "./index.ts";
+import { snapshotInHost, CursorLimitsSchema, openSdkCheckpointStore } from "./index.ts";
+
+it("verifies native SDK history identities without materializing protobuf message content", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-native-history-")));
+  const threadId = "native-history";
+  const agentId = "native-agent";
+  const root = join(
+    home,
+    ".cursor",
+    "sdk",
+    "ace",
+    createHash("sha256").update(threadId).digest("hex"),
+  );
+  const blobId = "ab".repeat(32);
+  try {
+    const owned = await openSdkCheckpointStore({ JsonlLocalAgentStore }, root, home);
+    try {
+      await owned.store.agents.create({
+        agent: {
+          agentId,
+          cwd: home,
+          status: "idle",
+          createdAt: 1,
+          updatedAt: 1,
+          latestCheckpoint: { schemaVersion: 1, rootBlobId: blobId },
+        },
+      });
+      await owned.store.checkpoints.create({ agentId, blobId, data: new Uint8Array([1, 2, 3]) });
+    } finally {
+      await owned.close();
+    }
+    const message = {
+      uuid: `${agentId}:0`,
+      agent_id: agentId,
+      type: "assistant",
+      get message() {
+        throw new Error("Native conversation content must not be inspected");
+      },
+    };
+    const sdk = {
+      JsonlLocalAgentStore,
+      Agent: {
+        messages: {
+          async list() {
+            return [message];
+          },
+        },
+      },
+    };
+    const result = await snapshotInHost(
+      sdk,
+      { threadId, agentId, cwd: home, limits: CursorLimitsSchema.parse({ maxFrameBytes: 4096 }) },
+      home,
+    );
+    expect(result.items).toEqual([{ uuid: `${agentId}:0`, agent_id: agentId, type: "assistant" }]);
+    const bad = {
+      JsonlLocalAgentStore,
+      Agent: {
+        messages: {
+          async list() {
+            return [{ uuid: `${agentId}:1`, agent_id: agentId, type: "assistant" }];
+          },
+        },
+      },
+    };
+    await expect(
+      snapshotInHost(
+        bad,
+        { threadId, agentId, cwd: home, limits: CursorLimitsSchema.parse({}) },
+        home,
+      ),
+    ).rejects.toThrow("position/agent identity");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 it("refuses oversized checkpoints before the SDK can materialize the conversation", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-history-")));

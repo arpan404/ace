@@ -23,7 +23,7 @@ const address = () => screen.findByRole("textbox", { name: "Repository address" 
 async function openClone(made: ReturnType<typeof harness>) {
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(await screen.findByRole("tab", { name: /^Clone/ }));
+  await userEvent.click(await screen.findByRole("option", { name: "Git URL" }));
   await screen.findByRole("dialog", { name: "Add project" });
 }
 
@@ -55,10 +55,8 @@ test("a clone names its folder after the repository, shows Git's progress and op
   const { made, step } = stepped();
   await openClone(made);
   await userEvent.type(await address(), "git@github.com:acme/weather-app.git");
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/weather.png",
-  );
+  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
   expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty(
     "value",
     "weather-app",
@@ -75,7 +73,7 @@ test("a clone names its folder after the repository, shows Git's progress and op
 
   await screen.findByRole("button", { name: "Project: weather-app" });
   expect(registered(made)).toEqual([`${home}/weather-app`]);
-  expect(made.daemon.projects.list().workspaces[0]?.icon).toBe("https://example.com/weather.png");
+  expect(made.daemon.projects.list().workspaces[0]?.icon).toBeUndefined();
 });
 
 test("Cancel stops a clone and nothing is added", async () => {

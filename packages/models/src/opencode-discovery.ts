@@ -21,6 +21,10 @@ export async function discoverOpenCodeCatalog(
   diagnostic?.({ stage: "version" });
   const version = await installedVersion(instance, signal, spawn);
   diagnostic?.({ cliVersion: version });
+  if (!version.startsWith("2."))
+    throw Object.assign(new Error("OpenCode v2 is not installed"), {
+      discoveryCode: "not_installed",
+    });
   diagnostic?.({ stage: "connections" });
   const connected = await connectedOpenCodeProviders(instance, signal, spawn);
   diagnostic?.({ sources: [...connected.values()] });

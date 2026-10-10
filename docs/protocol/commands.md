@@ -1515,14 +1515,8 @@ Example:
 
 ```json
 {
-  "alive": {
-    "agentsRunning": 5,
-    "operationsRunning": 1,
-    "terminalsOpen": 7
-  },
   "commandId": "example",
-  "detail": "example",
-  "forkThreadId": "example",
+  "error": "example",
   "inspection": {
     "defaultIcon": null,
     "git": {
@@ -1531,10 +1525,20 @@ Example:
       "remotes": [],
       "root": "example"
     },
+    "gitUnavailable": "git_quarantined",
     "path": "example",
     "suggestedRepoRoot": "example"
   },
   "ok": true,
-  "threadId": "example"
+  "pr": {
+    "number": 3,
+    "repository": {
+      "forge": "gitlab",
+      "host": "52JJBFFMmAo",
+      "name": "cgz",
+      "owner": "U9Ik/TaAVvEIOt9"
+    }
+  },
+  "title": "example"
 }
 ```

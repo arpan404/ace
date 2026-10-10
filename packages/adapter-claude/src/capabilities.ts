@@ -19,7 +19,7 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
       nativeAutoReview: true,
       toolGate: supported,
     },
-    launchOptions: supported ? ["effort"] : [],
+    launchOptions: supported ? ["effort", "serviceTier"] : [],
     interruptCascades: false,
     resume: supported,
     fork: supported,

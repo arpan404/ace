@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { nodeBinary } from "@ace/provider-kit/testing";
+import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DevicePlatform, type Device } from "./index.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
@@ -609,6 +610,336 @@ it("concurrent Android UI reads retain their own snapshot and remove temporary g
   const trees = await Promise.all([first, second]);
   expect(trees.map((tree) => tree.nodes[0]?.name)).toEqual(["Snapshot 1", "Snapshot 2"]);
   expect(guestSnapshot).toBe("");
+});
+
+it("a booted emulator is named from its system property when the emulator console is unreachable", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: (async (_command: string, args: readonly string[]) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name")) return { stdout: "Pixel\n", stderr: "", code: 0 };
+      if (args.includes("ro.kernel.qemu.avd_name")) return { stdout: "", stderr: "", code: 0 };
+      if (args.includes("avd")) return { stdout: "", stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    }) as typeof import("@ace/provider-kit/process").probeOutput,
+  });
+  onTestFinished(() => manager.close());
+  expect(await manager.list()).toEqual([
+    {
+      id: "android:Pixel",
+      platform: "android",
+      name: "Pixel",
+      state: "booted",
+      serial: "emulator-5554",
+    },
+  ]);
+});
+
+it("an emulator whose name cannot be read is still listed and does not hide other devices", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: (async (_command: string, args: readonly string[]) => {
+      if (args.includes("-list-avds")) return { stdout: "Tablet", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      return { stdout: "", stderr: "", code: 0 };
+    }) as typeof import("@ace/provider-kit/process").probeOutput,
+  });
+  onTestFinished(() => manager.close());
+  const devices = await manager.list();
+  expect(devices).toHaveLength(2);
+  expect(devices).toContainEqual({
+    id: "android:Tablet",
+    platform: "android",
+    name: "Tablet",
+    state: "shutdown",
+  });
+  expect(devices).toContainEqual({
+    id: "android:emulator-5554",
+    platform: "android",
+    name: "emulator-5554",
+    state: "booted",
+    serial: "emulator-5554",
+  });
+  // A serial is a display fallback, not an AVD identity that can authorize capture or input.
+  await expect(
+    manager.captureTransport({
+      id: "android:emulator-5554",
+      platform: "android",
+      name: "emulator-5554",
+      state: "booted",
+      serial: "emulator-5554",
+    }),
+  ).rejects.toMatchObject({ code: "not_found" });
+});
+
+for (const source of ["kernel", "console"] as const)
+  it(`rejected emulator property probes fall back to the ${source} name without hiding devices`, async () => {
+    const f = await fixture();
+    const manager = new DevicePlatform({
+      platform: "linux",
+      home: f.home,
+      env: f.env,
+      probe: async (_command, args) => {
+        if (args.includes("-list-avds")) return { stdout: "Pixel\nTablet", stderr: "", code: 0 };
+        if (args[0] === "devices")
+          return {
+            stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+            stderr: "",
+            code: 0,
+          };
+        if (
+          args.includes("ro.boot.qemu.avd_name") ||
+          (source === "console" && args.includes("ro.kernel.qemu.avd_name"))
+        )
+          return { stdout: "", stderr: "Property lookup failed", code: 1 };
+        if (args.includes("ro.kernel.qemu.avd_name") || args.includes("avd"))
+          return { stdout: "Pixel\n", stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    onTestFinished(() => manager.close());
+    expect(await manager.list()).toEqual([
+      {
+        id: "android:Pixel",
+        platform: "android",
+        name: "Pixel",
+        state: "booted",
+        serial: "emulator-5554",
+      },
+      { id: "android:Tablet", platform: "android", name: "Tablet", state: "shutdown" },
+    ]);
+  });
+
+it("shutting down an emulator waits until adb no longer lists it", async () => {
+  const f = await fixture();
+  let disconnected = false;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: (async (_command: string, args: readonly string[]) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args.includes("wait-for-any-disconnect")) {
+        disconnected = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (args[0] === "devices")
+        return {
+          stdout: disconnected
+            ? "List of devices attached\n"
+            : "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name"))
+        return { stdout: disconnected ? "" : "Pixel_API_35\n", stderr: "", code: 0 };
+      if (args.includes("ro.kernel.qemu.avd_name")) return { stdout: "", stderr: "", code: 0 };
+      if (args.includes("avd")) return { stdout: "", stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    }) as typeof import("@ace/provider-kit/process").probeOutput,
+  });
+  onTestFinished(() => manager.close());
+  const listed = await manager.list();
+  expect(listed).toEqual([{ ...android(), state: "booted", serial: "emulator-5554" }]);
+  await manager.shutdown(listed[0] ?? android());
+  expect(await manager.list()).toEqual([android()]);
+});
+
+it("an emulator the console cannot stop is powered off through adb", async () => {
+  const f = await fixture();
+  let poweredOff = false;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: (async (_command: string, args: readonly string[]) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args.includes("wait-for-any-disconnect")) {
+        if (!poweredOff) throw new Error("Probe timed out");
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (args.includes("reboot")) {
+        poweredOff = true;
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      if (args[0] === "devices")
+        return {
+          stdout: poweredOff
+            ? "List of devices attached\n"
+            : "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name"))
+        return { stdout: poweredOff ? "" : "Pixel_API_35\n", stderr: "", code: 0 };
+      if (args.includes("ro.kernel.qemu.avd_name")) return { stdout: "", stderr: "", code: 0 };
+      if (args.includes("avd")) return { stdout: "", stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    }) as typeof import("@ace/provider-kit/process").probeOutput,
+  });
+  onTestFinished(() => manager.close());
+  const listed = await manager.list();
+  expect(listed).toEqual([{ ...android(), state: "booted", serial: "emulator-5554" }]);
+  await manager.shutdown(listed[0] ?? android());
+  expect(await manager.list()).toEqual([android()]);
+});
+
+it("an emulator that never disconnects fails shutdown with a clear error", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: (async (_command: string, args: readonly string[]) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args.includes("wait-for-any-disconnect")) throw new Error("Probe timed out");
+      if (args[0] === "devices")
+        return {
+          stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name"))
+        return { stdout: "Pixel_API_35\n", stderr: "", code: 0 };
+      if (args.includes("ro.kernel.qemu.avd_name")) return { stdout: "", stderr: "", code: 0 };
+      if (args.includes("avd")) return { stdout: "", stderr: "", code: 0 };
+      return { stdout: "", stderr: "", code: 0 };
+    }) as typeof import("@ace/provider-kit/process").probeOutput,
+  });
+  onTestFinished(() => manager.close());
+  const listed = await manager.list();
+  expect(listed).toEqual([{ ...android(), state: "booted", serial: "emulator-5554" }]);
+  await expect(manager.shutdown(listed[0] ?? android())).rejects.toThrow(
+    "Emulator did not shut down",
+  );
+});
+
+async function waitingShutdown() {
+  const f = await fixture();
+  const waiting = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  let name = "Pixel_API_35";
+  let poweredOff = false;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: async (_command, args) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name")) return { stdout: name, stderr: "", code: 0 };
+      if (args.includes("wait-for-any-disconnect")) {
+        waiting.resolve();
+        await resume.promise;
+        throw new Error("Probe timed out");
+      }
+      if (args.includes("reboot")) poweredOff = true;
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+  onTestFinished(() => manager.close());
+  onTestFinished(() => resume.resolve());
+  return {
+    manager,
+    waiting: waiting.promise,
+    resume: () => resume.resolve(),
+    replaceTransport: () => {
+      name = "Another_AVD";
+    },
+    poweredOff: () => poweredOff,
+  };
+}
+
+it("control transfer during the shutdown disconnect wait fences the fallback power-off", async () => {
+  const f = await waitingShutdown();
+  let authorized = true;
+  const pending = f.manager.shutdown(android(), () => {
+    if (!authorized) throw new Error("Controller ownership changed");
+  });
+  const rejected = expect(pending).rejects.toThrow("Controller ownership changed");
+  await f.waiting;
+  authorized = false;
+  f.resume();
+  await rejected;
+  expect(f.poweredOff()).toBe(false);
+});
+
+it("a reused emulator serial during shutdown never powers off the replacement AVD", async () => {
+  const f = await waitingShutdown();
+  const pending = f.manager.shutdown(android());
+  const rejected = expect(pending).rejects.toMatchObject({ code: "not_found" });
+  await f.waiting;
+  f.replaceTransport();
+  f.resume();
+  await rejected;
+  expect(f.poweredOff()).toBe(false);
+});
+
+it("control transfer while the console kill is pending preserves the owned emulator process", async () => {
+  const f = await fixture();
+  let running = false;
+  let authorized = true;
+  const processes: SupervisedProcess[] = [];
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    spawn: (options) => {
+      const process = spawnSupervised(options);
+      processes.push(process);
+      return process;
+    },
+    probe: async (_command, args) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout:
+            "List of devices attached\n" +
+            (running ? "emulator-5554 device product:sdk model:pixel" : ""),
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name"))
+        return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args.some((arg) => arg.includes("sys.boot_completed"))) running = true;
+      if (args.includes("kill")) authorized = false;
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+  onTestFinished(() => manager.close());
+  await manager.boot(android());
+  await expect(
+    manager.shutdown(android(), () => {
+      if (!authorized) throw new Error("Controller ownership changed");
+    }),
+  ).rejects.toThrow("Controller ownership changed");
+  const child = processes[0];
+  expect(child?.signal.aborted).toBe(false);
+  const pid = child?.pid;
+  if (!pid) throw new Error("Emulator process missing");
+  expect(() => process.kill(pid, 0)).not.toThrow();
 });
 
 it("Android UI read queues reject excess work without retaining extra native operations", async () => {

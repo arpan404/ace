@@ -35,6 +35,9 @@ export class CreationAdmissions {
       },
     };
   }
+  pending(id: ThreadId): boolean {
+    return this.owners.has(id);
+  }
   authorized(command: Command, owner: object | undefined): boolean {
     const p = command.payload;
     if (p.type !== "thread.create" && p.type !== "thread.prepare") return false;

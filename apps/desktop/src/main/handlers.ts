@@ -125,12 +125,12 @@ export function createHandlers(options: {
       const window = sender && BrowserWindow.fromWebContents(sender);
       // Bounds are the page's CSS pixels; the view is placed in window DIPs.
       if (window)
-        background.placeBrowser(placement, {
+        return background.placeBrowser(placement, {
           id: sender.id,
           window,
           zoom: sender.getZoomFactor(),
         });
-      return undefined;
+      return "unavailable";
     },
     "browser.control": (request) => {
       background.browserControl(request.threadId, request.controller);

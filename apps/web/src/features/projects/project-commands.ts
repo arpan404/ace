@@ -54,6 +54,7 @@ export interface Added {
   project: Project;
   /** Set when the folder is inside a repository whose root is elsewhere. */
   suggestedRoot: string | undefined;
+  gitUnavailable?: "git_quarantined" | undefined;
 }
 
 function added(result: CommandResult): Added {
@@ -62,11 +63,11 @@ function added(result: CommandResult): Added {
   return {
     project: receipt.workspace,
     suggestedRoot: receipt.inspection?.suggestedRepoRoot,
+    gitUnavailable: receipt.inspection?.gitUnavailable,
   };
 }
 
 export interface CreateInput {
-  icon?: string | null;
   parent: string;
   name: string;
   /** Run `git init` with this initial branch (the host's default when empty). */
@@ -107,22 +108,17 @@ export function useProjectCommandsOn() {
         return result;
       };
       return {
-        add: async (path: string, icon?: string | null) =>
-          keep(
-            added(await reach().projects.add({ path, ...(icon === undefined ? {} : { icon }) })),
-          ),
+        add: async (path: string) => keep(added(await reach().projects.add({ path }))),
         create: async (input: CreateInput) => keep(added(await reach().projects.create(input))),
-        clone: async (
-          input: { parent: string; name: string; url: string; icon?: string | null },
-          commandId: string,
-        ) => keep(added(await reach().projects.clone(input, {}, commandId))),
+        clone: async (input: { parent: string; name: string; url: string }, commandId: string) =>
+          keep(added(await reach().projects.clone(input, {}, commandId))),
         cancelClone: async (commandId: string) =>
           answer(await reach().projects.cancelClone(commandId), "cancelled"),
         /** Clone progress pushed by this machine; returns the unsubscribe. */
         onCloneProgress: (listener: Parameters<ClientApi["projects"]["onCloneProgress"]>[0]) =>
           client ? client.projects.onCloneProgress(listener) : () => {},
-        update: async (workspaceId: string, name: string, icon: string | null) => {
-          const receipt = accepted(await reach().projects.update({ workspaceId, name, icon }));
+        rename: async (workspaceId: string, name: string) => {
+          const receipt = accepted(await reach().projects.rename({ workspaceId, name }));
           if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
         },
         remove: async (workspaceId: string, archiveThreads: boolean) => {

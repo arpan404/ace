@@ -93,6 +93,8 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
   let stopFailure = false;
   let stopGate: ReturnType<typeof deferred<void>> | undefined;
   const stopEntered = deferred<void>();
+  let releaseGate: ReturnType<typeof deferred<void>> | undefined;
+  const releaseEntered = deferred<void>();
   let captureOptions: Parameters<typeof startCapture>[0] | undefined;
   let inputGate: ReturnType<typeof deferred<void>> | undefined;
   let captureGate: ReturnType<typeof deferred<void>> | undefined;
@@ -196,6 +198,10 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
       }
       options.publish(frame(options.streamId, 0));
       return {
+        async releaseInput() {
+          releaseEntered.resolve();
+          await releaseGate?.promise;
+        },
         async configure(settings) {
           profiles.push(settings);
           return { codec: settings.codec };
@@ -231,6 +237,11 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
   return {
     service,
     profiles,
+    releaseEntered,
+    blockRelease() {
+      releaseGate = deferred<void>();
+      return releaseGate;
+    },
     request,
     effects,
     publications,
@@ -965,4 +976,29 @@ it("unsubscribing removes its JPEG preference and restores the remaining video v
   release();
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   expect(h.profiles.at(-1)).toEqual(videoProfile);
+});
+
+it("a pending native control handoff cannot reclaim after a newer owner or disconnect", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId });
+  const gate = h.blockRelease();
+  const first = h.request({ op: "controller", deviceId, controller: "human" });
+  const rejectedFirst = expect(first).rejects.toThrow("Device control changed");
+  await h.releaseEntered.promise;
+  const other = { kind: "human" as const, owner: "phone-2" };
+  const second = h.request({ op: "controller", deviceId, controller: "human" }, other);
+  gate.resolve();
+  await rejectedFirst;
+  await second;
+  expect(h.service.states()[0]?.controller).toBe("human");
+  const gate2 = h.blockRelease();
+  const pending = h.request({ op: "controller", deviceId, controller: "human" });
+  const rejected = expect(pending).rejects.toThrow("Device control changed");
+  await Promise.resolve();
+  await Promise.resolve();
+  h.service.disconnect(human.owner);
+  gate2.resolve();
+  await rejected;
+  expect(h.service.states()[0]?.controller).toBe("none");
 });

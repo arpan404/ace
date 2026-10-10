@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteContextSelection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attachments": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "files": {
+      "default": [],
+      "items": {
+        "maxLength": 1024,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "threadBudgetBytes": {
+      "default": 4096,
+      "maximum": 8192,
+      "minimum": 1024,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

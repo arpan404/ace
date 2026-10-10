@@ -266,7 +266,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         case "agent.updated":
           this.copy(view.agents, p.agentId);
           keys.add(`agent:${p.agentId}`);
-          if (p.type === "agent.updated" && p.parentId !== undefined) keys.add("agents");
+          if (p.type === "agent.updated" && (p.parentId !== undefined || p.spawnedBy !== undefined))
+            keys.add("agents");
           break;
         case "run.started":
           if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id), keys);

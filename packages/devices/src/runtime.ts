@@ -1,5 +1,7 @@
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 export interface DeviceRuntime {
+  fetch?: typeof fetch;
+  socket?: (url: string) => WebSocket;
   now(): number;
   id(): string;
   after(ms: number, run: () => void): () => void;

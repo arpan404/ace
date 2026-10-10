@@ -2,6 +2,7 @@ import { oldestTitleInput } from "../engine/title-input.ts";
 import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
+  RemoteAgentOperation as RemoteOperation,
   type AgentControlResult,
   type McpAttribution,
   type ThreadId,
@@ -70,6 +71,11 @@ export interface AgentControlExtensions {
     operation: ExtensionOperation,
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
+  remote?(
+    caller: McpAttribution,
+    operation: import("@ace/protocol").RemoteAgentOperation,
+    signal: AbortSignal,
+  ): Promise<AgentControlResult>;
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
 }
 export function createAgentControlPort(
@@ -84,6 +90,13 @@ export function createAgentControlPort(
       // Authenticate again at the mutation boundary, including direct host callers.
       if (!store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
+      if (operation.op.startsWith("device."))
+        return (
+          extensions.remote?.(caller, importRemote(operation), signal) ?? {
+            ok: false,
+            code: "unsupported",
+          }
+        );
       if ("threadId" in operation) {
         const read = [
           "thread.read",
@@ -212,10 +225,17 @@ export function createAgentControlPort(
           });
         }
         case "thread.rename":
-          store.appendEvents(operation.threadId, [
-            { type: "thread.updated", title: operation.title, titleSource: "agent" },
-          ]);
-          return { ok: true };
+          return store.atomic(() => {
+            if (
+              operation.onlyIfProvisional &&
+              store.getThread(operation.threadId)?.titleSource !== "provisional"
+            )
+              return { ok: false, code: "not_ready" as const };
+            store.appendEvents(operation.threadId, [
+              { type: "thread.updated", title: operation.title, titleSource: "agent" },
+            ]);
+            return { ok: true };
+          });
         case "thread.regenerate_title": {
           const oldest = oldestTitleInput(store, operation.threadId);
           if (!oldest) return { ok: false, code: "not_ready" };
@@ -276,7 +296,11 @@ export function createAgentControlPort(
           return extensions.execute
             ? extensions.execute(caller, operation, signal)
             : { ok: false, code: "unsupported" };
+        default:
+          return { ok: false, code: "unsupported" };
       }
     },
   };
 }
+
+const importRemote = (operation: AgentControlOperation) => RemoteOperation.parse(operation);

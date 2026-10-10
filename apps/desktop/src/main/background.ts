@@ -208,8 +208,11 @@ export class Background {
   }
 
   /** Draw (or hide) a thread's embedded view where a renderer's Browser tab is. */
-  placeBrowser(placement: BrowserPlacement, host: PlacementHost): void {
-    this.browser?.views.place(placement, host);
+  async placeBrowser(
+    placement: BrowserPlacement,
+    host: PlacementHost,
+  ): Promise<import("../shared/contract.ts").BrowserPlacementReceipt> {
+    return this.browser?.views.place(placement, host) ?? "unavailable";
   }
 
   /** A window's renderer reloaded or went away: its views stop showing where it put them. */

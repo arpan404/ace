@@ -1,3 +1,5 @@
+import { findOpenCodeExecutable } from "./opencode-executable.ts";
+export { findOpenCodeExecutable } from "./opencode-executable.ts";
 import { findExecutable } from "./executable.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
 import { z } from "zod";
@@ -79,7 +81,12 @@ export async function discoverProvider(
     auth: "unknown",
     loginHint: spec.loginHint,
   };
-  const path = await findExecutable(options.overrides?.[provider] ?? spec.command, env);
+  const command = options.overrides?.[provider] ?? spec.command;
+  const opencode =
+    provider === "opencode"
+      ? await findOpenCodeExecutable(command, { ...options, env })
+      : undefined;
+  const path = provider === "opencode" ? opencode?.path : await findExecutable(command, env);
   options.signal?.throwIfAborted();
   if (!path) return result;
   result.installed = true;
@@ -90,7 +97,9 @@ export async function discoverProvider(
     ...(options.signal ? { signal: options.signal } : {}),
   };
   const [version, auth] = await Promise.allSettled([
-    (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
+    opencode
+      ? Promise.resolve({ code: 0, stdout: opencode.version, stderr: "" })
+      : (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
     (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
   ]);
   options.signal?.throwIfAborted();
@@ -109,7 +118,7 @@ export async function discoverProvider(
     const parsed = spec.parse(auth.value.stdout || auth.value.stderr);
     if (auth.value.code === 0 || (auth.value.code === 1 && parsed.auth === "logged_out"))
       Object.assign(result, parsed);
-    if (result.auth === "unknown")
+    if (result.auth === "unknown" && result.authEvidence !== "credentials_configured")
       errors.push(
         auth.value.code === 0
           ? "Unrecognized auth status output"

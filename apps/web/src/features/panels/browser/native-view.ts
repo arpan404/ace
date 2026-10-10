@@ -1,10 +1,11 @@
-import { useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import {
   desktopBrowserViews,
   type NativeViewPlacement,
   type PageBox,
 } from "@/boot/desktop-browser.ts";
 
+import { NativePlacement, placementTimer } from "./native-placement.ts";
 import { observeOverlays, overlayBoxes } from "@/lib/overlays.ts";
 
 interface Size {
@@ -81,7 +82,8 @@ export function useNativeView(
     /** They clicked or typed on the view without control. */
     onWantsControl(): void;
   },
-): void {
+): boolean {
+  const [shown, setShown] = useState(false);
   const deviceWidth = options.device?.width;
   const deviceHeight = options.device?.height;
   const deviceMobile = options.device?.mobile;
@@ -104,8 +106,11 @@ export function useNativeView(
         ? { width: deviceWidth, height: deviceHeight, mobile: deviceMobile, deviceScaleFactor }
         : undefined;
     let rect: PageBox | undefined;
-    let sent = "";
-    let bounds: PageBox = { x: 0, y: 0, width: 0, height: 0 };
+    const controller = new NativePlacement({
+      place: (placement) => views.place(placement),
+      changed: setShown,
+      after: placementTimer,
+    });
     const place = () => {
       if (!rect) return;
       const placement = nativeViewPlacement({
@@ -122,11 +127,7 @@ export function useNativeView(
         ...(size ? { device: size } : {}),
         dpr: devicePixelRatio,
       };
-      const key = JSON.stringify(next);
-      if (key === sent) return;
-      sent = key;
-      bounds = placement.bounds;
-      void views.place(next).catch(() => {});
+      controller.place(next);
     };
     replace.current = place;
     // Layout can move without resizing, including transforms during panel transitions.
@@ -140,16 +141,19 @@ export function useNativeView(
     };
     measure();
     const stopRect = () => cancelAnimationFrame(frame);
+    const stopVisibility = views.onVisibility((id, visible) => controller.visibility(id, visible));
     const stopOverlays = observeOverlays(element, place);
     const stopWants = views.onWantsControl((id) => {
       if (id === threadId) wantsControl();
     });
     return () => {
+      controller.close();
       replace.current = undefined;
       stopRect();
+      stopVisibility();
       stopOverlays();
       stopWants();
-      void views.place({ threadId, bounds, visible: false }).catch(() => {});
     };
   }, [threadId, area, active, deviceWidth, deviceHeight, deviceMobile, deviceScaleFactor]);
+  return active && shown;
 }

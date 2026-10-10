@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import webProject from "./apps/web/vitest.config.ts";
 import clientReactProject from "./packages/client-react/vitest.config.ts";
 import { isolateTestProject } from "./scripts/test-project-isolation.ts";
+import { FailureDetailsReporter } from "./scripts/test-failure-reporter.ts";
 
 /** React packages run in their own jsdom projects with their own Vite plugins. */
 const react = ["apps/web/**", "packages/client-react/**"];
@@ -13,6 +14,7 @@ const historyWorkerReview = "packages/history-import/src/review.test.ts";
 
 export default defineConfig({
   test: {
+    reporters: ["default", new FailureDetailsReporter()],
     // Bound runner overhead too: all CPU cores are usually shared with other agents.
     maxWorkers: 2,
     fsModuleCache: true,

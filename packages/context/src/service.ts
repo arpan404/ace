@@ -3,6 +3,7 @@ import { prepareFiles } from "./prepare-files.ts";
 import { join } from "node:path";
 import {
   ContextRequest,
+  type Attachment,
   MessageContext,
   type ContextResult,
   type ContextDiagnostic,
@@ -31,6 +32,8 @@ export interface ContextServiceOptions extends UploadOptions {
     owner: string,
     reference: ThreadRefContextItem,
   ): Promise<ResolvedThreadReference>;
+  /** Lookup captured native-image metadata only; a client reference never authorizes file IO. */
+  imageReference?(thread: string, reference: string, itemId?: string): Attachment | undefined;
   workspace(thread: string): string | undefined | Promise<string | undefined>;
 }
 export class ContextService {
@@ -76,7 +79,20 @@ export class ContextService {
       requireContext(access(), "forbidden", "Device access revoked");
       const op = request.operation;
       let result: ContextResult["result"];
-      if (op.op === "attachment.read") {
+      if (op.op === "image.resolve") {
+        requireContext(
+          access(op.threadId) && (await this.options.authorize(device, op.threadId)),
+          "forbidden",
+          "Thread access denied",
+        );
+        const attachment = this.options.imageReference?.(op.threadId, op.reference, op.itemId);
+        requireContext(
+          attachment,
+          "not_found",
+          "Image has not been saved from this thread's environment",
+        );
+        result = { kind: "attachment", attachment };
+      } else if (op.op === "attachment.read") {
         const read = await this.readAttachment(
           device,
           op.threadId,

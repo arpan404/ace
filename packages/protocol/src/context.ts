@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId, WorkspaceId } from "./ids.ts";
+import { ThreadId, WorkspaceId, ItemId } from "./ids.ts";
 
 export const BlobHash = z.string().regex(/^[a-f0-9]{64}$/);
 const key = z
@@ -92,6 +92,12 @@ export const ResolvedMention = z.object({
 });
 export type ResolvedMention = z.infer<typeof ResolvedMention>;
 export const ContextOperation = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("image.resolve"),
+    threadId: ThreadId,
+    reference: z.string().min(1).max(4096),
+    itemId: ItemId.optional(),
+  }),
   z.object({ op: z.literal("draft.create"), workspaceId: WorkspaceId }),
   z.object({ op: z.literal("draft.release"), draftId: key }),
   z.object({ op: z.literal("draft.attachment.release"), draftId: key, sha256: BlobHash }),

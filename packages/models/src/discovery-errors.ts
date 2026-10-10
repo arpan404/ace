@@ -2,6 +2,7 @@ import type { ModelDiscoveryError } from "@ace/protocol";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 
 const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
+  not_installed: ["OpenCode v2 is not installed.", "Install OpenCode v2, then refresh models."],
   no_models: [
     "The connected source has no chat models enabled.",
     "Enable models for it in OpenCode, then Refresh.",
@@ -65,6 +66,7 @@ export function discoveryError(
         : hint;
   return Object.freeze({
     code: kind,
+    ...(kind === "not_installed" ? { severity: "info" as const } : {}),
     ...(kind === "not_configured"
       ? { severity: "info" as const, actionId: "provider.sign_in" as const }
       : {}),

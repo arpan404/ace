@@ -37,8 +37,9 @@ export type BrowserAccelerator =
   | "CmdOrCtrl+]";
 
 export interface DesktopBrowserViews {
+  onVisibility(listener: (threadId: string, visible: boolean) => void): () => void;
   onShortcut(listener: (threadId: string, accelerator: BrowserAccelerator) => void): () => void;
-  place(placement: NativeViewPlacement): Promise<void>;
+  place(placement: NativeViewPlacement): Promise<"shown" | "hidden" | "unavailable" | "superseded">;
   /**
    * The person clicked or typed on a page they don't control; take control for them. Returns
    * an unsubscribe.
@@ -70,7 +71,30 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
     typeof browser === "object" && browser !== null && "onShortcut" in browser
       ? browser.onShortcut
       : undefined;
+  const onVisibility =
+    typeof browser === "object" && browser !== null && "onVisibility" in browser
+      ? browser.onVisibility
+      : undefined;
   return {
+    onVisibility: (listener) => {
+      if (typeof onVisibility !== "function") return () => {};
+      const stop: unknown = Reflect.apply(onVisibility, browser, [
+        (event: unknown) => {
+          if (
+            typeof event === "object" &&
+            event !== null &&
+            "threadId" in event &&
+            typeof event.threadId === "string" &&
+            "visible" in event &&
+            typeof event.visible === "boolean"
+          )
+            listener(event.threadId, event.visible);
+        },
+      ]);
+      return () => {
+        if (typeof stop === "function") stop();
+      };
+    },
     onShortcut: (listener) => {
       if (typeof onShortcut !== "function") return () => {};
       const stop: unknown = Reflect.apply(onShortcut, browser, [
@@ -100,7 +124,9 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       };
     },
     place: async (placement) => {
-      await Promise.resolve(Reflect.apply(place, browser, [placement]));
+      const receipt: unknown = await Promise.resolve(Reflect.apply(place, browser, [placement]));
+      if (receipt === "shown" || receipt === "hidden" || receipt === "superseded") return receipt;
+      return receipt === true ? "shown" : "unavailable";
     },
     onWantsControl: (listener) => {
       if (typeof onWants !== "function") return () => {};

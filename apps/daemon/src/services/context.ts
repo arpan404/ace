@@ -1,3 +1,4 @@
+import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
@@ -24,7 +25,11 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       return (
         owner !== undefined &&
         owner.deletedAt === undefined &&
-        (store.toolResults.retains(thread, hash) ||
+        (store.nativeImages.retains(thread, hash) ||
+          services.agentControl?.remote.retains(thread, hash) ||
+          services.agentControl?.publications.retains(thread, hash) ||
+          services.agentControl?.returns.retains(thread, hash) ||
+          store.toolResults.retains(thread, hash) ||
           store.measurements.retains(thread, hash) ||
           (services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false))
       );
@@ -32,6 +37,10 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
     authorize: (_device, thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       return entity !== undefined && entity.deletedAt === undefined;
+    },
+    imageReference: (thread, reference, itemId) => {
+      const path = imageReference(reference);
+      return path ? store.nativeImages.resolve(thread, path, itemId) : undefined;
     },
     workspaceRoot: async (workspaceId) => {
       const path = store.getWorkspacePath(WorkspaceId.parse(workspaceId));
@@ -74,6 +83,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
   resources.own(() => context.close());
   services.context = context;
+  resources.own(observeNativeImages(store, context, runtime.signal));
   const deletions = new Set<Promise<void>>();
   resources.own(() => Promise.all(deletions).then(() => {}));
   resources.own(

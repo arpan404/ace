@@ -219,7 +219,7 @@ export class ModelCatalog implements ModelCatalogApi {
       ...state.config,
       ...(sources?.length === 1 && sources[0] ? { source: sources[0].id } : {}),
     });
-    if (state.errorDetail.code === "not_configured") {
+    if (state.errorDetail.code === "not_configured" || state.errorDetail.code === "not_installed") {
       const first = state.unconfiguredAt === undefined;
       state.unconfiguredAt = this.#options.now();
       state.dirty = false;

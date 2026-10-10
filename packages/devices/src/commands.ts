@@ -55,8 +55,9 @@ export function avdNames(output: string): string[] {
         .filter(Boolean),
     );
 }
-export function avdName(output: string): string {
-  return AVD.parse(output.split("\n")[0]?.trim());
+export function avdNameOrUndefined(output: string): string | undefined {
+  const parsed = AVD.safeParse(output.split("\n")[0]?.trim());
+  return parsed.success ? parsed.data : undefined;
 }
 /** adb shell joins its arguments before passing them to the device's shell. */
 export function adbShell(tokens: readonly string[]): string[] {

@@ -2,12 +2,9 @@ import { ProjectCloneUrl, ProjectCommand } from "@ace/protocol";
 import type { ProjectCalls, ProjectsClient } from "./projects-types.ts";
 
 /*
- * The project commands and requests, with the schemas that validate commands before they are
- * sent or kept in an outbox. The page's `RemoteClient` loads this module on its first project
- * call (`deferredProjectsApi`). `Client` (the client worker's, or the page's fallback) takes it
- * eagerly: there classic Zod and the project command schemas are loaded for the core command
- * union anyway, so these calls add a tenth of a kilobyte, where a chunk of their own would add
- * over half a kilobyte (ADR 0056).
+ * Convenience project commands validate before they enter the client's outbox. The page's
+ * RemoteClient loads these on its first project call (ADR 0056). The in-process Client uses
+ * them directly; workers use ClientCore and forward the page's validated wire operations.
  */
 export function projectCalls(client: ProjectsClient): ProjectCalls {
   return {

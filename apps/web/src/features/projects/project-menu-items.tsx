@@ -32,7 +32,7 @@ export function AddProjectItem() {
       shortcut="addProject"
       disabled={!reachable}
       reason={reachable ? undefined : "Connect to this computer to add a project."}
-      onClick={() => projects.open({ kind: "add", tab: "open" })}
+      onClick={() => projects.open({ kind: "add", tab: "sources" })}
       onPointerEnter={projects.preload}
     >
       Add project…

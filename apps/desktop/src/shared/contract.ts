@@ -263,3 +263,6 @@ export const UpdateStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("error"), message: z.string() }),
 ]);
 export type UpdateStatus = z.infer<typeof UpdateStatus>;
+
+export const BrowserPlacementReceipt = z.enum(["shown", "hidden", "unavailable", "superseded"]);
+export type BrowserPlacementReceipt = z.infer<typeof BrowserPlacementReceipt>;

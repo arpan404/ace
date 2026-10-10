@@ -84,7 +84,7 @@ function ConversationTick(props: {
         }
         delay={180}
         closeDelay={100}
-        className="group grid min-h-0 w-7 flex-1 place-items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group grid h-6 w-7 shrink-0 place-items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span
           aria-hidden="true"

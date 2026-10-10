@@ -2,7 +2,7 @@ import { registryPrerequisites } from "./prerequisites.ts";
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
-import { findExecutable, parseVersion } from "@ace/provider-kit/discovery";
+import { findExecutable, findOpenCodeExecutable, parseVersion } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import type {
   InstallAction,
@@ -144,7 +144,11 @@ export class InstallPlanner {
       ...["npm", "bun", "brew", "curl", "bash", "rm", "node"].map((name) =>
         findExecutable(name, this.env),
       ),
-      findExecutable(this.options.binaryPath?.(target.provider) ?? spec.binary, this.env),
+      this.executable(
+        target.provider,
+        this.options.binaryPath?.(target.provider) ?? spec.binary,
+        signal,
+      ),
     ]);
     const nodeVersion =
       node &&
@@ -329,12 +333,30 @@ export class InstallPlanner {
     if (spec.scriptHome && link === join(this.options.home, spec.scriptHome)) return "script";
     return undefined;
   }
+  private async executable(
+    provider: ProviderKind,
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    if (provider !== "opencode") return findExecutable(command, this.env);
+    return (
+      await findOpenCodeExecutable(command, {
+        env: this.env,
+        ...(signal ? { signal } : {}),
+        probe: async (executable, args) => ({
+          code: 0,
+          stdout: (await this.probe(executable, args, signal)) ?? "",
+          stderr: "",
+        }),
+      })
+    )?.path;
+  }
   async verify(plan: ProviderInstallPlan, signal?: AbortSignal): Promise<string | undefined> {
     if (!plan.verify) return undefined;
-    const path = await findExecutable(plan.verify.command, this.env);
+    const path = await this.executable(plan.provider, plan.verify.command, signal);
     if (plan.action === "uninstall") {
       const spec = installer(plan.provider, plan.agent);
-      const remaining = spec && (await findExecutable(spec.binary, this.env));
+      const remaining = spec && (await this.executable(plan.provider, spec.binary, signal));
       return path || remaining ? undefined : "removed";
     }
     if (!path) return undefined;

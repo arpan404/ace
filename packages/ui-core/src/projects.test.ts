@@ -130,6 +130,7 @@ test("clone progress only moves forward across Git's phases", () => {
 });
 
 test("refusals read as sentences, and the ones that close a folder off say so", () => {
+  expect(projectProblem("git_quarantined").message).toMatch(/unfinished Git cleanup/);
   expect(projectProblem("git_auth_failed").message).toMatch(/your own Git credentials/);
   expect(projectProblem("outside_project_roots").denied).toBe(true);
   expect(projectProblem("forbidden").denied).toBe(true);

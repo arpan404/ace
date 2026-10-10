@@ -120,6 +120,67 @@ test("the catalog refreshes while its menu is open", async () => {
   expect(within(menu).queryByText("Writing")).toBeNull();
 });
 
+test("slash commands remain visible and selectable while their catalog refreshes", async () => {
+  const { app, message } = await open();
+  await userEvent.type(message, "/writing");
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  act(() => app.daemon.seedServices({ extensionCatalogs: {}, catalogLoading: ["opencode"] }));
+  await screen.findByText("Refreshing commands…");
+  expect(screen.getByRole("listbox", { name: "Add and commands" })).toBe(menu);
+  expect(within(menu).getByText("Writing")).toBeTruthy();
+  expect(screen.queryByText("Loading suggestions…")).toBeNull();
+  act(() => app.daemon.seedServices({ extensionCatalogs: {}, catalogLoading: [] }));
+  await waitFor(() => expect(screen.queryByText("Refreshing commands…")).toBeNull());
+  await userEvent.keyboard("{Enter}");
+  expect(message.textContent).toBe("Writing ");
+});
+
+test("renaming a thread does not reload the open command list", async () => {
+  const { app, message } = await open();
+  await userEvent.type(message, "/writing");
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  app.daemon.refuseRequests("forbidden", "catalog.list");
+  await act(() =>
+    app.client.command({
+      type: "thread.rename",
+      threadId: ThreadId.parse("thread-router"),
+      title: "Renamed with commands open",
+    }),
+  );
+  await screen.findByRole("heading", { name: "Renamed with commands open", level: 1 });
+  expect(screen.getByRole("listbox", { name: "Add and commands" })).toBe(menu);
+  await userEvent.keyboard("{Enter}");
+  expect(message.textContent).toBe("Writing ");
+});
+
+test("Enter chooses a current command when a refresh shrinks the highlighted list", async () => {
+  const { app, message } = await open();
+  app.daemon.seedServices({
+    extensionCatalogs: {
+      opencode: [
+        ...catalog,
+        {
+          id: "project:review",
+          kind: "command",
+          name: "review",
+          description: "Review the current changes",
+          source: { provider: "ace", scope: "project" },
+          invocation: { type: "prompt", commandId: "review" },
+        },
+      ],
+    },
+  });
+  await userEvent.type(message, "/");
+  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  await within(menu).findByText("Review");
+  await userEvent.keyboard("{ArrowUp}");
+  expect(within(menu).getByRole("option", { selected: true }).textContent).toContain("Explain");
+  act(() => app.daemon.seedServices({ extensionCatalogs: { opencode: catalog } }));
+  await waitFor(() => expect(within(menu).queryByText("Review")).toBeNull());
+  await userEvent.keyboard("{Enter}");
+  expect(await screen.findByRole("dialog", { name: "Explain" })).toBeTruthy();
+});
+
 test("@ offers another conversation in the project and sends its thread reference", async () => {
   const { app, message } = await open();
   const sent: unknown[] = [];

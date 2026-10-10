@@ -17,6 +17,8 @@ export interface DeviceSession {
   logs: DeviceLogs;
   lease: ControllerLease;
   leaseExpiry?: () => void;
+  controlRevision: number;
+  pendingController?: string;
   tail: Promise<void>;
   pending: number;
   generation: number;
@@ -43,6 +45,7 @@ export function createSession(device: Device, now: () => number): DeviceSession 
     tail: Promise.resolve(),
     pending: 0,
     generation: 0,
+    controlRevision: 0,
     approvalEpoch: 0,
     changingApproval: false,
     recordingStarting: false,

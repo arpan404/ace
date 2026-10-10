@@ -49,7 +49,7 @@ else if (manager === 'brew' && args.join(' ') === 'install node') {
 else if (args[0] === 'view' || args[0] === 'info') {
   const version = readFileSync(home + '/latest', 'utf8').trim();
   if (version === 'offline') process.exit(1);
-  console.log(args[0] === 'view' ? version : JSON.stringify({formulae:[{versions:{stable:version}}],casks:[{version}]}));
+  console.log(args[0] === 'view' || manager === 'bun' ? version : JSON.stringify({formulae:[{versions:{stable:version}}],casks:[{version}]}));
 } else {
   const mode = existsSync(home + '/mode') ? readFileSync(home + '/mode', 'utf8') : '';
   if (mode === 'invalid') { writeFileSync(join(process.env.ACE_INSTALL_BIN,'codex'), ${JSON.stringify(invalidSource)}, {mode:0o755}); }
@@ -186,7 +186,7 @@ else if (args[0] === 'view' || args[0] === 'info') {
               : join(root, pkg, provider);
       await mkdir(join(target, ".."), { recursive: true });
       await writeFile(target, agentSource, { mode: 0o755 });
-      await writeFile(join(home, "installed-version"), "1.0.0");
+      await writeFile(join(home, "installed-version"), provider === "opencode" ? "2.0.0" : "1.0.0");
       if (method === "script") {
         env.PATH = `${join(home, ".local", "bin")}:${bin}`;
       } else await symlink(target, join(bin, provider));

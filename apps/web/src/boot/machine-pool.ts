@@ -1,3 +1,4 @@
+import { portableSocket } from "./portable-socket.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineSecretStore } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
@@ -94,6 +95,24 @@ export function browserMachinePool(options: {
   );
   return new MachinePool({
     directory,
+    async openTaskRelay(entry, credential, target) {
+      const [{ openRemoteContextRelay }, { keyPair }] = await Promise.all([
+        import("@ace/client/remote-context-relay"),
+        import("@ace/secure-channel"),
+      ]);
+      return openRemoteContextRelay({
+        target: { kind: "relay", url: target.url, pinnedFingerprint: target.pinnedFingerprint },
+        expectedHostId: entry.hostId,
+        deviceId: entry.deviceId,
+        credential,
+        socket: portableSocket,
+        keys: () => ({
+          staticKey: keyPair(crypto.getRandomValues(new Uint8Array(32))),
+          ephemeralKey: keyPair(crypto.getRandomValues(new Uint8Array(32))),
+        }),
+        schedule: (fn, ms) => timers.set(ms, fn),
+      });
+    },
     remote: { scheduler: timers },
     spawn(entry, token) {
       if (entry.target.kind !== "direct")

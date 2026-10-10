@@ -19,9 +19,12 @@
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/screen": "workspace:*",
+    "sharp": "0.34.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/files": "workspace:*"
+    "@ace/files": "workspace:*",
+    "@types/ws": "8.18.1",
+    "ws": "8.22.0"
   }
 }

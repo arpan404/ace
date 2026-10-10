@@ -57,6 +57,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "interaction.opened": ["agent", "interaction", "blocking", "request", "item", "raw"],
   "interaction.closed": ["interaction", "state", "resolution", "resolvedBy", "autoReviewed"],
   "background.started": [
+    "owner",
     "agent",
     "task",
     "kind",
@@ -294,6 +295,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "background.started":
       return (
         BackgroundTask.shape.kind.safeParse(fact.kind).success &&
+        (fact.owner === undefined || fact.owner === "ace") &&
         typeof fact.title === "string" &&
         typeof fact.stoppable === "boolean" &&
         optionalBoolean(fact.ambient) &&

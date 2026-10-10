@@ -1,7 +1,7 @@
 import { useClient } from "@ace/client-react";
 import type { CommandPayload } from "@ace/protocol";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
@@ -109,6 +109,7 @@ export function useThreadActions(): ThreadActions {
   const client = useClient();
   const toast = useToast();
   const navigate = useNavigate();
+  const router = useRouter();
   return useMemo(() => {
     const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
     /** Apply now, send, and say so if the daemon refuses. False after a refusal. */
@@ -244,7 +245,20 @@ export function useThreadActions(): ThreadActions {
       void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
         const refused = outcomes.filter((outcome) => outcome !== undefined);
         const removed = entries.length - refused.length;
-        if (removed) toast.add({ title: done(removed) });
+        if (removed) {
+          toast.add({ title: done(removed) });
+          const activeDeleted = entries.find(
+            (entry) =>
+              router.state.location.pathname === `/t/${encodeURIComponent(entry.id)}` &&
+              !refused.some((refusal) => refusal.entry.id === entry.id),
+          );
+          if (activeDeleted)
+            void navigate({
+              to: "/new",
+              search: { project: activeDeleted.workspaceId },
+              replace: true,
+            });
+        }
         const live = refused.filter((refusal) => refusal.live);
         for (const refusal of refused.filter((each) => !each.live))
           toast.add({
@@ -381,5 +395,5 @@ export function useThreadActions(): ThreadActions {
         );
       },
     };
-  }, [overlay, client, toast, navigate]);
+  }, [overlay, client, toast, navigate, router]);
 }

@@ -266,7 +266,7 @@ export function FolderSearchBox(props: {
                 several={props.several && (section.id === "recent" || section.id === "projects")}
                 home={home?.path}
                 onPoint={() => setActive(first + at)}
-                onPick={() => choose(row, false)}
+                onPick={() => (row.project || row.self ? choose(row, false) : browse(row.path))}
               />
             );
             return (

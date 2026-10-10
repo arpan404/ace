@@ -46,6 +46,7 @@ export function foldProviderFacts(
       if (
         title &&
         (thread?.titleSource === "provisional" ||
+          thread?.titleSource === "provider" ||
           (!thread?.titleSource && thread?.title === "New thread"))
       )
         repo.store.appendEvents(

@@ -32,6 +32,7 @@ async function addProject(made: ReturnType<typeof harness>) {
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   await screen.findByRole("dialog", { name: "Add project" });
+  await userEvent.click(screen.getByRole("option", { name: "Local folder" }));
 }
 
 test("with two machines the picker lists both with their status, and ⌘M cycles them", async () => {
@@ -90,6 +91,7 @@ test("recent projects from every machine show together, each marked with its mac
   made.daemon.projects.command({ type: "workspace.add", path: "/Users/dev/code/weather" });
   await userEvent.keyboard("{Escape}");
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   const recent = await within(await folders()).findByRole("group", { name: "Recent" });
   await waitFor(() => {
     const rows = within(recent)
@@ -240,10 +242,8 @@ test("Retry after the machine's worker is replaced clones through the new connec
   await addProject(made);
   await userEvent.keyboard("{Control>}3{/Control}{Control>}m{/Control}");
   build.refuseCommands("git_failed", "workspace.clone");
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Icon URL" }),
-    "https://example.com/build.png",
-  );
+  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
   await userEvent.type(
     await screen.findByRole("textbox", { name: "Repository address" }),
     "acme/web",
@@ -267,6 +267,6 @@ test("Retry after the machine's worker is replaced clones through the new connec
   }
   expect(await screen.findByText("Cloned web on Build server")).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/web"]);
-  expect(build.projects.list().workspaces[0]?.icon).toBe("https://example.com/build.png");
+  expect(build.projects.list().workspaces[0]?.icon).toBeUndefined();
   expect(paths(made.daemon)).toEqual([]);
 });

@@ -41,6 +41,13 @@ async function dismissedOnDaemon(app: Harness) {
   return reply.result.dismissed;
 }
 
+async function toProject() {
+  await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
+  await screen.findByRole("heading", { name: "Check your tools" });
+  await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await screen.findByRole("heading", { name: "Choose your first project" });
+}
+
 const progress = () => screen.findByRole("progressbar", { name: "Providers ready" });
 
 test("a first launch opens setup; signing in updates readiness, and Add a project opens the folder chooser", async () => {
@@ -73,10 +80,11 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
     expect((await progress()).getAttribute("aria-valuetext")).toBe("1 of 5 ready"),
   );
   expect(within(claude).queryByRole("button", { name: "Sign in to Claude Code" })).toBeNull();
-  expect(screen.getByRole("heading", { level: 2, name: "You're ready to go" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: "Connect your agents" })).toBeTruthy();
+  await toProject();
   await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "Search folders" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Search project sources" })).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
 }, 30_000);
 
@@ -127,7 +135,7 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   expect(within(codex).getByText("Update available")).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Sign in to Cursor" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
 }, 30_000);
 
 test("an agent that isn't installed starts its official installer with one click", async () => {
@@ -150,8 +158,8 @@ test("setup welcomes a new user before showing ready providers", async () => {
   const app = harness({ onboarding: "pending" });
   await app.open("/");
   expect(await screen.findByRole("heading", { name: "Welcome to ace" })).toBeTruthy();
-  expect(screen.queryByRole("heading", { name: "You're ready to go" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Connect your agents" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Get started" }));
-  expect(await screen.findByRole("heading", { name: "You're ready to go" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Connect your agents" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
 });

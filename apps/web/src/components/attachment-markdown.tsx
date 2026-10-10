@@ -1,6 +1,7 @@
 import { ArrowSquareOutIcon, ImageIcon } from "@phosphor-icons/react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { Suspense } from "react";
+import { ThreadReference, ThreadReferenceScope } from "./thread-reference.tsx";
+import { Suspense, useContext } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { displayName } from "./attachment-format.ts";
@@ -19,6 +20,7 @@ const InlineImage = deferredComponent(() =>
  */
 export function MarkdownImage(props: { src: string; alt: string }) {
   const { src, alt } = props;
+  const scope = useContext(ThreadReferenceScope);
   if (/^(data:image\/|blob:)/i.test(src))
     return (
       <Suspense
@@ -47,6 +49,7 @@ export function MarkdownImage(props: { src: string; alt: string }) {
         <ArrowSquareOutIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </a>
     );
+  if (scope) return <ThreadReference reference={src} image alt={alt} />;
   const name = displayName(src, "Image");
   return (
     <Tip label="An image file on the agent's machine; it isn't loaded here">

@@ -12,6 +12,7 @@ afterEach(async () => {
 }, 60_000);
 export async function setup(
   options: Partial<import("./service-options.ts").BrowserServiceOptions> = {},
+  beforeFrameResponse?: () => Promise<void>,
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-parity-"));
   const artifacts: import("@ace/protocol").BrowserArtifact[] = [];
@@ -67,9 +68,14 @@ export async function setup(
     }
     res.setHeader("Content-Type", "text/html");
     if (req.url === "/frame") {
-      res.end(
-        `<button onclick="this.textContent='Clicked frame'">Frame button</button><input aria-label="Frame input">`,
-      );
+      const reply = () => {
+        if (!res.destroyed)
+          res.end(
+            `<button onclick="this.textContent='Clicked frame'">Frame button</button><input aria-label="Frame input">`,
+          );
+      };
+      if (beforeFrameResponse) void beforeFrameResponse().then(reply, () => res.destroy());
+      else reply();
       return;
     }
     const host = req.headers.host ?? "";

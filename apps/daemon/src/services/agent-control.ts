@@ -1,3 +1,8 @@
+import { RemotePublications } from "../agent-control/remote-publication.ts";
+import { RemoteReturns } from "../agent-control/remote-return.ts";
+import { prepareRemoteContext } from "../agent-control/remote-context-source.ts";
+import { loadHostId } from "../local-files.ts";
+import { RemoteDelegations } from "../agent-control/remote.ts";
 import { logError } from "@ace/diagnostics";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
@@ -14,7 +19,14 @@ export function startAgentControl(context: ServiceContext): void {
   onListen.push((server) => {
     maintenance = server.maintenance;
   });
+  let remote: RemoteDelegations | undefined;
   const delegations = new DelegationService({
+    externalCapacity: (parent, root) => ({
+      concurrent:
+        remote?.journal.active().filter((task) => task.parentThreadId === parent).length ?? 0,
+      children: remote?.journal.root(root).children ?? 0,
+      usage: remote?.journal.root(root).usage ?? { tokens: 0, cost: 0 },
+    }),
     store,
     engine,
     clock: options.engine?.clock ?? { ...systemClock, now },
@@ -54,9 +66,94 @@ export function startAgentControl(context: ServiceContext): void {
   });
   resources.own(() => delegations.close());
   resources.onShutdown(() => delegations.close());
+  const returns = new RemoteReturns(store);
+  let returnCleanup: ReturnType<typeof setInterval> | undefined;
+  const cleanReturns = () =>
+    services.context
+      ? returns.cleanup(services.context, (error) =>
+          log.log("warn", "Cancelled output cleanup", logError(error)),
+        )
+      : Promise.resolve();
+  onListen.push(() => {
+    void cleanReturns();
+    returnCleanup = setInterval(() => {
+      void cleanReturns();
+    }, 60_000);
+    returnCleanup.unref();
+  });
+  resources.own(async () => {
+    if (returnCleanup) clearInterval(returnCleanup);
+    await cleanReturns();
+  });
+
+  const publications = new RemotePublications({
+    store,
+    engine,
+    context: services.context,
+    files: services.threadFiles,
+    hostId: loadHostId(context.config.dataDir),
+  });
+  remote = new RemoteDelegations({
+    resolveArtifacts: async (task) => {
+      const ownedContext = services.context;
+      if (!ownedContext) throw new Error("Returned attachment context unavailable");
+      return Promise.all(
+        (task.artifacts?.attachments ?? []).map(async (file) => {
+          const owned = await ownedContext.uploads.attachment(
+            "ace-remote-agent",
+            task.parentThreadId,
+            file.sha256,
+          );
+          return {
+            sha256: file.sha256,
+            name: owned.attachment.name,
+            path: owned.path,
+            hostId: task.sourceHostId,
+            threadId: task.parentThreadId,
+            provenance: {
+              hostId: task.request.hostId,
+              threadId: task.threadId,
+              name: file.name,
+              sourcePath: file.sourcePath,
+              aliases: file.aliases,
+            },
+          };
+        }),
+      );
+    },
+    onReturnCancel: (task) =>
+      returns.abandon(task, services.context, (error) =>
+        log.log("warn", "Cancelled output cleanup", logError(error)),
+      ),
+    pendingArtifacts: (task) => returns.read(task.id)?.artifacts,
+    artifactReady: (task, artifacts) => returns.ready(task, artifacts),
+    clock: options.engine?.clock ?? { ...systemClock, now },
+    onError: (error) => log.log("error", "Remote delegation failure", logError(error)),
+    prepareContext: (task, signal) =>
+      prepareRemoteContext(
+        { store, context: services.context, files: services.threadFiles },
+        task,
+        signal,
+      ),
+    hostId: loadHostId(context.config.dataDir),
+    store,
+    engine,
+    local: delegations,
+    now,
+    id,
+    admit: () => maintenance?.admit() ?? false,
+  });
+  resources.own(() => remote?.close());
+  resources.onShutdown(() => remote?.close());
+  delegations.onRemoteCancel = (thread) => remote?.cancelTree(thread);
   const owners = createAgentOwners(context, delegations);
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
+    remote: (caller, operation, signal) =>
+      (operation.op === "device.task_publish"
+        ? publications.publish(caller, operation, signal)
+        : remote?.execute(caller, operation, signal)) ??
+      Promise.resolve({ ok: false, code: "not_ready" as const }),
     pr: async (caller, operation, signal) => {
       const workspace = services.workspaceActions;
       if (!workspace) return { ok: false, code: "unsupported" };
@@ -81,6 +178,9 @@ export function startAgentControl(context: ServiceContext): void {
       : {}),
   });
   services.agentControl = {
+    returns,
+    publications,
+    remote,
     delegations,
     port: {
       execute: (caller, operation, signal) =>

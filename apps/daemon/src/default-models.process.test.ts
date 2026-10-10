@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -8,6 +8,7 @@ import { startModels } from "./services/models.ts";
 import { Resources } from "./services/resources.ts";
 import { readConfig } from "./config.ts";
 import { Store } from "./store.ts";
+import { openDaemonModels, registerDefaultModelInstances } from "./models.ts";
 import type { ServiceContext } from "./services/types.ts";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -28,6 +29,37 @@ const payload = (model: string) => ({
     },
   ],
   nextCursor: null,
+});
+test("shutdown during OpenCode version admission settles without admitting or leaking a probe", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-admission-abort-"));
+  const ready = join(home, "ready");
+  await writeFile(
+    join(home, "opencode"),
+    `#!${process.execPath}
+import {writeFileSync} from 'node:fs';
+writeFileSync(${JSON.stringify(ready)}, 'ready');
+setInterval(() => {}, 1000);`,
+    { mode: 0o700 },
+  );
+  const models = openDaemonModels(home, []);
+  const controller = new AbortController();
+  try {
+    const admission = registerDefaultModelInstances(
+      models,
+      home,
+      { HOME: home, PATH: home },
+      controller.signal,
+      new Set(),
+    );
+    await vi.waitFor(async () => expect(await readFile(ready, "utf8")).toBe("ready"));
+    controller.abort();
+    await expect(admission).resolves.toBeUndefined();
+    expect(models.list().instances).toEqual([]);
+  } finally {
+    controller.abort();
+    await models.close();
+    await rm(home, { recursive: true, force: true });
+  }
 });
 test("default installed CLI models load on startup, cache across restarts and refresh on demand", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-default-models-"));

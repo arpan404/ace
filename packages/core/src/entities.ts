@@ -138,6 +138,7 @@ export function startBackground(
     id: BackgroundTaskId.parse(ctx.ids.next("task")),
     agentId: record.agent.id,
     kind: fact.kind,
+    ...(fact.owner ? { owner: fact.owner } : {}),
     title: fact.title,
     status: "running",
     ambient: fact.ambient ?? false,

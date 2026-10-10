@@ -22,15 +22,17 @@ export function TurnRail({ nav }: { nav: ThreadNav }) {
   );
   if (count < 2) return null;
   return (
-    <ConversationRail
-      className="absolute top-20 bottom-24 left-0 z-[6]"
-      markers={markers}
-      currentId={String(reading)}
-      onJump={(id) => {
-        void nav.jump.toTurn(Number(id));
-      }}
-      renderPreview={(id) => <TurnPreview threadId={nav.threadId} ordinal={Number(id)} />}
-    />
+    <div className="absolute top-20 bottom-24 left-0 z-[6] grid place-items-center">
+      <ConversationRail
+        className="max-h-full overflow-y-auto"
+        markers={markers}
+        currentId={String(reading)}
+        onJump={(id) => {
+          void nav.jump.toTurn(Number(id));
+        }}
+        renderPreview={(id) => <TurnPreview threadId={nav.threadId} ordinal={Number(id)} />}
+      />
+    </div>
   );
 }
 

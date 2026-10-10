@@ -65,9 +65,9 @@ export function loopback(value: unknown): URL {
     throw new Error("OpenCode requires a credential-free loopback HTTP URL");
   return url;
 }
-/** Conservatively support the inspected release only until another contract is reviewed. */
+/** Only reviewed releases are admitted; server identity and the required operations are checked next. */
 export function version(value: unknown): boolean {
-  return value === "2.0.22";
+  return value === "2.0.22" || value === "2.0.26";
 }
 export const requiredOperations = [
   "server.info",

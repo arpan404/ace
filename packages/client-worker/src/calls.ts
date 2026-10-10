@@ -2,9 +2,10 @@ import {
   ClientError,
   pendingSend,
   loadServiceWire,
-  type Client,
+  type ClientCore,
   type RegistryQuery,
   type ServiceRequest,
+  type ServiceResponse,
   type ServiceWire,
 } from "@ace/client";
 import { CommandPayload, TextSource, ThreadMarkReadCommand } from "@ace/protocol";
@@ -105,7 +106,7 @@ function decode<T extends z.ZodType>(schema: T, args: unknown[]): z.infer<T> {
 
 /** Run one request method of the worker's client with a tab's arguments. */
 export async function callArgs(
-  client: Client,
+  client: ClientCore,
   method: string,
   args: unknown[],
   signal: AbortSignal,
@@ -184,10 +185,8 @@ export async function callArgs(
       const [read, parsed] = decode(schemas.outputRead, args);
       return client.outputRead(read, options(parsed, signal));
     }
-    case "request": {
-      const [input, parsed] = decode(schemas.request, args);
-      return client.request(input, options(parsed, signal));
-    }
+    case "request":
+      return requestArgs(client, args, signal);
     case "networkOnline": {
       const [online] = decode(schemas.networkOnline, args);
       client.networkOnline(online);
@@ -198,11 +197,21 @@ export async function callArgs(
   }
 }
 
+/** Preserve the fully validated response type across channel lifetime tracking. */
+export function requestArgs(
+  client: ClientCore,
+  args: unknown[],
+  signal: AbortSignal,
+): Promise<ServiceResponse<ServiceRequest>> {
+  const [input, parsed] = decode(schemas.request, args);
+  return client.request(input, options(parsed, signal));
+}
+
 /**
  * Pass a tab's one-way control to the worker's client. There is no reply to carry a failure: a
  * malformed or reserved message is dropped, and an offline client drops it as the socket would.
  */
-export function sendArgs(client: Client, value: unknown): void {
+export function sendArgs(client: ClientCore, value: unknown): void {
   // Undefined while the client's service schemas load: dropped, as by an offline socket.
   const control = client.decodeOneWay(value);
   if (!control) return;
@@ -215,7 +224,7 @@ export function sendArgs(client: Client, value: unknown): void {
 
 /** Start one of the client's streaming reads with a tab's arguments. */
 export function iterateArgs(
-  client: Client,
+  client: ClientCore,
   method: string,
   args: unknown[],
   signal: AbortSignal,

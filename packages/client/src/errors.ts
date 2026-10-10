@@ -6,6 +6,7 @@ export class ClientError extends Error {
     | "timeout"
     | "aborted"
     | "limit"
+    | "busy"
     | "protocol"
     | "auth"
     | "storage"

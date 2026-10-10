@@ -162,6 +162,7 @@ export class Projects {
   private async inspectDirectory(directory: ProjectDirectory, signal?: AbortSignal) {
     const path = directory.path;
     let git = null;
+    let gitUnavailable: "git_quarantined" | undefined;
     try {
       const info = await this.git.projectInfo(path, directory.handle.fd, signal);
       // A repository above the selected allowed root cannot be offered to the client.
@@ -173,7 +174,9 @@ export class Projects {
         remotes: projectRemotes(info.remotes),
       };
     } catch (error) {
-      if (
+      if (error instanceof GitError && error.code === "git_quarantined")
+        gitUnavailable = "git_quarantined";
+      else if (
         !(
           error instanceof ProjectError &&
           ["outside_project_roots", "system_directory"].includes(error.code)
@@ -188,6 +191,7 @@ export class Projects {
       path,
       ...(defaultIcon == null ? {} : { defaultIcon }),
       git,
+      ...(gitUnavailable ? { gitUnavailable } : {}),
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
     });
   }

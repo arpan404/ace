@@ -8,6 +8,7 @@
     },
     "code": {
       "enum": [
+        "not_installed",
         "not_configured",
         "auth_expired",
         "unreachable",

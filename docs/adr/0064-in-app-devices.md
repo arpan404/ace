@@ -172,3 +172,26 @@ input, so its status says "Agent paused". Sharing an app/window approves it for 
 starts a session and delegates to the thread's root agent. Sensitive apps use the current
 turn grant instead. The picker leaves an explicit grant visible if starting or delegation
 fails, and cleans up any session it started.
+
+### Native Simulator transport
+
+When `serve-sim` is installed on the device's Mac, capture uses its public CLI
+(`--no-preview --quiet <UDID>`), MJPEG framebuffer stream, and persistent
+WebSocket HID channel. `ACE_SERVE_SIM` can select an explicit executable. Install
+with `bun add --global serve-sim@0.1.47`; the desktop daemon includes the user's
+CLI paths. The legacy screen-helper path remains available on Macs without it.
+An explicit missing `ACE_SERVE_SIM` is an error, never a silent fallback.
+
+The adapter validates the announced UDID and loopback endpoints before opening
+any connection. Frame decoding is bounded, retains only the latest immutable
+packet, and reuses the existing authenticated device/relay frame transport.
+Native capture does not select windows by name and does not require macOS Screen
+Recording. Input stays behind the existing controller lease; gestures recheck
+that lease between native dispatches. Keyboard input uses serve-sim's public
+stdin command and reports its supported-keyboard/permission failures honestly.
+
+The supervised CLI owns any helper it starts. A pre-existing serve-sim server is
+borrowed: ace closes its own stream and HID socket without killing that server.
+Android starts with the bounded image stream profile immediately, including
+native screenrecord resolution/bitrate; negotiated H.264 remains hardware video
+forwarding rather than a second software encode.

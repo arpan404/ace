@@ -16,24 +16,20 @@ export function PrLinkForm(props: {
   const [error, setError] = useState<string>();
   return (
     <form
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
         const parsed = parsePrReference(value, props.repository);
         if ("error" in parsed) return setError(parsed.error);
         setError(undefined);
-        void props.onLink(parsed.number, parsed.repository).then(
-          () => {
-            setValue("");
-            props.onDone?.();
-          },
-          (reason: unknown) => {
-            setError(
-              reason instanceof Error
-                ? reason.message
-                : "Couldn't link the pull request. Try again.",
-            );
-          },
-        );
+        try {
+          await props.onLink(parsed.number, parsed.repository);
+          setValue("");
+          props.onDone?.();
+        } catch (reason: unknown) {
+          setError(
+            reason instanceof Error ? reason.message : "Couldn't link the pull request. Try again.",
+          );
+        }
       }}
     >
       <div className="flex items-center gap-1 px-2.5 py-1">

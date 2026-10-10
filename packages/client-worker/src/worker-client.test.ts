@@ -254,6 +254,109 @@ test("a malformed service request is refused before it reaches the daemon", asyn
   expect(remote.state).toBe("ready");
 });
 
+type JsonArgument =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonArgument[]
+  | { [key: string]: JsonArgument };
+
+test("a cyclic setting is refused without blocking another tab's requests", async () => {
+  const { tab } = world();
+  const writer = tab();
+  const other = tab();
+  await Promise.all([writer.start(), other.start()]);
+  await Promise.all([settled(writer), settled(other)]);
+  const value: { [key: string]: JsonArgument } = {};
+  value.again = value;
+  await expect(
+    writer.request({
+      type: "settings.set",
+      key: "clients.theme",
+      value,
+      layer: { kind: "global" },
+    }),
+  ).rejects.toMatchObject({ code: "protocol", message: expect.stringContaining("acyclic") });
+  await other.request({ type: "diagnostics.health" });
+  expect(other.state).toBe("ready");
+});
+
+test("a file request rejects a cyclic extra field before channel schemas can discard it", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({
+    id: "thread-graph-files",
+    workspaceId: "acme-relay",
+    title: "Files",
+    provider: "codex",
+  });
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const extra: { [key: string]: JsonArgument } = {};
+  extra.again = extra;
+  const input = {
+    type: "files.request" as const,
+    threadId: ThreadId.parse("thread-graph-files"),
+    operation: { op: "stat" as const, path: "." },
+    extra,
+  };
+  await expect(remote.request(input)).rejects.toMatchObject({
+    code: "protocol",
+    message: expect.stringContaining("acyclic"),
+  });
+  await remote.request({ type: "diagnostics.health" });
+});
+
+test("an exponentially expanding shared setting is refused before JSON expansion", async () => {
+  const { tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  let value: JsonArgument = { leaf: true };
+  for (let depth = 0; depth < 18; depth++) value = { left: value, right: value };
+  await expect(
+    remote.request({
+      type: "settings.set",
+      key: "clients.theme",
+      value,
+      layer: { kind: "global" },
+    }),
+  ).rejects.toMatchObject({ code: "limit", message: expect.stringContaining("JSON workload") });
+  await remote.request({ type: "diagnostics.health" });
+  expect(remote.state).toBe("ready");
+});
+
+test("an excessively deep setting is refused while ordinary shared settings still save", async () => {
+  const { tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  let value: JsonArgument = true;
+  for (let depth = 0; depth < 80; depth++) value = { child: value };
+  await expect(
+    remote.request({
+      type: "settings.set",
+      key: "clients.theme",
+      value,
+      layer: { kind: "global" },
+    }),
+  ).rejects.toMatchObject({ code: "limit", message: expect.stringContaining("JSON workload") });
+  const shared = { accent: "blue", sizes: [1, 2, 3] };
+  const ordinary = { left: shared, right: shared };
+  expect(
+    await remote.request({
+      type: "settings.set",
+      key: "clients.theme",
+      value: ordinary,
+      layer: { kind: "global" },
+    }),
+  ).toMatchObject({ ok: true });
+  expect(
+    await remote.request({ type: "settings.get", key: "clients.theme", scope: {} }),
+  ).toMatchObject({ ok: true, entries: [{ key: "clients.theme", value: ordinary }] });
+});
+
 test("terminal output held for credit resumes when a tab grants credit through the worker", async () => {
   const { daemon, tab } = world();
   daemon.createThread({
@@ -1108,4 +1211,54 @@ test("a tab sees its send synchronously and another tab sees it while worker sto
   );
   stopLeft();
   stopRight();
+});
+
+test("a worker refuses malformed file replies at the canonical boundary and never admits fractional channels", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({
+    id: "file-boundary",
+    workspaceId: "project",
+    title: "Files",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("file-boundary");
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const bytes = Buffer.from("bounded file");
+  await remote.uploadFile(
+    {
+      threadId,
+      path: "bounded",
+      expected: null,
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    (async function* () {
+      yield bytes;
+    })(),
+  );
+  faults.incoming = (message, text, deliver) => {
+    deliver(message.type === "files.ready" ? JSON.stringify({ ...message, channel: 0.5 }) : text);
+  };
+  const fractional = await remote.request({
+    type: "files.request",
+    threadId,
+    operation: { op: "download", path: "bounded", offset: 0 },
+  });
+  if (fractional.type !== "files.ready") throw new Error("Expected file reply");
+  await expect(
+    remote.request({ type: "files.pull", channel: fractional.channel }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  faults.incoming = (message, text, deliver) => {
+    deliver(message.type === "files.ready" ? JSON.stringify({ ...message, offset: -1 }) : text);
+  };
+  await expect(
+    remote.request({
+      type: "files.request",
+      threadId,
+      operation: { op: "download", path: "bounded", offset: 0 },
+    }),
+  ).rejects.toMatchObject({ code: "offline" });
+  await vi.waitFor(() => expect(remote.error?.code).toBe("protocol"));
 });

@@ -249,8 +249,11 @@ test("what needs you is listed oldest first, the same in the sidebar and the car
     expect(order(titles)).toEqual(requests);
     expect(order(rows)).toEqual(requests);
   });
-  // The rest of the feed sits under day headings.
-  expect(feed.getByRole("heading", { level: 3, name: "Today" })).toBeTruthy();
+  // The rest of the feed sits under day headings. Near midnight, recent fixture events
+  // can belong to yesterday, so the ordering check must not require a Today group.
+  expect(
+    await feed.findAllByRole("heading", { level: 3, name: /^(Today|Yesterday|This week|Older)$/ }),
+  ).not.toHaveLength(0);
 });
 
 test("H snoozes the focused card's thread, which leaves Needs you", async () => {

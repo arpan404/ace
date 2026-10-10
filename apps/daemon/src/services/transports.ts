@@ -9,6 +9,7 @@ export async function startRelayTransport(options: ServerOptions, auth: RemoteAu
     throw new Error("Relay file service unavailable");
   const relay = await startFilesRelay({
     ...options.relay,
+    remoteDelegation: options,
     ...(options.providerLogin ? { providerLogin: options.providerLogin } : {}),
     ...(options.accountManagement ? { accountManagement: options.accountManagement } : {}),
     ...(options.files ? { files: options.files } : {}),

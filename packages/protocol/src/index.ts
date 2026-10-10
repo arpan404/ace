@@ -120,3 +120,7 @@ export {
   PromptFilesResponse,
 } from "./prompt-files.ts";
 export * from "./worktree-creation.ts";
+
+export * from "./remote-delegation.ts";
+
+export * from "./remote-context.ts";

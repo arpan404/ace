@@ -8,6 +8,7 @@ import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { desktopConnection, desktopDaemon, hasDesktopBridge } from "./boot/desktop.ts";
 import { webStorage } from "./boot/web-storage.ts";
@@ -38,7 +39,9 @@ const app = (client: ClientApi, machines?: MachinePool) => (
 );
 /** A real daemon's app, with the machine pool this browser has stored for its connection. */
 function DaemonApp(props: { client: ClientApi }) {
-  return app(props.client, useBrowserMachinePool(local));
+  const pool = useBrowserMachinePool(local);
+  useRemoteAgentBroker(props.client, pool);
+  return app(props.client, pool);
 }
 const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);

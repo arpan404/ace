@@ -20,6 +20,7 @@ import {
 import { workerBundle } from "./worker-bundle.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
+import { workerJsonZod } from "./worker-json-zod.ts";
 import { workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
@@ -35,6 +36,7 @@ export default defineConfig(({ mode }) => ({
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),
     zodWithoutUnusedMethods(),
+    zodPureSchemas(),
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
@@ -57,6 +59,7 @@ export default defineConfig(({ mode }) => ({
     format: "es",
     plugins: () => [
       workerZodWithoutJsonSchema(),
+      workerJsonZod(),
       zodWithoutMetadata(),
       zodWithoutUnusedMethods(
         mode === "perf" ? droppedPerfWorkerZodMethods : droppedWorkerZodMethods,

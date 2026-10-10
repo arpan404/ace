@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteTaskUsage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cost": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "tokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tokens",
+    "cost"
+  ],
+  "type": "object"
+}

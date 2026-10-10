@@ -11,6 +11,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
+import { cursorModelParams } from "@ace/provider-kit/cursor-selection";
 
 export class ModelSelectionError extends Error {
   constructor() {
@@ -120,10 +121,19 @@ export class EngineModels {
         : undefined;
     const effort = resolved?.ok ? resolved.effort : undefined;
     // Explicit execution choices survive discovery. Fill only missing effort at admission.
-    const options =
+    let options =
       selection.options["effort"] === undefined && effort !== undefined
         ? { ...selection.options, effort }
         : selection.options;
+    if (selection.provider === "cursor" && resolved?.ok)
+      options = {
+        ...options,
+        cursorModelParams: JSON.stringify(cursorModelParams(resolved.model, options)),
+      };
+    if (selection.provider !== "cursor" && options["cursorModelParams"] !== undefined) {
+      const { cursorModelParams: _native, ...portable } = options;
+      options = portable;
+    }
     const next = { ...rest, options, ...(model ? { model } : {}) };
     return next;
   }

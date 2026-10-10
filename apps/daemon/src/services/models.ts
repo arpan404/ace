@@ -161,10 +161,10 @@ export async function startModels(context: ServiceContext): Promise<void> {
       services.providerConfigurations?.current() ?? [],
     );
     services.modelsReady = admission.then(() => {
-      models.revalidate();
+      if (!context.signal.aborted) models.revalidate();
     });
     resources.own(() => services.modelsReady);
-    void admission.catch((error: unknown) =>
+    void services.modelsReady.catch((error: unknown) =>
       context.log.log("warn", "Default model admission failed", logError(error)),
     );
   } else {

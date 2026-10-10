@@ -43,6 +43,7 @@ test("an OpenCode model switch uses the selected model on the next input and pre
   let completed = Promise.withResolvers<void>();
   const h = await harness([], scriptFrames(), {
     provider: "opencode",
+    idleMs: 500,
     discovery: { installed: true, auth: "logged_in", loginHint: "unused", version: "2.0.22" },
     nativeAdapter: {
       ...adapter,
@@ -97,6 +98,23 @@ test("an OpenCode model switch uses the selected model on the next input and pre
     await h.engine.flush();
     await completed.promise;
     await h.engine.flush();
+    expect(h.contexts).toHaveLength(1);
+    // Model selection is native and keeps the live session. Exercise resume separately
+    // after an actual engine idle-close, with the keeper preserving provider history.
+    h.clock.advance(h.clock.now() + 501);
+    await h.engine.flush();
+    completed = Promise.withResolvers<void>();
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: thread.id,
+        input: [{ type: "text", text: "synthetic input after idle" }],
+        delivery: "queue",
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    await completed.promise;
+    await h.engine.flush();
     const requests = z
       .array(z.object({ path: z.string(), method: z.string(), modelUsed: z.unknown().optional() }))
       .parse(
@@ -108,8 +126,10 @@ test("an OpenCode model switch uses the selected model on the next input and pre
     expect(prompts.map((request) => request.modelUsed)).toEqual([
       { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
       { providerID: "opencode-go", id: "another-model" },
+      { providerID: "opencode-go", id: "another-model" },
     ]);
     expect(prompts[0]?.path).toBe(prompts[1]?.path);
+    expect(prompts[1]?.path).toBe(prompts[2]?.path);
     expect(
       requests.filter((request) => request.path === "/api/session" && request.method === "POST"),
     ).toHaveLength(2); // keeper + one thread

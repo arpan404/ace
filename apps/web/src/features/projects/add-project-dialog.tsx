@@ -1,14 +1,13 @@
-import { DownloadSimpleIcon, FolderOpenIcon, FolderPlusIcon } from "@phosphor-icons/react";
-import { useState, type KeyboardEvent } from "react";
-import { Icon } from "@/components/icon.tsx";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
+  ArrowLeftIcon,
+  DownloadSimpleIcon,
+  FolderOpenIcon,
+  FolderPlusIcon,
+} from "@phosphor-icons/react";
+import { useState, type KeyboardEvent } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { ProjectSourcePicker } from "./project-source-picker.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { CloneProjectTab } from "./clone-project-tab.tsx";
@@ -75,6 +74,7 @@ export function AddProjectDialog(props: {
       choose(nextMachine(machines, machine.id)?.id);
       return;
     } else if (
+      props.tab !== "sources" &&
       (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
       !mod &&
       !event.shiftKey &&
@@ -89,33 +89,30 @@ export function AddProjectDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent size="lg" className="gap-3" onKeyDown={onKeyDown}>
+      <DialogContent size="lg" className="gap-3 overflow-y-auto" onKeyDown={onKeyDown}>
         <DialogHeader>
-          <DialogTitle>Add project</DialogTitle>
-          <DialogDescription>
-            A project is a folder on one of your machines. Agents work in it with that machine's
-            tools and Git credentials.
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {props.tab !== "sources" && (
+              <IconButton
+                icon={ArrowLeftIcon}
+                label="Back to sources"
+                size="sm"
+                onClick={() => props.onTab("sources")}
+              />
+            )}
+            <DialogTitle>Add project</DialogTitle>
+            {props.tab !== "sources" && (
+              <span className="text-sm text-muted-foreground">
+                {tabs.find((tab) => tab.value === props.tab)?.label}
+              </span>
+            )}
+          </div>
         </DialogHeader>
         {several && machine && (
           <MachinePicker machines={machines} value={machine.id} onValue={choose} />
         )}
-        <Tabs
-          value={props.tab}
-          onValueChange={(value) => {
-            const tab = tabs.find((each) => each.value === value);
-            if (tab) props.onTab(tab.value);
-          }}
-          className="grid min-w-0 gap-3"
-        >
-          <TabsList aria-label="How to add a project">
-            {tabs.map((tab) => (
-              <TabsTab key={tab.value} value={tab.value} className="px-2 sm:px-2.5">
-                <Icon icon={tab.icon} size={14} />
-                {tab.label}
-              </TabsTab>
-            ))}
-          </TabsList>
+        <div className="grid min-w-0 gap-3">
+          {props.tab === "sources" && <ProjectSourcePicker onChoose={props.onTab} />}
           {machine && machine.status !== "online" && (
             <p role="status" className="text-sm text-muted-foreground">
               {removed
@@ -127,31 +124,37 @@ export function AddProjectDialog(props: {
           )}
           {machine && (
             <>
-              <TabsPanel className="min-w-0" value="open">
-                <OpenFolderTab
-                  machine={machine}
-                  machines={machines}
-                  attempt={machine.primary ? props.attempt : undefined}
-                  onAdded={(result, mode, on) =>
-                    props.onAdded(result, "Added", { mode, machine: on })
-                  }
-                />
-              </TabsPanel>
-              <TabsPanel className="min-w-0" value="create">
-                <CreateProjectTab
-                  machine={machine}
-                  machines={machines}
-                  onAdded={(result, on) =>
-                    props.onAdded(result, "Created", { mode: "thread", machine: on })
-                  }
-                />
-              </TabsPanel>
-              <TabsPanel className="min-w-0" value="clone">
-                <CloneProjectTab machine={machine} machines={machines} clone={props.clone} />
-              </TabsPanel>
+              {props.tab === "open" && (
+                <div className="min-w-0">
+                  <OpenFolderTab
+                    machine={machine}
+                    machines={machines}
+                    attempt={machine.primary ? props.attempt : undefined}
+                    onAdded={(result, mode, on) =>
+                      props.onAdded(result, "Added", { mode, machine: on })
+                    }
+                  />
+                </div>
+              )}
+              {props.tab === "create" && (
+                <div className="min-w-0">
+                  <CreateProjectTab
+                    machine={machine}
+                    machines={machines}
+                    onAdded={(result, on) =>
+                      props.onAdded(result, "Created", { mode: "thread", machine: on })
+                    }
+                  />
+                </div>
+              )}
+              {props.tab === "clone" && (
+                <div className="min-w-0">
+                  <CloneProjectTab machine={machine} machines={machines} clone={props.clone} />
+                </div>
+              )}
             </>
           )}
-        </Tabs>
+        </div>
       </DialogContent>
     </Dialog>
   );

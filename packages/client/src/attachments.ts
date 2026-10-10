@@ -50,7 +50,7 @@ export async function attachmentBytes(
     const result = reply.result;
     if (result.kind !== "attachment.data")
       throw new ClientError(
-        "daemon",
+        result.kind === "error" && result.code === "busy" ? "busy" : "daemon",
         result.kind === "error" ? result.message : "Invalid attachment response",
       );
     if (

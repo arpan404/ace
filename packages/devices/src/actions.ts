@@ -29,6 +29,10 @@ export async function performDeviceAction(
       await platform.configure(session.device, operation.settings, guard);
       break;
     case "input":
+      if (session.capture?.input) {
+        await session.capture.input(operation.input, guard);
+        break;
+      }
       await platform.input(
         session.device,
         operation.input,

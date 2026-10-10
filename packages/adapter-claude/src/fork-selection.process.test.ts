@@ -40,7 +40,7 @@ test("Claude changes model and effort without replacing its native session", asy
     await h.session.configure({
       provider: "claude",
       model: "next-model",
-      options: { effort: "high" },
+      options: { effort: "high", serviceTier: "fast" },
     });
     const model = await h.wait(
       (f) =>
@@ -54,10 +54,28 @@ test("Claude changes model and effort without replacing its native session", asy
     );
     expect(object(object(flags.data)["request"])["settings"]).toMatchObject({
       effortLevel: "high",
+      fastMode: true,
     });
     await h.session.send([{ type: "text", text: "continue native history" }], "queue");
     const input = object(object((await h.wait(subtype("fake_input"))).data)["input"]);
     expect(input["session_id"]).toBe(nativeId);
+    const before = h.frames.length;
+    await h.session.configure({
+      provider: "claude",
+      model: "next-model",
+      options: {},
+    });
+    const reset = h.frames
+      .slice(before)
+      .find(
+        (f) =>
+          subtype("fake_control")(f) &&
+          object(object(f.data)["request"])["subtype"] === "apply_flag_settings",
+      );
+    expect(object(object(reset?.data)["request"])["settings"]).toMatchObject({
+      effortLevel: null,
+      fastMode: false,
+    });
   } finally {
     await h.session.close("shutdown");
   }

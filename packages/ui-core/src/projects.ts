@@ -247,6 +247,10 @@ const problems: Record<string, ProjectProblem> = {
       "Git couldn't finish. Check the address and that the machine running ace can reach it.",
   },
   git_cancelled: { message: "Cancelled." },
+  git_quarantined: {
+    message:
+      "This repository has an unfinished Git cleanup. You can open the project, but Git changes and new agent turns stay blocked until cleanup is confirmed.",
+  },
   busy: { message: "Too many folder reads at once. Try again in a moment." },
   unavailable: { message: "Update ace on that machine to manage projects." },
   projects_unavailable: {

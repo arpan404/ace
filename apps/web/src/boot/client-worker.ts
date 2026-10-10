@@ -1,7 +1,7 @@
 import { browserCredential } from "./remote-credential.ts";
 import { ClientHost, type PortLike } from "@ace/client-worker";
-import { webSocketTransport } from "@ace/client";
-import { createBrowserClient } from "./client.ts";
+import { ClientCore, webSocketTransport } from "@ace/client";
+import { browserClientOptions } from "./client.ts";
 import { workerOutbox } from "./worker-outbox.ts";
 import { lockReleased } from "./web-locks.ts";
 import { WorkerTarget, outboxKey } from "./worker-target.ts";
@@ -19,12 +19,14 @@ const host = new ClientHost({
       // Tabs reaching the same daemon as the same device share one client and one socket.
       key: `${outboxKey(target)}\u0000${target.token}`,
       create: () =>
-        createBrowserClient({
-          deviceId: target.deviceId,
-          transport: () => webSocketTransport(() => new WebSocket(target.url)),
-          credential: browserCredential(target),
-          storage: workerOutbox(target),
-        }),
+        new ClientCore(
+          browserClientOptions({
+            deviceId: target.deviceId,
+            transport: () => webSocketTransport(() => new WebSocket(target.url)),
+            credential: browserCredential(target),
+            storage: workerOutbox(target),
+          }),
+        ),
     };
   },
   scheduler: {

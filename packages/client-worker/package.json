@@ -8,7 +8,10 @@
     ".": "./src/index.ts",
     "./wire": "./src/wire.ts",
     "./idb-outbox": "./src/idb-outbox.ts",
-    "./machines": "./src/machines.ts"
+    "./machines": "./src/machines.ts",
+    "./remote-agent-broker": "./src/remote-agent-broker.ts",
+    "./remote-context-transfer": "./src/remote-context-transfer.ts",
+    "./remote-artifact-return": "./src/remote-artifact-return.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

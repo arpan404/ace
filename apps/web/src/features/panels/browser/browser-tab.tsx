@@ -84,7 +84,7 @@ function Browser(props: TabViewProps) {
   useHotkey(keymap.takeControl.keys, control.toggle, { enabled: page.bound });
   // In the desktop app the page itself is a native view drawn over this tab's page area.
   const pageArea = useRef<HTMLDivElement>(null);
-  useNativeView(
+  const nativeShown = useNativeView(
     threadId,
     pageArea,
     page.bound &&
@@ -194,6 +194,7 @@ function Browser(props: TabViewProps) {
         view={page.live}
         frame={page.frame}
         interactive={!!page.heldAs && page.online}
+        nativeShown={nativeShown}
         fit={viewport.emulation === undefined}
         dimmed={!page.online || page.live.status === "paused"}
       />

@@ -221,7 +221,10 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";
-  const active = highlight.key === listKey ? highlight.index : 0;
+  const active = Math.min(
+    highlight.key === listKey ? highlight.index : 0,
+    Math.max(0, items.length - 1),
+  );
   const empty = !text.trim() && !attachments.items.length;
   const compact = width > 0 && width < compactWidth;
   const terse = width > 0 && width < terseWidth;

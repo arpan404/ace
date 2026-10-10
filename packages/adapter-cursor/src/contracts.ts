@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RawPayload } from "@ace/protocol";
 import { ContentPart } from "@ace/protocol";
 import { CursorSdkAuth } from "@ace/protocol/accounts";
+import { CursorModelParams } from "@ace/provider-kit/cursor-selection";
 
 export const sdkVersion = "1.0.35";
 const identity = z.string().min(1).max(512);
@@ -43,6 +44,7 @@ export const Open = z.strictObject({
   threadId: identity,
   generation: identity,
   model: identity.optional(),
+  modelParams: CursorModelParams.optional(),
   nativeSessionId: identity.optional(),
   afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
   policy: z.enum(["restricted", "full-access"]).optional(),
@@ -56,6 +58,7 @@ export const Open = z.strictObject({
     .optional(),
 });
 export type OpenOptions = z.infer<typeof Open>;
+export const Configure = Open.pick({ model: true, modelParams: true }).required({ model: true });
 export const Send = z.strictObject({
   operationId: identity,
   commandId: identity.optional(),

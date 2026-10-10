@@ -6,6 +6,35 @@ type Action = {
 };
 /** Shared by advertised tools and the daemon's approval attribution. */
 export const controlActions: Record<AgentControlOperation["op"], Action> = {
+  "device.task_publish": {
+    description:
+      "Publish selected owned attachment hashes or relative files from this remote task to its originating thread. One immutable selection per task, stable requestId, at most 16 items/128 MiB. No workspace overwrite or merge.",
+    riskClass: "external-effect",
+  },
+  "device.list": {
+    description:
+      "List connected paired execution devices, their projects and available agents. Credentials and paths remain on their device.",
+    riskClass: "read-only",
+  },
+  "device.delegate": {
+    description:
+      "Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Selected context is imported through the encrypted relay. Explicit published outputs return as originating-thread attachments; workspaces are not copied or merged.",
+    riskClass: "agent-execution",
+  },
+  "device.task_status": {
+    description: "Read an owned remote task's status, host/thread identity and bounded result.",
+    riskClass: "read-only",
+  },
+  "device.task_wait": {
+    description:
+      "Wait for an owned remote task and its descendants to settle. Offline devices remain pending.",
+    riskClass: "read-only",
+  },
+  "device.task_cancel": {
+    description:
+      "Cancel an owned remote task and its descendants, preserving cancellation until its device reconnects.",
+    riskClass: "thread-write",
+  },
   delegate_task: {
     description:
       "Delegate a task to a local child agent that inherits the parent's permission ceiling and delegation budget.",

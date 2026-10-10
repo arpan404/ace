@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
-import { discoverProviders } from "@ace/provider-kit/discovery";
+import { discoverLegacyOpenCode } from "./discovery.ts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { readSse } from "@ace/provider-kit/sse";
 export type Runtime = {
@@ -8,7 +8,7 @@ export type Runtime = {
   monotonic(): number;
   entropy(bytes: number): string;
   port(): Promise<number>;
-  discover: typeof discoverProviders;
+  discover: typeof discoverLegacyOpenCode;
   spawn: typeof spawnSupervised;
   fetch: typeof fetch;
   stream: typeof readSse;
@@ -34,7 +34,7 @@ export function runtime(overrides: Partial<Runtime> = {}): Runtime {
     monotonic: () => performance.now(),
     entropy: (bytes) => randomBytes(bytes).toString("hex"),
     port,
-    discover: discoverProviders,
+    discover: discoverLegacyOpenCode,
     spawn: spawnSupervised,
     fetch: (...args) => fetch(...args),
     stream: readSse,

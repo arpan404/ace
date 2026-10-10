@@ -1,3 +1,4 @@
+import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
@@ -48,7 +49,7 @@ function CallDetail(props: { threadId: string; item: ToolItem }) {
   const interaction = useItemInteraction(props.threadId, props.item.id);
   return (
     <div className="flex flex-col gap-2">
-      <CallBody item={props.item} cwd={agent?.cwd} />
+      <CallBody item={props.item} cwd={agent?.cwd} threadId={props.threadId} />
       {interaction?.review && interaction.state !== "pending" && (
         <PermissionReviewFacts
           review={interaction.review}
@@ -60,7 +61,7 @@ function CallDetail(props: { threadId: string; item: ToolItem }) {
   );
 }
 
-function CallBody(props: { item: ToolItem; cwd: string | undefined }) {
+function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: string }) {
   const { detail, error, raw, title } = props.item.call;
   const context = { cwd: props.cwd };
   const command = detail.kind === "shell" ? displayCommand(detail) : undefined;
@@ -138,6 +139,18 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined }) {
       )}
       {detail.kind === "agent.message" && detail.message && (
         <p className="text-ui whitespace-pre-wrap text-muted-foreground">{detail.message}</p>
+      )}
+      {detail.kind === "image" && detail.attachment && (
+        <MessageAttachments
+          threadId={props.threadId}
+          attachments={[detail.attachment]}
+          className="items-start"
+        />
+      )}
+      {detail.kind === "image" && detail.unavailable && (
+        <p role="status" className="text-ui text-muted-foreground">
+          {detail.unavailable}
+        </p>
       )}
       {["browser", "image", "notebook", "custom"].includes(detail.kind) && (
         <p className="text-ui text-muted-foreground">{title}</p>

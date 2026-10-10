@@ -3,6 +3,7 @@ import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import type { RedactionContext } from "@ace/redaction";
 
 export const DiscoveryFailureCode = z.enum([
+  "not_installed",
   "not_configured",
   "auth_expired",
   "unreachable",

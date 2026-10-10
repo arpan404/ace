@@ -16,6 +16,7 @@ import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
+import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { StepGroup, StepImages, useAceLog } from "./ace-steps.tsx";
@@ -126,6 +127,16 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
     <li>
       <StepRow step={data.step} open={open} panel={panel} onToggle={() => setOpen(!open)} />
       {data.step.ace && data.step.ace.images.length > 0 && <StepImages view={data.step.ace} />}
+      {data.item.type === "tool_call" &&
+        data.item.call.detail.kind === "image" &&
+        data.item.call.detail.attachment &&
+        !open && (
+          <MessageAttachments
+            threadId={props.threadId}
+            attachments={[data.item.call.detail.attachment]}
+            className="mt-1 items-start pl-6"
+          />
+        )}
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-6">
           <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />

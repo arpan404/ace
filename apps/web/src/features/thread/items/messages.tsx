@@ -29,6 +29,11 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
       {name && <p className="mb-1 text-ui font-medium text-muted-foreground">{name}</p>}
       <Prose
         text={text}
+        thread={{
+          threadId: props.threadId,
+          itemId: item.id,
+          ...(agent?.cwd ? { cwd: agent.cwd } : {}),
+        }}
         stream={`${props.threadId}/${props.itemId}`}
         streaming={streaming}
         tail={
