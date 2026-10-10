@@ -35,7 +35,7 @@ async function open(options: Parameters<typeof harness>[0] = {}) {
   return { app, sent, message };
 }
 
-/** Move the effort slider with the keyboard, as a person tabbing to it would. */
+/** Move the reasoning choices with the keyboard, as a person tabbing to it would. */
 async function effort(chip: RegExp, keys: string) {
   const popover = await openModelControl(chip);
   within(popover).getByRole("slider", { name: "Effort" }).focus();
@@ -72,7 +72,7 @@ test("effort picked while a message is still saving stays for the next message",
   held = new Promise((resolve) => (release = resolve));
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   // While it saves, the person picks Low for the message after.
-  await effort(/^Model: Opus 5\.5, Personal, High effort/, "{Home}{ArrowRight}");
+  await effort(/^Model: Opus 5\.5, Personal, High effort/, "{Home}");
   release?.();
 
   await waitFor(() => expect(sent).toHaveLength(1));
@@ -144,11 +144,11 @@ test("a move to another provider from another device resets what its model can't
   expect(await screen.findByText("Effort and speed reset for Opus 5.5")).toBeTruthy();
   expect(
     await screen.findByRole("button", {
-      name: "Model: Opus 5.5, Personal, provider default effort",
+      name: "Model: Opus 5.5, Personal, Medium effort (default)",
     }),
   ).toBeTruthy();
 
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));
-  expect(sent[0]?.options).toBeUndefined();
+  expect(sent[0]?.options).toEqual({ effort: "medium" });
 });

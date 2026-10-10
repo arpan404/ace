@@ -114,7 +114,17 @@ export class EngineModels {
     }
     const model = this.select(selection.provider, selection.model, selection.instanceId, identity);
     const { model: _previous, ...rest } = selection;
-    const next = { ...rest, ...(model ? { model } : {}) };
+    const resolved =
+      this.catalog && filter && model
+        ? this.catalog.resolve({ role: "thread", ...filter, model })
+        : undefined;
+    const effort = resolved?.ok ? resolved.effort : undefined;
+    // Explicit execution choices survive discovery. Fill only missing effort at admission.
+    const options =
+      selection.options["effort"] === undefined && effort !== undefined
+        ? { ...selection.options, effort }
+        : selection.options;
+    const next = { ...rest, options, ...(model ? { model } : {}) };
     return next;
   }
   remember(id: ThreadId, selection: ExecutionSelection): void {

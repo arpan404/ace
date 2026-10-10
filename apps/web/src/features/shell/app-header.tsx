@@ -1,12 +1,8 @@
-import {
-  CaretLeftIcon,
-  CaretRightIcon,
-  DotsThreeIcon,
-  SidebarSimpleIcon,
-} from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -56,11 +52,9 @@ export function HeaderNav() {
             onClick={frame.showSidebar}
           />
         ) : (
-          <IconButton
-            icon={SidebarSimpleIcon}
+          <SidebarTrigger
             label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
             shortcut="toggleSidebar"
-            onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
           />
         ))}
       {!phone && (

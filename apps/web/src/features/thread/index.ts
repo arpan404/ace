@@ -10,6 +10,8 @@ export {
   chipControl as composerChip,
   stripControl as composerStrip,
   stripRow as composerStripRow,
+  environmentRow as composerEnvironmentRow,
+  environmentSurface as composerEnvironmentSurface,
 } from "./composer/composer-styles.ts";
 /** The tab attached to the composer's top edge. */
 export { AttachedCard } from "./composer/attached-card.tsx";

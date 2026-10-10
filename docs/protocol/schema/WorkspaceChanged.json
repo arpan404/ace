@@ -6,6 +6,7 @@
       "enum": [
         "added",
         "renamed",
+        "updated",
         "removed"
       ],
       "type": "string"

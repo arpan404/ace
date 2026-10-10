@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { CursorAuthEvent } from "@ace/protocol";
+import { CursorAuthEvent, ProjectIcon } from "@ace/protocol";
 import * as fc from "fast-check";
 import {
   protocolCatalog,
@@ -229,4 +229,49 @@ it("Cursor browser login preserves an HTTPS challenge exactly and rejects whites
   ]) {
     expect(CursorAuthEvent.safeParse({ ...event, url: invalid }).success).toBe(false);
   }
+});
+
+it("project icon JSON schemas preserve case-insensitive HTTP schemes without permitting other schemes or oversized uploads", () => {
+  const validate = validator.getSchema(schemaId("ProjectIcon"));
+  if (!validate) throw new Error("Missing icon validator");
+  for (const value of [
+    "http://example.test/icon.png",
+    "HTTPS://example.test/icon.png",
+    "hTtPs://example.test/icon.png",
+    "HTTPS://例え.テスト/icon.png",
+    "data:image/png;base64,YQ==",
+  ]) {
+    expect(ProjectIcon.safeParse(value).success, value).toBe(true);
+    expect(validate(value), value).toBe(true);
+  }
+  for (const value of [
+    "javascript:alert(1)",
+    "file:///tmp/icon.png",
+    "ftp://example.test/icon.png",
+    "data:image/svg+xml;base64,YQ==",
+    `https://example.test/${"x".repeat(4096)}`,
+    `data:image/png;base64,${"AAAA".repeat(32768)}`,
+  ]) {
+    expect(ProjectIcon.safeParse(value).success).toBe(false);
+    expect(validate(value)).toBe(false);
+  }
+});
+
+it("project icon normalization inputs reject without safeParse throwing and valid mixed-case URLs stay unchanged", () => {
+  const validate = validator.getSchema(schemaId("ProjectIcon"));
+  if (!validate) throw new Error("Missing icon validator");
+  for (const value of [
+    "https://example.test/icon.png\n",
+    "https://exa\tmple.test/icon.png",
+    "https://example.test/icon.png ",
+    " https://example.test/icon.png",
+    "https://example.test/icon.png\u2028",
+    "https://",
+  ]) {
+    expect(() => ProjectIcon.safeParse(value)).not.toThrow();
+    expect(ProjectIcon.safeParse(value).success).toBe(false);
+    expect(validate(value)).toBe(false);
+  }
+  for (const value of ["hTtPs://example.test/icon.png", "HTTPS://例え.テスト/icon.png"])
+    expect(ProjectIcon.parse(value)).toBe(value);
 });

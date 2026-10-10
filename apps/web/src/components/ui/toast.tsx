@@ -12,11 +12,9 @@ export const toastTimeouts = { plain: 4000, action: 8000, error: 8000 } as const
 const limit = 3;
 
 /**
- * Toasts: glass pills in the bottom-right corner of the main pane (`useToastAnchor`), 12px in,
- * with an optional action (Undo) and a Close button. Queue them from anywhere under
- * <ToastProvider> with `useToast().add({ title, actionProps })`, or `.error({ title })` for a
- * failure, which is announced at once. They stand clear of the composer
- * (`useToastClearance`), of open panels and of the phone's tab bar, never over an input.
+ * Toasts sit below the header at the top centre, clear of composer and footer actions.
+ * Short confirmations take only the room their words need; descriptions and actions wrap
+ * within a bounded card. Queue them under <ToastProvider> with useToast().add() or .error().
  * F6 moves focus to them (Base UI); hovering or focusing one pauses every timer.
  */
 interface ToastLedger {
@@ -36,7 +34,7 @@ function ToastProvider(props: { children: ReactNode }) {
             data-slot="toast-viewport"
             className={cn(
               layers.toast,
-              "fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col items-end gap-2 outline-none [-webkit-app-region:no-drag] max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2",
+              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-1/2 flex w-max max-w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
             )}
           >
             <ToastList />
@@ -85,19 +83,21 @@ function ToastList() {
       // region reads it out); an error's Retry and Dismiss must still be reachable.
       aria-hidden={false}
       className={cn(
-        "group/toast glass relative w-full rounded-lg text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+        "group/toast glass pointer-events-auto relative w-max max-w-full rounded-lg text-ui font-medium text-popover-foreground",
+        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
       <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-9 pl-3.5">
         {toast.type === "error" && (
           <WarningCircleIcon aria-hidden size={14} className="shrink-0 text-status-failed" />
         )}
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
           <Toast.Title className="line-clamp-2" />
           <Toast.Description className="text-sm font-normal text-muted-foreground empty:hidden" />
         </div>
-        <Toast.Action className={cn(buttonVariants({ size: "sm" }), "ml-1.5 empty:hidden")} />
+        <Toast.Action
+          className={cn(buttonVariants({ size: "sm" }), "ml-1.5 shrink-0 empty:hidden")}
+        />
       </Toast.Content>
       <Tip label="Dismiss notification">
         <Toast.Close

@@ -54,7 +54,7 @@ transform and opacity only.
   (`useSidebarLoaded()` for the thread list, `query.data === undefined` for reads).
 - Boot: `index.html` paints a static, themed shell (`#boot`) before the script runs; the app
   shell and the connection screen fade it out with `useDismissBootSplash()` (`lib/boot-splash.ts`).
-- Toasts stand clear of the composer: it registers with `useToastClearance` (`lib/toast-clearance.ts`).
+- Toasts appear at the top centre below the header and safe area, clear of composer actions. Short confirmations use their natural width; descriptions and actions fit within 420px and phone gutters.
 
 ## Window sizes
 

@@ -25,6 +25,7 @@ function port(store: SubscriptionStore): SubscriptionStore {
     acquireThread: store.acquireThread.bind(store),
     releaseThread: store.releaseThread.bind(store),
     listThreads: store.listThreads.bind(store),
+    sidebarPage: store.sidebarPage.bind(store),
     readEvents: store.readEvents.bind(store),
   };
 }

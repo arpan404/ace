@@ -1,3 +1,4 @@
+import { ProjectIconField, projectIconProblem } from "./project-icon-field.tsx";
 import { AppWindowIcon } from "@phosphor-icons/react";
 import { folderName, parentFolder } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
@@ -44,6 +45,8 @@ export function OpenFolderTab(props: {
         canAllow: props.attempt.canAllow,
       },
   );
+  const [icon, setIcon] = useState<string | null>();
+  const [iconBusy, setIconBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const pending = useRef(false);
   // What was typed carries over to another machine; a problem stays with its own.
@@ -62,12 +65,12 @@ export function OpenFolderTab(props: {
   const offline = machine.client === undefined;
 
   const add = async (path: string, mode: LandMode, where: Machine) => {
-    if (pending.current) return;
+    if (pending.current || iconBusy || projectIconProblem(icon)) return;
     pending.current = true;
     setAdding(true);
     setProblem(undefined);
     try {
-      props.onAdded(await commandsOn(where).add(path), mode, where);
+      props.onAdded(await commandsOn(where).add(path, icon), mode, where);
     } catch (error) {
       const failure = projectFailure(error);
       pending.current = false;
@@ -89,6 +92,14 @@ export function OpenFolderTab(props: {
   const shownProblem = problem && target && problem.key === target.key ? problem : undefined;
   return (
     <div className="grid gap-3">
+      <ProjectIconField
+        name={target?.name ?? "Project"}
+        value={icon}
+        defaultIcon={inspection?.defaultIcon}
+        onChange={setIcon}
+        onBusy={setIconBusy}
+        disabled={adding}
+      />
       <FolderSearchBox
         label="Search folders"
         listLabel="Folders"
@@ -108,7 +119,7 @@ export function OpenFolderTab(props: {
               icon={AppWindowIcon}
               label="Choose a folder…"
               size="sm"
-              disabled={offline || adding}
+              disabled={offline || adding || iconBusy || !!projectIconProblem(icon)}
               onClick={() =>
                 void native.choose().then((chosen) => {
                   if (chosen) void add(chosen, "open", machine);
@@ -142,7 +153,7 @@ export function OpenFolderTab(props: {
           action={
             <Button
               size="sm"
-              disabled={adding || offline}
+              disabled={adding || offline || iconBusy || !!projectIconProblem(icon)}
               onClick={() => void add(root, "open", on)}
             >
               Add {folderName(root)}
@@ -156,14 +167,18 @@ export function OpenFolderTab(props: {
       <Footer>
         <Button
           variant="ghost"
-          disabled={!target || adding || on.client === undefined}
+          disabled={
+            !target || adding || on.client === undefined || iconBusy || !!projectIconProblem(icon)
+          }
           onClick={() => open(target, true)}
         >
           New thread
         </Button>
         <Button
           variant="primary"
-          disabled={!target || adding || on.client === undefined}
+          disabled={
+            !target || adding || on.client === undefined || iconBusy || !!projectIconProblem(icon)
+          }
           onClick={() => open(target, false)}
         >
           {adding ? "Opening…" : target ? `Open ${target.name}` : "Select a folder"}

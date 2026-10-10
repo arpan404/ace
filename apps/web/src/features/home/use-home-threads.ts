@@ -43,7 +43,7 @@ function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
-const everyEntry: readonly SidebarKey[] = ["ids", "threads"];
+const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow"];
 function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
@@ -91,7 +91,11 @@ const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
 export function useProjects(): ProjectCount[] {
   const keys = useEveryEntryKey();
   const read = useEntries();
-  const select = useCallback((reader: SidebarReader) => projectCounts(read(reader)), [read]);
+  const select = useCallback(
+    (reader: SidebarReader) =>
+      reader.homeWindow?.counts ?? reader.window?.counts ?? projectCounts(read(reader)),
+    [read],
+  );
   return useSidebar(keys, select, countsEqual) ?? noProjects;
 }
 

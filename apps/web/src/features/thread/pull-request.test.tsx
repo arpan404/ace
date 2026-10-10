@@ -74,7 +74,7 @@ async function openCard() {
   const header = document.querySelector("header");
   if (!header) throw new Error("No header");
   await userEvent.click(within(header).getByRole("button", { name: "Work card" }));
-  return screen.findByRole("dialog", { name: "Work card" });
+  return screen.findByRole("complementary", { name: "Work card" });
 }
 
 /** The work card's PR row, opened into its popover. */
@@ -158,7 +158,7 @@ test("auto-merge waits for running checks, then the PR merges once they pass", a
   // The checks pass on the forge: GitHub merges it, and the card follows.
   app.daemon.seedServices({ pullRequests: { "thread-pr": pr() } });
   await waitFor(() => expect(linked(app)).toMatchObject({ state: "merged" }));
-  const card = screen.getByRole("dialog", { name: "Work card" });
+  const card = screen.getByRole("complementary", { name: "Work card" });
   expect(
     await within(card).findByRole("button", { name: /^Pull request #42.*, merged/ }),
   ).toBeTruthy();
@@ -268,8 +268,6 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  await userEvent.click(screen.getByRole("button", { name: /^Environment:/ }));
   const environment = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(within(environment).getByText("Local checkout")).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
@@ -283,7 +281,7 @@ test("a missing PR shows one explanation and can be unlinked without GitHub", as
     "GitHub couldn't find the pull request",
   );
   expect(within(popover).queryByText("No status from GitHub yet")).toBeNull();
-  const work = screen.getByRole("dialog", { name: "Work card" });
+  const work = screen.getByRole("complementary", { name: "Work card" });
   expect(within(work).queryByText("open", { exact: true })).toBeNull();
   expect(within(work).getByText("Unavailable")).toBeTruthy();
   expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();

@@ -58,9 +58,9 @@ test("the picker is reachable with the keyboard and arrows choose a machine", as
   const { made } = twoMachines();
   await addProject(made);
   await waitFor(async () => expect(within(await picker()).getAllByRole("radio")).toHaveLength(2));
-  // Back from the search box, past the tab panel and tabs, to the chosen machine.
+  // Tab backwards through the dialog until its chosen machine is reached.
   const selected = within(await picker()).getByRole("radio", { checked: true });
-  for (let press = 0; press < 4 && document.activeElement !== selected; press++)
+  for (let press = 0; press < 12 && document.activeElement !== selected; press++)
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
   expect(document.activeElement).toBe(selected);
   await userEvent.keyboard("{ArrowRight}");
@@ -241,6 +241,10 @@ test("Retry after the machine's worker is replaced clones through the new connec
   await userEvent.keyboard("{Control>}3{/Control}{Control>}m{/Control}");
   build.refuseCommands("git_failed", "workspace.clone");
   await userEvent.type(
+    screen.getByRole("textbox", { name: "Icon URL" }),
+    "https://example.com/build.png",
+  );
+  await userEvent.type(
     await screen.findByRole("textbox", { name: "Repository address" }),
     "acme/web",
   );
@@ -263,5 +267,6 @@ test("Retry after the machine's worker is replaced clones through the new connec
   }
   expect(await screen.findByText("Cloned web on Build server")).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/web"]);
+  expect(build.projects.list().workspaces[0]?.icon).toBe("https://example.com/build.png");
   expect(paths(made.daemon)).toEqual([]);
 });

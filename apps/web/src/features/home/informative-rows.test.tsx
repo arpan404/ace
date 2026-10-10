@@ -4,11 +4,13 @@ import {
   waitingOnSubagents,
   watchingRelay,
   runningTests,
+  workbench,
 } from "@ace/fake-daemon";
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { ThreadId } from "@ace/protocol";
+import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
   app.daemon.createThread({
@@ -47,7 +49,9 @@ test("a plan review says Needs you and explains the request on hover", async () 
   expect(within(row).getByText("Needs you", { exact: true })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
   await userEvent.hover(row);
-  expect((await screen.findByRole("tooltip")).textContent).toContain("Waiting for your review");
+  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
+    "Review reconnect recovery",
+  );
 });
 
 test.each([
@@ -68,7 +72,9 @@ test.each([
     expect(within(row).getByText(short, { exact: true })).toBeTruthy();
     expect(row.getAttribute("aria-label")).toContain(full);
     await userEvent.hover(row);
-    expect((await screen.findByRole("tooltip")).textContent).toContain(full);
+    expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
+      example.thread.title,
+    );
   },
 );
 
@@ -81,12 +87,12 @@ test("PR state, changes, status words and provider stay visible together", async
   expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
   expect(within(row).getByText("+24")).toBeTruthy();
   expect(within(row).getByText("−6")).toBeTruthy();
-  expect(within(row).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(within(row.parentElement ?? row).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(row);
-  const tip = await screen.findByRole("tooltip");
+  const tip = await screen.findByLabelText(/^Details for /);
   expect(tip.textContent).toContain("Build replay recovery");
-  expect(tip.textContent).toContain("Working");
-  expect(tip.textContent).toContain("draft pull request");
+  expect(within(tip).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
+  expect(within(tip).getByRole("img", { name: "24 lines added, 6 lines removed" })).toBeTruthy();
 });
 
 test("this device's read cursor shows new activity even while a task works", async () => {
@@ -100,7 +106,7 @@ test("this device's read cursor shows new activity even while a task works", asy
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(await within(row).findByRole("img", { name: "Unread activity" })).toBeTruthy();
-  expect(within(row).getByText("⑂ 1")).toBeTruthy();
+  expect(within(row.parentElement ?? row).getByText("⑂ 1")).toBeTruthy();
 });
 
 test("agents running beside a human request remain counted until they finish", async () => {
@@ -120,9 +126,9 @@ test("agents running beside a human request remain counted until they finish", a
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Approve")).toBeTruthy();
-  expect(within(row).getByText("⑂ 1")).toBeTruthy();
+  expect(within(row.parentElement ?? row).getByText("⑂ 1")).toBeTruthy();
   app.daemon.apply("build", [facts.endTurn("web")]);
-  await waitFor(() => expect(within(row).queryByText("⑂ 1")).toBeNull());
+  await waitFor(() => expect(within(row.parentElement ?? row).queryByText("⑂ 1")).toBeNull());
   expect(within(row).getByText("Approve")).toBeTruthy();
 });
 
@@ -144,4 +150,79 @@ test("renaming an empty draft cannot turn it into a task", async () => {
     facts.message("root", "sent", "user", "Fix replay"),
   ]);
   expect(await screen.findByRole("link", { name: /^Renamed draft/ })).toBeTruthy();
+});
+
+test.each([false, true])(
+  "device identity stays beside the provider without inline names (remote=%s)",
+  async (remote) => {
+    const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+    app.daemon.services.settings.seed({
+      "host.displayName": "Workshop Mac",
+      "host.icon": { kind: "desktop" },
+    });
+    app.machines.get("build")?.services.settings.seed({ "host.icon": { kind: "server" } });
+    const scenario = runningTests();
+    app
+      .play({
+        ...scenario,
+        thread: {
+          ...scenario.thread,
+          details: {
+            ...scenario.thread.details,
+            ...(remote
+              ? {
+                  machine: {
+                    host: "build",
+                    name: "Stale server",
+                    icon: { kind: "server" as const },
+                  },
+                }
+              : {}),
+          },
+        },
+      })
+      .runUntilBlocked();
+    await app.open("/new");
+    const row = await (
+      await rows()
+    ).findByRole("link", { name: new RegExp(`^${scenario.thread.title}`) });
+    const name = remote ? "Build server" : "Workshop Mac";
+    if (!row.parentElement) throw new Error("No row container");
+    const device = within(row.parentElement).queryByRole("img", { name: `Device: ${name}` });
+    expect(Boolean(device)).toBe(remote);
+    expect(row.textContent).not.toContain(name);
+    expect(row.textContent).not.toContain("Stale server");
+    expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
+    expect(within(row.parentElement ?? row).getByRole("img", { name: /Codex/ })).toBeTruthy();
+    await userEvent.hover(row);
+    expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
+    await userEvent.unhover(row);
+    row.focus();
+    await waitFor(() => expect(document.activeElement).toBe(row));
+    expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
+    expect(row.parentElement.querySelectorAll('[role="img"][tabindex="0"]').length).toBe(0);
+  },
+);
+
+test("settled rows keep local device truth in the rich hover card", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem(
+    "ace.home.organizer",
+    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
+  );
+  const app = harness({ storage });
+  app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
+  const scenario = workbench().find((entry) => entry.thread.id === "thread-bump-codex");
+  if (!scenario) throw new Error("Missing settled scenario");
+  await app.client.start();
+  app.play(scenario).runUntilBlocked();
+  await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(scenario.thread.id) });
+  await app.open("/new");
+  const row = await (await rows()).findByRole("link", { name: /^Bump Codex app-server/ });
+  if (!row.parentElement) throw new Error("No row container");
+  expect(within(row.parentElement).queryByRole("img", { name: "Device: Workshop Mac" })).toBeNull();
+  expect(within(row.parentElement ?? row).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(row.textContent).not.toContain("Workshop Mac");
+  await userEvent.hover(row);
+  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Workshop Mac");
 });

@@ -505,6 +505,7 @@ export class FakeServices {
           id: `account-fake-${++this.accountCounter}`,
           provider: request.provider,
           label: request.label,
+          shortLabel: request.shortLabel,
           implicit: false,
           isDefault: false,
           availability: "unknown",

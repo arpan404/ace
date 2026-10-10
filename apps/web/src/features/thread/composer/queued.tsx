@@ -11,7 +11,7 @@ import {
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -21,15 +21,23 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { StatusLabel } from "@/components/status-label.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { queuedText, type QueueControls } from "./use-queue.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { MessageReferences } from "../items/message-references.tsx";
+import { userBubble } from "../items/user-bubble.ts";
+import { localAttachment } from "./send-store.ts";
+
+const Attachments = deferredComponent(() =>
+  import("@/components/attachment-message.tsx").then((module) => module.MessageAttachments),
+);
 
 /**
- * The daemon's queue for this thread, above the composer: each waiting message with
- * Send now, Edit, Move up and down and Remove. A message the daemon can't vouch for (it may
+ * The daemon's queue at the transcript's tail: pending user bubbles with Send now and Take
+ * back to composer, plus ordering and removal in the menu. A message the daemon can't vouch for (it may
  * have reached the agent before a restart) can be sent again or removed. A message just queued shows at
  * once, from this window's outbox, and can be changed once the daemon has it (UX audit SY-7).
  * After Stop the queue waits ("paused after Stop") rather than dropping anything (CMP-1).
  */
-export function QueuedPills(props: { queue: QueueControls; pending?: readonly PendingQueued[] }) {
+export function QueuedBubbles(props: { queue: QueueControls; pending?: readonly PendingQueued[] }) {
   const { page, messages } = props.queue;
   const listed = new Set(messages.map((message) => message.id));
   const pending = (props.pending ?? []).filter((message) => !listed.has(message.id));
@@ -37,20 +45,17 @@ export function QueuedPills(props: { queue: QueueControls; pending?: readonly Pe
   const hidden = page ? page.total - page.messages.length : 0;
   const stopped = !!page?.paused && String(page.reason) === "stopped";
   return (
-    <div className="mb-2 flex flex-col items-center gap-1.5">
-      <ul aria-label="Queued messages" className="flex w-full flex-col items-center gap-1.5">
-        {messages.map((message, index) => (
-          <QueuedPill
+    <div className="mt-4 flex flex-col items-end gap-2">
+      <ul aria-label="Queued messages" className="flex w-full flex-col gap-4">
+        {[...messages, ...pending].map((message, index) => (
+          <QueuedBubble
             key={message.id}
             message={message}
             index={index}
-            last={index === messages.length - 1 && !pending.length}
+            last={index === messages.length + pending.length - 1}
             stopped={stopped}
             queue={props.queue}
           />
-        ))}
-        {pending.map((message) => (
-          <SavingPill key={message.id} message={message} />
         ))}
       </ul>
       {hidden > 0 && (
@@ -63,25 +68,25 @@ export function QueuedPills(props: { queue: QueueControls; pending?: readonly Pe
 }
 
 /** A queued message on its way to the daemon: shown, not yet changeable. */
-function SavingPill(props: { message: PendingQueued }) {
+function SavingBubble(props: { message: PendingQueued }) {
   const text = queuedText(props.message);
   return (
     <li
       aria-busy
-      className="fx-rise-in inline-flex min-h-8 max-w-full items-center gap-2 px-2.5 text-sm text-muted-foreground"
+      data-queue-id={props.message.id}
+      className="fx-rise-in flex flex-col items-end gap-1 text-muted-foreground"
     >
-      <Icon icon={ClockIcon} size={14} />
-      <span className="shrink-0">Queued</span>
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {text || "Attached files"}
+      <PendingBody message={props.message} text={text} />
+      <span className="flex items-center gap-1.5 pr-1 text-xs">
+        <Icon icon={ClockIcon} size={12} /> Queued
+        <Spinner label="Saving queued message" />
       </span>
-      <Spinner label="Sending to ace" />
     </li>
   );
 }
 
-function QueuedPill(props: {
-  message: QueuedMessage;
+function QueuedBubble(props: {
+  message: QueuedMessage | PendingQueued;
   index: number;
   last: boolean;
   /** The queue waits because the person pressed Stop. */
@@ -91,6 +96,7 @@ function QueuedPill(props: {
   const { message, queue } = props;
   const [editing, setEditing] = useState(false);
   const text = queuedText(message);
+  if ("saving" in message) return <SavingBubble message={message} />;
   const uncertain = message.state === "uncertain";
   const busy = queue.busy(message.id);
   const files =
@@ -103,7 +109,7 @@ function QueuedPill(props: {
           busy={busy}
           onCancel={() => setEditing(false)}
           onSave={async (next) => {
-            // The pill shows the new text at once; a refusal takes it back with a toast.
+            // The bubble shows the new text at once; a refusal takes it back with a toast.
             setEditing(false);
             await queue.edit(message, next);
           }}
@@ -111,82 +117,122 @@ function QueuedPill(props: {
       </li>
     );
   return (
-    <li className="fx-rise-in inline-flex min-h-8 max-w-full items-center gap-2 px-2.5 text-sm text-muted-foreground">
-      <StatusLabel
-        tone={uncertain ? "needs-you" : "idle"}
-        mark={
-          <Icon icon={uncertain ? WarningIcon : props.stopped ? PauseIcon : ClockIcon} size={14} />
-        }
-        label={
-          uncertain ? "May have been sent" : props.stopped ? "Queued · paused after Stop" : "Queued"
-        }
-      />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {text || "Attached files"}
-      </span>
-      {files > 0 && (
-        <span className="shrink-0 text-xs text-subtle-foreground">
-          +{files} {files === 1 ? "file" : "files"}
-        </span>
-      )}
-      {uncertain && (
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue.resend(message)}>
-          Send again
-        </Button>
-      )}
-      {!uncertain && (
-        <Menu>
-          <MenuTrigger
-            render={
-              <IconButton
-                icon={DotsThreeIcon}
-                label={`Queued message options: ${text}`}
-                size="sm"
-                className="size-5"
-                disabled={busy}
-              />
-            }
-          />
-          <MenuContent side="top" align="end" className="min-w-[190px]">
-            <MenuItem icon={<Icon icon={LightningIcon} />} onClick={() => queue.sendNow(message)}>
-              Send now
-            </MenuItem>
-            <MenuItem icon={<Icon icon={PencilSimpleIcon} />} onClick={() => setEditing(true)}>
-              Edit
-            </MenuItem>
-            <MenuItem
-              icon={<Icon icon={ArrowUpIcon} />}
-              disabled={props.index === 0}
-              onClick={() => queue.move(props.index, -1)}
-            >
-              Move up
-            </MenuItem>
-            <MenuItem
-              icon={<Icon icon={ArrowDownIcon} />}
-              disabled={props.last}
-              onClick={() => queue.move(props.index, 1)}
-            >
-              Move down
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem danger icon={<Icon icon={TrashIcon} />} onClick={() => queue.remove(message)}>
-              Remove
-            </MenuItem>
-          </MenuContent>
-        </Menu>
-      )}
-      {busy ? (
-        <Spinner label="Saving the change" />
-      ) : (
-        <IconButton
-          icon={XIcon}
-          label="Remove from queue"
-          size="sm"
-          className="size-5"
-          onClick={() => queue.remove(message)}
+    <li
+      data-queue-id={message.id}
+      className="fx-rise-in flex flex-col items-end gap-1 text-muted-foreground"
+    >
+      <PendingBody message={message} text={text} />
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-1 pr-1 text-xs">
+        <StatusLabel
+          tone={uncertain ? "needs-you" : "idle"}
+          mark={
+            <Icon
+              icon={uncertain ? WarningIcon : props.stopped ? PauseIcon : ClockIcon}
+              size={14}
+            />
+          }
+          label={
+            uncertain
+              ? "May have been sent"
+              : props.stopped
+                ? "Queued · paused after Stop"
+                : "Queued"
+          }
         />
-      )}
+        {files > 0 && (
+          <span className="shrink-0 text-xs text-subtle-foreground">
+            +{files} {files === 1 ? "file" : "files"}
+          </span>
+        )}
+        {uncertain && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => queue.resend(message)}>
+            Send again
+          </Button>
+        )}
+        {!uncertain && (
+          <IconButton
+            icon={LightningIcon}
+            label="Send now"
+            tip="Send this message into the running turn"
+            size="sm"
+            disabled={busy}
+            onClick={() => queue.sendNow(message)}
+          />
+        )}
+        {!uncertain && (
+          <Menu>
+            <MenuTrigger
+              render={
+                <IconButton
+                  icon={DotsThreeIcon}
+                  label={`Queued message options: ${text}`}
+                  size="sm"
+                  className="size-5"
+                  disabled={busy}
+                />
+              }
+            />
+            <MenuContent side="top" align="end" className="min-w-[190px]">
+              <MenuItem icon={<Icon icon={PencilSimpleIcon} />} onClick={() => setEditing(true)}>
+                Edit
+              </MenuItem>
+              <MenuItem
+                icon={<Icon icon={ArrowUpIcon} />}
+                disabled={props.index === 0}
+                onClick={() => queue.move(props.index, -1)}
+              >
+                Move up
+              </MenuItem>
+              <MenuItem
+                icon={<Icon icon={ArrowDownIcon} />}
+                disabled={props.last}
+                onClick={() => queue.move(props.index, 1)}
+              >
+                Move down
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem
+                danger
+                icon={<Icon icon={TrashIcon} />}
+                onClick={() => queue.remove(message)}
+              >
+                Remove
+              </MenuItem>
+            </MenuContent>
+          </Menu>
+        )}
+        {busy ? (
+          <Spinner label="Saving the change" />
+        ) : (
+          <IconButton
+            icon={XIcon}
+            label="Take back to composer"
+            tip="Take back to composer, keeping your current draft"
+            size="sm"
+            onClick={() => queue.takeBack(message)}
+          />
+        )}
+      </div>
     </li>
+  );
+}
+
+function PendingBody(props: { message: QueuedMessage | PendingQueued; text: string }) {
+  const files = props.message.context?.attachments.flatMap(({ sha256 }) => {
+    const file = localAttachment(sha256);
+    return file ? [file] : [];
+  });
+  return (
+    <div className={`${userBubble} border border-dashed border-border/70 text-foreground`}>
+      <Suspense fallback={null}>
+        <Attachments.Component
+          parts={props.message.input}
+          local={files}
+          className={props.text ? "mb-2" : undefined}
+        />
+      </Suspense>
+      {props.text ? <MessageReferences parts={props.message.input} /> : "Attached files"}
+    </div>
   );
 }
 

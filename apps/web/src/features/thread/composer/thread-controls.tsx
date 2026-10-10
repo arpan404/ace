@@ -1,5 +1,5 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
-import { WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/protocol";
+import { ThreadId, WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/protocol";
 import {
   accountDisplayName,
   formatClock,
@@ -8,9 +8,9 @@ import {
   modelControlName,
   nextOptions,
   optionEffort,
-  permissionCoverageNote,
-  permissionOption,
-  permissionOptions,
+  composerPermissionOption,
+  composerPermissionDefault,
+  composerPermissionOptions,
   permissionPendingNote,
   permissionUnavailable,
   pickerModelsFromChoices,
@@ -18,6 +18,7 @@ import {
   providerNames,
   reconcileNextOptions,
   recordedChoice,
+  resolveEffort,
   speedControl,
   threadEffortControl,
   unavailablePickerModel,
@@ -55,8 +56,8 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const permission = useThreadPermission(props.thread.id, meta?.permission);
   const [providerModes] = useDaemonSetting("permissions.providerModes", {
     workspaceId: WorkspaceId.parse(props.thread.workspaceId),
+    threadId: ThreadId.parse(props.thread.id),
   });
-  const defaultMode = meta ? (providerModes?.[meta.provider] ?? null) : null;
   const change = (mode: PermissionMode | null) =>
     void permission
       .change(mode)
@@ -69,33 +70,39 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     setCurrentId: change,
     live: (meta?.effectiveCapabilities ?? meta?.capabilities)?.permissions,
   });
+  const defaultMode = meta
+    ? composerPermissionDefault(meta.provider, providerModes?.[meta.provider], capabilities)
+    : null;
   const summary = threadPermissionSummary(meta?.permission, capabilities, {
     chosen: permission.chosen,
     defaultMode,
   });
-  const wanted = summary?.next ?? summary?.mode;
+  const wanted = summary?.next ?? summary?.mode ?? defaultMode;
   const blocked =
     meta && wanted && permissionUnavailable(capabilities, wanted, providerNames[meta.provider]);
   return (
     <PermissionPicker
-      current={summary && permissionOption(summary.mode, capabilities)}
-      next={summary?.next ? permissionOption(summary.next, capabilities) : undefined}
+      current={
+        summary &&
+        composerPermissionOption(meta?.provider, summary.mode ?? defaultMode, capabilities)
+      }
+      next={
+        summary?.next
+          ? composerPermissionOption(meta?.provider, summary.next, capabilities)
+          : undefined
+      }
       note={summary?.next && (permission.note ?? permissionPendingNote())}
       detail={summary?.coverage}
       inherited={summary?.inherited}
       menu={{
-        options: permissionOptions(capabilities),
-        value: summary?.next ?? (summary?.inherited ? undefined : (wanted ?? undefined)),
+        options: composerPermissionOptions(meta?.provider, capabilities),
+        value: wanted ?? undefined,
         loading: loading || (!meta?.permission && !failed),
         unavailable:
           failed && !meta?.permission
             ? "Couldn't load this thread's permissions. Reconnect and try again."
             : undefined,
-        coverage: permissionCoverageNote(
-          capabilities,
-          meta ? providerNames[meta.provider] : "This provider",
-          wanted,
-        ),
+
         fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
       }}
       onChange={setCurrentId}
@@ -158,6 +165,7 @@ export function ThreadModelControl(props: {
   const shown = current ?? (online ? undefined : remembered) ?? recordedChoice(selection);
   const base = selection?.options ?? none;
   const options = pending ?? base;
+  const preset = resolveEffort(shown?.efforts ?? [], undefined, shown?.defaultEffort);
   const effort = threadEffortControl({
     choice: shown,
     capabilities: meta?.capabilities,
@@ -231,7 +239,11 @@ export function ThreadModelControl(props: {
     fast: speed.on,
   };
   const name = target && modelControlName(details);
-  const waiting = pending ? "applies with your next message" : undefined;
+  const waiting = pending
+    ? "applies with your next message"
+    : !effort.reported && effort.current !== undefined
+      ? "Reasoning preset applies at the next turn; the running turn has not reported its level"
+      : undefined;
   const switchWaits = moving.waiting(target);
   const models = pickerModelsFromChoices(choices, limitReached).filter(
     (model) =>
@@ -268,14 +280,14 @@ export function ThreadModelControl(props: {
     modelKey: target?.key,
     instance: target?.accountId || undefined,
     efforts: effort.efforts,
-    // Without a known default, the provider's own default is a stop of its own.
-    defaultStop: shown?.defaultEffort === undefined,
     effort: effort.current,
     effortDefault: !effort.reported,
     effortReason: effort.reason,
     fast: speed.on,
     fastReason: speed.reason,
-    canReset: optionEffort(options) !== undefined || options["serviceTier"] !== undefined,
+    canReset:
+      (optionEffort(options) !== undefined && optionEffort(options) !== preset) ||
+      options["serviceTier"] !== undefined,
     accounts: shown?.account
       ? choices
           .filter((choice) => choice.key === shown.key && choice.account)
@@ -301,7 +313,11 @@ export function ThreadModelControl(props: {
         actions={{
           onEffort: (next) => change({ effort: next }),
           onFast: (on) => change({ serviceTier: on ? speed.tier : speed.off }),
-          onReset: () => change({ effort: undefined, serviceTier: undefined }),
+          onReset: () =>
+            change({
+              effort: optionEffort(base) === undefined ? undefined : preset,
+              serviceTier: undefined,
+            }),
           onModel: (key, instance) => {
             const from = moving.chosen ?? current;
             const choice = choiceForModel(choices, key, instance ?? from?.accountId);

@@ -6,6 +6,8 @@ import {
   providerNames,
   threadIsRunning,
   selectionInputs,
+  currentModelChoice,
+  resolveEffort,
   type AttachmentReader,
 } from "@ace/ui-core";
 import { Suspense, useEffect, useRef, useState, type Ref } from "react";
@@ -13,9 +15,9 @@ import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
 import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useModelChoices } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useToastClearance } from "@/lib/toast-clearance.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
@@ -28,12 +30,7 @@ import {
   DeferredPermissionControl,
   DeferredQueueArea,
 } from "./deferred-parts.tsx";
-import {
-  DeferredEnvironmentStrip,
-  DeferredPlanTab,
-  DeferredRequestStack,
-  DeferredStatusStrip,
-} from "./deferred-cards.ts";
+import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
@@ -74,6 +71,7 @@ export function ThreadComposer({
   const { storage } = useLayout();
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
+  const modelChoices = useModelChoices();
   const [setting] = useDaemonSetting("threads.followUpBehavior", {
     threadId: ThreadId.parse(props.thread.id),
   });
@@ -87,7 +85,6 @@ export function ThreadComposer({
   const threadId = ThreadId.parse(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
-  useToastClearance(box);
   // Effort and speed picked for the next message: this thread's, for the selection they were
   // picked for. The controls re-check them when the thread moves to another model.
   const [picked, setPicked] = useState<PendingTurn & { threadId: string }>();
@@ -113,6 +110,21 @@ export function ThreadComposer({
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
     const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
+    const selection = runsOn(meta);
+    const model = currentModelChoice(modelChoices, selection);
+    const explicit = sent?.options ?? selection?.options;
+    const effort = resolveEffort(
+      model?.efforts ?? [],
+      typeof explicit?.["effort"] === "string" ? explicit["effort"] : undefined,
+      model?.defaultEffort,
+    );
+    // Steering leaves the running turn intact; its next admission resolves the same default.
+    const options =
+      delivery !== "steer" &&
+      effort !== undefined &&
+      (explicit?.["effort"] === undefined || model?.efforts.includes(String(explicit["effort"])))
+        ? { ...(sent?.options ?? selection?.options), effort }
+        : sent?.options;
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,
@@ -121,7 +133,7 @@ export function ThreadComposer({
       commandId,
       draft,
       delivery,
-      options: sent?.options,
+      options,
       notify: (title, description) => toast.add({ title, description }),
     });
     if (ok && sent) setSpent({ commandId, turn: sent });
@@ -243,11 +255,6 @@ export function ThreadComposer({
                 onStop={stop}
               />
             ) : null}
-          </Suspense>
-        }
-        environment={
-          <Suspense fallback={null}>
-            <DeferredEnvironmentStrip.Component thread={props.thread} onClose={toMessage} />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}

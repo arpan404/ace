@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import {
   AccountId,
+  AccountBadgeInput,
   AccountInstanceId,
   AccountEnvKey,
   ProviderInstance,
@@ -443,6 +444,7 @@ export class AccountRegistry {
   ): void {
     const account = this.get(id);
     if (!account || account.instance.implicit) throw new Error("Account is immutable");
+    if (badge.shortLabel !== undefined) AccountBadgeInput.parse(badge.shortLabel);
     this.upsert.run(
       id,
       JSON.stringify(

@@ -92,7 +92,7 @@ export function ModelRow(props: {
         className={cn(
           menuItem,
           "gap-2 pr-9",
-          subtitle ? "h-auto min-h-11 py-1.5" : "h-8",
+          subtitle ? "h-auto min-h-10 py-1" : "h-8",
           props.nested && "pl-6",
           !model.unavailable && "cursor-pointer",
         )}

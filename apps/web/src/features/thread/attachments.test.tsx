@@ -195,6 +195,8 @@ test("the lightbox steps through the message's images and gives focus back on Es
   expect(objectUrls.get(download.getAttribute("href") ?? "")?.size).toBe(fixtureBytes);
   expect(within(dialog).getByRole("button", { name: "Copy image" })).toBeTruthy();
 
+  // Base UI schedules initial focus after mounting; keyboard events need that focus target.
+  await waitFor(() => expect(document.activeElement).toBe(dialog));
   await user.keyboard("{ArrowRight}");
   expect(await screen.findByRole("dialog", { name: "Attached image" })).toBeTruthy();
   expect(screen.getByText("2 of 2")).toBeTruthy();

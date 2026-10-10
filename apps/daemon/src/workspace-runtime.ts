@@ -1,3 +1,4 @@
+import { decodeProjectRow } from "./project-storage.ts";
 import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
@@ -10,7 +11,6 @@ import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ac
 import {
   gitStatusLimit,
   TerminalDescriptor,
-  WorkspaceId,
   ThreadId,
   type Command,
   type CommandResult,
@@ -190,16 +190,12 @@ export class WorkspaceRuntime {
       return this.store.atomic((db) => {
         const rows = db
           .prepare(
-            "SELECT id,name,path FROM workspaces WHERE id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id LIMIT ?",
+            "SELECT id,name,path,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id LIMIT ?",
           )
           .all(op.after ?? "", op.limit + 1);
         const result = wrap({
           kind: "workspaces",
-          workspaces: rows.slice(0, op.limit).map((row) => ({
-            id: WorkspaceId.parse(row.id),
-            name: String(row.name),
-            path: String(row.path),
-          })),
+          workspaces: rows.slice(0, op.limit).map(decodeProjectRow),
           ...(rows.length > op.limit ? { next: String(rows[op.limit - 1]?.id) } : {}),
         });
         return result;

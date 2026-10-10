@@ -1,11 +1,11 @@
 import { mkdirSync } from "node:fs";
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openTurns } from "./thread-header.ts";
 
 /**
  * The long-thread screens against the fake daemon, in Dark and Light at 1440x900, to
  * /tmp/aceshots-web/long-<screen>-<theme>.png: the turn timeline, a jumped view with Jump to
- * live, search with its hits, the catch-up card and older turns folded to digests. Run on
+ * live, search with its hits, the conversation rail and older turns folded to digests. Run on
  * demand with the other screens: `bun run --filter @ace/web-e2e screens`.
  */
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/aceshots-web";
@@ -15,19 +15,13 @@ type Setup = (page: Page) => Promise<void>;
 const mod = "ControlOrMeta";
 const longThread = "/t/thread-multi-day";
 
-/** The five-day thread as this device returns to it: the catch-up card first. */
+/** The five-day thread opens directly on its transcript. */
 async function returnToThread(page: Page) {
   await page.goto(longThread);
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
-  await page.getByRole("region", { name: "While you were away" }).waitFor();
+  await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
 }
-async function openThread(page: Page) {
-  await returnToThread(page);
-  await page
-    .getByRole("region", { name: "While you were away" })
-    .getByRole("button", { name: "Dismiss" })
-    .click();
-}
+const openThread = returnToThread;
 async function showTurns(page: Page) {
   const turns = await openTurns(page);
   await turns.getByRole("option", { name: /^Turn 24: / }).waitFor();
@@ -72,7 +66,7 @@ const staged =
   };
 
 const screens: Record<string, Setup> = {
-  "long-catch-up": async (page) => {
+  "long-conversation-rail": async (page) => {
     await returnToThread(page);
     await page.mouse.move(700, 880);
   },

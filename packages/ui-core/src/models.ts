@@ -1,5 +1,6 @@
 import { modelDetail } from "@ace/models/display-name";
-import { isDefaultSelection } from "@ace/models/resolve";
+import { isDefaultSelection, resolveEffort } from "@ace/models/resolve";
+export { resolveEffort } from "@ace/models/resolve";
 import type { ModelScope } from "@ace/client";
 import { modelRequiresAuth } from "@ace/models/availability";
 import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
@@ -536,7 +537,7 @@ export function threadEffortControl(input: {
 }): EffortControl {
   const { choice, capabilities } = input;
   const efforts = choice?.efforts ?? [];
-  const current = input.current ?? choice?.defaultEffort;
+  const current = input.current ?? resolveEffort(efforts, undefined, choice?.defaultEffort);
   const reported = input.current !== undefined;
   const blocked = (reason: string): EffortControl => ({ efforts, current, reported, reason });
   if (!choice) return blocked("Choose a model first");

@@ -67,6 +67,7 @@
     "@ace/usage": "workspace:*",
     "@ace/workspace": "workspace:*",
     "qrcode-generator": "2.0.4",
+    "sharp": "0.34.5",
     "ws": "^8.18.3",
     "zod": "^4.6.5"
   },

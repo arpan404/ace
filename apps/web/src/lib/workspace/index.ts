@@ -8,6 +8,8 @@ export {
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
+  type WorkCardState,
+  type TabUiState,
 } from "./model.ts";
 export {
   defineWorkspace,

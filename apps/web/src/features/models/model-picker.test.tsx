@@ -349,6 +349,7 @@ test("the provider column moves with the arrow keys", async () => {
     "GPT-5 Codex, Codex",
     "GPT-6, Codex",
     "GPT-6 Luna, Codex",
+    "Simulated Ultra Reasoning with Extended Context Model, Codex",
     "Legacy models, 4",
   ]);
 });

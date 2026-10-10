@@ -69,11 +69,21 @@ export function MessageInput({
         aria-disabled={disabled || undefined}
         aria-placeholder={placeholder}
         data-placeholder={placeholder}
-        onInput={(event) =>
-          onChange(editorText(event.currentTarget), editorCaret(event.currentTarget))
-        }
+        data-empty={text.length === 0 ? "true" : undefined}
+        onFocus={(event) => {
+          if (!text.length && !tokens.length) placeEditorCaret(event.currentTarget, 0);
+          props.onFocus?.(event);
+        }}
+        onInput={(event) => {
+          const el = event.currentTarget;
+          const next = !tokens.length && el.textContent === "" ? "" : editorText(el);
+          onChange(next, next.length ? editorCaret(el) : 0);
+        }}
         onKeyUp={(event) => onCaret(editorCaret(event.currentTarget))}
-        onMouseUp={(event) => onCaret(editorCaret(event.currentTarget))}
+        onMouseUp={(event) => {
+          if (!editorText(event.currentTarget).length) placeEditorCaret(event.currentTarget, 0);
+          onCaret(editorCaret(event.currentTarget));
+        }}
       />
       {slots.map(({ node, token }) =>
         createPortal(

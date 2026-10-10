@@ -185,8 +185,13 @@ export function FileTab(props: TabViewProps) {
   const known = [...new Set([...(path ? [path] : []), ...recent, ...edited])];
   const content = useFileContent(threadId, path);
   const [operation, setOperation] = useState<FileOperationDialog>();
-  const [query, setQuery] = useState("");
-  const [find, setFind] = useState<{ query: string; index: number } | undefined>();
+  const query = data.query ?? "";
+  const find = data.find;
+  const setQuery = (next: string) => update({ query: next });
+  const setFind = (next: { query: string; index: number } | undefined) => {
+    const { find: _previous, ...rest } = data;
+    actions.update(props.tab.key, { data: next ? { ...rest, find: next } : rest });
+  };
   // The tree goes beside the file while the source keeps 420px, else it steps aside (over the
   // file when asked for, closing once a file is picked). An empty tab always shows it.
   const root = useRef<HTMLDivElement>(null);
@@ -213,17 +218,18 @@ export function FileTab(props: TabViewProps) {
   const text = content.data?.kind === "text" ? content.data.text : undefined;
   const readable =
     !data.draft && text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
+  const findQuery = find?.query;
   const hits = useMemo(
-    () => (find && text !== undefined ? findHits(text, find.query) : []),
-    [find, text],
+    () => (findQuery !== undefined && text !== undefined ? findHits(text, findQuery) : []),
+    [findQuery, text],
   );
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
-  const toggleFind = () => setFind((current) => (current ? undefined : { query: "", index: 0 }));
+  const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (readable && matchesChord(event.nativeEvent, findChord)) {
       event.preventDefault();
-      setFind((current) => current ?? { query: "", index: 0 });
+      setFind(find ?? { query: "", index: 0 });
     }
   };
   const update = (patch: Partial<typeof data>) =>
@@ -377,6 +383,8 @@ export function FileTab(props: TabViewProps) {
               current={path}
               query={query}
               onQuery={setQuery}
+              collapsed={data.collapsed ?? []}
+              onCollapsed={(collapsed) => update({ collapsed })}
               onOpen={open}
               onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
               footer={

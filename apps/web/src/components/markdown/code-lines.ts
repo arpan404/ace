@@ -30,16 +30,41 @@ export function splitLines(tokens: readonly CodeToken[]): CodeToken[][] {
   return lines;
 }
 
+export function codeLinesWeight(doc: CodeLines): number {
+  return doc.lines.reduce(
+    (sum, line) =>
+      sum +
+      16 +
+      line.reduce(
+        (weight, token) =>
+          weight +
+          48 +
+          2 * (token.text.length + (token.light?.length ?? 0) + (token.dark?.length ?? 0)),
+        0,
+      ),
+    64,
+  );
+}
+
 const built = new LruCache<string, CodeLines>({
   maxEntries: 16,
   maxWeight: 8 * 1024 * 1024,
-  weigh: (doc) => doc.lines.reduce((sum, line) => sum + 16 + line.length * 24, 64),
+  weigh: codeLinesWeight,
 });
 
-export function codeLines(code: string, lang: string | undefined, hash = codeHash(code, lang)) {
+export async function codeLines(
+  code: string,
+  lang: string | undefined,
+  hash = codeHash(code, lang),
+) {
   const cached = built.get(hash);
   if (cached) return cached;
-  const doc: CodeLines = { hash, lines: splitLines(highlight(code, lang)) };
+  const colored = lang
+    ? await import("./source-highlight.ts")
+        .then((module) => module.sourceHighlight(code, lang))
+        .catch(() => undefined)
+    : undefined;
+  const doc: CodeLines = { hash, lines: colored ?? splitLines(highlight(code, lang)) };
   built.set(hash, doc);
   return doc;
 }

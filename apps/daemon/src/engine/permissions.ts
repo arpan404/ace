@@ -1,5 +1,9 @@
 import { ThreadId as importThreadId } from "@ace/protocol";
-import { migratePermissionMode, nativePermissionModes } from "@ace/provider-kit/permission-modes";
+import {
+  migratePermissionMode,
+  nativePermissionModes,
+  resolvePermissionMode,
+} from "@ace/provider-kit/permission-modes";
 import {
   Command,
   PermissionMode,
@@ -220,19 +224,19 @@ export class Permissions {
     const configured = await settings?.(id);
     const record = this.read(id);
     const thread = this.repo.store.getThread(id);
-    let selected = migratePermissionMode(
-      provider,
-      record.override ?? configured,
-      (nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities)
-        ?.permissionModes,
-    );
     const capabilities =
       nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities;
+    let selected = resolvePermissionMode(
+      provider,
+      record.override ?? configured,
+      capabilities?.permissions,
+    );
     let remapped = false;
     if (selected && !supportsPermissionMode(capabilities?.permissions, selected)) {
       remapped = true;
-      selected = migratePermissionMode(provider, configured, capabilities?.permissionModes);
-      if (!supportsPermissionMode(capabilities?.permissions, selected)) selected = null;
+      selected = resolvePermissionMode(provider, configured, capabilities?.permissions);
+      if (!supportsPermissionMode(capabilities?.permissions, selected))
+        selected = resolvePermissionMode(provider, null, capabilities?.permissions);
     }
     if (record.override && (selected === null || remapped))
       this.repo.store.atomic((db) =>

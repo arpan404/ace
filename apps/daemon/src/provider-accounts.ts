@@ -32,7 +32,11 @@ export async function providerAccounts(
         (!apiKey.supported || (request.provider === "opencode" && !request.upstream))
       )
         return fail("unsupported");
-      instanceId = await management.addPending(request.provider, request.label ?? "New account");
+      instanceId = await management.addPending(
+        request.provider,
+        request.label ?? "New account",
+        request.shortLabel,
+      );
     } else {
       instanceId = request.instanceId;
       const account = management.summaries(request.provider).find((row) => row.id === instanceId);

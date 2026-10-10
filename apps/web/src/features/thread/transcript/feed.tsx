@@ -10,7 +10,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -28,10 +27,11 @@ import {
   DeferredOpenTurnHead,
   DeferredSearchBar,
   DeferredTurnKeys,
+  DeferredTurnRail,
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { JumpedItem } from "../items/jumped-item.ts";
-import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
+import { DeferredLocalSends, DeferredQueuedMessages } from "../composer/deferred-parts.tsx";
 import { useLocalSendsView } from "../composer/send-store.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
@@ -45,6 +45,7 @@ import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useNewActivity } from "./use-new-activity.ts";
+import { useReadMarker } from "./seen.ts";
 
 const none: readonly string[] = [];
 const unsettledKeys = ["order", "interactions"] as const;
@@ -152,8 +153,6 @@ export interface FeedProps {
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
   liveNewest: string | undefined;
-  /** An inline card after live activity, sharing the transcript's scroll flow. */
-  overlay?: ReactNode;
 }
 
 /**
@@ -163,6 +162,7 @@ export interface FeedProps {
  */
 export function Feed(props: FeedProps) {
   const { threadId, nav, jump, pager } = props;
+  useReadMarker(threadId, nav);
   const window = jump.window;
   const detached = !!window && !jump.joined;
   // The person's messages on their way join the live tail as the bubbles their items become.
@@ -463,6 +463,9 @@ export function Feed(props: FeedProps) {
     <div className="relative flex h-full min-h-0 flex-col">
       {/* The rows and the bars that float over their top (search, the jump bar). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+        <Suspense fallback={null}>
+          <DeferredTurnRail.Component nav={nav} />
+        </Suspense>
         <div
           ref={viewport}
           data-virtual-viewport=""
@@ -482,7 +485,7 @@ export function Feed(props: FeedProps) {
             if (following !== pinnedRef.current) setPinned(following);
           }}
         >
-          <div className={`${readingColumn} pt-6 pb-16`}>
+          <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
             <div className="flex justify-center pb-4">
               {hasOlder ? (
                 <Button
@@ -573,7 +576,11 @@ export function Feed(props: FeedProps) {
               />
             )}
             <div ref={dock} className="mt-4 empty:hidden">
-              {!window && props.overlay}
+              {!detached && (
+                <Suspense fallback={null}>
+                  <DeferredQueuedMessages.Component threadId={threadId} />
+                </Suspense>
+              )}
             </div>
             {!detached && (
               <Suspense fallback={null}>

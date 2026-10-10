@@ -22,7 +22,14 @@ import { ToolbarButton } from "../terminal/toolbar.tsx";
 import { WithServices } from "../with-services.tsx";
 import { hideLogLines, showLogLines } from "./cleared.ts";
 import { DaemonLog } from "./daemon-log.tsx";
-import { agentSubtree, filterLog, formatLog, readFilter, type LogFilter } from "./log-filter.ts";
+import {
+  agentSubtree,
+  filterLog,
+  formatLog,
+  readFilter,
+  readLogQuery,
+  type LogFilter,
+} from "./log-filter.ts";
 import { FilterMenus, ScopeMenu, useThreadAgents } from "./log-menus.tsx";
 import { parseLogScope } from "./scopes.ts";
 import { logEqual, threadLog, type LogLine } from "./thread-log.ts";
@@ -114,7 +121,8 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
   const clearedByThread = useLocal(services.logCleared, (value) => value);
   const cleared = clearedByThread.get(threadId);
   const filter = readFilter(tab.data);
-  const [query, setQuery] = useState("");
+  const query = readLogQuery(tab.data);
+  const setQuery = (next: string) => actions.update(tab.key, { data: { ...filter, query: next } });
   const agent = agentId ? agents.find((each) => each.id === agentId) : undefined;
   const subtree = useMemo(
     () => (agentId ? agentSubtree(agents, agentId) : undefined),
@@ -130,7 +138,7 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
   const scoped = subtree ? kept.filter((line) => line.agentId && subtree.has(line.agentId)) : kept;
   const shown = filterLog(scoped, filter, query);
   const hidden = lines.length - kept.length;
-  const setFilter = (next: LogFilter) => actions.update(tab.key, { data: next });
+  const setFilter = (next: LogFilter) => actions.update(tab.key, { data: { ...next, query } });
   const filtered = shown.length !== scoped.length;
   const text = () => formatLog(shown, formatTime);
   return (

@@ -32,13 +32,16 @@ export function SwitchDialog(props: {
             itself (its scratch state and tool sessions) doesn't carry over.
             {props.busy ? " The switch happens once the current turn finishes." : ""}
           </DialogDescription>
+          <p className="min-w-0 text-sm break-words text-muted-foreground">
+            Model: {props.to.model}
+          </p>
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={props.onClose}>
             Cancel
           </Button>
           <Button type="button" variant="primary" autoFocus onClick={props.onConfirm}>
-            Switch to {props.to.model}
+            Switch to {to}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -12,8 +12,9 @@ test("the connected machine has the same name in menus, settings and thread envi
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
   const view = await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(screen.getByRole("button", { name: "ace menu" }));
-  const menu = await screen.findByRole("menu");
+  await userEvent.click(screen.getByRole("button", { name: /, account/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Connection" }));
+  const menu = await screen.findByRole("menu", { name: "Connection" });
   expect(await within(menu).findByText("Workshop Mac")).toBeTruthy();
   expect(menu.textContent).toContain("Connected");
   expect(menu.textContent).not.toContain("memory://");
@@ -38,9 +39,7 @@ test("the connected machine has the same name in menus, settings and thread envi
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(
-    await screen.findByRole("button", { name: /^(Environment:|Environment details)/ }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
   const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText("Workshop Mac")).toBeTruthy();
 });
@@ -84,9 +83,7 @@ test("a thread on another machine keeps that machine's name", async () => {
     .runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(
-    await screen.findByRole("button", { name: /^(Environment:|Environment details)/ }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
   const card = await screen.findByRole("region", { name: "Where this thread runs" });
   expect(await within(card).findByText("Build server")).toBeTruthy();
   expect(card.textContent).not.toContain("Workshop Mac");

@@ -175,7 +175,16 @@ export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): P
     // The mirror derives `threads` from the entry and membership patches it applies.
     if (k === "threads") continue;
     const { kind, id } = splitKey(k);
-    const v = kind === "ids" ? reader.ids : kind === "thread" ? reader.thread(id) : errorOf(reader);
+    const v =
+      kind === "homeWindow"
+        ? reader.homeWindow
+        : kind === "window"
+          ? reader.window
+          : kind === "ids"
+            ? reader.ids
+            : kind === "thread"
+              ? reader.thread(id)
+              : errorOf(reader);
     patches.push(v === undefined ? { k } : { k, v });
   }
   return patches;

@@ -52,6 +52,8 @@ export function FileTree(props: {
   /** The filter's text, owned by the tab so its breadcrumb can narrow it to a folder. */
   query: string;
   onQuery(query: string): void;
+  collapsed: readonly string[];
+  onCollapsed(folders: string[]): void;
   /** Shown under the tree: an upload in progress or what stopped it. */
   footer?: ReactNode;
 }) {
@@ -71,7 +73,7 @@ export function FileTree(props: {
     [searching, results, listing.data, props.known],
   );
   // Folders start open: the known tree is small and search results are worth seeing whole.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const collapsed = useMemo(() => new Set(props.collapsed), [props.collapsed]);
   const rows = useMemo(
     () => checkoutTreeRows(tree, (folder) => !collapsed.has(folder)),
     [tree, collapsed],
@@ -83,14 +85,13 @@ export function FileTree(props: {
     ? focusKey
     : (rows.find((row) => row.node.path === props.current)?.node.path ?? rows[0]?.node.path);
 
-  const toggle = (folder: string, open?: boolean) =>
-    setCollapsed((previous) => {
-      const next = new Set(previous);
-      const shouldOpen = open ?? next.has(folder);
-      if (shouldOpen) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
+  const toggle = (folder: string, open?: boolean) => {
+    const next = new Set(collapsed);
+    const shouldOpen = open ?? next.has(folder);
+    if (shouldOpen) next.delete(folder);
+    else next.add(folder);
+    props.onCollapsed([...next]);
+  };
   const focusRow = (path: string | undefined) => {
     if (!path) return;
     setFocusKey(path);

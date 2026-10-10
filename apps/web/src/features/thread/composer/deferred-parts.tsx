@@ -17,6 +17,9 @@ export const DeferredModelControl = deferredComponent(() =>
 export const DeferredQueueArea = deferredComponent(() =>
   import("./queue-area.tsx").then((module) => module.QueueArea),
 );
+export const DeferredQueuedMessages = deferredComponent(() =>
+  import("./queued-messages.tsx").then((module) => module.QueuedMessages),
+);
 export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
 );
@@ -38,6 +41,7 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredPermissionControl.preload(),
     DeferredModelControl.preload(),
     DeferredQueueArea.preload(),
+    DeferredQueuedMessages.preload(),
     DeferredSuggestionList.preload(),
     DeferredSendStatus.preload(),
     DeferredLocalSends.preload(),

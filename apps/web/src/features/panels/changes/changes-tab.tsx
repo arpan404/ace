@@ -262,6 +262,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   };
   const tree = showTree && (
     <FileTree
+      threadId={threadId}
       files={files}
       current={current}
       viewed={viewed}

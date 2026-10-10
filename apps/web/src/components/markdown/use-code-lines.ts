@@ -1,13 +1,13 @@
 import { LruCache } from "@ace/ui-core";
 import { useEffect, useMemo, useState } from "react";
-import { codeHash, type CodeLines } from "./code-lines.ts";
+import { codeHash, codeLinesWeight, type CodeLines } from "./code-lines.ts";
 import { markdownWorker } from "./worker.ts";
 
 /** Files highlighted this session, so switching back to a file tab shows it at once. */
 const ready = new LruCache<string, CodeLines>({
   maxEntries: 12,
   maxWeight: 12 * 1024 * 1024,
-  weigh: (doc) => doc.lines.reduce((sum, line) => sum + 16 + line.length * 24, 64),
+  weigh: codeLinesWeight,
 });
 
 /**

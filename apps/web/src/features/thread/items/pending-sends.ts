@@ -19,8 +19,8 @@ import type { Block } from "../transcript/blocks.ts";
  * The person's messages on their way, in the transcript (UX audit SY-2, SY-3, SY-7). A message
  * shows as its bubble the moment Enter is pressed, under the key its daemon item will have
  * (`input:<commandId>`), so when the item arrives the same row carries on: no jump, no second
- * bubble, no fade-in replayed. A message still waiting in the thread's queue is a pill above
- * the composer instead, never also a bubble. A daemon notice that a message wasn't delivered is
+ * bubble, no fade-in replayed. A message still waiting in the thread's queue is an explicitly
+ * pending bubble at the transcript tail, outside the confirmed feed. A daemon notice that a message wasn't delivered is
  * said on that message's bubble ("Not sent"), not as a line of its own.
  */
 

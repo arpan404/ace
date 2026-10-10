@@ -1,8 +1,9 @@
+import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
-import { migrateProjects } from "./project-storage.ts";
+import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
 import {
   TurnsPageRequest,
@@ -388,9 +389,20 @@ export class Store {
       await setImmediate();
     }
   }
-  getWorkspace(id: WorkspaceId): { path: string; name: string } | undefined {
-    const row = this.statement("SELECT path,name FROM workspaces WHERE id=?").get(id);
-    return row ? { path: String(row.path), name: String(row.name) } : undefined;
+  getWorkspace(
+    id: WorkspaceId,
+  ): { path: string; name: string; icon?: string | null; defaultIcon?: string | null } | undefined {
+    const row = this.statement(
+      "SELECT id,path,name,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=?",
+    ).get(id);
+    if (!row) return undefined;
+    const project = decodeProjectRow(row);
+    return {
+      path: project.path,
+      name: project.name,
+      ...(project.icon === undefined ? {} : { icon: project.icon }),
+      ...(project.defaultIcon === undefined ? {} : { defaultIcon: project.defaultIcon }),
+    };
   }
   executionWorkspace(id: ThreadId) {
     const thread = this.getThread(id);
@@ -516,6 +528,17 @@ export class Store {
       this.statement(
         "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')",
       ).get()?.n,
+    );
+  }
+  sidebarPage(
+    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
+    before?: import("@ace/protocol").ThreadListCursor,
+  ) {
+    return sidebarPageStorage(
+      (sql) => this.statement(sql),
+      (row) => this.decodeThread(row),
+      options,
+      before,
     );
   }
   listThreads(): Thread[] {

@@ -1,3 +1,4 @@
+import { ultraPreviewModel } from "./ultra-model.ts";
 import { configuredModels } from "@ace/models/preferences";
 import { modelDisplayName } from "@ace/models/display-name";
 import { CatalogModel, Device, type ProviderKind, type SettingsValues } from "@ace/protocol";
@@ -374,6 +375,7 @@ export function modelCatalog(): CatalogModel[] {
       contextWindow: 1_000_000,
     }),
   );
+  rows.push(ultraPreviewModel);
   const groups = new Map<string, CatalogModel[]>();
   for (const row of rows) {
     const key = row.instance;

@@ -6,6 +6,8 @@ export type TokenKind = "plain" | "keyword" | "string" | "number" | "comment" | 
 export interface CodeToken {
   kind: TokenKind;
   text: string;
+  light?: string | undefined;
+  dark?: string | undefined;
 }
 
 const cLike = new Set(

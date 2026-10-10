@@ -77,7 +77,7 @@ export function ThreadMenu(props: {
   return (
     <>
       <ContextMenu open={open} onOpenChange={setOpen}>
-        <ContextMenuTrigger render={props.children} />
+        <ContextMenuTrigger data-row-menu-open={open ? "" : undefined} render={props.children} />
         <ContextMenuContent
           aria-label={bulk ? "Actions for the selected threads" : `Actions for ${entry.title}`}
           onKeyDownCapture={onKeyDown}

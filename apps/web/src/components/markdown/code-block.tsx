@@ -1,18 +1,11 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
-import { cn } from "@/lib/cn.ts";
 import { useMemo, useState, type ReactNode } from "react";
-import { highlight, type CodeToken, type TokenKind } from "./highlight.ts";
+import { highlight, type CodeToken } from "./highlight.ts";
 
-/** Tonal classes per token kind: the design is near-monochrome, so no hues. */
-export const tokenTone: Record<TokenKind, string> = {
-  plain: "",
-  keyword: "font-medium text-foreground",
-  string: "text-muted-foreground",
-  number: "text-muted-foreground",
-  comment: "text-subtle-foreground italic",
-  punct: "text-muted-foreground",
-};
+import { useCodeLines } from "./use-code-lines.ts";
+import { CodeTokens } from "./code-tokens.tsx";
+export { tokenTone } from "./code-tokens.tsx";
 
 /** Copy to the clipboard with a short "Copied" confirmation. */
 export function useCopy(): { copied: boolean; copy(text: string): void } {
@@ -31,7 +24,7 @@ export function useCopy(): { copied: boolean; copy(text: string): void } {
   };
 }
 
-/** A fenced code block: language and Copy in a quiet header, tonal highlighting below. */
+/** A fenced code block: language and Copy in a quiet header, syntax highlighting below. */
 export function CodeBlock(props: {
   code: string;
   lang?: string | undefined;
@@ -50,7 +43,16 @@ export function CodeBlock(props: {
           : highlight(props.code, props.lang),
     [props.tokens, props.plain, props.code, props.lang],
   );
-  const tokens = props.tokens ?? local ?? [];
+  const colored = useCodeLines(props.plain ? undefined : props.code, props.lang);
+  const tokens = useMemo(
+    () =>
+      colored
+        ? colored.lines.flatMap((line, index) =>
+            index === 0 ? line : [{ kind: "plain" as const, text: "\n" }, ...line],
+          )
+        : (props.tokens ?? local ?? []),
+    [colored, props.tokens, local],
+  );
   const { copied, copy } = useCopy();
   return (
     <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
@@ -68,11 +70,7 @@ export function CodeBlock(props: {
       </figcaption>
       <pre className="overflow-x-auto px-3 pt-0.5 pb-3 font-mono text-[12.5px] leading-[1.55] text-foreground">
         <code>
-          {tokens.map((token, index) => (
-            <span key={index} className={cn(tokenTone[token.kind])}>
-              {token.text}
-            </span>
-          ))}
+          <CodeTokens tokens={tokens} />
           {props.tail}
         </code>
       </pre>

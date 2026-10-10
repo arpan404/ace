@@ -1,3 +1,4 @@
+import { composerPermissionDefault } from "@ace/ui-core";
 import { useState } from "react";
 import { PermissionClient } from "@ace/client";
 import type {
@@ -60,10 +61,9 @@ export function usePermissionModes(
       : choice.provider === provider
         ? choice.id
         : null;
-  const currentId =
-    requested && modes.some((mode) => mode.id === requested)
-      ? requested
-      : (modes.find((mode) => mode.default)?.id ?? null);
+  const currentId = provider
+    ? composerPermissionDefault(provider, requested, query.capabilities)
+    : null;
   const setCurrentId = (id: PermissionMode | null) => {
     const next = id && modes.some((mode) => mode.id === id) ? id : null;
     if (options.setCurrentId) options.setCurrentId(next);

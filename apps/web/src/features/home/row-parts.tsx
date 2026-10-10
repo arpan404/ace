@@ -1,4 +1,5 @@
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { ProjectImage } from "@/components/project-image.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { GitPullRequestIcon, GitMergeIcon } from "@phosphor-icons/react";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
@@ -42,15 +43,31 @@ export function threadDetails(card: ThreadCard): string[] {
  * The project's two letters on a quiet tile. The tile takes the project's tint
  * (`--project-<n>`, AA on every surface); only the variable is inline, the rule is shared.
  */
-export function ProjectMark(props: { badge: ProjectBadge }) {
+export function ProjectMark(props: {
+  badge: ProjectBadge;
+  icon?: string | null | undefined;
+  quiet?: boolean | undefined;
+}) {
   return (
-    <span
-      aria-hidden
-      style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
-      className="inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs bg-(--tint)/12 text-[9px] leading-none font-semibold text-(--tint)"
-    >
-      {props.badge.initials}
-    </span>
+    <ProjectImage
+      icon={props.icon}
+      className={cn(
+        "h-4 w-5 shrink-0 rounded-xs object-contain",
+        props.quiet && "grayscale opacity-75",
+      )}
+      fallback={
+        <span
+          aria-hidden
+          style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
+          className={cn(
+            "inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs text-[9px] leading-none font-semibold",
+            props.quiet ? "bg-secondary text-subtle-foreground" : "bg-(--tint)/12 text-(--tint)",
+          )}
+        >
+          {props.badge.initials}
+        </span>
+      }
+    />
   );
 }
 
@@ -60,11 +77,11 @@ export function ProjectMark(props: { badge: ProjectBadge }) {
  */
 export function StatusMark(props: { card: ThreadCard; muted?: boolean }) {
   const { card } = props;
-  const quiet = props.muted ? "text-muted-foreground" : "";
+  const quiet = props.muted ? "text-subtle-foreground" : "";
   switch (card.status.mark) {
     case "working":
       return (
-        <span className="fx-work-pulse">
+        <span className={props.muted ? undefined : "fx-work-pulse"}>
           <LiveWorkMark className={quiet} />
         </span>
       );
@@ -81,7 +98,7 @@ export function StatusMark(props: { card: ThreadCard; muted?: boolean }) {
 }
 
 /** State is also spoken, so the PR's colour is never the only clue. */
-function PullRequest(props: { card: ThreadCard }) {
+export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
   if (pr === undefined) return null;
   const tones = {
@@ -94,7 +111,10 @@ function PullRequest(props: { card: ThreadCard }) {
     <span
       role="img"
       aria-label={`${prState ?? "Linked"} pull request #${pr}`}
-      className={`inline-flex items-center gap-0.5 ${prState ? tones[prState] : ""}`}
+      className={cn(
+        "inline-flex items-center gap-0.5",
+        quietCard(props.card) ? "text-subtle-foreground" : prState && tones[prState],
+      )}
     >
       <Icon icon={prState === "merged" ? GitMergeIcon : GitPullRequestIcon} size={12} />
       {pr}
@@ -103,10 +123,9 @@ function PullRequest(props: { card: ThreadCard }) {
 }
 
 /** Only visible working rows subscribe to the shared second clock. Offline facts stop ticking. */
-export function RowStatus(props: { card: ThreadCard; selected: boolean }) {
+export function RowStatus(props: { card: ThreadCard }) {
   const { card } = props;
-  const muted =
-    !props.selected && card.status.tone !== "needs-you" && card.status.tone !== "failed";
+  const muted = quietCard(card);
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && card.status.since !== undefined);
   if (card.flags.settled || card.status.tone === "done" || card.status.tone === "idle")
@@ -114,7 +133,7 @@ export function RowStatus(props: { card: ThreadCard; selected: boolean }) {
       <span
         className={cn(
           "shrink-0 text-xs tabular-nums",
-          props.selected ? "text-foreground" : "text-muted-foreground",
+          muted ? "text-subtle-foreground" : "text-muted-foreground",
         )}
       >
         {card.age}
@@ -125,7 +144,7 @@ export function RowStatus(props: { card: ThreadCard; selected: boolean }) {
       tone={card.status.tone}
       label={card.status.compact}
       mark={<StatusMark card={card} muted={muted} />}
-      className={cn("gap-1 text-xs", muted && "text-muted-foreground")}
+      className={cn("gap-1 text-xs", muted && "text-subtle-foreground")}
     >
       {card.status.since !== undefined && fresh && (
         <span className="tabular-nums">{formatSpan(card.status.since, now)}</span>
@@ -148,28 +167,38 @@ export function RowMeta(props: { card: ThreadCard }) {
   );
 }
 
-/**
- * The title: bold when unread, bright when it needs you, quiet once the work is behind you,
- * quieter still once settled.
- */
+/** Unread results and requests take priority over the canonical dimmed flag. */
+export function quietCard(card: ThreadCard): boolean {
+  return card.dimmed && !card.emphasis;
+}
+
+/** Selection stays readable; ordinary read work uses the quiet ink. */
 export function titleTone(card: ThreadCard, selected: boolean): string {
   if (selected) return card.flags.unread ? "font-semibold text-foreground" : "text-foreground";
-  if (card.flags.settled) return "text-subtle-foreground";
   if (card.flags.unread) return "font-semibold text-foreground";
   if (card.emphasis) return "text-foreground";
-  return card.dimmed ? "text-muted-foreground" : "text-sidebar-foreground";
+  return quietCard(card) ? "text-subtle-foreground" : "text-sidebar-foreground";
 }
 
 /** PR and diff are independent facts; neither hides the other. */
 function ChangeMark(props: { card: ThreadCard }) {
-  const { diff } = props.card;
+  const { card } = props;
+  const { diff } = card;
   return (
     <>
       <PullRequest card={props.card} />
       {diff && (
         <span className="inline-flex items-center gap-1 tabular-nums">
-          {diff.added > 0 && <span className="text-status-done">+{diff.added}</span>}
-          {diff.removed > 0 && <span className="text-status-failed">−{diff.removed}</span>}
+          {diff.added > 0 && (
+            <span className={quietCard(card) ? "text-subtle-foreground" : "text-status-done"}>
+              +{diff.added}
+            </span>
+          )}
+          {diff.removed > 0 && (
+            <span className={quietCard(card) ? "text-subtle-foreground" : "text-status-failed"}>
+              −{diff.removed}
+            </span>
+          )}
         </span>
       )}
     </>
@@ -189,30 +218,74 @@ function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }
         provider={card.provider}
         acpAgentId={card.acpAgentId}
         size={14}
+        variant="color"
+        className={cn(
+          "text-muted-foreground",
+          quietCard(card) ? "[&>svg]:opacity-65" : "[&>svg]:opacity-75",
+        )}
+        tooltip={false}
+        accountLabel
         decorative
       />
     </span>
   );
 }
 
+/** Remote host context stays quiet; the whole row owns its rich hover card. */
+export function RowIdentity(props: {
+  card: ThreadCard;
+  instance?: string | undefined;
+  className?: string;
+  machinePrimary: boolean;
+}) {
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1.5", props.className)}>
+      {!props.machinePrimary && (
+        <span
+          role="img"
+          aria-label={`Device: ${props.card.machine ?? "This machine"}`}
+          className="inline-flex size-3.5 shrink-0 items-center justify-center text-subtle-foreground"
+        >
+          <MachineMark icon={props.card.machineIcon} />
+        </span>
+      )}
+      <ProviderMark card={props.card} instance={props.instance} />
+    </span>
+  );
+}
+
+/** Match the sibling cluster's intrinsic width without subscribing or rendering its icons twice. */
+export function RowIdentitySpace(props: { card: ThreadCard; machinePrimary: boolean }) {
+  return (
+    <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-1.5">
+      {!props.machinePrimary && <span className="size-3.5" />}
+      <span className="inline-flex items-center gap-0.5">
+        {props.card.subagents > 0 && (
+          <span
+            data-count={`⑂ ${props.card.subagents}`}
+            className="text-2xs tabular-nums before:content-[attr(data-count)]"
+          />
+        )}
+        <span className="size-4" />
+      </span>
+    </span>
+  );
+}
+
 /** Task context stays visible while the project-line status gives way to the hover action. */
-export function RowDetail(props: { card: ThreadCard; instance?: string | undefined }) {
+export function RowDetail(props: { card: ThreadCard; machinePrimary: boolean }) {
   const { card } = props;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-subtle-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         {card.branch && <span className="truncate">{card.branch.name}</span>}
-        {card.machine && (
-          <span className="hidden min-w-0 items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
-            ·
-            <MachineLabel name={card.machine} icon={card.machineIcon} className="min-w-0" />
-          </span>
-        )}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <ChangeMark card={card} />
-        <ProviderMark card={card} instance={props.instance} />
+        <span className="hidden items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
+          <ChangeMark card={card} />
+        </span>
       </span>
+      <RowIdentitySpace card={card} machinePrimary={props.machinePrimary} />
     </span>
   );
 }

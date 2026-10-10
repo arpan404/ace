@@ -1,3 +1,4 @@
+import { ProjectImage } from "@/components/project-image.tsx";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import {
   ArrowElbowDownLeftIcon,
@@ -379,10 +380,15 @@ function FolderOption(props: {
         row.stale && "opacity-60",
       )}
     >
-      <Icon
-        icon={row.self ? FolderOpenIcon : row.project ? FolderSimpleStarIcon : FolderSimpleIcon}
-        size={14}
-        className="text-muted-foreground"
+      <ProjectImage
+        icon={row.icon}
+        fallback={
+          <Icon
+            icon={row.self ? FolderOpenIcon : row.project ? FolderSimpleStarIcon : FolderSimpleIcon}
+            size={14}
+            className="text-muted-foreground"
+          />
+        }
       />
       <span className="max-w-[60%] shrink-0 truncate text-foreground">
         <Name name={row.name} positions={row.positions} />

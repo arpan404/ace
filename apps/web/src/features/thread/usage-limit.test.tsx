@@ -53,7 +53,9 @@ test("at its limit, the thread says when its account resets and moves to the acc
   expect(
     await within(notice).findByText(/^Codex · Team resets .*, in 1h 27m\. Queued messages wait\.$/),
   ).toBeTruthy();
-  expect(await within(screen.getByRole("banner")).findByText("Limited")).toBeTruthy();
+  const header = within(screen.getByRole("banner"));
+  expect(header.queryByText("Limited")).toBeNull();
+  expect(header.queryByRole("status")).toBeNull();
   await userEvent.click(within(notice).getByRole("button", { name: "Limit actions" }));
   expect(within(notice).getByRole("button", { name: "Resume at reset" })).toBeTruthy();
 

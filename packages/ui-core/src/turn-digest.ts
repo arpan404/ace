@@ -4,7 +4,7 @@ import { formatCount, pluralCount } from "./counts.ts";
 
 /*
  * How a turn's digest (ADR 0062) reads in one line: the timeline, collapsed turns and the
- * catch-up card all say "14 tools · 3 files +12 −4 · 1 failed" the same way. Pure.
+ * turn previews all say "14 tools · 3 files +12 −4 · 1 failed" the same way. Pure.
  */
 
 export type DigestFactKind =

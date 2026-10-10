@@ -1,7 +1,7 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CheckIcon, InfoIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { MenuGroup, MenuLabel } from "@/components/ui/menu.tsx";
+import { MenuGroup } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -20,13 +20,7 @@ function Note(props: { children: string; pending?: boolean }) {
   );
 }
 
-/**
- * The approval modes the provider offers, each with what it means in one line, then once what
- * the provider gates in the mode in effect. A mode it can't honour shows disabled, with why. A
- * thread with its own mode can go back to the default, unless the provider can't run in it.
- * It reads a generic `{id, label, description, risk}` list, so a provider's native modes need
- * nothing of their own.
- */
+/** Three compact permission presets; unsupported choices explain why inline. */
 export function PermissionMenu(props: {
   view: PermissionMenuView;
   onChange(id: string | null): void;
@@ -38,10 +32,9 @@ export function PermissionMenu(props: {
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
   return (
     <>
-      {view.fallback && <Note>{view.fallback}</Note>}
       <MenuGroup>
-        <MenuLabel>Approvals</MenuLabel>
         <MenuPrimitive.RadioGroup
+          aria-label="Approvals"
           value={view.value ?? ""}
           onValueChange={(value: string) => {
             if (value === "") return props.onChange(null);
@@ -49,24 +42,17 @@ export function PermissionMenu(props: {
             if (option && !option.unavailable) props.onChange(option.id);
           }}
         >
-          {[
-            {
-              id: "",
-              label: "Provider default",
-              description: "Use the default from Settings or the provider's own configuration.",
-              risk: "medium" as const,
-            },
-            ...view.options,
-          ].map((option) => {
+          {view.options.map((option) => {
             const attention = option.risk === "high";
             return (
               <MenuPrimitive.RadioItem
                 key={option.id}
                 value={option.id}
                 aria-label={option.label}
+                aria-description={option.unavailable ?? option.description}
                 disabled={!!option.unavailable}
                 closeOnClick
-                className={cn(menuItem, "h-auto items-start py-2")}
+                className={cn(menuItem, "h-auto items-start gap-2.5 px-2.5 py-2")}
               >
                 <Icon
                   icon={riskIcons[option.risk]}
@@ -88,12 +74,6 @@ export function PermissionMenu(props: {
           })}
         </MenuPrimitive.RadioGroup>
       </MenuGroup>
-      {view.coverage && (
-        <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
-          <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
-          {view.coverage}
-        </p>
-      )}
     </>
   );
 }

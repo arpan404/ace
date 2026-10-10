@@ -54,9 +54,18 @@ function app() {
   return made;
 }
 
-test("New thread lists the selected project's sessions and Import opens their saved conversation", async () => {
+/** Saved native sessions remain available in Setup, away from the new-thread composer. */
+async function openHistory(made: ReturnType<typeof app>) {
+  await made.open("/setup");
+  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
+  const project = await screen.findByRole("combobox", { name: "Past sessions project" });
+  await userEvent.click(project);
+  await userEvent.click(await screen.findByRole("option", { name: /^relay$/ }));
+}
+
+test("Setup lists the selected project's sessions and Import opens their saved conversation", async () => {
   const made = app();
-  await made.open("/new?project=relay");
+  await openHistory(made);
   const list = await screen.findByRole("list", { name: "Past sessions in relay" });
   expect(within(list).queryByText("Unavailable")).toBeNull();
   expect(within(list).queryByRole("button", { name: "Continue Trace delivery order" })).toBeNull();
@@ -86,7 +95,7 @@ test("New thread lists the selected project's sessions and Import opens their sa
 
 test("Continue opens a resumed conversation without sending a made-up message", async () => {
   const made = app();
-  await made.open("/new?project=relay");
+  await openHistory(made);
   const list = await screen.findByRole("list", { name: "Past sessions in relay" });
   const requests: unknown[] = [];
   const stop = made.client.onMessage((message) => {
@@ -156,7 +165,7 @@ test("Recent sessions stay capped, unavailable and other-project rows stay out, 
       ...sessions,
     ],
   });
-  await made.open("/new?project=relay");
+  await openHistory(made);
   const list = await screen.findByRole("list", { name: "Past sessions in relay" });
   expect(within(list).getAllByRole("listitem")).toHaveLength(4);
   expect(screen.queryByText("Unavailable")).toBeNull();
@@ -179,15 +188,15 @@ test("Recent sessions stay capped, unavailable and other-project rows stay out, 
 test("A project with no readable sessions has no past sessions section or entry point", async () => {
   const made = app();
   made.daemon.seedServices({ history: [] });
-  await made.open("/new?project=relay");
-  await screen.findByRole("combobox", { name: "Message" });
+  await openHistory(made);
+  await screen.findByRole("combobox", { name: "Past sessions project" });
   await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
   expect(screen.queryByRole("button", { name: "Show all past sessions" })).toBeNull();
 });
 
 test("old imported Codex notices and new raw-only items take no visible transcript rows", async () => {
   const made = app();
-  await made.open("/new?project=relay");
+  await openHistory(made);
   await userEvent.click(await screen.findByRole("button", { name: "Import Trace delivery order" }));
   await screen.findByRole("heading", { name: "Trace delivery order" });
   const thread = ThreadView.parse(
@@ -235,7 +244,7 @@ test("the full session list stays usable while more saved conversations are bein
       unsupported: [],
     },
   });
-  await made.open("/new?project=relay");
+  await openHistory(made);
   await userEvent.click(await screen.findByRole("button", { name: "Show all past sessions" }));
   const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
   expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
@@ -245,7 +254,7 @@ test("the full session list stays usable while more saved conversations are bein
 
 test("past sessions keep their rows and show a calm retrying status until recovery finishes", async () => {
   const made = app();
-  await made.open("/new?project=relay");
+  await openHistory(made);
   await screen.findByRole("button", { name: "Import Trace delivery order" });
   made.daemon.seedServices({
     historyScan: {
@@ -288,7 +297,7 @@ test("an empty inventory stays accessible while scanning and retrying instead of
       unsupported: [],
     },
   });
-  await made.open("/new?project=relay");
+  await openHistory(made);
   expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
   const dialog = await screen.findByRole("dialog", { name: "Past sessions" });

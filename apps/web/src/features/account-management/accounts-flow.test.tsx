@@ -26,7 +26,7 @@ test("the provider count opens its accounts and cancelling a new API-key form le
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.type(within(form).getByRole("textbox"), "Client key");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Client key");
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   await screen.findByLabelText("OpenAI API key");
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -41,7 +41,7 @@ test("Usage & accounts offers the same named-account form for each provider", as
   const codex = await screen.findByRole("region", { name: "Codex" });
   await userEvent.click(within(codex).getByRole("button", { name: "Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.type(within(form).getByRole("textbox"), "Not saved");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Not saved");
   await userEvent.click(within(form).getByRole("button", { name: "Cancel" }));
   expect(await namedAccounts(app)).not.toContain("Not saved");
   expect(screen.queryByRole("form", { name: "Add account" })).toBeNull();
@@ -54,7 +54,8 @@ test("the picker adds a named account, closes on device-code success and never c
   const popover = await openModelControl(/^Model: Opus 5.5/);
   await chooseAccount(popover, "Add account…");
   const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.type(within(form).getByRole("textbox"), "Client work");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Client work");
+  await userEvent.click(within(form).getByRole("button", { name: "Use 💼 badge" }));
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   await within(dialog).findByRole("link", { name: /Open sign-in page/ });
@@ -65,6 +66,8 @@ test("the picker adds a named account, closes on device-code success and never c
   expect(await screen.findByText("Signed in to Claude Code · Client work")).toBeTruthy();
   expect(screen.queryByText("Signed in as ada@example.com")).toBeNull();
   expect(await namedAccounts(app)).toContain("Client work");
+  const saved = await app.client.request({ type: "accounts.list" });
+  expect(saved.accounts.find((account) => account.label === "Client work")?.shortLabel).toBe("💼");
 });
 
 test("a renamed default account immediately names the new-thread composer and picker group", async () => {
@@ -159,7 +162,7 @@ test("the API service picker names its known marks and connects the selected Ope
   const service = await screen.findByRole("option", { name: "OpenRouter" });
   expect(within(service).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
   await userEvent.click(service);
-  await userEvent.type(within(form).getByRole("textbox"), "Router work");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Router work");
   await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
   expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
 });

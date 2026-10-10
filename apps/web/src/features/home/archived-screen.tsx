@@ -24,6 +24,7 @@ import {
 import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { ThreadPagination } from "./thread-pagination.tsx";
 import { useArchivedList } from "./use-home-threads.ts";
 
 /**
@@ -70,6 +71,7 @@ export function ArchivedScreen() {
               ))}
             </ul>
           )}
+          <ThreadPagination />
         </div>
       </Page>
       {deleting && (

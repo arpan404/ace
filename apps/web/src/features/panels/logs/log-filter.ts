@@ -56,6 +56,12 @@ export function readFilter(data: unknown): LogFilter {
   return parsed.success ? parsed.data : defaultFilter;
 }
 
+const QuerySchema = z.object({ query: z.catch(z.string(), "") });
+export function readLogQuery(data: unknown): string {
+  const parsed = QuerySchema.safeParse(data);
+  return parsed.success ? parsed.data.query : "";
+}
+
 const rank: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 };
 const minimum: Record<LevelFilter, number> = { all: 0, warn: 1, error: 2 };
 

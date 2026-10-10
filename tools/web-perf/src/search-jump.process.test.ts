@@ -12,8 +12,13 @@ test.each([false, true])(
         await open(page, `${origin}/t/thread-multi-day?long=1&rate=20`);
         const feed = page.getByRole("feed", { name: "Transcript" });
         await feed.waitFor();
-        const catchUp = page.getByRole("region", { name: "While you were away" });
-        await catchUp.getByRole("button", { name: "Dismiss" }).click();
+        await page.getByRole("combobox", { name: "Message" }).waitFor();
+        await browserExpect(page.getByRole("region", { name: "While you were away" })).toHaveCount(
+          0,
+        );
+        await browserExpect(
+          page.getByRole("button", { name: "Summarise", exact: true }),
+        ).toHaveCount(0);
         if (historical) {
           // Turns lives in the header's ⋯ menu.
           await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();

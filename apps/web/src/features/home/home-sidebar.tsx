@@ -1,5 +1,11 @@
 import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
+import {
+  useClient,
+  useSidebar,
+  useSidebarLoaded,
+  useSidebarThread,
+  useThreadMeta,
+} from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { Link, useParams } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef } from "react";
@@ -15,6 +21,7 @@ import { formatKeys } from "@/lib/keymap.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
 import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
+import { ThreadPagination } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
@@ -31,7 +38,8 @@ const DeferredStartedRows = deferredComponent(() =>
  */
 export function HomeSidebar() {
   const list = useHomeList();
-  const { project } = useOrganizerState();
+  const settledTotal = useSidebar(["homeWindow"], (reader) => reader.homeWindow?.total);
+  const { project, settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
@@ -89,8 +97,9 @@ export function HomeSidebar() {
             />
           </>
         ) : (
-          <ThreadList list={list} />
+          <ThreadList list={list} settledTotal={settledTotal} />
         )}
+        <ThreadPagination settledOpen={settledOpen} />
       </nav>
     </>
   );
@@ -103,7 +112,9 @@ export function HomeSidebar() {
 function useSeenWhileOpen() {
   const params = useParams({ strict: false });
   const threadId = params.threadId;
-  const entry = useSidebarThread(threadId ?? "");
+  const listed = useSidebarThread(threadId ?? "");
+  const direct = useThreadMeta(threadId ?? "");
+  const entry = listed ?? direct;
   const organizer = useOrganizer();
   const client = useClient();
   const { storage } = useLayout();

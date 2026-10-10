@@ -1,7 +1,7 @@
 import type { PermissionRisk } from "@ace/ui-core";
 import {
   ShieldCheckIcon,
-  ShieldIcon,
+  HandPalmIcon,
   ShieldWarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
@@ -12,7 +12,7 @@ import {
  * shield for reviewed ones, a warning shield (in the attention colour) when nothing is gated.
  */
 export const riskIcons: Record<PermissionRisk, PhosphorIcon> = {
-  low: ShieldIcon,
+  low: HandPalmIcon,
   medium: ShieldCheckIcon,
   high: ShieldWarningIcon,
 };

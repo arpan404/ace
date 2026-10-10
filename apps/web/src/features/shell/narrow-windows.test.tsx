@@ -120,7 +120,7 @@ test("on a phone the header keeps one ⋯ for its tools and the thread menu, and
   expect(screen.getByRole("menuitem", { name: /^Search this thread/ })).toBeTruthy();
 });
 
-test("on a phone the header is a back caret to the list, the title, its status and one ⋯; the tools are in the ⋯", async () => {
+test("on a phone the header keeps a back caret, title and one ⋯ with no status; tools are in the ⋯", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
@@ -129,8 +129,8 @@ test("on a phone the header is a back caret to the list, the title, its status a
       .getAllByRole("button")
       .map((button) => button.ariaLabel),
   ).toEqual(["Back to threads", "More actions"]);
-  // The agent is still at work on this thread, waiting on the subagents it started.
-  expect(within(header).getByRole("img", { name: "Waiting on 2 subagents" })).toBeTruthy();
+  expect(within(header).queryByRole("img", { name: "Waiting on 2 subagents" })).toBeNull();
+  expect(within(header).queryByRole("status")).toBeNull();
 
   const tools = ["Work card", "Right panel"];
   for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();
@@ -152,10 +152,12 @@ test("on a phone the work card is a sheet over the thread that Escape closes", a
   await openThread();
   await userEvent.click(await moreActions(screen.getByRole("banner")));
   await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("dialog", { name: "Work card" });
+  const card = await screen.findByRole("complementary", { name: "Work card" });
   expect(within(card).getByRole("region", { name: "Actions" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work card" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
 });
 
 test("in a wide window the header shows only its ⋯, the work card and the side panel's toggle", async () => {

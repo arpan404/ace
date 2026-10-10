@@ -1,4 +1,5 @@
 import { MessageReferences } from "./message-references.tsx";
+import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
 import { formatClock, withoutPortableHandoff } from "@ace/ui-core";
 import { Suspense } from "react";
@@ -96,7 +97,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   );
   return (
     <div className="group/bubble flex flex-col items-end">
-      <div className="max-w-[82%] rounded-[16px_16px_4px_16px] bg-bubble px-[15px] py-2.5 text-[15px] leading-[1.55] tracking-[-0.005em] wrap-break-word whitespace-pre-wrap">
+      <div className={userBubble}>
         {files && (
           <Suspense fallback={<AttachmentsRoom images={files.images} />}>
             <DeferredAttachments.Component

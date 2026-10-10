@@ -1,4 +1,4 @@
-import { PastSessions } from "@/features/history/index.ts";
+import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
@@ -21,11 +21,10 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import {
   defaultWorktreeBase,
-  permissionAdmission,
+  permissionUnavailable,
   permissionCoverage,
-  permissionCoverageNote,
-  permissionOption,
-  permissionOptions,
+  composerPermissionOption,
+  composerPermissionOptions,
   providerNames,
   speedOffTier,
 } from "@ace/ui-core";
@@ -37,7 +36,7 @@ import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
-/** Where the thread runs, below the composer. */
+/** Where the thread runs, above the composer. */
 const DeferredEnvironment = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.NewThreadEnvironment),
 );
@@ -51,6 +50,26 @@ function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
   return remote?.remote ? { ref: remote.name, remote: remote.remote } : { ref: name };
 }
 
+/** Keep the draft identity stable without borrowing mutable resolution objects. */
+function useDraftThreadRef(
+  draftId: string | undefined,
+  project: string | undefined,
+  provider: ProviderKind | undefined,
+  accountId: string | undefined,
+) {
+  return useMemo(
+    () => ({
+      id: draftId ?? "",
+      workspaceId: project ?? "",
+      title: "",
+      draft: true,
+      provider,
+      instanceId: accountId,
+    }),
+    [draftId, project, provider, accountId],
+  );
+}
+
 /**
  * ⌘N: pick a project, a model and account, how actions get approved, where it runs (a new
  * worktree from a local or remote branch, or the local checkout), and describe the work. Enter
@@ -58,6 +77,7 @@ function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
  * (and its worktree). Mentions, files and slash commands work before then, in a draft scope on
  * the daemon.
  */
+
 export function NewThreadPage(props: {
   project?: string | undefined;
   base?: string | undefined;
@@ -69,7 +89,6 @@ export function NewThreadPage(props: {
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
-  const projectName = project === undefined ? undefined : name(project);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
   const { create, error } = useCreateThread();
@@ -110,18 +129,29 @@ export function NewThreadPage(props: {
     currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
     setCurrentId: (id) => setPermission(id ?? undefined),
   });
-  const admitted = permissionAdmission(
-    permissions.capabilities,
-    permissions.currentId,
-    provider ? providerNames[provider] : "This provider",
-  );
-  const chosen = permission === undefined ? undefined : (permissions.currentId ?? undefined);
+  const admitted = {
+    mode: permissions.currentId ?? undefined,
+    fallback: provider
+      ? permissionUnavailable(
+          permissions.capabilities,
+          permissions.currentId,
+          providerNames[provider],
+        )
+      : undefined,
+  };
+  const chosen = defaultMode === undefined || permissions.loading ? undefined : admitted.mode;
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
     setChoices(next);
     saveChoices(storage, next);
   };
+  const chooseProject = (next: string) => {
+    setRequested(next);
+    setBase(undefined);
+    choose({ project: next });
+  };
+  const draftKeyFor = (id: string) => `new:${id}${props.skill ? `:skill:${props.skill}` : ""}`;
   // A model remembered as a bare id (before option keys) is saved under its option key, again
   // after any later choice saves the bare id it still holds.
   const upgraded = resolved.upgradedModel;
@@ -132,19 +162,9 @@ export function NewThreadPage(props: {
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project);
   const accountId = resolved.account?.id;
-  const draftThread = useMemo(
-    () => ({
-      id: scope.draftId ?? "",
-      workspaceId: project ?? "",
-      title: "",
-      draft: true,
-      provider,
-      instanceId: accountId,
-    }),
-    [scope.draftId, project, provider, accountId],
-  );
+  const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId);
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model) return false;
+    if (!project || !resolved.model || admitted.fallback) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
@@ -173,8 +193,17 @@ export function NewThreadPage(props: {
 
   const toMessage = () =>
     page.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
-  const providerName = provider ? providerNames[provider] : "This provider";
 
+  // Mount only after the project-scoped draft key is known, so restoration cannot race
+  // the project directory on a fresh load.
+  if (!loaded)
+    return (
+      <Screen title="New thread">
+        <p role="status" className="px-5 py-6 text-sm text-muted-foreground">
+          Loading projects…
+        </p>
+      </Screen>
+    );
   // The first run: nothing to start a thread in until a project is added.
   if (loaded && !projects.length)
     return (
@@ -183,107 +212,125 @@ export function NewThreadPage(props: {
       </Screen>
     );
   return (
-    <Screen title="New thread" subtitle={projectName}>
+    <Screen title="New thread">
       <div
         ref={page}
-        className="flex h-full flex-col justify-center overflow-y-auto px-5 pt-8 pb-[12vh] sm:px-8"
+        className="flex h-full min-h-0 flex-col overflow-y-auto px-5 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-8"
       >
-        <div className="mx-auto w-full max-w-(--column)">
-          <h2 className="mb-6 px-1 text-2xl font-semibold tracking-title text-foreground">
-            What should we work on?
-          </h2>
-          <Composer
-            onPlan={() => {
-              if (provider) setPermissionChoice({ provider, id: "plan" });
-            }}
-            thread={draftThread}
-            draftKey={
-              project ? `new:${project}${props.skill ? `:skill:${props.skill}` : ""}` : undefined
-            }
-            initialText={props.skill ? `/${props.skill} ` : undefined}
-            busy={false}
-            onSubmit={send}
-            autoFocus
-            placeholder="Describe the change, a bug, or a question. @ to mention a file"
-            shortPlaceholder="Describe a change or a bug"
-            environment={
-              <Suspense fallback={null}>
-                <DeferredEnvironment.Component
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-(--column) flex-col">
+          <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto text-center">
+            <div className="my-auto shrink-0 py-8">
+              <div
+                aria-hidden
+                className="mb-4 text-2xl font-semibold tracking-title text-foreground"
+              >
+                ace
+              </div>
+              <h2 className="text-xl font-normal tracking-title text-muted-foreground">
+                What should we work on in{" "}
+                <ProjectPicker
+                  variant="inline"
                   projects={projects}
                   projectName={name}
                   project={project}
-                  onProject={(next) => {
-                    setRequested(next);
-                    setBase(undefined);
-                    choose({ project: next });
-                  }}
-                  mode={resolved.mode}
-                  onMode={(mode) => choose({ mode })}
-                  branches={branches}
-                  base={base}
-                  onBase={(next) => {
-                    setBase(next);
-                    toMessage();
-                  }}
+                  onProject={chooseProject}
                 />
-              </Suspense>
-            }
-            trailing={
-              <ModelPicker
-                options={options}
-                resolved={resolved}
-                onModel={(model, listed) => {
-                  const rows = options?.models.filter((m) => m.key === model) ?? [];
-                  setPicked(rows[0]?.provider);
-                  // The account the row was listed under; else stay on the chosen account
-                  // when it serves the model; else one that does.
-                  const under = options?.accounts.some((account) => account.id === listed);
-                  const stays = rows.some((m) => m.account === choices.account);
-                  choose({
-                    model,
-                    account: under ? listed : stays ? choices.account : undefined,
-                    effort: undefined,
-                    fast: undefined,
-                  });
-                }}
-                onAccount={(account) => choose({ account })}
-                onEffort={(effort) => choose({ effort })}
-                onFast={(fast) => choose({ fast })}
-                onReset={() => choose({ effort: undefined, fast: undefined })}
-              />
-            }
-            controls={
-              <PermissionPicker
-                current={permissionOption(admitted.mode ?? null, permissions.capabilities)}
-                detail={
-                  admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                }
-                inherited={!chosen}
-                menu={{
-                  options: permissionOptions(permissions.capabilities, providerName),
-                  value: permission === undefined ? undefined : admitted.mode,
-                  loading: !!provider && (permissions.loading || defaultMode === undefined),
-                  unavailable: permissions.failed
-                    ? "Couldn't load permission modes. Reconnect and try again."
-                    : undefined,
-                  coverage: permissionCoverageNote(
+                ?
+              </h2>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <Composer
+              onPlan={() => {
+                if (provider) setPermissionChoice({ provider, id: "plan" });
+              }}
+              thread={draftThread}
+              draftKey={project ? draftKeyFor(project) : undefined}
+              initialText={props.skill ? `/${props.skill} ` : undefined}
+              busy={false}
+              onSubmit={send}
+              autoFocus
+              placeholder="Describe the change, a bug, or a question. @ to mention a file"
+              shortPlaceholder="Describe a change or a bug"
+              attached={
+                <Suspense fallback={null}>
+                  <DeferredEnvironment.Component
+                    projectControl={
+                      <ProjectPicker
+                        labelPrefix="Setup project"
+                        projects={projects}
+                        projectName={name}
+                        project={project}
+                        onProject={chooseProject}
+                      />
+                    }
+                    mode={resolved.mode}
+                    onMode={(mode) => choose({ mode })}
+                    branches={branches}
+                    base={base}
+                    onBase={(next) => {
+                      setBase(next);
+                      toMessage();
+                    }}
+                  />
+                </Suspense>
+              }
+              trailing={
+                <ModelPicker
+                  options={options}
+                  resolved={resolved}
+                  onModel={(model, listed) => {
+                    const rows = options?.models.filter((m) => m.key === model) ?? [];
+                    setPicked(rows[0]?.provider);
+                    // The account the row was listed under; else stay on the chosen account
+                    // when it serves the model; else one that does.
+                    const under = options?.accounts.some((account) => account.id === listed);
+                    const stays = rows.some((m) => m.account === choices.account);
+                    choose({
+                      model,
+                      account: under ? listed : stays ? choices.account : undefined,
+                      effort: undefined,
+                      fast: undefined,
+                    });
+                  }}
+                  onAccount={(account) => choose({ account })}
+                  onEffort={(effort) => choose({ effort })}
+                  onFast={(fast) => choose({ fast })}
+                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                />
+              }
+              controls={
+                <PermissionPicker
+                  current={composerPermissionOption(
+                    provider,
+                    admitted.mode ?? null,
                     permissions.capabilities,
-                    providerName,
-                    admitted.mode,
-                  ),
-                  fallback: admitted.fallback,
-                }}
-                onChange={permissions.setCurrentId}
-              />
-            }
-          />
-          <SignInNotice provider={provider} />
-          <PastSessions projectId={project} />
-          {error && (
-            <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-              {error}
-            </p>
-          )}
+                  )}
+                  detail={
+                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                  }
+                  inherited={!chosen}
+                  menu={{
+                    options: composerPermissionOptions(provider, permissions.capabilities),
+                    value: admitted.mode,
+                    loading: !!provider && (permissions.loading || defaultMode === undefined),
+                    unavailable: permissions.failed
+                      ? "Couldn't load permission modes. Reconnect and try again."
+                      : undefined,
+
+                    fallback: admitted.fallback,
+                  }}
+                  onChange={permissions.setCurrentId}
+                />
+              }
+            />
+            <SignInNotice provider={provider} />
+            {error && (
+              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
+                {error}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </Screen>

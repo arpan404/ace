@@ -170,7 +170,7 @@ test("a single pool machine exposes the existing client behaviour and incrementa
     (ids) => ids.length === 1,
   );
   const ids = f.pool.threads.ids;
-  const count = f.pool.threads.count((row) => row.thread.archivedAt !== undefined);
+  const count = f.pool.threads.count((row) => row.thread.pinned === true);
   const counts: number[] = [];
   expect(count.getSnapshot()).toBe(0);
   const stopCount = count.subscribe(() => counts.push(count.getSnapshot()));
@@ -181,17 +181,18 @@ test("a single pool machine exposes the existing client behaviour and incrementa
   expect(
     (
       await f.pool.command(ref("only"), {
-        type: "thread.archive",
+        type: "thread.pin",
         threadId: ThreadId.parse("shared"),
+        pinned: true,
       })
     ).ok,
   ).toBe(true);
   await wait(
     f.pool.threads.select(
       [`thread:${key("only")}`],
-      (store) => store.thread(key("only"))?.thread.archivedAt,
+      (store) => store.thread(key("only"))?.thread.pinned,
     ),
-    (at) => at !== undefined,
+    (pinned) => pinned === true,
   );
   expect(f.pool.threads.ids).toBe(ids);
   expect(changes).toEqual([key("only")]);
@@ -232,6 +233,8 @@ test("a single pool machine exposes the existing client behaviour and incrementa
     lease.store.select(["thread"], (store) => store.thread?.archivedAt),
     (at) => at !== undefined,
   );
+  // Archived history has its own bounded subscription; Home deliberately removes archived rows.
+  await client.threadsWindow({ archived: true });
   const legacySidebar = client.threads();
   cleanup.push(async () => legacySidebar.release());
   await wait(

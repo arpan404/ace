@@ -190,7 +190,10 @@ export function FileToolbar(props: {
             className="ml-1 h-7"
             icon={<EditorIcon id={editor?.id} />}
             actionLabel={
-              offline ?? (editor ? `Open in ${editor.name}` : "No editors found on this machine")
+              offline ??
+              (editor
+                ? `Open in ${editor.name}`
+                : (actions.editorUnavailable ?? "No editors installed"))
             }
             menuLabel="Open in another editor"
             disabled={!props.online || !actions.editors?.length}

@@ -5,6 +5,7 @@ import type { Machine } from "@/lib/machines.ts";
 import { projectFailure, useProjectCommandsOn, type Added } from "./project-commands.ts";
 
 export interface CloneInput {
+  icon?: string | null;
   parent: string;
   name: string;
   url: string;

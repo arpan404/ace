@@ -4,16 +4,24 @@ import { useState } from "react";
 import { expect, test } from "vitest";
 import { StepSlider } from "./step-slider.tsx";
 
-const steps = ["", "low", "medium", "high"];
-const names: Record<string, string> = { "": "Default", low: "Low", medium: "Medium", high: "High" };
+const steps = ["minimal", "low", "medium", "high"];
+const names: Record<string, string> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
 
-function Effort(props: { disabled?: boolean; start?: number }) {
-  const [value, setValue] = useState(props.start ?? 0);
+function Effort(props: { disabled?: boolean; start?: number; unselected?: boolean }) {
+  const [value, setValue] = useState<number | undefined>(
+    props.unselected ? undefined : (props.start ?? 0),
+  );
   return (
     <StepSlider
       label="Effort"
       steps={steps}
       value={value}
+      unselectedLabel="Choose effort"
       stepLabel={(step) => names[step] ?? step}
       onValueChange={setValue}
       disabled={props.disabled}
@@ -41,9 +49,9 @@ test("arrow, Page, Home and End keys step through the levels and stop at the end
   await userEvent.keyboard("{PageDown}");
   expect(reads()).toBe("Medium");
   await userEvent.keyboard("{Home}");
-  expect(reads()).toBe("Default");
+  expect(reads()).toBe("Minimal");
   await userEvent.keyboard("{ArrowLeft}");
-  expect(reads()).toBe("Default");
+  expect(reads()).toBe("Minimal");
   await userEvent.keyboard("{End}");
   expect(reads()).toBe("High");
 });
@@ -99,4 +107,39 @@ test("a drag ends when the slider loses the pointer", () => {
   fireEvent.lostPointerCapture(track, { pointerId: 1 });
   fireEvent.pointerMove(track, { pointerId: 1, clientX: 213 });
   expect(reads()).toBe("Low");
+});
+
+test("an unset effort stays neutral until a first-stop click explicitly chooses it", () => {
+  render(<Effort unselected />);
+  expect(reads()).toBe("Choose effort");
+  fireEvent.pointerDown(slider(), { pointerId: 1, button: 0, clientX: 13 });
+  expect(reads()).toBe("Minimal");
+});
+
+test("an unset slider starts with the first actual level and keyboard reaches every level", async () => {
+  render(<Effort unselected />);
+  slider().focus();
+  expect(reads()).toBe("Choose effort");
+  for (const name of ["Minimal", "Low", "Medium", "High"]) {
+    await userEvent.keyboard("{ArrowRight}");
+    expect(reads()).toBe(name);
+  }
+  await userEvent.keyboard("{Home}");
+  expect(reads()).toBe("Minimal");
+  await userEvent.keyboard("{End}");
+  expect(reads()).toBe("High");
+});
+
+test("an accepted primary drag cancels native selection and retains focus", () => {
+  render(<Effort />);
+  const track = slider();
+  expect(fireEvent.pointerDown(track, { pointerId: 1, button: 0, clientX: 140 })).toBe(false);
+  expect(document.activeElement).toBe(track);
+  expect(reads()).toBe("Medium");
+  fireEvent.pointerCancel(track, { pointerId: 1 });
+  fireEvent.pointerMove(track, { pointerId: 1, clientX: 213 });
+  expect(reads()).toBe("Medium");
+  expect(track.hasAttribute("data-dragging")).toBe(false);
+  expect(fireEvent.pointerDown(track, { pointerId: 2, button: 0, clientX: 13 })).toBe(false);
+  expect(reads()).toBe("Minimal");
 });

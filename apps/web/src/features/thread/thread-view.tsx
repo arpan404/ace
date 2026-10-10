@@ -16,8 +16,6 @@ import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
-import { LiveBadge } from "./header/live-badge.tsx";
-import { ThreadStatusDot } from "./header/status-dot.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
 import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
@@ -50,8 +48,6 @@ import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredAgentComposer,
-  DeferredCatchUpSlot,
-  DeferredLimitBadge,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
@@ -60,7 +56,6 @@ import {
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredRequestStack } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
@@ -68,6 +63,7 @@ import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+import { useWorkspaceActions, useScopeWorkspace } from "@/lib/workspace/index.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -116,7 +112,7 @@ export interface ThreadTarget {
  * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
  * menu, the work card's button (project, git, actions, editors, sources) and the side panel's
  * toggle; and its side panel of tabs (Changes, Agents, terminals, Files, Browser, …). A long
- * thread adds its turns, search and a catch-up card for the reader who was away.
+ * thread adds its turns and search.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
   // Started from New thread a moment ago: shown until the daemon names the real thread.
@@ -138,7 +134,6 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
 
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
-  const connection = useLiveConnection();
   const meta = useThreadMeta(props.threadId);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
@@ -188,16 +183,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           )
         }
         title={error ? "Thread unavailable" : (title ?? "Loading thread…")}
-        subtitle={
-          connection.fresh && meta?.status.state === "limited" ? (
-            <Suspense fallback={null}>
-              <DeferredLimitBadge.Component threadId={id} />
-            </Suspense>
-          ) : (
-            meta && <LiveBadge threadId={id} />
-          )
-        }
-        status={meta && <ThreadStatusDot thread={meta} />}
         menu={
           thread && (
             <Suspense fallback={null}>
@@ -223,7 +208,17 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             />
           )
         }
-        workspace={{ scope: id, definition: threadWorkspace }}
+        workspace={{
+          scope: id,
+          definition: threadWorkspace,
+          contextPanel: thread && (
+            <Suspense fallback={null}>
+              {card.mounted && (
+                <DeferredWorkCard.Component thread={thread} open={card.open} onClose={card.close} />
+              )}
+            </Suspense>
+          ),
+        }}
       >
         {error ? (
           <ThreadLoadError error={error} />
@@ -231,31 +226,19 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           <TranscriptSkeleton />
         ) : (
           <ForkOpener value={setForking}>
-            <div className="relative flex h-full min-h-0 flex-col" {...drop.handlers}>
+            <div
+              data-thread-column
+              className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
+              {...drop.handlers}
+            >
               {drop.overlay}
-              {thread && card.mounted && (
-                <Suspense fallback={null}>
-                  <DeferredWorkCard.Component
-                    thread={thread}
-                    open={card.open}
-                    onClose={card.close}
-                  />
-                </Suspense>
-              )}
               {nav.turnsOpen && (
                 <Suspense fallback={null}>
                   <DeferredTurnsPanel.Component nav={nav} />
                 </Suspense>
               )}
-              <div className="min-h-0 flex-1">
-                <Transcript
-                  threadId={id}
-                  overlay={
-                    <Suspense fallback={null}>
-                      <DeferredCatchUpSlot.Component threadId={id} />
-                    </Suspense>
-                  }
-                />
+              <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                <Transcript threadId={id} />
               </div>
               <TargetJump target={props.target} />
               {thread && (
@@ -310,22 +293,32 @@ function TargetJump(props: { target: ThreadTarget | undefined }) {
 }
 
 /**
- * The work card's state for one thread: closed whenever another thread shows, and mounted from
+ * The work card retains each thread's view state and is mounted from
  * its first opening (so a commit form it opened outlives it). ⌥⌘O toggles it; closing with
  * Escape hands focus back to the header's button.
  */
 function useWorkCard(threadId: string) {
-  const [openFor, setOpenFor] = useState<string>();
-  const [mounted, setMounted] = useState<string>();
-  const open = openFor === threadId;
+  const workspace = useScopeWorkspace(threadId);
+  const actions = useWorkspaceActions(threadId);
+  const open = workspace.workCard?.open ?? false;
   const toggle = () => {
-    setOpenFor(open ? undefined : threadId);
-    setMounted(threadId);
+    const showing = open && !workspace.open;
+    if (!showing) actions.setOpen(false);
+    actions.setWorkCard({ open: !showing });
   };
   useHotkey(keymap.workCard.keys, toggle, { id: "workCard" });
   const close = (returnFocus: boolean) => {
-    setOpenFor(undefined);
-    if (returnFocus) document.querySelector<HTMLElement>("header [data-work-card-toggle]")?.focus();
+    actions.setWorkCard({ open: false });
+    if (returnFocus)
+      (
+        document.querySelector<HTMLElement>("header [data-work-card-toggle]") ??
+        document.querySelector<HTMLElement>('header button[aria-label="More actions"]')
+      )?.focus();
   };
-  return { open, mounted: mounted === threadId, toggle, close };
+  return {
+    open: open && !workspace.open,
+    mounted: workspace.workCard !== undefined,
+    toggle,
+    close,
+  };
 }

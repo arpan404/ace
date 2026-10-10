@@ -1,3 +1,4 @@
+import { ProjectIcon } from "./projects.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
@@ -44,7 +45,13 @@ export const ThreadDetails = z.object({
     })
     .optional(),
   workspace: z
-    .object({ id: z.string().min(1), name: z.string().max(256), path: z.string().max(4096) })
+    .object({
+      id: z.string().min(1),
+      name: z.string().max(256),
+      path: z.string().max(4096),
+      icon: ProjectIcon.nullable().optional(),
+      defaultIcon: ProjectIcon.nullable().optional(),
+    })
     .optional(),
   mode: z.enum(["local", "worktree"]).optional(),
   worktree: z.string().max(4096).optional(),

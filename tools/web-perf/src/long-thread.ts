@@ -48,11 +48,9 @@ async function measureLongThread(): Promise<void> {
     await feed.waitFor({ timeout: 30_000 });
     await page.getByRole("combobox", { name: "Message" }).waitFor();
     const ready = await page.evaluate(() => performance.now());
-    // The perf device last read the thread five turns ago: the catch-up card says what changed.
-    const catchUp = page.getByRole("region", { name: "While you were away" });
-    await catchUp.waitFor({ timeout: 15_000 });
-    const caughtUp = await since(page, 0);
-    await catchUp.getByRole("button", { name: "Dismiss" }).click();
+    // Returning readers can navigate immediately, without an automatic summary panel.
+    await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Summarise", exact: true })).toHaveCount(0);
 
     const jumps: number[] = [];
     const searches: number[] = [];
@@ -145,7 +143,6 @@ async function measureLongThread(): Promise<void> {
     process.stdout.write(`  Chrome DOM counters at the same samples: ${chromeNodes.join(" ")}\n`);
     const timing = [
       report("transcript and composer usable (ms)", ready, limits.readyMs, ready <= limits.readyMs),
-      report("catch-up card shown (ms from navigation)", caughtUp, "-", true),
       report(`jump to a turn, median (ms, ${jumps.length} jumps)`, median(jumps), "-", true),
       report("jump to a turn, slowest (ms)", Math.max(...jumps), "-", true),
       report(`search to first hit, median (ms, ${searches.length})`, median(searches), "-", true),

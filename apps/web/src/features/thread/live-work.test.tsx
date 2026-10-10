@@ -5,17 +5,17 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-test("between steps of an open turn the work log says Working for, without a second Working line", async () => {
+test("between steps an open turn shows Work so far without a body Working line", async () => {
   const app = harness();
   const script = app.play(replayCursor());
   script.runThrough("worked");
   await app.open("/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
 
-  expect(await within(feed).findByRole("button", { name: /^Working for/ })).toBeTruthy();
+  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
 
-  // An answer alone cannot freeze an open turn's elapsed time.
+  // An answer alone does not close the open turn.
   act(() => script.runThrough("answered"));
   expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));

@@ -7,7 +7,7 @@ import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations } from "@ace/protocol";
-import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
+import { migratePermissionMode, resolvePermissionMode } from "@ace/provider-kit/permission-modes";
 import { ItemId } from "@ace/protocol";
 import { PermissionMode } from "@ace/protocol";
 import {
@@ -330,7 +330,10 @@ export class FakeDaemon implements Host {
     return this.servicesWire.mcp;
   }
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
-  get workspace(): Pick<FakeWorkspaceWire, "gitStatus" | "setGitStatus" | "setGitDiff"> {
+  get workspace(): Pick<
+    FakeWorkspaceWire,
+    "gitStatus" | "setGitStatus" | "setGitDiff" | "setEditors"
+  > {
     return this.servicesWire.workspace;
   }
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
@@ -475,7 +478,7 @@ export class FakeDaemon implements Host {
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: migratePermissionMode(init.provider, init.permissionMode),
-        effective: migratePermissionMode(
+        effective: resolvePermissionMode(
           init.provider,
           init.permissionMode ??
             SettingsValues.shape["permissions.providerModes"].parse(
@@ -484,6 +487,7 @@ export class FakeDaemon implements Host {
                 threadId: ThreadId.parse(init.id),
               }),
             )[init.provider],
+          init.capabilities?.permissions ?? fakeProviderPermissions(init.provider),
         ),
         pending: false,
       },
@@ -513,7 +517,7 @@ export class FakeDaemon implements Host {
         fact.agent === (host.state.rootKey ?? "root") &&
         ["new", "done", "failed", "limited"].includes(host.state.status.state)
       ) {
-        const mode = migratePermissionMode(
+        const mode = resolvePermissionMode(
           host.view.thread.provider,
           host.view.thread.permission?.override ??
             SettingsValues.shape["permissions.providerModes"].parse(
@@ -521,6 +525,8 @@ export class FakeDaemon implements Host {
                 threadId: ThreadId.parse(host.id),
               }),
             )[host.view.thread.provider],
+          (host.view.thread.effectiveCapabilities ?? host.view.thread.capabilities)?.permissions ??
+            fakeProviderPermissions(host.view.thread.provider),
         );
         const permission = {
           override: host.view.thread.permission?.override ?? null,
@@ -1082,6 +1088,7 @@ export class FakeDaemon implements Host {
         "workspace.create",
         "workspace.clone",
         "workspace.rename",
+        "workspace.update",
         "workspace.remove",
       ].includes(payload.type) &&
       !this.canManageProjects(command.deviceId)

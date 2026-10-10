@@ -1,9 +1,11 @@
+import type { CSSProperties } from "react";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
+import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -15,11 +17,13 @@ export const accountColors: Record<AccountBadgeColor, string> = {
   violet: "var(--project-10)",
 };
 
-/** Provider glyph and a separate account dot, only when there are accounts to distinguish. */
+/** Provider glyph and readable account mark, when accounts need distinguishing. */
 export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
     account?: AccountView | undefined;
+    accountLabel?: boolean;
+    tooltip?: boolean;
   },
 ) {
   const accounts = useAccountViews();
@@ -33,15 +37,18 @@ export function ProviderAccountIcon(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
   const multiple = siblings !== undefined && siblings.length > 1;
+  const size = props.size ?? 16;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn("inline-flex shrink-0 items-center gap-0.5", props.className)}
-      title={name}
+      className={cn("relative inline-flex shrink-0 items-center justify-center", props.className)}
+      style={multiple && account ? { width: size + 2, height: size + 2 } : undefined}
+      title={hoverTitle(props.tooltip, name, account?.shortLabel)}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
       <ProviderIcon
         {...props}
+        size={size}
         acpAgentId={props.acpAgentId ?? account?.acpAgentId}
         className={undefined}
         decorative
@@ -49,12 +56,25 @@ export function ProviderAccountIcon(
       {multiple && account && (
         <span
           role="img"
+          title={hoverTitle(props.tooltip, `${account.label} account`)}
           aria-label={`${account.label} account`}
-          title={`${account.label} account`}
-          style={{ background: accountColors[account.badgeColor ?? "neutral"] }}
-          className="size-1 shrink-0 rounded-full"
-        />
+          style={
+            { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
+          }
+          className={accountBadgeOverlayStyle}
+        >
+          {accountBadge(account.label, account.shortLabel)}
+        </span>
       )}
     </span>
   );
+}
+
+function hoverTitle(
+  enabled: boolean | undefined,
+  name: string,
+  shortLabel?: string,
+): string | undefined {
+  if (enabled === false) return undefined;
+  return shortLabel ? `${name} · ${shortLabel}` : name;
 }

@@ -45,6 +45,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "shortLabel": {
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
+        },
         "type": {
           "const": "provider.accounts.add",
           "type": "string"
@@ -92,7 +95,7 @@
           "type": "string"
         },
         "shortLabel": {
-          "$ref": "https://ace.local/protocol/v1/AccountShortLabel.json"
+          "$ref": "https://ace.local/protocol/v1/AccountBadgeInput.json"
         },
         "type": {
           "const": "provider.accounts.rename",

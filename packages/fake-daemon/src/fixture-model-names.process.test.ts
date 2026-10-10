@@ -7,6 +7,8 @@ import { settingsFixture, FakeServices } from "@ace/fake-daemon";
 import { ClientMessage, ServerMessage, type ModelListResult } from "@ace/protocol";
 
 const names: Record<string, string> = {
+  "simulated-ultra-reasoning-extended-context-demonstration-model":
+    "Simulated Ultra Reasoning Extended Context Demonstration Model",
   "big-pickle": "Big Pickle",
   "Composer 2.5": "Composer 2.5",
   "composer-2.5": "Composer 2.5",

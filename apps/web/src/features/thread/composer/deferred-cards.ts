@@ -19,15 +19,10 @@ export const DeferredPlanTab = deferredComponent(() =>
 export const DeferredStatusStrip = deferredComponent(() =>
   import("./status-strip.tsx").then((module) => module.StatusStrip),
 );
-/** Branch and machine below the composer. */
-export const DeferredEnvironmentStrip = deferredComponent(() =>
-  import("./environment-strip.tsx").then((module) => module.EnvironmentStrip),
-);
 export function preloadComposerCards(): Promise<unknown> {
   return Promise.all([
     DeferredRequestStack.preload(),
     DeferredPlanTab.preload(),
     DeferredStatusStrip.preload(),
-    DeferredEnvironmentStrip.preload(),
   ]);
 }

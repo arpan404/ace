@@ -1,5 +1,6 @@
-import { isSidebarEvent } from "@ace/projection";
+import { sidebarPage, isSidebarEvent } from "@ace/projection";
 import {
+  ThreadId,
   ClientMessage,
   type Command,
   type CommandResult,
@@ -52,6 +53,9 @@ export interface Wire {
 interface Subscription {
   scope: SubscriptionScope;
   cursor: number;
+  selected?: Set<string>;
+  limit?: number;
+  before?: import("@ace/protocol").ThreadListCursor | null;
 }
 
 export function matches(scope: SubscriptionScope, event: DeliveryEvent): boolean {
@@ -152,6 +156,41 @@ export class Connection {
       case "subscribe":
         this.subscribe(message.subscriptionId, message.scope, message.afterSeq, message.paced);
         return;
+      case "threads.page": {
+        const subscription = this.subscriptions.get(message.subscriptionId);
+        if (
+          !subscription ||
+          subscription.scope.kind !== "threads" ||
+          !subscription.scope.window ||
+          !subscription.before ||
+          subscription.before.at !== message.before.at ||
+          subscription.before.id !== message.before.id
+        ) {
+          this.error("page_failed", { requestId: message.requestId });
+          break;
+        }
+        const view = this.host.snapshot({ kind: "threads" });
+        if (!view || view.kind !== "threads") break;
+        const page = sidebarPage(
+          Object.values(view.threads),
+          subscription.scope.window,
+          message.before,
+        );
+        for (const entry of page.threads) subscription.selected?.add(entry.id);
+        subscription.before = page.window.before;
+        subscription.limit =
+          (subscription.limit ?? subscription.scope.window.limit) + page.threads.length;
+        this.send({
+          type: "threads.patch",
+          requestId: message.requestId,
+          subscriptionId: message.subscriptionId,
+          seq: this.host.head,
+          threads: Object.fromEntries(page.threads.map((entry) => [entry.id, entry])),
+          removed: [],
+          window: page.window,
+        });
+        break;
+      }
       case "unsubscribe":
         this.subscriptions.delete(message.subscriptionId);
         return;
@@ -217,6 +256,30 @@ export class Connection {
     paced = false,
   ): void {
     const head = this.host.head;
+    if (scope.kind === "threads" && scope.window) {
+      const view = this.host.snapshot({ kind: "threads" });
+      if (!view || view.kind !== "threads") {
+        this.error("not_found", { subscriptionId: id });
+        return;
+      }
+      const page = sidebarPage(Object.values(view.threads), scope.window);
+      const threads = Object.fromEntries(page.threads.map((entry) => [entry.id, entry]));
+      this.subscriptions.set(id, {
+        scope,
+        cursor: head,
+        selected: new Set(Object.keys(threads)),
+        limit: scope.window.limit,
+        before: page.window.before,
+      });
+      this.send({
+        type: "snapshot",
+        subscriptionId: id,
+        seq: head,
+        view: { ...view, threads, window: page.window },
+      });
+      if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
+      return;
+    }
     if (afterSeq !== undefined && afterSeq <= head && this.host.snapshot(scope)) {
       this.subscriptions.set(id, { scope, cursor: head });
       this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
@@ -236,6 +299,42 @@ export class Connection {
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {
     for (const [id, subscription] of this.subscriptions) {
+      if (
+        subscription.scope.kind === "threads" &&
+        subscription.scope.window &&
+        subscription.selected
+      ) {
+        if (!events.some(isSidebarEvent)) continue;
+        const view = this.host.snapshot({ kind: "threads" });
+        if (!view || view.kind !== "threads") continue;
+        const options = {
+          ...subscription.scope.window,
+          limit: subscription.limit ?? subscription.scope.window.limit,
+        };
+        const current = sidebarPage(Object.values(view.threads), options);
+        const changed = new Set(events.filter(isSidebarEvent).map((event) => event.threadId));
+        const present = new Map<string, import("@ace/protocol").ThreadListEntry>(
+          current.threads.map((entry) => [entry.id, entry]),
+        );
+        const removed = [...subscription.selected]
+          .filter((threadId) => !present.has(threadId))
+          .map((threadId) => ThreadId.parse(threadId));
+        const rows = current.threads.filter(
+          (entry) => changed.has(entry.id) || !subscription.selected?.has(entry.id),
+        );
+        subscription.selected = new Set(present.keys());
+        subscription.before = current.window.before;
+        this.send({
+          type: "threads.patch",
+          subscriptionId: id,
+          seq: through,
+          threads: Object.fromEntries(rows.map((entry) => [entry.id, entry])),
+          removed,
+          window: current.window,
+        });
+        subscription.cursor = through;
+        continue;
+      }
       const matched = events.filter((event) => matches(subscription.scope, event));
       if (!matched.length) continue;
       this.deliver(id, subscription.cursor, through, matched);

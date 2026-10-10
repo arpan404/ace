@@ -59,7 +59,8 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   expect(model.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(model);
   const dialog = await screen.findByRole("dialog", { name: "Switch to OpenCode?" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Switch to Big Pickle" }));
+  expect(within(dialog).getByText("Model: Big Pickle")).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Switch to OpenCode" }));
   expect(await screen.findByRole("button", { name: /^Model: Big Pickle/ })).toBeTruthy();
   expect(screen.queryByText("OpenCode isn't signed in. Sign in to start this thread.")).toBeNull();
 });

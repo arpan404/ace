@@ -2,7 +2,7 @@ import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { useEffect, useRef } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
-import { layers, popupSurface } from "./menu-styles.ts";
+import { layers, popupBounds, popupSurface } from "./menu-styles.ts";
 
 /** Navigation dismisses both controlled and uncontrolled popovers through Base UI. */
 function Popover(props: PopoverPrimitive.Root.Props) {
@@ -28,12 +28,20 @@ function PopoverContent({
   sideOffset = 6,
   anchor,
   collisionAvoidance,
+  collisionBoundary,
+  collisionPadding = 8,
   keepMounted,
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<
     PopoverPrimitive.Positioner.Props,
-    "side" | "align" | "sideOffset" | "anchor" | "collisionAvoidance"
+    | "side"
+    | "align"
+    | "sideOffset"
+    | "anchor"
+    | "collisionAvoidance"
+    | "collisionBoundary"
+    | "collisionPadding"
   > &
   Pick<PopoverPrimitive.Portal.Props, "keepMounted">) {
   return (
@@ -44,11 +52,13 @@ function PopoverContent({
         sideOffset={sideOffset}
         anchor={anchor}
         collisionAvoidance={collisionAvoidance}
+        collisionBoundary={collisionBoundary}
+        collisionPadding={collisionPadding}
         className={cn(layers.popup, "isolate")}
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
-          className={cn(popupSurface, "p-3", className)}
+          className={cn(popupSurface, popupBounds, "p-3", className)}
           {...props}
         />
       </PopoverPrimitive.Positioner>

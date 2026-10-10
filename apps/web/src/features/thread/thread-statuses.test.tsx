@@ -29,33 +29,42 @@ async function open(scenario: Scenario) {
   return { app, feed, header, row };
 }
 
-test("a thread watching a background command says so in its live line, its row and its header", async () => {
+test("a thread watching a background command says so in its live line and row", async () => {
   const { header, row } = await open(watchingRelay());
   const line = await screen.findByRole("status", { name: "Watching bun run dev:relay" });
   expect(within(line).getByText("bun run dev:relay").tagName).toBe("CODE");
   expect(row.getAttribute("aria-label")).toContain("Watching bun run dev:relay");
-  expect(within(header).getByRole("status").textContent).toBe("Watching bun run dev:relay");
+  expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread waiting on its subagents counts them everywhere", async () => {
+test("a thread waiting on subagents shows their count in its row and all active agents in its composer", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(await screen.findByRole("status", { name: "Waiting on 2 subagents" })).toBeTruthy();
+  expect(
+    await within(await screen.findByRole("region", { name: "Agents" })).findByText(
+      "3 agents working",
+    ),
+  ).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting on 2 subagents");
-  expect(within(header).getByRole("status").textContent).toBe("Waiting on 2 subagents");
+  expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread that asked the person a question waits for their answer everywhere", async () => {
+test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
-  expect(within(header).getByRole("status").textContent).toBe("Waiting for your answer");
+  expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread running its tests says Running tests", async () => {
+test("a thread running tests keeps its activity in the composer and row without repeating it in the transcript", async () => {
   const { feed, header, row } = await open(runningTests());
-  expect(await within(feed).findByText("Running tests…")).toBeTruthy();
+  expect(
+    await within(await screen.findByRole("region", { name: "Agents" })).findByText(
+      /Running tests…$/,
+    ),
+  ).toBeTruthy();
+  expect(within(feed).queryByText("Running tests…")).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Running tests…");
-  expect(within(header).getByRole("status").textContent).toBe("Running tests…");
+  expect(within(header).queryByRole("status")).toBeNull();
 });
 
 test("a finished thread has no live status in its header", async () => {

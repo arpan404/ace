@@ -46,13 +46,18 @@ test("clone uses host git against a file-protocol bare fixture and publishes pro
         type: "workspace.clone",
         parent: f.root,
         name: "clone",
+        icon: "https://example.test/clone.png",
         url: new URL(`file://${bare}`).href,
       },
       "clone",
     );
     expect(result).toMatchObject({
       ok: true,
-      workspace: { path: join(f.root, "clone"), name: "clone" },
+      workspace: {
+        path: join(f.root, "clone"),
+        name: "clone",
+        icon: "https://example.test/clone.png",
+      },
       inspection: { git: { branch: "trunk", defaultBranch: "trunk" } },
     });
     expect(await readFile(join(f.root, "clone", "README.md"), "utf8")).toBe("cloned contents\n");

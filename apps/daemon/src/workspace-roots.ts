@@ -236,7 +236,7 @@ export class WorkspaceRoots {
       if (!current) throw new Error("thread_not_found");
       const details: ThreadDetails = {
         ...current.details,
-        workspace: { id: current.workspaceId, name: project.name, path: project.path },
+        workspace: { ...project, id: current.workspaceId },
         mode: current.details?.mode ?? (info.root === projectPath ? "local" : "worktree"),
         worktree: root,
         branch: info.branch,

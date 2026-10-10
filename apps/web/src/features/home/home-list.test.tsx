@@ -87,13 +87,15 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
-  expect(within(dedupe).getByText("⑂ 2")).toBeTruthy();
+  expect(within(dedupe.parentElement ?? dedupe).getByText("⑂ 2")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
   );
   // The branch and changes stay available on the row.
   const install = card(/^Rewrite the install page for the daemon/);
-  expect(within(install).getByRole("img", { name: "OpenCode" })).toBeTruthy();
+  expect(
+    within(install.parentElement ?? install).getByRole("img", { name: "OpenCode" }),
+  ).toBeTruthy();
   expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
   expect(within(install).getByText("+120")).toBeTruthy();
 });
@@ -164,7 +166,7 @@ test("hovering a row offers one quick action in place of its marks, named by its
   await userEvent.hover(card(/^Bump Codex app-server to 0.48/));
   // Finished: Settle. Its accessible name says which thread; its tooltip just what it does.
   const settle = screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" });
-  expect(settle.textContent).toBe("");
+  expect(settle.textContent).toBe("Settle");
   await userEvent.hover(settle);
   await waitFor(() =>
     expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Settle"),
@@ -209,9 +211,9 @@ test("the open thread's row is the current one, and moves with the thread opened
 test("hovering a row's link shows what its marks mean in a tooltip", async () => {
   await openHome(workbenchApp());
   await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
-  const tip = await screen.findByRole("tooltip");
-  expect(tip.textContent).toContain("Waiting for your approval");
-  expect(tip.textContent).toContain("Pull request #77");
+  const tip = await screen.findByLabelText(/^Details for /);
+  expect(tip.textContent).toContain("billing-api");
+  expect(within(tip).getByRole("img", { name: "open pull request #77" })).toBeTruthy();
 });
 
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
@@ -332,13 +334,15 @@ test("the project filter narrows Home to one project and is remembered", async (
   await waitFor(() => expect(order()).toHaveLength(2));
 });
 
-test("Tab walks a task link, its single quick action, then the next task", async () => {
+test("Tab walks a task link, Settle and Snooze, then the next task", async () => {
   await openHome(workbenchApp());
   const [first, second] = within(threads()).getAllByRole("link");
   if (!first || !second) throw new Error("expected two rows");
   first.focus();
   await userEvent.tab();
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Settle /);
+  await userEvent.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
   await userEvent.tab();
   expect(document.activeElement).toBe(second);
 });
@@ -373,8 +377,8 @@ test("a row's name and tooltip give its whole branch, including main", async () 
     "Worktree ace/33594883e2b3ea4fc70aeea5",
   );
   await userEvent.hover(hashed);
-  expect((await screen.findByRole("tooltip")).textContent).toContain(
-    "Worktree ace/33594883e2b3ea4fc70aeea5",
+  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
+    "ace/33594883e2b3ea4fc70aeea5",
   );
 
   const onMain = card(/^Tidy the README/);

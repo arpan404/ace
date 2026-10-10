@@ -8,9 +8,8 @@ import {
   GitForkIcon,
   LaptopIcon,
   WarningIcon,
-  XIcon,
 } from "@phosphor-icons/react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCheckout } from "../lib/use-git.ts";
@@ -22,7 +21,7 @@ import type { ThreadRef } from "../sources/index.ts";
  * remote could be reached then), the path and the machine. The daemon fixes the place
  * when the thread starts, so this reports it; the path can be copied.
  */
-export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; onClose(): void }) {
+export function ThreadEnvironmentCard(props: { thread: ThreadRef }) {
   const checkout = useCheckout(props.thread);
   const details = useThreadMeta(props.thread.id)?.details;
   const toast = useToast();
@@ -43,15 +42,9 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
       () => toast.add({ title: "Path copied" }),
       () => toast.add({ title: "Couldn't copy the path" }),
     );
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    props.onClose();
-  };
   return (
-    <section aria-label="Where this thread runs" onKeyDownCapture={onKeyDown}>
-      <div id={props.id}>
+    <section aria-label="Where this thread runs">
+      <div className="px-2.5 py-2">
         <div className="flex items-center gap-2.5">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-muted-foreground">
             {worktree ? (
@@ -74,7 +67,6 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef; id: string; on
                 : "Works directly in the project's folder, on its current branch."}
             </p>
           </div>
-          <IconButton icon={XIcon} label="Close" size="sm" onClick={props.onClose} />
         </div>
         <dl className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm">
           {checkout && (

@@ -83,7 +83,9 @@ test("a worktree's steps advance under the first message, with checkout's percen
 
   // Progress lives once in the transcript. The next message can be drafted, but not sent.
   expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
-  expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /^Model:/ }).closest('[data-slot="composer"]'),
+  ).toBeTruthy();
   expect(screen.getByRole("button", { name: /^Approvals:/ })).toBeTruthy();
   const input = screen.getByRole("combobox", { name: "Message" });
   await userEvent.type(input, "Also cover the reconnect case");

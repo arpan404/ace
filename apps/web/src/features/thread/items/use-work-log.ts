@@ -27,9 +27,8 @@ function useWaited(threadId: string, from: number, to: number): number {
  * the moment its stretch closed (the agent answered, the turn ended), less any wait on the
  * person and any `idle` time between two runs in between, so a step that settles later never
  * changes it; a log still open runs to its newest step. It never ticks: a step still unsettled
- * shows that on its own row. Only `live`, the bottom log of a turn the agent is working on,
- * carries the turn's live line ("Working for …", ticking), the same line the footer would
- * otherwise show.
+ * shows that on its own row. Live logs keep a quiet "Work so far" headline; transient
+ * working status belongs to the composer. Waiting and held states retain their context.
  */
 export function useWorkLog(
   threadId: string,
@@ -48,14 +47,14 @@ export function useWorkLog(
   const to = until ?? summary?.endedAt ?? 0;
   const waited = useWaited(threadId, from, to);
   const activity = useTurnActivity(threadId, live);
-  const now = useTicker(activity?.elapsedFrom !== undefined);
+  const now = useTicker(activity?.tone !== "working" && activity?.elapsedFrom !== undefined);
   if (!summary) return undefined;
   const counts = workCounts(summary);
-  if (activity)
+  if (activity && activity.tone !== "working")
     return {
       label: activityText(activity, now),
       counts,
-      running: activity.tone === "working",
+      running: false,
       current: activity.current,
       awaiting: summary.awaiting,
     };

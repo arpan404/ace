@@ -20,6 +20,9 @@
       },
       "type": "object",
       "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "window": {
+      "$ref": "https://ace.local/protocol/v1/ThreadListWindow.json"
     }
   },
   "required": [

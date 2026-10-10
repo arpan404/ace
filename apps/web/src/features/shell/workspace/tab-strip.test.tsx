@@ -19,7 +19,7 @@ import { TabStrip } from "./tab-strip.tsx";
  * strip's layout pass to size tabs from what they show.
  */
 const charWidth = 7;
-const patched = ["scrollWidth", "clientWidth", "offsetWidth"] as const;
+const patched = ["scrollWidth", "clientWidth", "offsetWidth", "scrollBy"] as const;
 const originals = patched.map(
   (name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)] as const,
 );
@@ -186,4 +186,32 @@ test("Alt+Shift+arrows move the focused tab, and the strip says where it went", 
   // Focus stays with the moved tab, so it can go on moving.
   await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
   expect(names()).toEqual(["todo.md", "plan.md", "notes.md"]);
+});
+
+test("the overflowing side panel menu opens and switches the selected tab", async () => {
+  Object.defineProperty(HTMLElement.prototype, "scrollBy", { configurable: true, value: () => {} });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "tablist"
+        ? 900
+        : (this.textContent?.length ?? 0) * charWidth;
+    },
+  });
+  const definition = defineWorkspace({
+    label: "Side panel",
+    launcher: "file",
+    initial: [{ kind: "changes" }, { kind: "file", id: "a", title: "app.tsx" }],
+    kinds: () => Promise.resolve({ default: [changes, file] }),
+  });
+  await definition.load();
+  render(
+    <LayoutProvider>
+      <Strip definition={definition} />
+    </LayoutProvider>,
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "All tabs" }));
+  expect(await screen.findByText("Open tabs")).toBeTruthy();
+  await userEvent.click(screen.getByRole("menuitem", { name: "app.tsx" }));
+  expect(screen.getByRole("tab", { name: "app.tsx", selected: true })).toBeTruthy();
 });

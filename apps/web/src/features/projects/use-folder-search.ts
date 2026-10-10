@@ -21,6 +21,7 @@ import {
 
 /** One folder the list offers. */
 export interface FolderRow {
+  icon?: string | null;
   key: string;
   name: string;
   path: string;
@@ -88,13 +89,20 @@ export function useFolderSearch(options: {
 
   const sections = useMemo((): FolderSection[] => {
     const row = (
-      folder: { name: string; path: string; git?: boolean; project?: boolean },
+      folder: {
+        name: string;
+        path: string;
+        git?: boolean;
+        project?: boolean;
+        icon?: string | null;
+      },
       on: Machine,
       typed: string,
     ): FolderRow => ({
       key: `${on.id}\u0000${folder.path}`,
       name: folder.name,
       path: folder.path,
+      ...(folder.icon === undefined ? {} : { icon: folder.icon }),
       machine: on,
       git: folder.git ?? false,
       project: folder.project ?? isProject(on, folder.path),
@@ -142,7 +150,16 @@ export function useFolderSearch(options: {
     }
     const online = recentFolders.filter((folder) => folder.machine.client !== undefined);
     const asProject = (folder: RecentFolder) =>
-      row({ name: folder.name, path: folder.path, project: true }, folder.machine, words);
+      row(
+        {
+          name: folder.name,
+          path: folder.path,
+          project: true,
+          ...(folder.icon === undefined ? {} : { icon: folder.icon }),
+        },
+        folder.machine,
+        words,
+      );
     if (!words) {
       const start = home?.start;
       return [

@@ -9,6 +9,8 @@ import { useEffect } from "react";
 
 /** A project (daemon workspace): its id on the wire, the name people know it by, its path. */
 export interface Project {
+  icon?: string | null | undefined;
+  defaultIcon?: string | null | undefined;
   id: string;
   name: string;
   path: string;

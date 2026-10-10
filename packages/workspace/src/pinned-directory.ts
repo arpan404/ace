@@ -106,6 +106,10 @@ export class PinnedDirectory {
   }
   /** Bounded regular-file read; neither FIFOs nor symlinks can be followed. */
   readText(name: string, limit: number, owner?: number): string {
+    return this.readBytes(name, limit, owner).toString("utf8");
+  }
+  /** Bounded regular-file bytes through the pinned directory, without following symlinks. */
+  readBytes(name: string, limit: number, owner?: number): Buffer {
     const file = openAt(this.fd, name, constants.O_RDONLY);
     try {
       const info = fstatSync(file.fd);
@@ -129,7 +133,7 @@ export class PinnedDirectory {
         length += count;
       }
       if (length > limit) throw new Error(`${name} exceeds its read limit`);
-      return bytes.subarray(0, length).toString("utf8");
+      return bytes.subarray(0, length);
     } finally {
       closeSync(file.fd);
     }

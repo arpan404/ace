@@ -92,8 +92,11 @@ export class Client implements ClientApi, ConnectionControl {
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
-    if (limits.threads > 63)
-      throw new ClientError("limit", "Reserve one of 64 subscriptions for the sidebar");
+    if (limits.threads > 62)
+      throw new ClientError(
+        "limit",
+        "At most 62 thread subscriptions; reserve two of 64 slots for Home and Archive",
+      );
     this.notifications = new Notifications(limits.listeners);
     this.requests = new Requests(options.scheduler, limits.requests, limits.requestMs);
     this.readMarkers = new ReadMarkers(
@@ -610,11 +613,28 @@ export class Client implements ClientApi, ConnectionControl {
       if (!this.connection.send(parsed.data)) throw new ClientError("offline");
     });
   }
+  async threadsWindow(input: {
+    project?: string | undefined;
+    archived?: boolean | undefined;
+  }): Promise<void> {
+    this.sidebar.configure(input);
+  }
+  async threadsMore(options: RequestOptions = {}): Promise<void> {
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const payload = this.sidebar.pageRequest();
+    if (!payload) return;
+    await this.readCore(payload, (value) => CoreServerMessage.parse(value), options);
+  }
   /** A read of the core stream (item pages, output): no service schemas to wait for. */
   private async readCore<T>(
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
-      | { type: "output.read"; streamId: string; offset: number; limit: number },
+      | { type: "output.read"; streamId: string; offset: number; limit: number }
+      | {
+          type: "threads.page";
+          subscriptionId: string;
+          before: import("@ace/protocol").ThreadListCursor;
+        },
     decode: (value: unknown) => T,
     options: RequestOptions,
   ): Promise<T> {

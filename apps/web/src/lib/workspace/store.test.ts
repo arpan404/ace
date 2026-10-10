@@ -84,6 +84,32 @@ test("tabs, the showing tab and the width come back after a reload", () => {
   expect(restored.size).toBe(610);
 });
 
+test("thread view preferences and WorkCard folds are isolated, merged and restored", () => {
+  const first = open();
+  const a = first.scope("a");
+  const b = first.scope("b");
+  a.open({ kind: "preview", data: { query: "replay", find: { query: "cap", index: 2 } } });
+  a.updateUi("changes", { query: "socket", collapsed: ["src"] });
+  a.setWorkCard({ open: true, sections: { changes: false }, search: "test" });
+  a.setWorkCard({ sections: { actions: false } });
+  b.setOpen(false);
+  expect(first.store.get("b").tabs[0]?.ui).toBeUndefined();
+  expect(first.store.get("b").workCard).toBeUndefined();
+  const again = open(first.storage);
+  expect(again.store.get("a").active).toBe("preview");
+  expect(again.store.get("a").open).toBe(true);
+  expect(again.store.get("a").tabs[0]?.ui).toEqual({ query: "socket", collapsed: ["src"] });
+  expect(again.store.get("a").tabs[1]?.data).toEqual({
+    query: "replay",
+    find: { query: "cap", index: 2 },
+  });
+  expect(again.store.get("a").workCard).toEqual({
+    open: true,
+    sections: { changes: false, actions: false },
+    search: "test",
+  });
+});
+
 /** A panel as an older build stored it. */
 const storedDock = (tabs: string[], shown: boolean) => ({
   tabs: tabs.map((key) => ({ key, kind: key, id: key, pinned: key === "changes" })),

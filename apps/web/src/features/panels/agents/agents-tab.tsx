@@ -24,14 +24,14 @@ import {
 import type { Agent, BackgroundTask } from "@ace/protocol";
 import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { createContext, use, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentStatusMark } from "./agent-status.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
@@ -201,8 +201,15 @@ function QueueRow(props: { count: number }) {
 
 /** The agent tree: a tree widget, one Tab stop, with folding branches. */
 function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] }) {
-  const [active, setActive] = useState<string>();
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const workspace = useScopeWorkspace(props.threadId);
+  const actions = useWorkspaceActions(props.threadId);
+  const ui = workspace.tabs.find((tab) => tab.key === "agents")?.ui;
+  const active = ui?.selected;
+  const setActive = useCallback(
+    (selected: string | undefined) => actions.updateUi("agents", { selected }),
+    [actions],
+  );
+  const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
   const first = props.nodes[0]?.id;
   const treeId = useId();
   const subagents = useMemo(() => subagentCounts(props.nodes), [props.nodes]);
@@ -214,15 +221,14 @@ function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] })
       active: active ?? first,
       setActive,
       collapsed,
-      fold: (id, open) =>
-        setCollapsed((previous) => {
-          const next = new Set(previous);
-          if (open) next.delete(id);
-          else next.add(id);
-          return next;
-        }),
+      fold: (id, open) => {
+        const next = new Set(collapsed);
+        if (open) next.delete(id);
+        else next.add(id);
+        actions.updateUi("agents", { collapsed: [...next] });
+      },
     }),
-    [treeId, subagents, active, first, collapsed],
+    [treeId, subagents, active, first, collapsed, setActive, actions],
   );
   return (
     <Tree value={state}>

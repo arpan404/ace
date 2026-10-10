@@ -45,6 +45,7 @@ export function fakeProviderAccounts(
       id: instanceId,
       provider: request.provider,
       label: request.label ?? "New account",
+      shortLabel: request.shortLabel,
       implicit: false,
       isDefault: false,
       authMethod: "unknown",

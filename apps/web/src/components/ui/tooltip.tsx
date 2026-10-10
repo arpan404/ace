@@ -26,9 +26,9 @@ function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           role="tooltip"
-          style={{ maxWidth: "min(32rem, calc(100vw - 24px))" }}
+          style={{ maxWidth: "min(20rem, calc(100vw - 24px))" }}
           className={cn(
-            "flex items-center gap-2 rounded-sm bg-primary px-2 py-[5px] text-sm leading-4 font-medium break-words text-primary-foreground",
+            "flex items-center gap-2 rounded-md border border-border bg-popover px-2 py-1 text-xs leading-4 font-normal break-words text-popover-foreground shadow-sm",
             "origin-(--transform-origin) transition-[opacity,transform] duration-(--dur-1) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-0.5 data-[side=top]:data-starting-style:translate-y-0.5",
             className,
           )}
@@ -53,13 +53,15 @@ function Tip(props: {
   /** False: `keys` are this control's own, never a rebindable shortcut's. */
   resolve?: boolean;
   side?: TooltipPrimitive.Positioner.Props["side"];
+  /** A related popup already owns the trigger's description while it is open. */
+  disabled?: boolean;
   children: ReactElement;
 }) {
   return (
-    <TooltipPrimitive.Root>
-      <TooltipPrimitive.Trigger render={props.children} />
+    <TooltipPrimitive.Root disabled={props.disabled}>
+      <TooltipPrimitive.Trigger render={props.children} closeOnClick />
       <TooltipContent side={props.side ?? "bottom"}>
-        {props.label}
+        <div className="min-w-0 break-words">{props.label}</div>
         {props.shortcut ? (
           <Kbd shortcut={props.shortcut} />
         ) : (

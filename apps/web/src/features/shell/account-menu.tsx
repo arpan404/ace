@@ -11,10 +11,6 @@ import { SidebarMenu } from "./sidebar-menu.tsx";
 const AccountMenuContent = lazy(() =>
   import("./account-menu-content.tsx").then((module) => ({ default: module.AccountMenuContent })),
 );
-const DaemonMenuContent = lazy(() =>
-  import("./daemon-menu-content.tsx").then((module) => ({ default: module.DaemonMenuContent })),
-);
-
 /**
  * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
  * (a silhouette until they give a name in Settings › General) and their name. The disc's dot is
@@ -65,29 +61,6 @@ export function AccountMenu() {
       }
     >
       <AccountMenuContent />
-    </SidebarMenu>
-  );
-}
-
-/** The sidebar's title, "ace ▾": the daemon menu, opening under it. */
-export function WorkspaceMenu() {
-  return (
-    <SidebarMenu
-      trigger={
-        <button
-          type="button"
-          aria-label="ace menu"
-          className="flex h-8 items-center gap-1 rounded-md px-1.5 text-lg font-semibold tracking-[-0.01em] text-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent"
-        >
-          ace
-          {/* A small chevron drawn here: an icon module would weigh on the first paint. */}
-          <svg aria-hidden viewBox="0 0 12 12" className="size-3 text-subtle-foreground">
-            <path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
-        </button>
-      }
-    >
-      <DaemonMenuContent />
     </SidebarMenu>
   );
 }

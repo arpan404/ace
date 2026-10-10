@@ -15,14 +15,15 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import { useHostHome } from "./use-folders.ts";
+import { ProjectIconField, projectIconProblem } from "./project-icon-field.tsx";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
 function useProject(projectId: string) {
   return useProjectDirectory().projects.find((project) => project.id === projectId);
 }
 
-/** Rename: the name ace shows. The folder on disk keeps its own. */
-export function RenameProjectDialog(props: {
+/** Edit the display name and artwork together; the folder on disk keeps its own name. */
+export function EditProjectDialog(props: {
   projectId: string;
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -31,19 +32,23 @@ export function RenameProjectDialog(props: {
   const commands = useProjectCommands();
   const toast = useToast();
   const [name, setName] = useState<string>();
+  const [icon, setIcon] = useState<string | null>();
+  const [iconBusy, setIconBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const value = name ?? project?.name ?? "";
   const nameProblem = projectNameProblem(value.trim());
+  const artwork = icon === undefined ? project?.icon : icon;
+  const iconProblem = projectIconProblem(artwork);
 
   const save = async () => {
-    if (!project || nameProblem) return;
-    if (value.trim() === project.name) return props.onOpenChange(false);
+    if (!project || nameProblem || iconProblem || iconBusy || saving) return;
+    if (value.trim() === project.name && artwork === project.icon) return props.onOpenChange(false);
     setSaving(true);
     setProblem(undefined);
     try {
-      await commands.rename(project.id, value.trim());
-      toast.add({ title: `Renamed to ${value.trim()}` });
+      await commands.update(project.id, value.trim(), artwork ?? null);
+      toast.add({ title: `Updated ${value.trim()}` });
       props.onOpenChange(false);
     } catch (error) {
       setProblem(projectFailure(error).message);
@@ -64,27 +69,43 @@ export function RenameProjectDialog(props: {
           }}
         >
           <DialogHeader>
-            <DialogTitle>Rename {project?.name ?? "project"}</DialogTitle>
+            <DialogTitle>Edit project</DialogTitle>
             <DialogDescription>
-              Changes the name ace shows on every device. The folder on disk keeps its name.
+              Changes the name and icon ace shows on every device. The folder on disk keeps its
+              name.
             </DialogDescription>
           </DialogHeader>
           {project ? (
-            <TextField
-              label="Name"
-              value={value}
-              onChange={setName}
-              problem={nameProblem}
-              showProblem={name !== undefined}
-              autoFocus
-            />
+            <div className="grid gap-4">
+              <TextField
+                label="Name"
+                value={value}
+                onChange={setName}
+                problem={nameProblem}
+                showProblem={name !== undefined}
+                autoFocus
+                disabled={saving}
+              />
+              <ProjectIconField
+                name={value}
+                value={artwork}
+                defaultIcon={project.defaultIcon}
+                onChange={setIcon}
+                onBusy={setIconBusy}
+                disabled={saving}
+              />
+            </div>
           ) : (
             <Problem>That project is gone.</Problem>
           )}
           {problem && <Problem>{problem}</Problem>}
           <Footer>
-            <Button type="submit" variant="primary" disabled={!project || saving}>
-              {saving ? "Saving…" : "Rename"}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!project || saving || iconBusy || !!nameProblem || !!iconProblem}
+            >
+              {saving ? "Saving…" : "Save changes"}
             </Button>
           </Footer>
         </form>

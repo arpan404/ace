@@ -1,13 +1,12 @@
 import { useRouterState } from "@tanstack/react-router";
 import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, CSSProperties } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
-import { panelMotion, usePresence } from "@/lib/motion.ts";
-import { cn } from "@/lib/cn.ts";
+import { Sidebar, SidebarProvider } from "@/components/ui/sidebar.tsx";
 
 interface FrameValue {
   /** There is a sidebar (the header shows its toggle). */
@@ -39,8 +38,7 @@ const FrameContext = createContext<FrameValue>({
   claimBody: () => noop,
 });
 export const useViewFrame = () => useContext(FrameContext);
-
-/** The sheet: only narrow windows use it, so its code loads when one does. */
+/** The sheet is lazy so the desktop shell does not eagerly load a dialog. */
 const SidebarSheet = lazy(() =>
   import("./sidebar-sheet.tsx").then((module) => ({ default: module.SidebarSheet })),
 );
@@ -76,9 +74,6 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   const yielded = crowded && !overlay && rightPanelShown;
   const inline = layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
-  // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from
-  // the left when shown and fades before the column takes its space back when hidden.
-  const presence = usePresence(inline);
   const value = useMemo<FrameValue>(
     () => ({
       hasSidebar: true,
@@ -103,25 +98,19 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   useHotkey(keymap.toggleSidebar.keys, value.sidebarShown ? value.hideSidebar : value.showSidebar);
   return (
     <FrameContext.Provider value={value}>
-      <div
-        // Read by the desktop app's title bar rules: what sits under the traffic lights.
+      <SidebarProvider
+        open={inline}
+        onOpenChange={(open) => (open ? value.showSidebar() : value.hideSidebar())}
+        isMobile={!wide}
+        openMobile={sheetOpen}
+        onOpenMobileChange={setSheetOpen}
+        style={{ "--sidebar-width": "280px" } as CSSProperties}
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
-        className="relative z-[1] flex min-h-0 min-w-0 flex-1"
+        className="relative z-[1]"
       >
         {wide ? (
-          <div
-            hidden={!presence.mounted}
-            inert={presence.phase === "exit"}
-            data-edge="left"
-            className={cn(
-              "vibrancy flex w-(--sidebar-w) min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
-              panelMotion(presence),
-            )}
-          >
-            {props.sidebar}
-          </div>
+          <Sidebar>{props.sidebar}</Sidebar>
         ) : (
-          // Closed until asked for, so it renders nothing while its code arrives.
           <Suspense fallback={null}>
             <SidebarSheet open={sheetOpen} onOpenChange={setSheetOpen}>
               {props.sidebar}
@@ -129,7 +118,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
           </Suspense>
         )}
         {props.children}
-      </div>
+      </SidebarProvider>
     </FrameContext.Provider>
   );
 }

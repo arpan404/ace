@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadListWindow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "before": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadListCursor.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "counts": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "threads": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "threads"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "before",
+    "total",
+    "counts"
+  ],
+  "type": "object"
+}

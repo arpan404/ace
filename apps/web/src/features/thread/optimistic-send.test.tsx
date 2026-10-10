@@ -145,9 +145,10 @@ test("removing a queued message takes its pill away at once", async () => {
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: "Remove from queue" })).toBeTruthy(),
+    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
   );
-  await userEvent.click(within(queue).getByRole("button", { name: "Remove from queue" }));
+  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 });
@@ -157,10 +158,11 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: "Remove from queue" })).toBeTruthy(),
+    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
   );
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
-  await userEvent.click(within(queue).getByRole("button", { name: "Remove from queue" }));
+  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
   expect(await screen.findByText("Couldn't remove the message")).toBeTruthy();
   app.daemon.restoreRequests();
   expect(
@@ -180,7 +182,7 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
 });
 
-test("Stop reads Stopping… on the button and the live line until the turn ends", async () => {
+test("Stop reads Stopping… on its disabled button until the turn ends", async () => {
   const storage = memoryStorage();
   const saved = Promise.withResolvers<void>();
   let hold = false;
@@ -197,8 +199,12 @@ test("Stop reads Stopping… on the button and the live line until the turn ends
   hold = true;
   try {
     await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-    expect(screen.getByRole("button", { name: "Stopping…" })).toBeTruthy();
-    expect(screen.getByRole("status", { name: "Stopping…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stopping…" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    // The surviving composer status keeps naming the work; stopping is on the button.
+    expect(screen.getByText("3 agents working").closest('[role="status"]')).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Stopping…" })).toBeNull();
 
     hold = false;
     saved.resolve();

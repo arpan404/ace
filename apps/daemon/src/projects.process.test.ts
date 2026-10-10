@@ -439,3 +439,131 @@ test("a newly created Git project can immediately start an isolated worktree wit
     await f.close();
   }
 });
+
+test("project edits publish metadata to existing threads and preserve icons across restart", async () => {
+  const f = await projectFixture();
+  let reopened: Store | undefined;
+  let projects: Projects | undefined;
+  try {
+    const path = join(f.root, "icons");
+    await mkdir(path);
+    const project = Project.parse(
+      (await f.command({ type: "workspace.add", path, icon: "https://example.test/initial.png" }))
+        .workspace,
+    );
+    expect(project.icon).toBe("https://example.test/initial.png");
+    const thread = Thread.parse({
+      id: "icon-thread",
+      workspaceId: project.id,
+      title: "Icon",
+      provider: "codex",
+      status: { state: "new" },
+      details: { workspace: project },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+    const changes: WorkspaceChanged[] = [];
+    f.projects.subscribe((change) => changes.push(change));
+    const icon = "data:image/png;base64,aGVsbG8=";
+    expect(
+      await f.command({ type: "workspace.update", workspaceId: project.id, name: "Edited", icon }),
+    ).toMatchObject({ ok: true, workspace: { name: "Edited", icon } });
+    expect(f.store.getThread(thread.id)?.details?.workspace).toMatchObject({
+      name: "Edited",
+      icon,
+    });
+    expect(changes).toMatchObject([{ change: "updated", workspace: { name: "Edited", icon } }]);
+    await f.projects.close();
+    await f.store.close();
+    reopened = new Store(join(f.root, "events.sqlite"));
+    projects = new Projects(reopened, () => 2000, { home: f.root, roots: async () => [f.root] });
+    expect(projects.catalog.get(project.id)).toMatchObject({ name: "Edited", icon });
+    expect(projects.catalog.recent(10)).toMatchObject([{ name: "Edited", icon }]);
+    expect(reopened.getWorkspace(project.id)).toMatchObject({ name: "Edited", icon });
+    expect(
+      await projects.execute(
+        Command.parse({
+          id: "clear-icon",
+          deviceId: "owner",
+          payload: {
+            type: "workspace.update",
+            workspaceId: project.id,
+            name: "Edited",
+            icon: null,
+          },
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(projects.catalog.get(project.id).icon).toBeUndefined();
+    expect(reopened.getThread(thread.id)?.details?.workspace?.icon).toBeNull();
+    expect(
+      await projects.execute(
+        Command.parse({
+          id: "legacy-rename",
+          deviceId: "owner",
+          payload: { type: "workspace.rename", workspaceId: project.id, name: "Legacy" },
+        }),
+      ),
+    ).toMatchObject({ ok: true, workspace: { name: "Legacy" } });
+  } finally {
+    await projects?.close();
+    await reopened?.close();
+    await f.close();
+  }
+});
+
+test("invalid icons cannot create folders or replace saved project metadata", async () => {
+  const f = await projectFixture();
+  try {
+    const project = Project.parse(
+      (
+        await f.command({
+          type: "workspace.create",
+          parent: f.root,
+          name: "valid",
+          icon: "https://example.test/valid.png",
+        })
+      ).workspace,
+    );
+    for (const icon of [
+      "javascript:alert(1)",
+      "file:///tmp/icon.png",
+      "data:image/svg+xml;base64,PHN2Zz4=",
+      "data:image/png;base64," + "a".repeat(131072),
+      "https://example.test/" + "a".repeat(4096),
+    ]) {
+      expect(
+        Command.safeParse({
+          id: "invalid",
+          deviceId: "owner",
+          payload: { type: "workspace.create", parent: f.root, name: "invalid", icon },
+        }).success,
+      ).toBe(false);
+      expect(
+        Command.safeParse({
+          id: "invalid",
+          deviceId: "owner",
+          payload: { type: "workspace.update", workspaceId: project.id, name: "Changed", icon },
+        }).success,
+      ).toBe(false);
+    }
+    expect(f.projects.catalog.get(project.id)).toMatchObject({
+      name: "valid",
+      icon: "https://example.test/valid.png",
+    });
+    expect(await readdir(f.root)).not.toContain("invalid");
+    await writeFile(join(f.root, "valid", "keep.txt"), "keep");
+    expect(
+      await f.command({
+        type: "workspace.create",
+        parent: f.root,
+        name: "valid",
+        icon: "https://example.test/replacement.png",
+      }),
+    ).toMatchObject({ ok: false, error: "destination_not_empty" });
+    expect(f.projects.catalog.get(project.id).icon).toBe("https://example.test/valid.png");
+  } finally {
+    await f.close();
+  }
+});

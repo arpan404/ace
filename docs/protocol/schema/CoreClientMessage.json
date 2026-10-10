@@ -208,6 +208,32 @@
     },
     {
       "properties": {
+        "before": {
+          "$ref": "https://ace.local/protocol/v1/ThreadListCursor.json"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "threads.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "subscriptionId",
+        "before"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "type": {
           "const": "ping",
           "type": "string"

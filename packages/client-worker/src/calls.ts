@@ -111,6 +111,19 @@ export async function callArgs(
   signal: AbortSignal,
 ): Promise<unknown> {
   switch (method) {
+    case "threadsWindow": {
+      const [input] = decode(
+        z.tuple([
+          z.object({ project: z.string().min(1).optional(), archived: z.boolean().optional() }),
+        ]),
+        args,
+      );
+      return client.threadsWindow(input);
+    }
+    case "threadsMore": {
+      const [parsed] = decode(z.tuple([Options]), args);
+      return client.threadsMore(options(parsed, signal));
+    }
     case "enqueue": {
       const [payload, id] = decode(schemas.enqueue, args);
       const sent = await client.enqueue(payload, id);

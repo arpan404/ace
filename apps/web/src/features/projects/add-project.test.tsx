@@ -70,6 +70,10 @@ test("the first run offers one Add project entry in each area, and a searched fo
 
   const search = await box();
   expect(document.activeElement).toBe(search);
+  await userEvent.type(
+    within(await dialog()).getByRole("textbox", { name: "Icon URL" }),
+    "https://example.com/weather.png",
+  );
   await userEvent.type(search, "weath");
   await option("weather");
   expect((await active())?.textContent).toMatch(/^weather/);
@@ -78,6 +82,7 @@ test("the first run offers one Add project entry in each area, and a searched fo
   // A project with no threads yet opens at New thread.
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
+  expect(made.daemon.projects.list().workspaces[0]?.icon).toBe("https://example.com/weather.png");
 });
 
 test("search ranks an exact name, then a prefix, then a name containing it, then scattered letters", async () => {
@@ -285,10 +290,17 @@ test("a new project's name is checked as you type, and it can start as a Git rep
   await userEvent.clear(name);
   await userEvent.type(name, "forecast");
   expect(await screen.findByText("Creates ~/forecast")).toBeTruthy();
+  await userEvent.type(
+    screen.getByRole("textbox", { name: "Icon URL" }),
+    "https://example.com/forecast.png",
+  );
   await userEvent.type(screen.getByRole("textbox", { name: "Initial branch" }), "trunk");
   await userEvent.click(screen.getByRole("button", { name: "Create project" }));
 
   await screen.findByRole("button", { name: "Project: forecast" });
+  expect(
+    made.daemon.projects.list().workspaces.find((project) => project.name === "forecast")?.icon,
+  ).toBe("https://example.com/forecast.png");
   const inspected = await made.client.projects.inspect(`${home}/forecast`);
   expect(inspected.result).toMatchObject({
     kind: "inspection",

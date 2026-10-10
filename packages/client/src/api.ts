@@ -86,6 +86,11 @@ export interface ClientApi {
   networkOnline(online: boolean): void;
   thread(id: string): Lease<ThreadSource>;
   threads(): Lease<SidebarSource>;
+  threadsWindow(input: {
+    project?: string | undefined;
+    archived?: boolean | undefined;
+  }): Promise<void>;
+  threadsMore(options?: RequestOptions): Promise<void>;
   enqueue(payload: CommandPayload, id?: string): Promise<string>;
   command(payload: CommandPayload, options?: RequestOptions, id?: string): Promise<CommandResult>;
   registry(input: RegistryQuery, options?: RequestOptions): Promise<RegistryResult>;
@@ -155,6 +160,8 @@ export interface ThreadExport {
   truncated: string[];
 }
 export interface SidebarExport {
+  loaded?: boolean | undefined;
+  homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   error: { code: ClientError["code"]; message: string } | undefined;
   view: ThreadListView | undefined;
   ids: readonly string[];

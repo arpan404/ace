@@ -1,5 +1,6 @@
 import { PlayIcon, PlusIcon } from "@phosphor-icons/react";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue } from "react";
+import { useWorkCardState } from "./work-card-state.tsx";
 import { SearchField } from "@/components/search-field.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -7,10 +8,8 @@ import { useRunningTerminalNames } from "@/features/panels/index.ts";
 import { useRunScript, useScripts } from "../lib/use-scripts.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
-import { RowButton, RowNote, rowIcon, SectionHead } from "./work-card-parts.tsx";
+import { RowButton, RowNote, rowIcon, WorkSection } from "./work-card-parts.tsx";
 
-/** A long list scrolls in place (inline: a one-off value, ADR 0056 CSS budget). */
-const listHeight = { maxHeight: 200 };
 /** More scripts than this and the section offers a search field. */
 const searchFrom = 4;
 const addHint = "Add a script to package.json, a Makefile, justfile or Procfile";
@@ -34,13 +33,17 @@ export function ActionsSection(props: { thread: ThreadRef; onClose(returnFocus: 
   const query = useScripts(props.thread);
   const { run, agentCommands } = useRunScript(props.thread);
   const terminals = useRunningTerminalNames(props.thread.id);
-  const [search, setSearch] = useState("");
+  const { state, update } = useWorkCardState();
+  const search = state.search;
+  const setSearch = (value: string) => update({ search: value });
   const deferred = useDeferredValue(search);
   const scripts = query.data ?? [];
   const shown = matchScripts(scripts, deferred);
   return (
-    <section aria-labelledby="work-card-actions">
-      <SectionHead id="work-card-actions" title="Actions">
+    <WorkSection
+      id="work-card-actions"
+      title="Actions"
+      controls={
         <IconButton
           icon={PlusIcon}
           label="Add action"
@@ -49,7 +52,8 @@ export function ActionsSection(props: { thread: ThreadRef; onClose(returnFocus: 
           disabled
           reason={addHint}
         />
-      </SectionHead>
+      }
+    >
       {scripts.length >= searchFrom && (
         <div className="px-1.5 pb-1">
           <SearchField
@@ -82,11 +86,7 @@ export function ActionsSection(props: { thread: ThreadRef; onClose(returnFocus: 
       ) : !shown.length ? (
         <RowNote>No action matches “{deferred}”</RowNote>
       ) : (
-        <ul
-          aria-label="Project actions"
-          style={listHeight}
-          className="flex flex-col overflow-y-auto"
-        >
+        <ul aria-label="Project actions" className="flex flex-col">
           {shown.map((script) => {
             const running =
               terminals.has(script.name) || agentCommands.includes(script.command.trim());
@@ -116,6 +116,6 @@ export function ActionsSection(props: { thread: ThreadRef; onClose(returnFocus: 
           })}
         </ul>
       )}
-    </section>
+    </WorkSection>
   );
 }

@@ -200,18 +200,26 @@ test("mismatched command, enqueue, request and one-way controls have no effects 
       command: { action: "snapshot" },
     }),
   ).toMatchObject({ ok: true });
+  const other = client.thread("other");
+  cleanup.push(async () => other.release());
+  await wait(
+    other.store.select(["thread"], (store) => store.thread?.id),
+    (id) => id === "other",
+  );
   await f.pool.enqueue(
     ref("host", "other"),
     { type: "thread.archive", threadId: wrong },
     "routed-archive",
   );
   await wait(client.intent("routed-archive"), (intent) => intent?.state === "acked");
+  // Archive removes a row from Home; its independent thread subscription retains the routed fact.
   await wait(
-    f.pool.threads.select(
-      [`thread:${key("host", "other")}`],
-      (store) => store.thread(key("host", "other"))?.thread.archivedAt,
-    ),
+    other.store.select(["thread"], (store) => store.thread?.archivedAt),
     (at) => at !== undefined,
+  );
+  await wait(
+    f.pool.threads.select(["ids"], (store) => store.ids),
+    (ids) => !ids.includes(key("host", "other")),
   );
   expect(f.pool.threads.thread(key("host"))?.thread.archivedAt).toBeUndefined();
 });

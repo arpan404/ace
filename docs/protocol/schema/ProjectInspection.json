@@ -2,6 +2,16 @@
   "$id": "https://ace.local/protocol/v1/ProjectInspection.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "defaultIcon": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProjectIcon.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "git": {
       "anyOf": [
         {

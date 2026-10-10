@@ -78,9 +78,9 @@ test("Activity lists threads paused at a usage limit by account and moves them t
       .getAllByRole("link")
       .map((link) => link.textContent),
   ).toEqual([
-    "Remove the legacy feature-flag reader",
-    "Rank workspace search by recent edits",
     "Split the CI matrix by package",
+    "Rank workspace search by recent edits",
+    "Remove the legacy feature-flag reader",
   ]);
 
   await userEvent.click(within(team).getByRole("button", { name: "Move to Codex · Personal" }));
@@ -94,7 +94,10 @@ test("Activity lists threads paused at a usage limit by account and moves them t
 test("toasts say when an account nears its limit, reaches it and can work again", async () => {
   const app = harness();
   report(app, "claude-work", { five_hour: [60, 2 * hour] });
-  await app.open("/accounts");
+  // Commit the lazy limit notifier and its initial reading before changing the provider quota.
+  await act(async () => {
+    await app.open("/accounts");
+  });
   await screen.findByRole("article", { name: "Claude Code Work" });
 
   report(app, "claude-work", { five_hour: [92, 2 * hour] });

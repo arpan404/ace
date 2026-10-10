@@ -224,6 +224,14 @@ function set<T>(map: Map<string, T>, id: string, value: unknown): void {
 }
 
 export class MirrorSidebar implements SidebarSource {
+  private homePage: import("@ace/protocol").ThreadListWindow | undefined;
+  get homeWindow() {
+    return this.homePage;
+  }
+  private page: import("@ace/protocol").ThreadListWindow | undefined;
+  get window() {
+    return this.page;
+  }
   private notifications: Notifications;
   private failure: ClientError | undefined;
   private list: readonly string[] = none;
@@ -257,8 +265,10 @@ export class MirrorSidebar implements SidebarSource {
   reset(copy: SidebarExport): void {
     this.failure = errorOf(copy.error);
     this.list = copy.ids;
-    this.snapshot = copy.view !== undefined;
+    this.snapshot = copy.loaded ?? copy.view !== undefined;
     this.threads = entries(copy.view?.threads);
+    this.page = copy.view?.window;
+    this.homePage = copy.homeWindow;
     this.notifications.emitAll();
   }
   apply(patches: readonly Patch[]): void {
@@ -266,7 +276,11 @@ export class MirrorSidebar implements SidebarSource {
     for (const patch of patches) {
       keys.add(patch.k);
       const { kind, id } = splitKey(patch.k);
-      if (kind === "ids") this.list = trusted<readonly string[] | undefined>(patch.v) ?? none;
+      if (kind === "homeWindow")
+        this.homePage = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);
+      else if (kind === "window")
+        this.page = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);
+      else if (kind === "ids") this.list = trusted<readonly string[] | undefined>(patch.v) ?? none;
       else if (kind === "thread") set(this.threads, id, patch.v);
       else this.failure = errorOf(trusted<ErrorShape | undefined>(patch.v));
       if (kind === "ids" || kind === "thread") keys.add("threads");

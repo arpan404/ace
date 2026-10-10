@@ -63,6 +63,18 @@ export function useProjectName(): (id: string) => string {
   return useNamer(useProjectList());
 }
 
+/** One shared metadata read, reused by row names and artwork together. */
+export function useProjectMetadata(): (id: string) => Project | undefined {
+  const data = useProjectList();
+  const byId = useMemo(() => new Map((data ?? []).map((project) => [project.id, project])), [data]);
+  return useCallback((id: string) => byId.get(id), [byId]);
+}
+
+export function useProjectIcon(): (id: string) => string | null | undefined {
+  const project = useProjectMetadata();
+  return useCallback((id: string) => project(id)?.icon ?? project(id)?.defaultIcon, [project]);
+}
+
 export interface ProjectDirectory {
   /** Every project the daemon knows, by name. Empty until read. */
   projects: readonly Project[];

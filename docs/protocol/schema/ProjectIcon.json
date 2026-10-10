@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectIcon.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "examples": [
+        "https://example.invalid/icon.png",
+        "HTTPS://例え.テスト/icon.png"
+      ],
+      "format": "ace-whatwg-url",
+      "maxLength": 4096,
+      "pattern": "^(?![\\s\\S]*[\\t\\r\\n])[hH][tT][tT][pP][sS]?:\\/\\/[\\s\\S]*[^\\s]$",
+      "type": "string",
+      "x-ace-constraint": "Absolute HTTP or HTTPS WHATWG URL, without ASCII tabs, CR, LF or trailing whitespace; at most 4096 UTF-16 code units. Install the ace-whatwg-url format validator or enforce URL parsing in application code.",
+      "x-ace-url-maxLength": 4096
+    },
+    {
+      "maxLength": 131072,
+      "pattern": "^data:image\\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$",
+      "type": "string"
+    }
+  ]
+}

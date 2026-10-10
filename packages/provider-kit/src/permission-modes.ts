@@ -270,3 +270,22 @@ export function acpPermissionModes(raw: unknown): NativePermissionMode[] {
     risk: "medium",
   }));
 }
+
+/** Explicit settings win; otherwise use an advertised native review mode, then native manual. */
+export function resolvePermissionMode(
+  provider: ProviderKind,
+  configured: PermissionMode | null | undefined,
+  capabilities: import("@ace/protocol").PermissionCapabilities | undefined,
+): PermissionMode | null {
+  if (configured != null)
+    return migratePermissionMode(provider, configured, capabilities?.permissionModes);
+  const offered = (id: PermissionMode | null) =>
+    id !== null && capabilities?.permissionModes?.some((entry) => entry.id === id);
+  const review =
+    provider === "claude" || provider === "codex" || provider === "cursor"
+      ? migratePermissionMode(provider, "auto-review")
+      : null;
+  if (capabilities?.nativeAutoReview && offered(review)) return review;
+  const manual = migratePermissionMode(provider, "ask");
+  return capabilities?.toolGate !== false && offered(manual) ? manual : null;
+}

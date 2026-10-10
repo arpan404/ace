@@ -65,11 +65,14 @@ test("Settings hides app navigation and returns through Back to app", async () =
   expect(list("Threads")).toBeTruthy();
 });
 
-test("the sidebar's title is the daemon's menu, and the profile at its foot the person's", async () => {
+test("the sidebar shows a plain ace label and profile connection actions", async () => {
   await harness().open("/new");
   await title("New thread");
-  await userEvent.click(button("ace menu"));
-  const daemon = await screen.findByRole("menu");
+  expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
+  expect(within(appNav()).getByText("ace")).toBeTruthy();
+  await openProfileMenu();
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Connection" }));
+  const daemon = await screen.findByRole("menu", { name: "Connection" });
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
   await screen.findByRole("heading", { level: 2, name: "Remote devices" });
@@ -84,14 +87,7 @@ test("the sidebar's title is the daemon's menu, and the profile at its foot the 
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual([
-    "Automations",
-    "Skills",
-    "Appearance",
-    "Keyboard shortcuts",
-    "Usage & accounts",
-    "Archived threads",
-  ]);
+  ).toEqual(["Automations", "Skills", "Usage & accounts", "Archived threads", "Connection"]);
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage & accounts" }));
   await title("Usage & accounts");
   expect(list("Threads")).toBeTruthy();

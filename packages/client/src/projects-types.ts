@@ -41,6 +41,11 @@ export interface ProjectCalls {
     options?: RequestOptions,
     commandId?: string,
   ): Promise<CommandResult>;
+  update(
+    input: Input<"workspace.update">,
+    options?: RequestOptions,
+    commandId?: string,
+  ): Promise<CommandResult>;
   rename(
     input: Input<"workspace.rename">,
     options?: RequestOptions,

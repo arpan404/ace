@@ -21,7 +21,9 @@ function ResizeHandle(props: {
   onDraggingChange?(dragging: boolean): void;
   className?: string;
 }) {
-  const drag = useRef<{ start: number; size: number; last: number } | undefined>(undefined);
+  const drag = useRef<{ pointerId: number; start: number; size: number; last: number } | undefined>(
+    undefined,
+  );
   const [dragging, setDragging] = useState(false);
   const vertical = props.edge === "left";
   const clamp = (value: number) => clampSize(value, props.min, props.max);
@@ -29,6 +31,16 @@ function ResizeHandle(props: {
     const next = clamp(props.size + delta);
     props.onResize(next);
     props.onResizeEnd?.(next);
+  };
+  const finish = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    drag.current = undefined;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    setDragging(false);
+    props.onDraggingChange?.(false);
+    props.onResizeEnd?.(current.last);
   };
   return (
     <div
@@ -48,31 +60,25 @@ function ResizeHandle(props: {
         props.className,
       )}
       onPointerDown={(event) => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || drag.current) return;
         event.preventDefault();
         event.currentTarget.setPointerCapture?.(event.pointerId);
         const start = vertical ? event.clientX : event.clientY;
-        drag.current = { start, size: props.size, last: props.size };
+        drag.current = { pointerId: event.pointerId, start, size: props.size, last: props.size };
         setDragging(true);
         props.onDraggingChange?.(true);
       }}
       onPointerMove={(event) => {
         const current = drag.current;
-        if (!current) return;
+        if (!current || current.pointerId !== event.pointerId) return;
         const position = vertical ? event.clientX : event.clientY;
         // The pane is right of (or below) the handle, so moving towards the origin grows it.
         current.last = clamp(current.size + (current.start - position));
         props.onResize(current.last);
       }}
-      onPointerUp={(event) => {
-        const current = drag.current;
-        if (!current) return;
-        drag.current = undefined;
-        event.currentTarget.releasePointerCapture?.(event.pointerId);
-        setDragging(false);
-        props.onDraggingChange?.(false);
-        props.onResizeEnd?.(current.last);
-      }}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onLostPointerCapture={finish}
       onKeyDown={(event) => {
         const grow = vertical ? "ArrowLeft" : "ArrowUp";
         const shrink = vertical ? "ArrowRight" : "ArrowDown";

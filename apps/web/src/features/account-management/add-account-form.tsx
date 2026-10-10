@@ -1,3 +1,4 @@
+import { AccountBadgeField, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import { serviceInfo } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
@@ -30,6 +31,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const signIn = useSignIn();
   const keyLogin = useInlineSignIn({ onClose: props.onClose });
   const [label, setLabel] = useState("");
+  const [badge, setBadge] = useState("•");
   const [error, setError] = useState<string>();
   const provider = props.provider;
   const support = useApiKeySupport(provider);
@@ -41,6 +43,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const name = label.trim();
+    if (accountBadgeProblem(badge)) return setError(accountBadgeProblem(badge));
     if (!name) return setError("Give the account a name, like Work.");
     setError(undefined);
     try {
@@ -49,6 +52,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
       login({
         provider,
         newAccount: name,
+        shortLabel: badge.trim(),
         method,
         ...(method === "api_key" && provider === "opencode" ? { upstream } : {}),
       });
@@ -94,9 +98,11 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
             )}
           </div>
         )}
+        <AccountBadgeField provider={provider} value={badge} onChange={setBadge} name={label} />
         <div className="flex flex-wrap items-center gap-2">
           <Input
             id={nameId}
+            aria-label="Account name"
             autoFocus
             placeholder="Work"
             value={label}
@@ -108,7 +114,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
             }}
             className="max-w-64 flex-1"
           />
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" disabled={!!accountBadgeProblem(badge)}>
             Add and sign in
           </Button>
           <Button type="button" variant="ghost" onClick={() => props.onClose()}>

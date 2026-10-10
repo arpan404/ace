@@ -1,17 +1,9 @@
-import {
-  ArchiveIcon,
-  ChartBarIcon,
-  InfoIcon,
-  KeyboardIcon,
-  MoonIcon,
-  UserIcon,
-} from "@phosphor-icons/react";
+import { DaemonMenuItems } from "./daemon-menu-content.tsx";
+import { ArchiveIcon, ChartBarIcon, InfoIcon, UserIcon, PlugsIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
   MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -21,13 +13,6 @@ import { menuViews } from "./views.ts";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
 import { cn } from "@/lib/cn.ts";
 import { useProfileName } from "@/lib/profile.ts";
-import { useTheme } from "@/theme/theme-provider.tsx";
-
-const schemes = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-] as const;
 
 /** The desktop app's version, from its preload bridge; a browser tab has none to show. */
 function desktopVersion(): string | undefined {
@@ -39,17 +24,13 @@ function desktopVersion(): string | undefined {
 
 /**
  * The profile's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
- * never the daemon (that is the sidebar's "ace ▾"). Who this is, the light or dark scheme,
- * shortcuts, usage and accounts (its only way in), and which ace this is. Settings is the gear
+ * with connection actions in their own submenu, usage and accounts, and the desktop version.
+ * Settings is the gear
  * beside the profile, so it isn't repeated here.
  */
 export function AccountMenuContent() {
   const [name] = useProfileName();
   const navigate = useNavigate();
-  const { appearance, update } = useTheme();
-  const scheme = schemes.some((option) => option.value === appearance.theme)
-    ? appearance.theme
-    : undefined;
   const version = desktopVersion();
   return (
     <MenuContent side="top" align="start" className="min-w-(--anchor-width)">
@@ -68,27 +49,6 @@ export function AccountMenuContent() {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuSub>
-        <MenuSubTrigger icon={<MoonIcon aria-hidden />}>Appearance</MenuSubTrigger>
-        <MenuContent side="right" align="start" sideOffset={4} className="min-w-[160px]">
-          <MenuRadioGroup
-            {...(scheme ? { value: scheme } : {})}
-            onValueChange={(value: string) => update({ theme: value })}
-          >
-            {schemes.map((option) => (
-              <MenuRadioItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuContent>
-      </MenuSub>
-      <MenuItem
-        icon={<KeyboardIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/settings/keyboard" })}
-      >
-        Keyboard shortcuts
-      </MenuItem>
       <MenuItem
         icon={<ChartBarIcon aria-hidden />}
         onClick={() => void navigate({ to: "/accounts" })}
@@ -101,6 +61,13 @@ export function AccountMenuContent() {
       >
         Archived threads
       </MenuItem>
+      <MenuSeparator />
+      <MenuSub>
+        <MenuSubTrigger icon={<PlugsIcon aria-hidden />}>Connection</MenuSubTrigger>
+        <MenuContent aria-label="Connection" side="right" align="start" className="max-w-[300px]">
+          <DaemonMenuItems />
+        </MenuContent>
+      </MenuSub>
       {version && (
         <>
           <MenuSeparator />

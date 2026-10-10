@@ -4,7 +4,7 @@ import { openTurns } from "../thread-header.ts";
 /**
  * Long-thread journeys against the fake daemon's five-day migration (24 turns of 70 progress
  * notes each; the fake snapshot holds the newest 40 items): the turn timeline and jumping into
- * history, the gap back to live and following the live end, ⌘F search and the catch-up card.
+ * history, the gap back to live and following the live end, ⌘F search without an automatic summary panel.
  */
 
 const path = "/t/thread-multi-day";
@@ -44,17 +44,15 @@ async function openThread(page: Page, options: { live?: boolean } = {}) {
       });
     });
   await page.goto(path);
-  const feed = page.getByRole("feed", { name: "Transcript" });
+  const feed = page.locator("[data-thread-column]").getByRole("feed", { name: "Transcript" });
   await feed.waitFor();
-  // This device last read the thread after checkpoint 20: the catch-up card comes first.
-  const card = page.getByRole("region", { name: "While you were away" });
-  await card.waitFor();
-  return { feed, card };
+  await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Summarise", exact: true })).toHaveCount(0);
+  return { feed };
 }
 
 test("the timeline jumps across days and Jump to live comes back", async ({ page }) => {
-  const { feed, card } = await openThread(page);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  const { feed } = await openThread(page);
   await expect(feed.getByText(ask(3))).toHaveCount(0);
 
   await page.keyboard.press(`Alt+${mod}+g`);
@@ -90,8 +88,7 @@ test("the timeline jumps across days and Jump to live comes back", async ({ page
 });
 
 test("scrolling down a jumped window reads on to the live end without a gap", async ({ page }) => {
-  const { feed, card } = await openThread(page);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  const { feed } = await openThread(page);
   const turns = await openTurns(page);
   await expect(turns.getByRole("option", { name: /^Turn 24: / })).toBeVisible();
   await page.keyboard.press("End");
@@ -116,8 +113,7 @@ test("scrolling down a jumped window reads on to the live end without a gap", as
 test("the live end is followed until the reader scrolls up, then Jump to live counts what's new", async ({
   page,
 }) => {
-  const { feed, card } = await openThread(page, { live: true });
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  const { feed } = await openThread(page, { live: true });
   // Following: each new note scrolls into view.
   await expect(feed.getByText(/^Live finding 4:/)).toBeInViewport();
   await expect(feed.getByText(/^Live finding 8:/)).toBeInViewport();
@@ -140,8 +136,7 @@ test("the live end is followed until the reader scrolls up, then Jump to live co
 });
 
 test("⌘F finds words across the thread and steps through the hits", async ({ page }) => {
-  const { card } = await openThread(page);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  await openThread(page);
   await page.keyboard.press(`${mod}+f`);
   const bar = page.getByRole("search", { name: "Search this thread" });
   await expect(bar.getByRole("textbox", { name: "Search this thread" })).toBeFocused();
@@ -171,24 +166,16 @@ test("⌘F finds words across the thread and steps through the hits", async ({ p
   await expect(bar).toHaveCount(0);
 });
 
-test("the catch-up card says what happened while the reader was away", async ({ page }) => {
-  const { card } = await openThread(page);
-  await expect(card).toContainText("turns finished");
-  await expect(card).toContainText("Done");
-  await expect(card).toContainText(/Ran \d+ commands, 1 failed/);
-  await expect(card).toContainText("git diff --check checkpoint-21");
-  await expect(card).toContainText("Latest: Checkpoint 24 completed.");
-  await card.getByRole("button", { name: "Open Changes" }).click();
+test("a returning reader sees the transcript without an automatic summary", async ({ page }) => {
+  const { feed } = await openThread(page);
   await expect(
-    page.getByRole("region", { name: "Thread panel" }).getByRole("tab", { name: /^Changes/ }),
-  ).toHaveAttribute("aria-selected", "true");
-  await card.getByRole("button", { name: "Dismiss" }).click();
-  await expect(card).toHaveCount(0);
+    feed.getByText("Checkpoint 24 completed. Migration paths validated; all commands passed."),
+  ).toBeInViewport();
+  await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
 });
 
 test("⌥⌘↑ walks back turn by turn into history", async ({ page }) => {
-  const { feed, card } = await openThread(page);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  const { feed } = await openThread(page);
   await feed.hover();
   for (let press = 0; press < 4; press++) await page.keyboard.press(`Alt+${mod}+ArrowUp`);
   await expect(page.getByRole("status", { name: "Jumped" })).toContainText(/Jumped to turn 2[0-3]/);

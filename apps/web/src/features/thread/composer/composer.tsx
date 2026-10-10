@@ -27,6 +27,7 @@ import {
   type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
+import { composerSurface } from "./composer-styles.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
@@ -43,6 +44,7 @@ import {
 } from "./deferred-parts.tsx";
 import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
+import { mergeReturnedDraft } from "./returned-draft.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
@@ -69,8 +71,9 @@ const terseWidth = 640;
 /**
  * The composer: an input area above a footer, inside one rounded surface, at every width and
  * line count (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a
- * line at a time; the footer's controls share one centre line, + and the thread's settings on
- * the left, the model and the primary action on the right. A card the agent or the person opens
+ * line at a time up to seven visible lines. The action row keeps + and approvals on
+ * the left and model/effort beside send/stop on the right; branch context stays below.
+ * A card the agent or the person opens
  * (`attached`) sits behind its top edge like the next card of a deck. + opens the Add menu, `@` completes files,
  * a leading `/` completes commands, and paste or drop attach files. Enter empties it at once:
  * the message shows as its bubble straight away (UX audit SY-2) and comes back here only if
@@ -106,7 +109,7 @@ export function Composer({
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
   /** Footer controls after +: the approvals icon. They read `useComposerCompact()`. */
   controls?: ReactNode;
-  /** Right of the footer, before the primary action: the model. */
+  /** Model and effort controls beside send/stop on the main action row. */
   trailing?: ReactNode;
   /**
    * The tab attached to the composer (what the agents are doing, their plan, an
@@ -229,12 +232,6 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
   };
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-    preserveDraft: (key) => writeDraft(storage, key, current),
-  }));
   // Another window's version of this draft is taken whole, its files too (SY-12). Files can't
   // be set in place, so a different set remounts the composer on the stored draft: theirs.
   const otherFiles = (next: ComposerDraft) => {
@@ -265,20 +262,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const takeReturned = useEffectEvent((returned: ReturnedDraft) => {
     if (!draftKey) return;
     saved.discard();
-    writeDraft(storage, draftKey, {
-      text: text.trim() ? `${text.trimEnd()}\n\n${returned.text}` : returned.text,
-      mentions: [...new Set([...picked, ...returned.mentions])],
-      tokens: [
-        ...tokens,
-        ...(returned.tokens ?? []).map((token) =>
-          Object.assign({}, token, {
-            start: token.start + (text.trim() ? text.trimEnd().length + 2 : 0),
-            end: token.end + (text.trim() ? text.trimEnd().length + 2 : 0),
-          }),
-        ),
-      ],
-      attachments: [...current.attachments, ...returned.attachments],
-    });
+    writeDraft(storage, draftKey, mergeReturnedDraft(current, returned));
     props.onReturnedOptions?.(returned.options);
     props.onReplaced();
   });
@@ -324,6 +308,12 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     placeCaret.current = next.caret;
     input.current?.focus();
   };
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    preserveDraft: (key) => writeDraft(storage, key, current),
+  }));
   const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
     rememberFile(storage, props.thread.workspaceId, path);
@@ -596,6 +586,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         <Suspense fallback={null}>
           <DeferredSuggestionList.Component
             id={listId}
+            anchor={box}
+            onDismiss={() => setDismissed(trigger?.start)}
             suggestions={suggestions}
             active={active}
             onPick={pick}
@@ -651,12 +643,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             event.preventDefault();
             intake(event.dataTransfer);
           }}
-          className={cn(
-            "glass relative z-10 flex flex-col rounded-xl transition-[box-shadow,border-color] duration-(--dur-2)",
-            // Typing keeps the shell calm: a slightly firmer edge and a faint halo, nothing louder;
-            // the footer's controls carry their own focus-visible rings.
-            "focus-within:border-[color-mix(in_oklab,var(--foreground)_14%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
-          )}
+          className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
         >
           <AttachmentChips
             items={chips}
@@ -664,50 +651,52 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             onRetry={attachments.retry}
             threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <MessageInput
-            input={input}
-            text={text}
-            tokens={tokens}
-            disabled={!!off}
-            aria-describedby={props.unavailable?.describedBy}
-            autoFocus={props.autoFocus}
-            aria-label={props.label ?? "Message"}
-            placeholder={placeholder}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={expanded}
-            aria-controls={expanded ? listId : undefined}
-            aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-            onChange={(next, at) => {
-              setTokens(editComposerTokens(text, next, tokens));
-              setText(next);
-              setCaret(at);
-              setDismissed(undefined);
-            }}
-            onCaret={setCaret}
-            onKeyDown={onKeyDown}
-            onPaste={(event) => {
-              if (event.clipboardData.files.length) {
+          <div className="px-4 pt-3.5 pb-1.5">
+            <MessageInput
+              input={input}
+              text={text}
+              tokens={tokens}
+              disabled={!!off}
+              aria-describedby={props.unavailable?.describedBy}
+              autoFocus={props.autoFocus}
+              aria-label={props.label ?? "Message"}
+              placeholder={placeholder}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={expanded}
+              aria-controls={expanded ? listId : undefined}
+              aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
+              onChange={(next, at) => {
+                setTokens(editComposerTokens(text, next, tokens));
+                setText(next);
+                setCaret(at);
+                setDismissed(undefined);
+              }}
+              onCaret={setCaret}
+              onKeyDown={onKeyDown}
+              onPaste={(event) => {
+                if (event.clipboardData.files.length) {
+                  event.preventDefault();
+                  intake(event.clipboardData);
+                  return;
+                }
                 event.preventDefault();
-                intake(event.clipboardData);
-                return;
-              }
-              event.preventDefault();
-              const el = input.current;
-              const selection = document.getSelection();
-              if (!el || !selection?.rangeCount) return;
-              const range = selection.getRangeAt(0);
-              range.deleteContents();
-              const node = document.createTextNode(event.clipboardData.getData("text/plain"));
-              range.insertNode(node);
-              range.setStartAfter(node);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              el.dispatchEvent(new Event("input", { bubbles: true }));
-            }}
-            className="message-input block min-h-10 w-full overflow-y-auto bg-transparent px-4 pt-3.5 pb-1.5 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
-          />
+                const el = input.current;
+                const selection = document.getSelection();
+                if (!el || !selection?.rangeCount) return;
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const node = document.createTextNode(event.clipboardData.getData("text/plain"));
+                range.insertNode(node);
+                range.setStartAfter(node);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+              }}
+              className="message-input block min-h-5 min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
+            />
+          </div>
           {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
           <div
             data-slot="composer-footer"
@@ -716,7 +705,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               event.preventDefault();
               input.current?.focus();
             }}
-            className="mb-1.5 flex h-11 items-center gap-0.5 px-2"
+            className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
           >
             <AddButton
               handle={addMenu}
@@ -727,12 +716,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               }}
               unavailable={props.unavailable}
             />
-            {/* The model shrinks and truncates its label, so nothing on the row ever paints over
-            another. */}
             <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
-            {props.trailing && (
-              <div className="flex min-w-0 items-center justify-end gap-0.5">{props.trailing}</div>
-            )}
+            {props.trailing}
             <PrimaryAction
               mode={mode}
               blocked={blocked}

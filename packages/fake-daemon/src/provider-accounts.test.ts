@@ -36,6 +36,7 @@ test("a provider page lists accounts, adds with immediate sign-in, labels, selec
       type: "provider.accounts.add",
       provider: "codex",
       label: "Work",
+      shortLabel: "💼",
       method: "login",
     });
     if (!added.result.ok || !added.result.progress?.instance)
@@ -53,7 +54,12 @@ test("a provider page lists accounts, adds with immediate sign-in, labels, selec
       ).result,
     ).toMatchObject({
       accounts: expect.arrayContaining([
-        expect.objectContaining({ id: instanceId, label: "Team", authMethod: "browser" }),
+        expect.objectContaining({
+          id: instanceId,
+          label: "Team",
+          shortLabel: "💼",
+          authMethod: "browser",
+        }),
       ]),
     });
     expect(

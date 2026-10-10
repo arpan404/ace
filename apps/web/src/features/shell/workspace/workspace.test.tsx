@@ -341,3 +341,24 @@ test("the command palette pins the showing tab and reopens the tab closed last",
   await fromPalette("reopen", /^Reopen closed tab/);
   expect(await within(panel).findByRole("tab", { name: "Logs", selected: true })).toBeTruthy();
 });
+
+test("Files keeps its filter across repeated panel hide and reopen", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  await userEvent.click(within(panel).getByRole("tab", { name: "Files" }));
+  const filter = await within(panel).findByRole("searchbox", {
+    name: "Find files in the checkout",
+  });
+  await userEvent.type(filter, "replay");
+  for (let index = 0; index < 3; index++) {
+    await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+    expect(
+      await within(await sidePanel()).findByRole("searchbox", {
+        name: "Find files in the checkout",
+      }),
+    ).toHaveProperty("value", "replay");
+  }
+});

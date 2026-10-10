@@ -7,13 +7,12 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { useTicker } from "../lib/clock.ts";
 
 /**
- * Below the last block: the turn's live line. It is left out when the bottom work log already
- * carries the line as its header. The agent's open requests are answered on the composer, as
- * attached cards, not here.
+ * Below the last block: waiting and held context. Transient working status stays on the
+ * composer. The agent's open requests are answered there as attached cards.
  */
 export function LiveFooter(props: { activity: TurnActivity | undefined }) {
   const { activity } = props;
-  if (!activity) return null;
+  if (!activity || activity.tone === "working") return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
       <ActivityLine activity={activity} />

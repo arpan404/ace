@@ -442,6 +442,7 @@ test("a view over the whole thread list follows every entry through one key, and
   );
   let heard = 0;
   const stop = titles.subscribe(() => heard++);
+  await vi.waitFor(() => expect(lease.store.loaded).toBe(true));
   daemon.createThread({ id: "relay", workspaceId: "acme", title: "Relay", provider: "codex" });
   daemon.createThread({ id: "cache", workspaceId: "acme", title: "Cache", provider: "codex" });
   await vi.waitFor(() => expect(titles.getSnapshot()).toEqual(["Relay", "Cache"]));
@@ -892,8 +893,15 @@ test("worker project APIs forward create add rename remove folder reads and proj
     if (change.change === "removed") changed.resolve();
   });
   await b.projects.home();
-  const added = await a.projects.create({ parent: "/fake", name: "empty" });
-  expect(added).toMatchObject({ ok: true, workspace: { name: "empty", path: "/fake/empty" } });
+  const added = await a.projects.create({
+    parent: "/fake",
+    name: "empty",
+    icon: "https://example.test/icon.png",
+  });
+  expect(added).toMatchObject({
+    ok: true,
+    workspace: { name: "empty", path: "/fake/empty", icon: "https://example.test/icon.png" },
+  });
   if (!added.workspace) throw new Error("Expected created project");
   expect(await a.projects.add({ path: "/fake/empty" })).toMatchObject({
     workspace: { id: added.workspace.id },
@@ -904,6 +912,21 @@ test("worker project APIs forward create add rename remove folder reads and proj
   expect(
     await a.projects.rename({ workspaceId: added.workspace.id, name: "Renamed" }),
   ).toMatchObject({ ok: true });
+  expect(
+    await a.projects.update({
+      workspaceId: added.workspace.id,
+      name: "Edited",
+      icon: "https://example.test/favicon.ico",
+    }),
+  ).toMatchObject({
+    ok: true,
+    workspace: { name: "Edited", icon: "https://example.test/favicon.ico" },
+  });
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({
+    result: { workspaces: [{ name: "Edited", icon: "https://example.test/favicon.ico" }] },
+  });
   expect(await b.projects.home()).toMatchObject({ result: { kind: "home", path: "/fake" } });
   expect(await b.projects.browse({ path: "/fake" })).toMatchObject({
     result: { kind: "directories", entries: [{ name: "empty" }] },
@@ -912,11 +935,14 @@ test("worker project APIs forward create add rename remove folder reads and proj
     result: { kind: "inspection", git: null },
   });
   expect(await b.projects.recentFolders()).toMatchObject({
-    result: { kind: "recentFolders", folders: [{ name: "Renamed" }] },
+    result: {
+      kind: "recentFolders",
+      folders: [{ name: "Edited", icon: "https://example.test/favicon.ico" }],
+    },
   });
   expect(await a.projects.remove({ workspaceId: added.workspace.id })).toMatchObject({ ok: true });
   await changed.promise;
-  expect(changes).toEqual(["added", "renamed", "removed"]);
+  expect(changes).toEqual(["added", "renamed", "updated", "removed"]);
   expect(
     await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
   ).toMatchObject({ result: { workspaces: [] } });

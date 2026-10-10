@@ -11,6 +11,7 @@ import {
   menuLabel,
   menuSeparator,
   menuShortcut,
+  popupBounds,
   popupSurface,
 } from "./menu-styles.ts";
 
@@ -36,11 +37,12 @@ function MenuContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
+        collisionPadding={8}
         className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >
         <MenuPrimitive.Popup
           data-slot="menu-content"
-          className={cn(popupSurface, "min-w-[220px]", className)}
+          className={cn(popupSurface, popupBounds, "min-w-[220px]", className)}
           {...props}
         />
       </MenuPrimitive.Positioner>

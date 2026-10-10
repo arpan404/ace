@@ -1,3 +1,4 @@
+import { ultraReasoningPreview } from "./ultra-reasoning.ts";
 import type { Fact } from "@ace/core";
 import type { Scenario } from "../scenario.ts";
 import { endTurn, message, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
@@ -269,5 +270,12 @@ export function askingQuestion(id = "thread-asking"): Scenario {
 
 /** Every thread above, as the fake world `thread-activity` seeds them. */
 export function turnStatuses(): Scenario[] {
-  return [oneTurnWork(), watchingRelay(), waitingOnSubagents(), runningTests(), askingQuestion()];
+  return [
+    oneTurnWork(),
+    watchingRelay(),
+    waitingOnSubagents(),
+    runningTests(),
+    askingQuestion(),
+    ultraReasoningPreview(),
+  ];
 }

@@ -48,6 +48,8 @@ export type HostHome = NonNullable<ReturnType<typeof useHostHome>["data"]>;
 
 /** A registered project on one machine, with its place in that machine's recent order. */
 export interface RecentFolder {
+  icon?: string | null | undefined;
+  defaultIcon?: string | null | undefined;
   machine: Machine;
   id: string;
   name: string;
@@ -83,7 +85,17 @@ export function useRecentFolders(machines: readonly Machine[]) {
   return { folders, loading: answers.loading, isProject: useProjectTest(folders) };
 }
 
-type RecentAnswer = { folders: { id: string; name: string; path: string }[] } | undefined;
+type RecentAnswer =
+  | {
+      folders: {
+        id: string;
+        name: string;
+        path: string;
+        icon?: string | null | undefined;
+        defaultIcon?: string | null | undefined;
+      }[];
+    }
+  | undefined;
 const answersOf = (results: { data: RecentAnswer; isPending: boolean; fetchStatus: string }[]) => ({
   data: results.map((result) => result.data),
   loading: results.some((result) => result.isPending && result.fetchStatus === "fetching"),
@@ -93,7 +105,14 @@ function merge(machines: readonly Machine[], answers: readonly RecentAnswer[]): 
   const rows: RecentFolder[] = [];
   machines.forEach((machine, index) =>
     (answers[index]?.folders ?? []).forEach((folder, rank) =>
-      rows.push({ machine, id: folder.id, name: folder.name, path: folder.path, rank }),
+      rows.push({
+        machine,
+        id: folder.id,
+        name: folder.name,
+        path: folder.path,
+        rank,
+        icon: folder.icon ?? folder.defaultIcon ?? null,
+      }),
     ),
   );
   return rows.toSorted((a, b) => a.rank - b.rank);

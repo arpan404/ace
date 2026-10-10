@@ -1,10 +1,10 @@
 import { mkdirSync, rmSync } from "node:fs";
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 /**
  * Records the long-thread journeys against the fake daemon's five-day migration to
  * /tmp/aceshots-web/walkthrough-long-thread.webm, for design review of motion and flow:
- * catching up, following and leaving the live end, the turn timeline, jumping across days and
+ * following and leaving the live end, the turn timeline, jumping across days and
  * reading back to the present, moving turn by turn, and searching the thread. Run on demand:
  * `bun run --filter @ace/web-e2e walkthrough`.
  */
@@ -23,14 +23,11 @@ test("walkthrough of a long thread", async ({ page }) => {
       localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
   });
 
-  // Back after a day away: what happened meanwhile.
+  // Back after a day away: the transcript opens without an automatic summary.
   await page.goto("/t/thread-multi-day");
   const feed = page.getByRole("feed", { name: "Transcript" });
   await feed.waitFor();
-  const card = page.getByRole("region", { name: "While you were away" });
-  await card.waitFor();
-  await beat(2_500);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByRole("region", { name: "While you were away" })).toHaveCount(0);
   await beat();
 
   // Scrolling up leaves the live end; Jump to live brings it back.

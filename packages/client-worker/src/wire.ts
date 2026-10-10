@@ -19,6 +19,8 @@ export const Scope = z.discriminatedUnion("kind", [
 export type Scope = z.infer<typeof Scope>;
 
 export const CallMethod = z.enum([
+  "threadsWindow",
+  "threadsMore",
   "enqueue",
   "command",
   "registry",

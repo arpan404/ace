@@ -23,7 +23,7 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
-import { subscribe } from "./subscription.ts";
+import { subscribe, pageSubscription } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import { remoteRuntime } from "./remote-runtime.ts";
@@ -408,6 +408,18 @@ export async function startServer(options: ServerOptions): Promise<{
         case "ping":
           send({ type: "pong" });
           break;
+        case "threads.page": {
+          const stop = subscriptions.get(message.subscriptionId);
+          try {
+            if (!authorize("read") || !stop) throw new Error("Subscription unavailable");
+            pageSubscription(stop, message.before, message.requestId);
+          } catch {
+            fail("page_failed", "Unable to load this page; retry or refresh the list", false, {
+              requestId: message.requestId,
+            });
+          }
+          break;
+        }
         case "unsubscribe":
           subscriptions.get(message.subscriptionId)?.();
           subscriptions.delete(message.subscriptionId);

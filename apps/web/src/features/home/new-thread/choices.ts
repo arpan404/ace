@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { selectNewThreadModel, type AccountOption, type ModelOption } from "@ace/ui-core";
+import {
+  resolveEffort,
+  selectNewThreadModel,
+  type AccountOption,
+  type ModelOption,
+} from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
 
 export interface NewThreadOptions {
@@ -79,12 +84,7 @@ export function resolve(
           account: choices.account,
         });
   const efforts = model?.efforts ?? [];
-  const effort =
-    choices.effort && efforts.includes(choices.effort)
-      ? choices.effort
-      : model?.defaultEffort && efforts.includes(model.defaultEffort)
-        ? model.defaultEffort
-        : undefined;
+  const effort = resolveEffort(efforts, choices.effort, model?.defaultEffort);
   return {
     provider: chosen,
     model,
