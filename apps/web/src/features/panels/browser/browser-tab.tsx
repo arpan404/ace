@@ -174,7 +174,7 @@ function Browser(props: TabViewProps) {
       page.save({ viewport: next.id });
     };
     apply().catch((error: unknown) =>
-      toast.add({
+      toast.error({
         title: "Couldn't change the page size",
         description: error instanceof Error ? error.message : undefined,
       }),

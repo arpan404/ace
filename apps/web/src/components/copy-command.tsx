@@ -10,7 +10,7 @@ export function CopyCommand(props: { command: string }) {
       await navigator.clipboard.writeText(props.command);
       toast.add({ title: "Copied" });
     } catch {
-      toast.add({ title: "Couldn't copy. Select the command and copy it yourself." });
+      toast.error({ title: "Couldn't copy. Select the command and copy it yourself." });
     }
   };
   return (

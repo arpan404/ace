@@ -134,7 +134,7 @@ export function ThreadComposer({
       draft,
       delivery,
       options,
-      notify: (title, description) => toast.add({ title, description }),
+      notify: (title, description) => toast.error({ title, description }),
     });
     if (ok && sent) setSpent({ commandId, turn: sent });
     return ok;
@@ -160,7 +160,7 @@ export function ThreadComposer({
       )
       .catch(() => {
         clearStop(props.thread.id);
-        toast.add({ title: "Couldn't stop the agent" });
+        toast.error({ title: "Couldn't stop the agent" });
       });
   };
   useEffect(() => {

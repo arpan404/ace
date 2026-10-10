@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useItem } from "@ace/client-react";
 import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
@@ -19,7 +20,7 @@ const EventView = DeferredEvent.Component;
  * One transcript block. Each child subscribes to its own items, so streaming stays local, and
  * the block itself skips re-rendering when the virtualizer re-measures its neighbours.
  */
-export const BlockView = memo(function BlockView(props: {
+const BlockContent = memo(function BlockContent(props: {
   threadId: string;
   block: Block;
   /** The last block of a turn still in progress. */
@@ -82,3 +83,11 @@ function PersonMessage(props: { threadId: string; itemId: string }) {
     </>
   );
 }
+
+export const BlockView = memo(function BlockView(props: React.ComponentProps<typeof BlockContent>) {
+  return (
+    <LocalBoundary key={props.block.key} label="this message">
+      <BlockContent {...props} />
+    </LocalBoundary>
+  );
+});

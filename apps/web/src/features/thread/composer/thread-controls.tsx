@@ -62,7 +62,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     void permission
       .change(mode)
       .catch((error: unknown) =>
-        toast.add({ title: "Couldn't change approvals", description: failureMessage(error) }),
+        toast.error({ title: "Couldn't change approvals", description: failureMessage(error) }),
       );
   const { capabilities, loading, failed, setCurrentId } = usePermissionModes(meta?.provider, {
     currentId:
@@ -224,7 +224,7 @@ export function ThreadModelControl(props: {
                 : `Continues on ${choice.model}`,
         }),
       (error: unknown) =>
-        toast.add({ title: "Couldn't switch the model", description: failureMessage(error) }),
+        toast.error({ title: "Couldn't switch the model", description: failureMessage(error) }),
     );
   };
   // What the chip names: the switch just chosen here, else what the thread runs on next.

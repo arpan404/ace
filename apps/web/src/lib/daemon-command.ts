@@ -188,7 +188,7 @@ export function useDaemonReady() {
       guard<A extends unknown[]>(action: (...args: A) => void) {
         return (...args: A) => {
           if (ready) action(...args);
-          else toast.add({ title: needsDaemonMessage });
+          else toast.error({ title: needsDaemonMessage });
         };
       },
     }),

@@ -115,7 +115,7 @@ export function useCloneRun(options: {
             : { status: "failed", input, machine, problem },
         );
         if (!visible.current && problem.code !== "clone_cancelled")
-          toast.add({ title: `Couldn't clone ${input.name}`, description: problem.message });
+          toast.error({ title: `Couldn't clone ${input.name}`, description: problem.message });
       },
     );
   };
