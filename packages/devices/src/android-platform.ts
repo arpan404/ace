@@ -355,20 +355,28 @@ export class AndroidPlatform {
     }
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
+    // Retain this process identity: another boot may replace the map entry while adb waits.
+    const emulator = this.emulators.get(device.id);
     try {
       const serial = await this.serial(device);
       const { adb } = await this.resolve();
+      await this.verifyTransport(adb, device, serial);
       authorize?.();
       try {
         await this.run(adb, ["-s", serial, "emu", "kill"]);
       } catch {
         // Emulator console unreachable or already dead; fall through to the wait below.
       }
-      await this.emulators.get(device.id)?.stop({ graceMs: 0 });
+      authorize?.();
+      await emulator?.stop({ graceMs: 0 });
       if (await this.transportGone(adb, serial)) {
         this.serialNames.delete(serial);
         return;
       }
+      // A lease or an emulator console port may have changed during the disconnect wait.
+      // Fence both outside the best-effort command catch so either failure stops shutdown.
+      await this.verifyTransport(adb, device, serial);
+      authorize?.();
       try {
         await this.run(adb, ["-s", serial, "shell", "reboot", "-p"], 4096, 10_000);
       } catch {
@@ -385,7 +393,7 @@ export class AndroidPlatform {
       );
     } finally {
       authorize?.();
-      await this.emulators.get(device.id)?.stop({ graceMs: 0 });
+      await emulator?.stop({ graceMs: 0 });
     }
   }
   private async transportGone(adb: string, serial: string): Promise<boolean> {

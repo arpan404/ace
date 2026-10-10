@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { nodeBinary } from "@ace/provider-kit/testing";
+import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DevicePlatform, type Device } from "./index.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
@@ -780,6 +781,118 @@ it("an emulator that never disconnects fails shutdown with a clear error", async
     "Emulator did not shut down",
   );
 });
+
+async function waitingShutdown() {
+  const f = await fixture();
+  const waiting = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  let name = "Pixel_API_35";
+  let poweredOff = false;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    probe: async (_command, args) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name")) return { stdout: name, stderr: "", code: 0 };
+      if (args.includes("wait-for-any-disconnect")) {
+        waiting.resolve();
+        await resume.promise;
+        throw new Error("Probe timed out");
+      }
+      if (args.includes("reboot")) poweredOff = true;
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+  onTestFinished(() => manager.close());
+  onTestFinished(() => resume.resolve());
+  return {
+    manager,
+    waiting: waiting.promise,
+    resume: () => resume.resolve(),
+    replaceTransport: () => {
+      name = "Another_AVD";
+    },
+    poweredOff: () => poweredOff,
+  };
+}
+
+it("control transfer during the shutdown disconnect wait fences the fallback power-off", async () => {
+  const f = await waitingShutdown();
+  let authorized = true;
+  const pending = f.manager.shutdown(android(), () => {
+    if (!authorized) throw new Error("Controller ownership changed");
+  });
+  const rejected = expect(pending).rejects.toThrow("Controller ownership changed");
+  await f.waiting;
+  authorized = false;
+  f.resume();
+  await rejected;
+  expect(f.poweredOff()).toBe(false);
+});
+
+it("a reused emulator serial during shutdown never powers off the replacement AVD", async () => {
+  const f = await waitingShutdown();
+  const pending = f.manager.shutdown(android());
+  const rejected = expect(pending).rejects.toMatchObject({ code: "not_found" });
+  await f.waiting;
+  f.replaceTransport();
+  f.resume();
+  await rejected;
+  expect(f.poweredOff()).toBe(false);
+});
+
+it("control transfer while the console kill is pending preserves the owned emulator process", async () => {
+  const f = await fixture();
+  let running = false;
+  let authorized = true;
+  const processes: SupervisedProcess[] = [];
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    spawn: (options) => {
+      const process = spawnSupervised(options);
+      processes.push(process);
+      return process;
+    },
+    probe: async (_command, args) => {
+      if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args[0] === "devices")
+        return {
+          stdout:
+            "List of devices attached\n" +
+            (running ? "emulator-5554 device product:sdk model:pixel" : ""),
+          stderr: "",
+          code: 0,
+        };
+      if (args.includes("ro.boot.qemu.avd_name"))
+        return { stdout: "Pixel_API_35", stderr: "", code: 0 };
+      if (args.some((arg) => arg.includes("sys.boot_completed"))) running = true;
+      if (args.includes("kill")) authorized = false;
+      return { stdout: "", stderr: "", code: 0 };
+    },
+  });
+  onTestFinished(() => manager.close());
+  await manager.boot(android());
+  await expect(
+    manager.shutdown(android(), () => {
+      if (!authorized) throw new Error("Controller ownership changed");
+    }),
+  ).rejects.toThrow("Controller ownership changed");
+  const child = processes[0];
+  expect(child?.signal.aborted).toBe(false);
+  const pid = child?.pid;
+  if (!pid) throw new Error("Emulator process missing");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+});
+
 it("Android UI read queues reject excess work without retaining extra native operations", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
