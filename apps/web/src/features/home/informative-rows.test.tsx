@@ -78,15 +78,15 @@ test.each([
   },
 );
 
-test("PR state, changes, status words and provider stay visible together", async () => {
+test("PR state, status words and provider stay visible while changes remain in the hover card", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
   expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
-  expect(within(row).getByText("+24")).toBeTruthy();
-  expect(within(row).getByText("−6")).toBeTruthy();
+  expect(within(row).queryByText("+24")).toBeNull();
+  expect(within(row).queryByText("−6")).toBeNull();
   expect(within(row.parentElement ?? row).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(row);
   const tip = await screen.findByLabelText(/^Details for /);
@@ -106,7 +106,11 @@ test("this device's read cursor shows new activity even while a task works", asy
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(await within(row).findByRole("img", { name: "Unread activity" })).toBeTruthy();
-  expect(within(row.parentElement ?? row).getByText("⑂ 1")).toBeTruthy();
+  expect(
+    within(
+      within(row.parentElement ?? row).getByRole("img", { name: "Codex · 1 subagent running" }),
+    ).getByText("⑂ 1"),
+  ).toBeTruthy();
 });
 
 test("agents running beside a human request remain counted until they finish", async () => {
@@ -126,7 +130,11 @@ test("agents running beside a human request remain counted until they finish", a
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Approve")).toBeTruthy();
-  expect(within(row.parentElement ?? row).getByText("⑂ 1")).toBeTruthy();
+  expect(
+    within(
+      within(row.parentElement ?? row).getByRole("img", { name: "Codex · 1 subagent running" }),
+    ).getByText("⑂ 1"),
+  ).toBeTruthy();
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(within(row.parentElement ?? row).queryByText("⑂ 1")).toBeNull());
   expect(within(row).getByText("Approve")).toBeTruthy();
@@ -153,7 +161,7 @@ test("renaming an empty draft cannot turn it into a task", async () => {
 });
 
 test.each([false, true])(
-  "device identity stays beside the provider without inline names (remote=%s)",
+  "device identity follows the live host in row context and hover details (remote=%s)",
   async (remote) => {
     const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
     app.daemon.services.settings.seed({
@@ -189,8 +197,9 @@ test.each([false, true])(
     const name = remote ? "Build server" : "Workshop Mac";
     if (!row.parentElement) throw new Error("No row container");
     const device = within(row.parentElement).queryByRole("img", { name: `Device: ${name}` });
-    expect(Boolean(device)).toBe(remote);
-    expect(row.textContent).not.toContain(name);
+    expect(device).toBeNull();
+    if (remote) expect(within(row).getByText(`· ${name}`, { exact: true })).toBeTruthy();
+    else expect(row.textContent).not.toContain(name);
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
     expect(within(row.parentElement ?? row).getByRole("img", { name: /Codex/ })).toBeTruthy();
@@ -200,7 +209,6 @@ test.each([false, true])(
     row.focus();
     await waitFor(() => expect(document.activeElement).toBe(row));
     expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
-    expect(row.parentElement.querySelectorAll('[role="img"][tabindex="0"]').length).toBe(0);
   },
 );
 

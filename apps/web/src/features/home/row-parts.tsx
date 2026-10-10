@@ -258,9 +258,6 @@ export function RowDetail(props: {
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         <PullRequest card={card} />
-        <span className="hidden items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
-          <PullRequest card={card} />
-        </span>
       </span>
       <RowIdentitySpace card={card} />
     </span>

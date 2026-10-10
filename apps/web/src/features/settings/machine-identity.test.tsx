@@ -76,13 +76,13 @@ test("editing a paired machine saves on that host and replaces stale thread labe
   view.unmount();
   view = await app.open("/");
   const sidebar = await screen.findByRole("list", { name: "Threads" });
-  const device = await within(sidebar).findByRole("img", { name: "Device: Build server" });
-  await userEvent.hover(device);
+  const row = await within(sidebar).findByRole("link", {
+    name: /Replay cursor resets.*Running on Build server/,
+  });
+  expect(within(row).getByText("· Build server", { exact: true })).toBeTruthy();
+  expect(within(sidebar).queryByRole("img", { name: /^Device:/ })).toBeNull();
+  await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
-  expect(
-    within(device).getByRole("img", { name: "server machine icon", hidden: true }),
-  ).toBeTruthy();
-  expect(sidebar.textContent).not.toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
   view.unmount();
 });
@@ -180,7 +180,7 @@ test("a paired machine's updated host identity replaces the cached label after r
     .runThrough("finding");
   await app.open("/");
   const sidebar = await screen.findByRole("list", { name: "Threads" });
-  await within(sidebar).findByRole("img", { name: "Device: Old server" });
+  await within(sidebar).findByRole("link", { name: /Replay cursor resets.*Running on Old server/ });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.machines.get("build")?.services.settings.seed({
     "host.displayName": "Build server",
@@ -188,12 +188,14 @@ test("a paired machine's updated host identity replaces the cached label after r
   });
   app.crashMachine("build");
   await app.pool().reconnect("build");
-  const device = await within(sidebar).findByRole("img", { name: "Device: Build server" });
-  expect(
-    within(device).getByRole("img", { name: "cloud machine icon", hidden: true }),
-  ).toBeTruthy();
-  await userEvent.hover(device);
-  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
+  const row = await within(sidebar).findByRole("link", {
+    name: /Replay cursor resets.*Running on Build server/,
+  });
+  expect(within(row).getByText("· Build server", { exact: true })).toBeTruthy();
+  await userEvent.hover(row);
+  const details = await screen.findByLabelText(/^Details for /);
+  expect(details.textContent).toContain("Build server");
+  expect(within(details).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
   expect(sidebar.textContent).not.toContain("Old server");
 });
 

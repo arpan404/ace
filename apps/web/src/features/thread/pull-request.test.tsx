@@ -389,6 +389,9 @@ test("a live link publication updates the work card and sidebar with both PRs", 
   const sidebar = screen.getByRole("navigation", { name: "Threads" });
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
   expect(row.textContent).toContain("#283+1");
+  expect(
+    within(row).getAllByRole("img", { name: /pull request #283, 1 more linked/i }),
+  ).toHaveLength(1);
 });
 
 test("explicit PR addresses can link another repository and unlink only that association", async () => {
