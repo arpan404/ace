@@ -74,7 +74,7 @@ export class DelegationJournal {
       );
       CREATE TABLE IF NOT EXISTS delegation_agent_runs (agent_id TEXT PRIMARY KEY, run_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS agent_thread_metadata (
-        thread_id TEXT PRIMARY KEY REFERENCES threads(id), pr_url TEXT, snoozed_until INTEGER
+        thread_id TEXT PRIMARY KEY REFERENCES threads(id), snoozed_until INTEGER
       );
     `),
     );
@@ -241,12 +241,10 @@ export class DelegationJournal {
     );
   }
   readMetadata(thread: ThreadId) {
-    const row = this.sql(
-      "SELECT pr_url,snoozed_until FROM agent_thread_metadata WHERE thread_id=?",
-    ).get(thread);
-    return row
-      ? z.object({ pr_url: z.string().nullable(), snoozed_until: z.number().nullable() }).parse(row)
-      : null;
+    const row = this.sql("SELECT snoozed_until FROM agent_thread_metadata WHERE thread_id=?").get(
+      thread,
+    );
+    return row ? z.object({ snoozed_until: z.number().nullable() }).parse(row) : null;
   }
   active() {
     return this.sql(
@@ -381,19 +379,6 @@ export class DelegationJournal {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
     this.sql("UPDATE delegation_trees SET cancelled=0 WHERE root_id=?").run(thread);
     this.consume(thread);
-  }
-  metadata(thread: ThreadId, input: { prUrl?: string; until?: number | null }) {
-    this.sql("INSERT OR IGNORE INTO agent_thread_metadata(thread_id) VALUES (?)").run(thread);
-    if (input.prUrl !== undefined)
-      this.sql("UPDATE agent_thread_metadata SET pr_url=? WHERE thread_id=?").run(
-        input.prUrl,
-        thread,
-      );
-    if (input.until !== undefined)
-      this.sql("UPDATE agent_thread_metadata SET snoozed_until=? WHERE thread_id=?").run(
-        input.until,
-        thread,
-      );
   }
   started(event: Event) {
     if (event.payload.type !== "run.started") return;

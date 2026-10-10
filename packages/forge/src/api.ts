@@ -3,6 +3,7 @@ import type {
   ForgePrRef,
   ForgePrStatus,
   ForgeRepository,
+  LinkedPullRequest,
 } from "@ace/protocol/forge";
 import type { StatusRevisions } from "./revisions.ts";
 export type MergeMethod = "merge" | "squash" | "rebase";
@@ -11,6 +12,10 @@ export interface Forge {
   readonly revisions?: StatusRevisions;
   /** Immutable validated revisions; reuse unchanged collections and snapshot identity. */
   status(number: number, signal: AbortSignal): Promise<ForgePrStatus>;
+  states?(
+    numbers: readonly number[],
+    signal: AbortSignal,
+  ): Promise<Map<number, LinkedPullRequest | null>>;
   /** Exact branch/base lookup reconciles publication after an interrupted create. */
   findPr?(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null>;
   createPr(threadId: string, input: ForgeCreatePrInput, signal: AbortSignal): Promise<ForgePrRef>;

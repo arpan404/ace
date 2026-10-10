@@ -62,3 +62,31 @@ and auto-merge commands return current PR status; `workspace.request` with `pr.s
 reads the linked PR on demand. Forge and Git failures keep their fixed public codes
 through command receipts and read results. GitLab detection remains supported, while
 PR controls explain that its forge backend is unavailable before an action is offered.
+
+## Multiple PR associations (2026-10-10)
+
+A thread can link several PRs, including URLs in other repositories. The forge
+store owns links and last known summaries, keyed by thread, repository and number.
+Legacy single links and agent metadata URLs migrate into it. `linkedPrs` publishes
+newest links first; `linkedPr` temporarily mirrors the first for old snapshots and
+remaining single-PR readers. Duplicates preserve association order and generation.
+Single unlink targets a number with an optional repository; unlink-all is explicit.
+
+The ace MCP server's link, unlink and list tools bind to the calling thread.
+Arguments cannot choose a thread. They replace the unused forge toolkit and the
+separate agent metadata writer. Links are checked through `gh` when available;
+offline or unauthenticated links persist as unverified and refresh later. State
+refresh batches up to 100 linked numbers per repository through GraphQL on the
+existing workspace cadence, including merged and closed links. A missing PR in a
+reachable repository remains linked as closed with a deleted marker. A repository
+or batch failure does not prevent other repositories from refreshing.
+
+Create-from-UI persists its association before reading full status. Completed,
+successful canonical shell calls executing `gh pr create` link standalone output
+URLs only when their repository matches the thread's origin. A durable receipt
+prevents repeated updates from restoring a manual unlink. Output scans use bounded
+pages. Shell control flow with ambiguous output attribution is skipped.
+
+The state query uses GitHub's documented PullRequest `state`, `isDraft`, `title`,
+`url` and `updatedAt` fields in the [GraphQL reference](https://docs.github.com/en/graphql/reference/pulls).
+No credentials are read by ace.

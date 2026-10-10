@@ -17,6 +17,9 @@ export async function daemonFixture(
     engine: { registry: h.registry, clock: h.clock },
     ...(agentControl ? { agentControl } : {}),
     modelInstances: [],
+    workspaceActions: {
+      forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
+    },
   });
   for (const provider of ["codex", "claude"] as const)
     await seedScriptedModels(daemon.models, scriptedModelInstance(provider, h.home));

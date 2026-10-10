@@ -148,7 +148,33 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     title: z.string().min(1).max(256),
   }),
   z.strictObject({ op: z.literal("thread.regenerate_title"), threadId: ThreadId }),
-  z.strictObject({ op: z.literal("thread.link_pr"), threadId: ThreadId, url: z.url().max(2048) }),
+  z
+    .strictObject({
+      op: z.literal("thread.link_pr"),
+      url: z.url().max(2048).optional(),
+      number: z.number().int().positive().optional(),
+      repo: z.string().min(1).max(512).optional(),
+    })
+    .refine((input) => (input.url === undefined) !== (input.number === undefined), {
+      message: "Provide a pull request URL or number.",
+    })
+    .meta({ "x-ace-constraint": "Exactly one of url or number is required." }),
+  z
+    .strictObject({
+      op: z.literal("thread.unlink_pr"),
+      url: z.url().max(2048).optional(),
+      number: z.number().int().positive().optional(),
+      all: z.literal(true).optional(),
+    })
+    .refine(
+      (input) =>
+        [input.url, input.number, input.all].filter((value) => value !== undefined).length === 1,
+      {
+        message: "Provide a pull request URL, number, or all: true.",
+      },
+    )
+    .meta({ "x-ace-constraint": "Exactly one of url, number, or all: true is required." }),
+  z.strictObject({ op: z.literal("thread.list_prs") }),
   z.strictObject({ op: z.literal("thread.settle"), threadId: ThreadId }),
   z.strictObject({
     op: z.literal("thread.snooze"),

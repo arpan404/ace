@@ -12,7 +12,7 @@ import {
 } from "@ace/protocol";
 import { daemonFixture } from "./daemon-test-support.ts";
 
-test("daemon service manages owned projects, PR metadata and manual automation definitions", async () => {
+test("daemon service manages owned projects and manual automation definitions", async () => {
   const f = await daemonFixture();
   try {
     expect(
@@ -25,18 +25,6 @@ test("daemon service manages owned projects, PR metadata and manual automation d
     expect(await f.call({ op: "project.rename", workspaceId: foreign, name: "forbidden" })).toEqual(
       { ok: false, code: "forbidden" },
     );
-    expect(
-      (
-        await f.call({
-          op: "thread.link_pr",
-          threadId: f.caller.threadId,
-          url: "https://github.com/arpan404/ace/pull/123",
-        })
-      ).ok,
-    ).toBe(true);
-    expect(
-      (await f.call({ op: "thread.read", threadId: f.caller.threadId, limit: 1 })).data,
-    ).toMatchObject({ metadata: { pr_url: "https://github.com/arpan404/ace/pull/123" } });
     const automation = {
       id: "owned-job",
       title: "job",

@@ -1,17 +1,16 @@
 {
-  "$id": "https://ace.local/protocol/v1/ace_thread_link_pr.input.json",
+  "$id": "https://ace.local/protocol/v1/ace_thread_unlink_pr.input.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "all": {
+      "const": true,
+      "type": "boolean"
+    },
     "number": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
       "type": "integer"
-    },
-    "repo": {
-      "maxLength": 512,
-      "minLength": 1,
-      "type": "string"
     },
     "url": {
       "format": "ace-whatwg-url",
@@ -21,5 +20,5 @@
     }
   },
   "type": "object",
-  "x-ace-constraint": "Exactly one of url or number is required."
+  "x-ace-constraint": "Exactly one of url, number, or all: true is required."
 }
