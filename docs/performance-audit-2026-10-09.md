@@ -9,12 +9,12 @@ Bundle sizes below are KiB of gzip at level 9, measured by the existing producti
 | Path                                    | Before this optimization pass | Current measurement | Change                                                                |
 | --------------------------------------- | ----------------------------: | ------------------: | --------------------------------------------------------------------- |
 | Markdown worker including lazy grammars |                        306.69 |               50.39 | Replaced the large Shiki grammar engine with a lazy Prism grammar set |
-| New-thread route                        |                        146.09 |              123.22 | Deferred the searchable project chooser                               |
-| First thread screen                     |                        414.81 |              401.36 | Deferred chooser and discarded unused pure schema construction        |
-| Initial JavaScript                      |                        268.72 |              267.27 | Removed unused schema construction                                    |
-| Client worker including lazy services   |                         74.00 |               72.71 | Removed redundant private-worker schema work                          |
+| New-thread route                        |                        146.09 |              123.70 | Deferred the searchable project chooser                               |
+| First thread screen                     |                        414.81 |              402.06 | Deferred chooser and discarded unused pure schema construction        |
+| Initial JavaScript                      |                        268.72 |              267.88 | Removed unused schema construction                                    |
+| Client worker including lazy services   |                         74.00 |               71.98 | Shared a smaller client core and removed redundant worker schema work |
 
-All bundle gates passed with their existing budgets. Client-worker headroom remains small at 0.29 KiB. These numbers precede the cross-device PR integration and will need remeasurement afterward.
+All bundle gates passed with their existing budgets after cross-device PR integration. Client-worker headroom is 1.02 KiB. The combined machine worker is 71.85 KiB, also within its unchanged 73 KiB limit.
 
 Three further defects now have regressions that fail with the previous behavior and pass with the fixes:
 
@@ -24,6 +24,8 @@ Three further defects now have regressions that fail with the previous behavior 
 - Fenced code previously ran a synchronous regex tokenizer during the first render while its worker job was pending. It now renders one plain text span immediately and applies colors after the worker responds. A regression checks readable source, exact whitespace and the single-span pending state. This removes main-thread fallback tokenization, but settled large fences still need line virtualization.
 
 File and browser channels now reuse the canonical client's validated responses instead of decoding each response again inside the worker. Malformed replies still fail at the external protocol boundary, and channel identifiers still require integers. The bundle reduction from this particular change was only 0.02 KiB; its purpose is removing repeated parsing and allocations during transfers.
+
+Workers now instantiate the shared ClientCore without the page's project, history, authentication and file convenience methods. The public Client subclasses that same core and retains its convenience APIs. The split saved about 2.08 KiB per complete worker closure before admission checks. Structured-cloned tab arguments now have a bounded graph preflight before parsing: cycles, excessive depth and exponential expansion are rejected, while ordinary shared references remain valid. Removing reference-cycle memoization from private JSON workers therefore does not expose their recursive parsers to unbounded port graphs.
 
 The native iOS transport probe from this task produced its first frame in 2,042 ms and 15 frames over 2,915 ms at a requested 5 FPS. That was a transport correctness probe, not evidence of smooth 60 FPS motion.
 
@@ -69,4 +71,4 @@ Follow-up performance tests should report p50/p95/p99 input delay, longest UI ta
 
 ## Static scan scope
 
-A full React Doctor scan covered 1,249 web source files and reported 326 diagnostics: 14 bug errors, 64 bug warnings, 72 performance errors, 42 performance warnings, 102 maintainability warnings, 28 accessibility warnings and four security warnings. These are candidates for investigation, not 326 confirmed defects. For example, its missing-origin warning on private dedicated-worker message handlers is not a window-message trust boundary. Compiler bailouts and lifecycle cleanup findings should be checked against the actual subscriptions and event handlers in small reviewed batches. The changed-code scan remained at 77/100 with only the two existing complexity warnings before the final cache and channel follow-ups; rerun it on the frozen final diff.
+A full React Doctor scan covered 1,249 web source files and reported 326 diagnostics: 14 bug errors, 64 bug warnings, 72 performance errors, 42 performance warnings, 102 maintainability warnings, 28 accessibility warnings and four security warnings. These are candidates for investigation, not 326 confirmed defects. For example, its missing-origin warning on private dedicated-worker message handlers is not a window-message trust boundary. Compiler bailouts and lifecycle cleanup findings should be checked against the actual subscriptions and event handlers in small reviewed batches. The combined changed-code scan remained at 77/100 with only the two existing complexity warnings. The final ClientCore split changes worker entry points rather than React components.

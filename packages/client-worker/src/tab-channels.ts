@@ -1,6 +1,6 @@
 import {
   ClientError,
-  type Client,
+  type ClientCore,
   type ServiceWire,
   type ServiceRequest,
   type ServiceResponse,
@@ -24,7 +24,7 @@ type BrowserTransition = Extract<
 
 /** One `request` of a tab, with what the host knows about the connection it started on. */
 export interface ChannelCall {
-  client: Client;
+  client: ClientCore;
   args: unknown[];
   signal: AbortSignal;
   /** Send the (possibly rewritten) request arguments through the worker's client. */
@@ -69,7 +69,7 @@ export class TabChannels {
     this.browsers = new BrowserSubscriptions();
   }
   /** The tab is leaving: release its subscriptions and cancel its open channels. */
-  detach(client: Client | undefined): void {
+  detach(client: ClientCore | undefined): void {
     this.browsers.close((threadId) => {
       if (client?.state === "ready") this.unsubscribe(client, threadId);
     });
@@ -150,7 +150,7 @@ export class TabChannels {
     }
     return value;
   }
-  private unsubscribe(client: Client, threadId: string): void {
+  private unsubscribe(client: ClientCore, threadId: string): void {
     void client
       .request({
         type: "browser.unsubscribe",

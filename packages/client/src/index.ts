@@ -1,6 +1,7 @@
 export type { RegistryQuery } from "./api.ts";
 export type { CursorAuthQuery } from "./client.ts";
 export { Client } from "./client.ts";
+export { ClientCore } from "./client-core.ts";
 export { ClientError, defaultLimits } from "./types.ts";
 export type {
   ClientOptions,
@@ -20,6 +21,7 @@ export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";
 export type {
   ClientApi,
+  ClientCoreApi,
   ConnectionControl,
   ThreadSource,
   SidebarSource,

@@ -1,4 +1,4 @@
-import { Client, type Scheduler, type ThreadSource, type Storage } from "@ace/client";
+import { Client, ClientCore, type Scheduler, type ThreadSource, type Storage } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { ServerMessage, type ServerMessage as Message, DeviceId } from "@ace/protocol";
 import { z } from "zod";
@@ -72,7 +72,7 @@ export function world(
       return {
         key,
         create: () =>
-          new Client({
+          new ClientCore({
             deviceId: DeviceId.parse("worker-device"),
             transport: () => {
               const inner = fakeTransport(daemon);

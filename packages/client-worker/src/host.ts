@@ -2,7 +2,7 @@ import {
   ClientError,
   defaultLimits,
   loadServiceWire,
-  type Client,
+  type ClientCore as Client,
   type PendingSend,
   type Scheduler,
   type SidebarExport,
@@ -11,6 +11,7 @@ import {
 import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, objectInput, requestArgs, sendArgs } from "./calls.ts";
+import { admitArguments } from "./argument-graph.ts";
 import { TabChannels } from "./tab-channels.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
@@ -493,6 +494,7 @@ class Tab {
     const controller = new AbortController();
     this.calls.set(call, controller);
     try {
+      admitArguments(args);
       const value =
         method === "request" && isChannelRequest(args[0])
           ? await this.channelRequest(client, call, controller, args)

@@ -2,6 +2,9 @@ import type { Plugin } from "vite";
 
 /**
  * Socket traffic is decoded from JSON, whose object graph cannot contain reference cycles.
+ * The client worker also receives structured-cloned tab arguments. Its host admits only
+ * acyclic, bounded expanded graphs before argument or channel schemas run, while allowing
+ * harmless shared references. Other workers accept flat job envelopes and derived JSON data.
  * Zod's default container memoizer only preserves cycles/shared references, and retaining its
  * factory adds code and per-parse work to every wire worker. Keep ordinary object validation
  * and its JIT parser, but omit reference-identity memoization in these private JSON workers.
