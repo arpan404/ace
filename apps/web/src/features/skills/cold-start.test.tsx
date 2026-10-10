@@ -53,6 +53,18 @@ test("a cold slash menu reports loading and finds tdd when discovery completes w
   expect(await screen.findByRole("option", { name: /^Test Driven Development / })).toBeTruthy();
 });
 
+test("a cold slash query reports no matches only after discovery completes", async () => {
+  const app = cold();
+  await app.open("/t/cold");
+  const input = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(input, "/missing-skill");
+  expect(await screen.findByText("Loading suggestions…")).toBeTruthy();
+  expect(screen.queryByText("No matching suggestions")).toBeNull();
+  act(() => app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } }));
+  expect(await screen.findByText("No matching suggestions")).toBeTruthy();
+  expect(screen.queryByText("Loading suggestions…")).toBeNull();
+});
+
 test("switching the Skills provider closes a detail from the previous provider", async () => {
   const app = cold();
   app.daemon.seedServices({ extensionCatalogs: { claude: [tdd], pi: [] } });

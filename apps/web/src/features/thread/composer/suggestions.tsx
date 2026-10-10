@@ -139,6 +139,7 @@ export function useSuggestions(
         entry,
       }))
       .toSorted((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+    if (!items.length && catalog.stale) return { state: "loading", kind, query };
   }
   return items.length
     ? { state: "ready", kind, items, refreshing: kind === "command" && catalog?.stale === true }
