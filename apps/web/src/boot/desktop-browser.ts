@@ -18,7 +18,6 @@ export interface NativeViewPlacement {
         deviceScaleFactor?: number | undefined;
       }
     | undefined;
-  dpr?: number | undefined;
   visible: boolean;
   /**
    * The daemon connection through which this page holds the thread's page, as its take-control

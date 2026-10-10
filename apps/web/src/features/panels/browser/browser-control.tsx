@@ -18,7 +18,7 @@ export interface ControlState {
   who: "agent" | "you" | "private" | "elsewhere" | "paused" | "recovering" | "held";
   /** The whole sentence: the status's tooltip, and what assistive tech announces. */
   detail: string;
-  action?: "take" | "handback" | "takePrivately" | undefined;
+  action?: "take" | "handback" | "takePrivately" | "resume" | undefined;
   /** Whether the page can be made private from here. */
   canPrivate: boolean;
 }
@@ -35,9 +35,16 @@ export function controlState(
 ): ControlState {
   const privately = view.takeoverMode === "private";
   const lost = view.pageStateLost
-    ? " · Reopened after the browser was lost; sign-ins were reset"
+    ? " · Reopened after the browser disconnected; page state was reset"
     : "";
   const state = (value: ControlState): ControlState => ({ ...value, detail: value.detail + lost });
+  if (view.status === "paused" && view.pageStateLost)
+    return {
+      who: "paused",
+      detail: "The browser disconnected. Reopen the page to continue.",
+      action: "resume",
+      canPrivate: false,
+    };
   if (view.controller === "human" && !heldHere)
     return state({
       who: "elsewhere",
@@ -137,6 +144,7 @@ export function BrowserControl(props: {
   heldHere: boolean;
   onToggle(): void;
   onPrivate(): void;
+  onResume(): void;
 }) {
   const driver = useBrowserDriver(props.view.threadId);
   const agent = useAgent(props.view.threadId, driver ?? "");
@@ -165,15 +173,30 @@ export function BrowserControl(props: {
         {state.detail}
       </span>
       {action && (
-        <Tip label={keymap.takeControl.label} shortcut="takeControl">
+        <Tip
+          label={action === "resume" ? "Reopen the page" : keymap.takeControl.label}
+          {...(action === "resume" ? {} : { shortcut: "takeControl" })}
+        >
           <button
             type="button"
             disabled={props.busy}
-            onClick={action === "takePrivately" ? props.onPrivate : props.onToggle}
+            onClick={
+              action === "resume"
+                ? props.onResume
+                : action === "takePrivately"
+                  ? props.onPrivate
+                  : props.onToggle
+            }
             {...(action === "takePrivately" ? { "aria-label": "Take back privately" } : {})}
             className={primary}
           >
-            {action === "take" ? "Take over" : action === "handback" ? "Hand back" : "Take back"}
+            {action === "resume"
+              ? "Reopen"
+              : action === "take"
+                ? "Take over"
+                : action === "handback"
+                  ? "Hand back"
+                  : "Take back"}
           </button>
         </Tip>
       )}

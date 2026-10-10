@@ -54,6 +54,9 @@ export interface BrowserView {
   backend?: "embedded" | "headless" | undefined;
   /** The page was reopened after its backend was lost; cookies and page state are gone. */
   pageStateLost?: boolean | undefined;
+  loading?: boolean | undefined;
+  loadError?: string | undefined;
+  permissionDenied?: { origin: string; permission: string } | undefined;
   /** The agent's tabs in this thread's browser, by stable id (not by address). */
   tabs?: readonly BrowserTabView[] | undefined;
   activeTabId?: string | undefined;
@@ -123,6 +126,7 @@ export type ForwardedInput =
       x: number;
       y: number;
       button?: "none" | "left" | "middle" | "right";
+      clickCount?: number;
     }
   | {
       kind: "key";
@@ -153,7 +157,7 @@ export interface PreviewSource {
   /**
    * Follow a thread's browser and dev servers while a view shows them: subscribes to frames
    * (retrying until a browser opens) and reads the dev servers. Call the result to stop; a
-   * browser this client took control of is handed back to the agent.
+   * shared hold ends when the thread workspace or panel closes.
    */
   watch(threadId: string): () => void;
   view(threadId: string): BrowserView | undefined;
@@ -184,7 +188,10 @@ export interface PreviewSource {
    */
   navigate(threadId: string, url: string): Promise<string>;
   navigationHistory?(threadId: string): Promise<{ back: boolean; forward: boolean }>;
-  navigateHistory?(threadId: string, direction: "back" | "forward" | "reload"): Promise<void>;
+  navigateHistory?(
+    threadId: string,
+    direction: "back" | "forward" | "reload" | "stop",
+  ): Promise<void>;
   findText?(threadId: string, text: string, forward: boolean): Promise<unknown>;
   /** Make the page a device's size and kind (`emulate`); needs control like navigation. */
   emulate(threadId: string, emulation: Emulation): Promise<void>;
@@ -198,8 +205,11 @@ export interface PreviewSource {
    * current owner is that connection; undefined when it doesn't hold it (another device may).
    */
   heldAs(threadId: string): string | undefined;
-  input(threadId: string, input: ForwardedInput): void;
-  /** Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096). */
+  input(threadId: string, input: ForwardedInput): void | Promise<void>;
+  /** Read the current page selection for local copy and cut. */
+  selection?(threadId: string): Promise<string>;
+  nativeShown?(threadId: string, shown: boolean): void;
   capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
+  /** Size the page to the pane in CSS pixels (100–4096). */
   resize(threadId: string, width: number, height: number): void;
 }

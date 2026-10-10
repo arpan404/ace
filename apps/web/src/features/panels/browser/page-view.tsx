@@ -58,9 +58,15 @@ export function PageView(props: {
     };
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
-    if (mouse.button !== 0) return;
+    if (mouse.button > 2) return;
     if (event === "mousePressed") mouse.currentTarget.focus();
-    props.source.input(props.threadId, { kind: "mouse", event, ...point(mouse) });
+    props.source.input(props.threadId, {
+      kind: "mouse",
+      event,
+      ...point(mouse),
+      button: mouse.button === 1 ? "middle" : mouse.button === 2 ? "right" : "left",
+      clickCount: Math.max(1, mouse.detail),
+    });
   };
   const move = useRef<ForwardedInput | undefined>(undefined);
   const scheduledMove = useRef(0);
@@ -90,6 +96,29 @@ export function PageView(props: {
     // Toolbar and app chords are consumed by the ancestors. Editing chords reach the page.
     if (event.defaultPrevented || appChords.some((chord) => matchesChord(event.nativeEvent, chord)))
       return;
+    if (event.metaKey || event.ctrlKey) {
+      const key = event.key.toLowerCase();
+      if (key === "v") return;
+      if (key === "c" || key === "x") {
+        event.preventDefault();
+        if (type === "keyDown" && props.source.selection && navigator.clipboard)
+          void props.source
+            .selection(props.threadId)
+            .then(async (text) => {
+              await navigator.clipboard.writeText(text);
+              if (key === "x")
+                for (const keyEvent of ["keyDown", "keyUp"] as const)
+                  props.source.input(props.threadId, {
+                    kind: "key",
+                    event: keyEvent,
+                    key: "Backspace",
+                    code: "Backspace",
+                  });
+            })
+            .catch(() => {});
+        return;
+      }
+    }
     event.preventDefault();
     props.source.input(props.threadId, {
       kind: "key",
@@ -137,18 +166,21 @@ export function PageView(props: {
       onMouseDown={send("mousePressed")}
       onMouseUp={send("mouseReleased")}
       onWheel={onWheel}
+      onContextMenu={(event) => event.preventDefault()}
       onKeyDown={onKey("keyDown")}
       onKeyUp={onKey("keyUp")}
       onPaste={(event) => {
         event.preventDefault();
         const text = event.clipboardData.getData("text");
-        for (let index = 0; index < Math.min(text.length, 65536); index += 256)
-          props.source.input(props.threadId, {
-            kind: "key",
-            event: "char",
-            key: "Paste",
-            text: text.slice(index, index + 256),
-          });
+        void (async () => {
+          for (let index = 0; index < Math.min(text.length, 65536); index += 256)
+            await props.source.input(props.threadId, {
+              kind: "key",
+              event: "char",
+              key: "Paste",
+              text: text.slice(index, index + 256),
+            });
+        })();
       }}
       className={cn(className, "cursor-default outline-none focus-ring-inset")}
     >

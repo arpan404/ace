@@ -133,6 +133,7 @@ export function fakeBrowserSession(
               url: "about:blank",
               backend: message.options.background ? "headless" : "embedded",
             });
+          browser.reopen(id);
           result = BrowserState.parse(browser.view(id));
           break;
         }
@@ -167,6 +168,8 @@ export function fakeBrowserSession(
             "find",
             "network_body",
             "navigation_history",
+            "find_text",
+            "selection",
           ];
           if (
             !reads.includes(command.action) &&
@@ -203,6 +206,8 @@ export function fakeBrowserSession(
             result = browser.navigationHistory(id);
           else if (command.action === "history")
             result = browser.navigateHistory(id, command.direction);
+          else if (command.action === "selection") result = { text: "" };
+          else if (command.action === "find_text") result = { matches: 1, active: 1 };
           else if (command.action === "type") browser.type(id, command.text);
           else if (command.action === "resize") browser.resize(id, command.width, command.height);
           else if (command.action === "emulate") browser.resize(id, command.width, command.height);

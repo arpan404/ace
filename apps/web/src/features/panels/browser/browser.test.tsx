@@ -297,51 +297,43 @@ test("a thread's first page downloads the browser with progress, then opens the 
   expect(browser.view("thread-settings")?.closed).toBe(false);
 });
 
-test("each browser tab holds one page: a new tab's address opens a page beside the first, which keeps its own", async () => {
+test("navigation and browser chords keep one page in one panel tab", async () => {
   const { panel, browser } = await openBrowser();
   await within(panel).findByText("is browsing", { exact: false });
+  const first = browser.view("thread-cold-start")?.activeTabId;
   await goTo(panel, "docs.example.com");
   await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
-  const first = browser.view("thread-cold-start")?.activeTabId;
-
-  // A new tab from the launcher's address bar opens a page of its own.
-  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
-  const launcherAddress = await within(panel).findByRole("combobox", { name: "Address" });
-  await userEvent.type(launcherAddress, "example.org{Enter}");
+  await userEvent.click(address(panel));
+  await userEvent.keyboard("{Meta>}t{/Meta}");
+  await goTo(panel, "example.org");
   await within(panel).findByRole("tab", { name: "example.org", selected: true });
-  await waitFor(() => expect(browser.tabsList("thread-cold-start")).toHaveLength(2));
-  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/");
-
-  // The first tab still has its page; showing it (holding the page) makes it the live one.
-  await userEvent.click(within(panel).getByRole("tab", { name: "docs.example.com" }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.activeTabId).toBe(first));
-  await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com"));
-  expect(browser.tabsList("thread-cold-start")).toHaveLength(2);
+  expect(browser.tabsList("thread-cold-start")).toHaveLength(1);
+  expect(browser.view("thread-cold-start")?.activeTabId).toBe(first);
+  expect(within(panel).queryByRole("tab", { name: "docs.example.com" })).toBeNull();
 });
 
-test("a link that opens a new window opens it in a browser tab of its own and shows it", async () => {
+test("a normal popup replaces the current page and its panel tab", async () => {
   const { panel, browser } = await openBrowser();
   await within(panel).findByText("is browsing", { exact: false });
   await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
-  // The page's window.open (a target=_blank link) becomes a new page of the session.
   act(() => browser.tabOpen("thread-cold-start", "https://help.example.com/start"));
-  expect(
-    await within(panel).findByRole("tab", { name: "help.example.com", selected: true }),
-  ).toBeTruthy();
+  await within(panel).findByRole("tab", { name: "help.example.com", selected: true });
   await waitFor(() =>
     expect((address(panel) as HTMLInputElement).value).toBe("help.example.com/start"),
   );
-  // The page it came from keeps its own tab.
-  expect(within(panel).getByRole("tab", { name: /^localhost:5173/ })).toBeTruthy();
+  expect(browser.tabsList("thread-cold-start")).toHaveLength(1);
+  expect(within(panel).queryByRole("tab", { name: /^localhost:5173/ })).toBeNull();
 });
 
-test("leaving the browser while holding control hands the page back to the agent", async () => {
+test("switching tools preserves human control, and closing the panel hands it back", async () => {
   const { panel, browser } = await openBrowser();
   await within(panel).findByText("is browsing", { exact: false });
   await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  expect(browser.view("thread-cold-start")?.controller).toBe("human");
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
 });
 
@@ -382,7 +374,7 @@ test("while the window is hidden the browser stops pulling frames, and shows the
     );
     // That frame is not acknowledged while hidden, so the browser sends no more.
     act(() => browser.type("thread-cold-start", "Galaxy S25"));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await act(async () => {});
     expect(decodeURIComponent(page().getAttribute("src") ?? "")).not.toContain("Galaxy S25");
     act(() => visibility("visible"));
     await waitFor(() =>
@@ -416,5 +408,34 @@ test("a tab whose page has closed (as after a restart) names that page and opens
       closed: false,
       url: "https://docs.example.com/guide",
     }),
+  );
+});
+
+test("screencast paste inserts clipboard text and pointer gestures retain their buttons and click counts", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is browsing", { exact: false });
+  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
+  const page = await within(panel).findByRole("application");
+  page.focus();
+  expect(fireEvent.keyDown(page, { key: "v", code: "KeyV", ctrlKey: true })).toBe(true);
+  fireEvent.paste(page, { clipboardData: { files: [], getData: () => "Pasted fixture" } });
+  for (const [button, detail] of [
+    [0, 2],
+    [1, 1],
+    [2, 1],
+  ]) {
+    fireEvent.mouseDown(page, { clientX: 10, clientY: 20, button, detail });
+    fireEvent.mouseUp(page, { clientX: 10, clientY: 20, button, detail });
+  }
+  await waitFor(() =>
+    expect(browser.wireInputs.filter(({ input }) => input.kind === "mouse")).toHaveLength(6),
+  );
+  expect(browser.wireInputs.map(({ input }) => input)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: "key", event: "char", text: "Pasted fixture" }),
+      expect.objectContaining({ kind: "mouse", button: "left", clickCount: 2 }),
+      expect.objectContaining({ kind: "mouse", button: "middle", clickCount: 1 }),
+      expect.objectContaining({ kind: "mouse", button: "right", clickCount: 1 }),
+    ]),
   );
 });

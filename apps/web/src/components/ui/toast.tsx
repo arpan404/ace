@@ -32,9 +32,13 @@ function ToastProvider(props: { children: ReactNode }) {
         <Toast.Portal>
           <Toast.Viewport
             data-slot="toast-viewport"
+            style={{
+              top: "var(--toast-pane-top,calc(max(var(--header-h,48px),env(safe-area-inset-top,0px)) + 12px))",
+              bottom: "var(--toast-pane-bottom,auto)",
+            }}
             className={cn(
               layers.toast,
-              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
+              "pointer-events-none fixed left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
             )}
           >
             <ToastList />
