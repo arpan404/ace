@@ -12,6 +12,9 @@
       "minimum": 100,
       "type": "integer"
     },
+    "nativeShown": {
+      "type": "boolean"
+    },
     "width": {
       "maximum": 4096,
       "minimum": 100,
