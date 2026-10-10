@@ -411,6 +411,11 @@ test("native approvals chosen for a new thread are the ones it starts with", asy
   expect(approvals.textContent).toBe("Auto review");
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
+  // The provisional view has this title too; wait for the created thread before its controls.
+  expect(await started(made)).toMatchObject({
+    provider: "claude",
+    permission: { override: "auto", effective: "auto" },
+  });
   expect(await screen.findByRole("button", { name: /^Approvals: Auto review/ })).toBeTruthy();
 });
 test("switching provider clears a native mode the new provider does not offer", async () => {
