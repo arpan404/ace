@@ -13,7 +13,7 @@ test("Run checks shows results and a next step for an agent needing attention", 
   const cursor = within(results).getByText("Cursor").closest("li");
   if (!cursor) throw new Error("Missing Cursor result");
   await userEvent.click(within(cursor).getByRole("link", { name: "Open Providers" }));
-  expect(await screen.findByRole("region", { name: "On this computer" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Installed providers" })).toBeTruthy();
 });
 test("support export excludes conversations by default and downloads the chosen contents", async () => {
   const app = harness({ throughWorker: true });
