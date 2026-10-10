@@ -1,6 +1,7 @@
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
+import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
@@ -86,6 +87,7 @@ export class Store {
   private readonly payloads: PayloadStore;
   readonly measurements: MeasurementStore;
   readonly toolResults: ToolResultStore;
+  readonly nativeImages: NativeImageStore;
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
@@ -129,6 +131,7 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
+      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
       this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
       this.history = new HistoryIndex(
@@ -565,7 +568,10 @@ export class Store {
           at,
           payload: this.toolResults.decorate(
             threadId,
-            this.measurements.decorate(threadId, prepared, seq),
+            this.nativeImages.decorate(
+              threadId,
+              this.measurements.decorate(threadId, prepared, seq),
+            ),
             seq,
           ),
         });

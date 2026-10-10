@@ -7,6 +7,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && version(cli.version);
   return {
     steer: supported,
+    sessionOptions: supported,
+    launchOptions: supported ? ["effort"] : [],
     permissionModes: nativePermissionModes("opencode"),
     permissions: {
       modes: nativePermissionModes("opencode").map((mode) => mode.id),

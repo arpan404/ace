@@ -1,3 +1,4 @@
+import { PageMetrics } from "./page-metrics.ts";
 import { findNativeText } from "./find.ts";
 import { NativeDialogs } from "./dialogs.ts";
 import { NativeDownloads } from "./downloads.ts";
@@ -46,10 +47,12 @@ export class EmbeddedPage implements ViewPage {
   private injecting = 0;
   private lastBlocked = 0;
   private placed = false;
+  private placementPending = false;
+  private placementGeneration = 0;
   /** The window a renderer last placed this view in; parking never changes it. */
   private home: BaseWindow;
   private presence: ViewPresence = "hidden";
-  private metrics = "";
+  private metrics = new PageMetrics();
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
   private dialogs: NativeDialogs;
@@ -143,6 +146,8 @@ export class EmbeddedPage implements ViewPage {
     device?: NativeDevice | undefined;
   }) {
     const view = this.options.view;
+    const generation = ++this.placementGeneration;
+    this.placementPending = target.visible;
     if (target.window) this.home = target.window;
     this.placed = target.visible && target.bounds !== undefined && !this.home.isDestroyed();
     if (this.placed) this.attach(this.home);
@@ -161,18 +166,42 @@ export class EmbeddedPage implements ViewPage {
           }
         : undefined;
       const key = JSON.stringify(params ?? { zoom, ...target.bounds });
-      if (key !== this.metrics) {
-        this.metrics = key;
-        this.emit("ace.viewport", this.viewport());
-        void this.send(
-          params ? "Emulation.setDeviceMetricsOverride" : "Emulation.clearDeviceMetricsOverride",
-          params,
-        ).catch((error) => this.options.log(String(error)));
-      }
+      this.emit("ace.viewport", this.viewport());
+      void this.metrics
+        .place(key, () =>
+          this.send(
+            params ? "Emulation.setDeviceMetricsOverride" : "Emulation.clearDeviceMetricsOverride",
+            params,
+          ),
+        )
+        .then(
+          () => {
+            if (generation !== this.placementGeneration) return;
+            this.placementPending = false;
+            this.updateThrottle();
+          },
+          (error) => {
+            if (generation === this.placementGeneration) this.show("hidden");
+            this.options.log(String(error));
+          },
+        );
     }
     // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
     // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
+  }
+
+  async placementReady(): Promise<void> {
+    await this.metrics.settled();
+  }
+
+  isShown(): boolean {
+    return (
+      !this.placementPending &&
+      this.placed &&
+      this.presence === "placed" &&
+      !this.contents.isDestroyed()
+    );
   }
 
   private attach(window: BaseWindow): void {
@@ -196,11 +225,24 @@ export class EmbeddedPage implements ViewPage {
   }
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
-    if (method === "Emulation.setDeviceMetricsOverride" && this.placed && this.target) {
-      if (!this.target.device) return this.send("Emulation.clearDeviceMetricsOverride");
-      return this.send(method, {
-        ...params,
-        scale: this.target.bounds.width / (this.target.device.width * this.target.zoom),
+    if (
+      method === "Emulation.setDeviceMetricsOverride" ||
+      method === "Emulation.clearDeviceMetricsOverride"
+    ) {
+      return this.metrics.override(() => {
+        if (this.placed && this.target) {
+          const { device, bounds, zoom } = this.target;
+          return device
+            ? this.send("Emulation.setDeviceMetricsOverride", {
+                width: device.width,
+                height: device.height,
+                deviceScaleFactor: device.deviceScaleFactor ?? 0,
+                mobile: device.mobile ?? false,
+                scale: bounds.width / (device.width * zoom),
+              })
+            : this.send("Emulation.clearDeviceMetricsOverride");
+        }
+        return this.send(method, params);
       });
     }
     if (this.dialogs.answer(method, params)) return {};
@@ -308,12 +350,16 @@ export class EmbeddedPage implements ViewPage {
   async resize(width: number, height: number): Promise<void> {
     this.driven();
     if (this.placed) return;
-    await this.send("Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
-      deviceScaleFactor: 0,
-      mobile: false,
-    });
+    await this.metrics.override(() =>
+      this.placed
+        ? Promise.resolve()
+        : this.send("Emulation.setDeviceMetricsOverride", {
+            width,
+            height,
+            deviceScaleFactor: 0,
+            mobile: false,
+          }),
+    );
     // A view the renderer is not showing takes the requested size itself.
     if (this.placed) return;
     if (this.presence === "parked") this.options.park({ width, height });
@@ -382,6 +428,10 @@ export class EmbeddedPage implements ViewPage {
     clearTimeout(this.throttleTimer);
     this.throttleTimer = undefined;
     if (this.closing || this.contents.isDestroyed()) return;
+    if (this.placementPending) {
+      this.show("hidden");
+      return;
+    }
     const decision = throttleDecision(
       {
         visible: this.placed,

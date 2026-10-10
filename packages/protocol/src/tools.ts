@@ -123,7 +123,14 @@ export const ToolDetail = z.discriminatedUnion("kind", [
     todos: z.array(TodoEntry).optional(),
   }),
   z.object({ kind: z.literal("ask_user") }),
-  z.object({ kind: z.enum(["browser", "image", "notebook", "custom"]) }),
+  z.object({
+    kind: z.literal("image"),
+    path: z.string().max(4096).optional(),
+    sourcePath: z.string().max(4096).optional(),
+    attachment: Attachment.optional(),
+    unavailable: z.string().optional(),
+  }),
+  z.object({ kind: z.enum(["browser", "notebook", "custom"]) }),
 ]);
 export type ToolDetail = z.infer<typeof ToolDetail>;
 

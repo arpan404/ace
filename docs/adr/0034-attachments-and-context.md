@@ -232,3 +232,23 @@ and resumable socket uploads remain available for slower links. GET/HEAD origina
 now stream retained files beyond
 the former 32 MiB response cap. The allocating client `attachmentBytes` helper
 retains its independent 32 MiB memory budget; large provider inputs use local paths.
+
+## Native tool images and environment links, 2026-10-09
+
+Completed native image tools provide evidence of an exact image path in the agent's
+environment. A bounded background observer captures that file into the existing
+thread attachment store. It rejects symbolic links, non-regular files, files over
+8 MiB and files replaced or changed during the read. Relative paths resolve against
+the producing agent's working directory. Capturing never blocks provider event
+delivery. Missing images show an unavailable state rather than failing the turn.
+
+An immutable per-thread image index preserves attachment ownership across provider
+snapshot updates and daemon restart. The `image.resolve` context operation returns
+metadata only for already captured images in the authorized thread; it never reads
+an arbitrary path supplied by a client. Clients obtain image bytes through the
+existing authenticated attachment transport, including on another device.
+
+Assistant markdown resolves local references through the thread's owning client.
+Captured images render inline and open the existing lightbox. File links inside
+the thread checkout open its file panel. Uncaptured files outside that checkout
+remain unavailable. No link reads the viewing device's local filesystem.

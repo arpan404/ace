@@ -2,6 +2,15 @@ import { expect, it } from "vitest";
 import { deriveThreadStatus } from "@ace/core";
 import { replay } from "./translator-test-support.ts";
 
+it("normal disposal after a completed child-free turn creates no runtime warning", () => {
+  const r = replay();
+  r.frame("result", { status: "finished" });
+  const before = r.events.length;
+  r.frame("host-exit", { deliberate: true });
+  expect(r.events.slice(before)).toEqual([]);
+  expect(deriveThreadStatus(r.state).state).toBe("done");
+});
+
 it("links a late native child ID once and waits for foreground task completion", () => {
   const r = replay();
   r.frame("delta", {

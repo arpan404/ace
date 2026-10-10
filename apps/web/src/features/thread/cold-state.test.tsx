@@ -64,7 +64,7 @@ test("one input repeated under uncertain and queued states shows one message to 
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getAllByText("yo")).toHaveLength(1);
-  expect(within(queue).getByText("May have been sent")).toBeTruthy();
+  expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
   expect(within(queue).queryByText("Queued", { exact: true })).toBeNull();
 });
 
@@ -96,6 +96,6 @@ test("separate queued inputs with identical text remain individually visible", a
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getAllByText("yo")).toHaveLength(2);
-  expect(within(queue).getByText("May have been sent")).toBeTruthy();
-  expect(within(queue).getByText("Queued", { exact: true })).toBeTruthy();
+  expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
+  expect(within(queue).getByRole("button", { name: "Send now" })).toBeTruthy();
 });

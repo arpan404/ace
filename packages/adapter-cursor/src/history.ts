@@ -28,16 +28,19 @@ const Snapshot = z.object({
           uuid: z.string().max(1024),
           agent_id: z.string().max(512),
           type: z.enum(["user", "assistant"]),
-          message: z.unknown(),
         })
-        .passthrough(),
+        .strict(),
     )
     .max(200),
 });
 /** Executed in a short-lived memory-limited worker, before Agent.resume can load full history. */
 export type SnapshotSdkBoundary = {
   JsonlLocalAgentStore: SdkModule["JsonlLocalAgentStore"];
-  Agent: { messages: Pick<SdkModule["Agent"]["messages"], "list"> };
+  Agent: {
+    messages: {
+      list(...args: Parameters<SdkModule["Agent"]["messages"]["list"]>): Promise<unknown>;
+    };
+  };
 };
 export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, home = homedir()) {
   const request = SnapshotRequest.parse(input);
@@ -61,7 +64,18 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
     });
     if (before !== (await checkpointRevision(owned.store, request.agentId)))
       throw new Error("Checkpoint changed during snapshot; reconcile before sending");
-    for (const [index, item] of items.entries()) {
+    if (!Array.isArray(items) || items.length > request.limits.historyPageSize)
+      throw new Error("Snapshot page exceeds history limit");
+    const identities = items.map((item) => {
+      const values: Record<string, unknown> = {};
+      for (const key of ["uuid", "agent_id", "type"]) {
+        const descriptor = Object.getOwnPropertyDescriptor(item, key);
+        if (!descriptor || !("value" in descriptor)) throw new Error("Invalid snapshot identity");
+        values[key] = descriptor.value;
+      }
+      return Snapshot.shape.items.element.parse(values);
+    });
+    for (const [index, item] of identities.entries()) {
       if (
         item.agent_id !== request.agentId ||
         item.uuid !== `${request.agentId}:${request.offset + index}`
@@ -70,7 +84,7 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
     }
     const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
     const safeItems: unknown = JSON.parse(
-      scrub(boundedJson(items, Math.min(request.limits.maxFrameBytes - 4096, 262144))),
+      scrub(boundedJson(identities, Math.min(request.limits.maxFrameBytes - 1024, 262144))),
     );
     return Snapshot.parse({
       agentId: request.agentId,
@@ -104,9 +118,10 @@ export async function readCursorSnapshot(
     );
     signal.throwIfAborted();
     return snapshot;
-  } catch {
+  } catch (cause) {
     throw new Error(
-      "Cursor SDK history recovery failed within the checkpoint/heap/time budget. Preserve this thread and create an explicit bounded context handoff; automatic resend is fenced.",
+      "Cursor SDK history could not be verified. Your thread and queued message are preserved; retry after resolving the provider error, or continue with a bounded context handoff.",
+      { cause },
     );
   } finally {
     signal.removeEventListener("abort", abort);

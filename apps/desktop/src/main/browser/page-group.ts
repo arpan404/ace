@@ -141,6 +141,12 @@ export class EmbeddedPageGroup implements ViewPage {
       tab.page.setAgentControl(this.agent);
     }
   }
+  async placementReady(): Promise<void> {
+    await this.tabs.get(this.active)?.page.placementReady();
+  }
+  isShown(): boolean {
+    return this.tabs.get(this.active)?.page.isShown() ?? false;
+  }
   place(target: typeof this.target) {
     this.target = target;
     this.apply();

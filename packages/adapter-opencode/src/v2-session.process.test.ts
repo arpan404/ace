@@ -461,3 +461,38 @@ it("the fake OpenCode V2 server receives PDF and binary paths as prompt text", a
   });
   expect(object(prompt?.body).files).toBeUndefined();
 });
+
+it("variant switches preserve native history and restore the provider default on the same session", async () => {
+  const h = await setup();
+  const nativeId = h.session.nativeSessionId;
+  if (!h.session.configure) throw new Error("Live model configuration unavailable");
+  await h.session.configure({
+    provider: "opencode",
+    model: "opencode-go/muse-spark-1.3-contributor",
+    options: { effort: "high" },
+  });
+  await h.session.send([{ type: "text", text: "with high variant" }], "queue");
+  await h.session.configure({
+    provider: "opencode",
+    model: "opencode-go/muse-spark-1.3-contributor",
+    options: {},
+  });
+  await h.session.send([{ type: "text", text: "with native default" }], "queue");
+  expect(h.session.nativeSessionId).toBe(nativeId);
+  const requests = array(await h.control("/test/requests")).map(object);
+  const switches = requests.filter((r) => String(r.path).endsWith("/model"));
+  expect(switches.map((r) => object(r.body).model)).toEqual([
+    { providerID: "opencode-go", id: "muse-spark-1.3-contributor", variant: "high" },
+    { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
+  ]);
+  expect(requests.filter((r) => r.path === "/api/session" && r.method === "POST")).toHaveLength(1);
+  await h.open("/two");
+  await h.session.close("shutdown");
+  await h.open("/one", nativeId, undefined, "opencode-go/muse-spark-1.3-contributor", {
+    effort: "low",
+  });
+  const resumedRequests = array(await h.control("/test/requests")).map(object);
+  expect(resumedRequests.findLast((r) => String(r.path).endsWith("/model"))?.body).toMatchObject({
+    model: { variant: "low" },
+  });
+});

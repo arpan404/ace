@@ -4,6 +4,31 @@
   "oneOf": [
     {
       "properties": {
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "op": {
+          "const": "image.resolve",
+          "type": "string"
+        },
+        "reference": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "reference"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "op": {
           "const": "draft.create",
           "type": "string"

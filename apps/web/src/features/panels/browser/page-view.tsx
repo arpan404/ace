@@ -26,6 +26,8 @@ export function PageView(props: {
   view: BrowserView;
   frame: ScreenFrame;
   interactive: boolean;
+  /** Native page acknowledged as visible; keep capture warm but do not paint a second copy. */
+  nativeShown?: boolean;
   /** Follow the pane's size (responsive); false while a device size is set. */
   fit: boolean;
   /** Dimmed with a reason over it (offline, paused). */
@@ -104,7 +106,7 @@ export function PageView(props: {
         : {}),
     });
   };
-  const image = (
+  const image = !props.nativeShown && (
     <img
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
@@ -124,7 +126,7 @@ export function PageView(props: {
     "absolute inset-0 flex overflow-hidden",
     props.fit ? "items-start justify-start" : "items-center justify-center p-6",
   );
-  return props.interactive ? (
+  return props.interactive && !props.nativeShown ? (
     <div
       ref={pane}
       role="application"

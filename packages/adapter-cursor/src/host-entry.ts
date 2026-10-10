@@ -90,6 +90,7 @@ const wire = hostWire(async (method, params) => {
     (frame) => wire.confirmed("frame", frame),
   );
   if (method === "open") return runtime.open(params);
+  if (method === "configure") return runtime.configure(params);
   if (method === "send") return runtime.send(params);
   if (method === "cancel") {
     await runtime.cancel();

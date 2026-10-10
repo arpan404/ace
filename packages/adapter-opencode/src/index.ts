@@ -42,6 +42,7 @@ export function createOpenCodeAdapter(
             return session.nativeSessionId;
           },
           send: (input, delivery, commandId) => session.send(input, delivery, commandId),
+          configure: (selection) => session.configure(selection),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

@@ -18,7 +18,7 @@ export interface Suggestion {
 }
 export type Suggestions =
   | { state: "closed" }
-  | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[] }
+  | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[]; refreshing?: boolean }
   | { state: "loading" | "empty" | "failed"; kind: Trigger["kind"]; query: string };
 const groups = {
   builtin: "Add",
@@ -45,10 +45,10 @@ export function useSuggestions(
   const sources = useThreadSources();
   const ready = useConnectionState() === "ready";
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
-  const { id, title, provider, instanceId, workspaceId, draft } = thread;
+  const { id, provider, instanceId, workspaceId, draft } = thread;
   const reference = useMemo(
-    () => ({ id, title, provider, instanceId, workspaceId, draft }),
-    [id, title, provider, instanceId, workspaceId, draft],
+    () => ({ id, provider, instanceId, workspaceId, draft }),
+    [id, provider, instanceId, workspaceId, draft],
   );
   const [catalog, setCatalog] = useState<{
     reference: typeof reference;
@@ -109,7 +109,7 @@ export function useSuggestions(
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
     if (catalog.failed) return { state: "failed", kind, query };
-    if (catalog.stale) return { state: "loading", kind, query };
+    if (catalog.stale && !catalog.entries.length) return { state: "loading", kind, query };
     const entries = thread.draft
       ? catalog.entries
       : [
@@ -140,5 +140,7 @@ export function useSuggestions(
       }))
       .toSorted((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
   }
-  return items.length ? { state: "ready", kind, items } : { state: "empty", kind, query };
+  return items.length
+    ? { state: "ready", kind, items, refreshing: kind === "command" && catalog?.stale === true }
+    : { state: "empty", kind, query };
 }

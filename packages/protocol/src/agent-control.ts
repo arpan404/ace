@@ -146,6 +146,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     op: z.literal("thread.rename"),
     threadId: ThreadId,
     title: z.string().min(1).max(256),
+    onlyIfProvisional: z.boolean().optional(),
   }),
   z.strictObject({ op: z.literal("thread.regenerate_title"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("thread.link_pr"), threadId: ThreadId, url: z.url().max(2048) }),

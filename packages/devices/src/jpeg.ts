@@ -22,7 +22,7 @@ export class JpegDecoder {
       this.append(chunk.subarray(start, end));
       const image = this.buffer.subarray(0, this.size);
       this.size = 0;
-      const { width, height } = dimensions(image);
+      const { width, height } = jpegDimensions(image);
       this.emit(image, width, height);
       start = end;
       end = 0;
@@ -43,7 +43,7 @@ export class JpegDecoder {
     this.size = next;
   }
 }
-function dimensions(image: Buffer): { width: number; height: number } {
+export function jpegDimensions(image: Buffer): { width: number; height: number } {
   if (image.readUInt16BE(0) !== 0xffd8) throw new Error("Invalid JPEG start");
   for (let at = 2; at + 4 <= image.length;) {
     if (image[at] !== 255) throw new Error("Invalid JPEG marker");

@@ -204,10 +204,17 @@ export function createAgentControlPort(
           });
         }
         case "thread.rename":
-          store.appendEvents(operation.threadId, [
-            { type: "thread.updated", title: operation.title, titleSource: "agent" },
-          ]);
-          return { ok: true };
+          return store.atomic(() => {
+            if (
+              operation.onlyIfProvisional &&
+              store.getThread(operation.threadId)?.titleSource !== "provisional"
+            )
+              return { ok: false, code: "not_ready" as const };
+            store.appendEvents(operation.threadId, [
+              { type: "thread.updated", title: operation.title, titleSource: "agent" },
+            ]);
+            return { ok: true };
+          });
         case "thread.regenerate_title": {
           const oldest = oldestTitleInput(store, operation.threadId);
           if (!oldest) return { ok: false, code: "not_ready" };

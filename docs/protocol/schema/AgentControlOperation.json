@@ -532,6 +532,9 @@
     {
       "additionalProperties": false,
       "properties": {
+        "onlyIfProvisional": {
+          "type": "boolean"
+        },
         "op": {
           "const": "thread.rename",
           "type": "string"

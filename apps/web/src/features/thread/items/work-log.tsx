@@ -1,3 +1,5 @@
+import { useItem } from "@ace/client-react";
+import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { Suspense, use, useEffect, useId, useState } from "react";
 import { DeferredWorkLogSteps } from "./deferred-steps.ts";
 import { JumpedItem } from "./jumped-item.ts";
@@ -43,11 +45,32 @@ export function WorkLog(props: {
         panel={panel}
         onToggle={() => setOpen(!open)}
       />
+      {!open &&
+        props.itemIds.map((itemId) => (
+          <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
+        ))}
       {open && (
         <Suspense fallback={null}>
           <Steps threadId={props.threadId} itemIds={props.itemIds} panel={panel} />
         </Suspense>
       )}
     </div>
+  );
+}
+
+function WorkLogImage(props: { threadId: string; itemId: string }) {
+  const item = useItem(props.threadId, props.itemId);
+  if (
+    item?.type !== "tool_call" ||
+    item.call.detail.kind !== "image" ||
+    !item.call.detail.attachment
+  )
+    return null;
+  return (
+    <MessageAttachments
+      threadId={props.threadId}
+      attachments={[item.call.detail.attachment]}
+      className="my-2 items-start"
+    />
   );
 }

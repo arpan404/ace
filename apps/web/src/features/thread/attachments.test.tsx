@@ -1,6 +1,6 @@
 import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
 import type { Attachment, ContentPart } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -37,6 +37,7 @@ const dot =
 async function openMessage(
   draft: { parts?: ContentPart[]; attachments?: Attachment[] },
   extra: Parameters<FakeDaemon["apply"]>[1] = [],
+  readyText = "What changed here?",
 ) {
   const app = harness();
   app.daemon.createThread({
@@ -67,7 +68,7 @@ async function openMessage(
   ]);
   await app.open("/t/thread-shots");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("What changed here?");
+  await within(feed).findByText(readyText);
   return { app, feed };
 }
 
@@ -103,6 +104,163 @@ test("an image whose bytes this device can't reach reads as unavailable, with it
     await within(feed).findByRole("img", { name: "lost.png: image unavailable on this device" }),
   ).toBeTruthy();
   expect(within(feed).queryByRole("img", { name: "lost.png" })).toBeNull();
+});
+
+test("a native image captured after the answer arrives appears inline from its owning environment", async () => {
+  const { app, feed } = await openMessage({}, [
+    facts.rootAgent("codex", "/remote/results"),
+    facts.tool("root", "native-image", {
+      kind: "image",
+      title: "Viewed image",
+      detail: { kind: "image", path: "/remote/results/home.png" },
+    }),
+    facts.toolDone("root", "native-image"),
+    facts.message(
+      "root",
+      "answer",
+      "assistant",
+      "Here is ![Remote result](./home.png) in the chat.",
+    ),
+  ]);
+  await within(feed).findByText(/in the chat/);
+  expect(within(feed).queryByRole("img", { name: "Remote result" })).toBeNull();
+  act(() =>
+    app.daemon.apply("thread-shots", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "native-image",
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: { detail: { kind: "image", path: "/remote/results/home.png", attachment: home } },
+        },
+      },
+    ]),
+  );
+  const image = await within(feed).findByRole("img", { name: "Remote result" });
+  expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
+  expect(image.closest("p")?.textContent).toContain("in the chat.");
+  expect(image.closest("p")?.querySelector("div")).toBeNull();
+});
+
+test("source links open the thread checkout while unrelated host paths remain unavailable", async () => {
+  const { feed } = await openMessage({}, [
+    facts.message(
+      "root",
+      "answer",
+      "assistant",
+      "Read [source](/work/shop/src/main.ts:12) and [other](/remote/other/main.ts).",
+    ),
+  ]);
+  await userEvent.click(await within(feed).findByRole("button", { name: "source" }));
+  await screen.findByRole("tab", { name: /main.ts/ });
+  expect(within(feed).queryByRole("button", { name: "other" })).toBeNull();
+  expect(within(feed).getByText("other").getAttribute("title")).toContain("not available");
+});
+
+test("an older relative image stays visible after its agent changes folders", async () => {
+  const { app, feed } = await openMessage({}, [
+    facts.tool("root", "old-chart", {
+      kind: "image",
+      title: "Viewed image",
+      detail: {
+        kind: "image",
+        path: "/work/shop/home.png",
+        sourcePath: "home.png",
+        attachment: home,
+      },
+    }),
+    facts.toolDone("root", "old-chart"),
+    facts.message("root", "old-answer", "assistant", "![Original chart](./home.png)"),
+  ]);
+  const image = await within(feed).findByRole("img", { name: "Original chart" });
+  const first = image.getAttribute("src");
+  act(() => app.daemon.apply("thread-shots", [facts.rootAgent("codex", "/remote/new-folder")]));
+  await waitFor(() =>
+    expect(within(feed).getByRole("img", { name: "Original chart" }).getAttribute("src")).toBe(
+      first,
+    ),
+  );
+});
+
+test("a relative image uses the answering agent's capture rather than a child's same filename", async () => {
+  const { feed } = await openMessage({}, [
+    facts.tool("root", "root-chart", {
+      kind: "image",
+      title: "Viewed image",
+      detail: {
+        kind: "image",
+        path: "/work/shop/home.png",
+        sourcePath: "home.png",
+        attachment: home,
+      },
+    }),
+    facts.toolDone("root", "root-chart"),
+    {
+      type: "agent.seen",
+      agent: "child",
+      parent: "root",
+      spawnedBy: "root-chart",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "child" },
+      cwd: "/work/shop",
+    },
+    facts.tool("child", "child-chart", {
+      kind: "image",
+      title: "Viewed image",
+      detail: {
+        kind: "image",
+        path: "/work/shop/home.png",
+        attachment: { ...home, sha256: "e".repeat(64) },
+      },
+    }),
+    facts.toolDone("child", "child-chart"),
+    facts.message("root", "root-answer", "assistant", "![Root chart](./home.png)"),
+  ]);
+  const image = await within(feed).findByRole("img", { name: "Root chart" });
+  expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
+});
+
+test("a delayed capture outside the loaded transcript refreshes the answer's image metadata", async () => {
+  const old = [
+    facts.tool("root", "evicted-chart", {
+      kind: "image",
+      title: "Viewed image",
+      detail: { kind: "image", path: "/work/shop/home.png", sourcePath: "home.png" },
+    }),
+    facts.toolDone("root", "evicted-chart"),
+    ...Array.from({ length: 205 }, (_, index) =>
+      facts.message("root", `older-${index}`, "assistant", `Older message ${index}`),
+    ),
+    facts.message("root", "latest-chart", "assistant", "![Delayed chart](./home.png)"),
+  ];
+  const { app, feed } = await openMessage({}, old, "Delayed chart");
+  await within(feed).findByText("Delayed chart");
+  act(() =>
+    app.daemon.apply("thread-shots", [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "evicted-chart",
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: {
+            detail: {
+              kind: "image",
+              path: "/work/shop/home.png",
+              sourcePath: "home.png",
+              attachment: home,
+            },
+          },
+        },
+      },
+    ]),
+  );
+  const image = await within(feed).findByRole("img", { name: "Delayed chart" }, { timeout: 3000 });
+  expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
 });
 
 test("files show their name, size and type, never the path they were stored at", async () => {

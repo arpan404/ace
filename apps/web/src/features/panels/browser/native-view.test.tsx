@@ -76,6 +76,7 @@ beforeEach(() => {
     browser: {
       place: async (placement: NativeViewPlacement) => {
         placed.push(placement);
+        return placement.visible;
       },
       onWantsControl: (listener: (event: { threadId: string }) => void) => {
         wantsControl = listener;
@@ -146,9 +147,13 @@ test("the embedded page steps aside while the tab's menu is open over it", async
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await screen.findByRole("menu");
   await waitFor(() => expect(last()?.visible).toBe(false));
+  expect(within(panel).getByRole("img", { name: /^Live view of / })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await waitFor(() => expect(last()?.visible).toBe(true));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
 });
 
 test("a page from the daemon's own headless browser is never placed natively", async () => {
@@ -228,4 +233,148 @@ test("inline address suggestions hide the native page until they close", async (
   await waitFor(() => expect(last()?.visible).toBe(false));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(last()?.visible).toBe(true));
+});
+
+test("a missing native page keeps the captured page visible", async () => {
+  Reflect.set(globalThis, "ace", { browser: { place: async () => false } });
+  const { panel } = await openEmbeddedBrowser();
+  expect(await within(panel).findByRole("img", { name: /^Live view of / })).toBeTruthy();
+});
+
+test("a failed native placement keeps the captured page visible", async () => {
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: async () => {
+        throw new Error("Native page unavailable");
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  expect(await within(panel).findByRole("img", { name: /^Live view of / })).toBeTruthy();
+});
+
+test("an old show acknowledgment cannot hide the fallback beneath an open menu", async () => {
+  let resolve: ((visible: boolean) => void) | undefined;
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: (placement: NativeViewPlacement) => {
+        placed.push(placement);
+        return placement.visible
+          ? new Promise<boolean>((done) => {
+              resolve = done;
+            })
+          : Promise.resolve(false);
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await screen.findByRole("menu");
+  await waitFor(() => expect(last()?.visible).toBe(false));
+  await act(async () => resolve?.(true));
+  expect(within(panel).getByRole("img", { name: /^Live view of / })).toBeTruthy();
+});
+
+test("visibility notifications cannot hide the fallback before placement acknowledges readiness", async () => {
+  let visibility: ((event: { threadId: string; visible: boolean }) => void) | undefined;
+  let ready: ((value: boolean) => void) | undefined;
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: (placement: NativeViewPlacement) => {
+        placed.push(placement);
+        return new Promise<boolean>((resolve) => {
+          ready = resolve;
+        });
+      },
+      onVisibility: (listener: typeof visibility) => {
+        visibility = listener;
+        return () => {
+          visibility = undefined;
+        };
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  act(() => visibility?.({ threadId: "thread-cold-start", visible: true }));
+  expect(await within(panel).findByRole("img", { name: /^Live view of / })).toBeTruthy();
+  await act(async () => ready?.(true));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
+});
+
+test("a transient native failure recovers without resizing the panel", async () => {
+  let failed = false;
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: async (placement: NativeViewPlacement) => {
+        placed.push(placement);
+        if (placement.visible && !failed) {
+          failed = true;
+          return false;
+        }
+        return placement.visible;
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
+  expect(last()?.bounds).toEqual({ x: 500, y: 100, width: 400, height: 600 });
+});
+
+test("an older same-bounds refusal cannot replace a newer acknowledged view", async () => {
+  const receipts: ((receipt: string) => void)[] = [];
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: (placement: NativeViewPlacement) => {
+        placed.push(placement);
+        return placement.visible
+          ? new Promise<string>((resolve) => receipts.push(resolve))
+          : Promise.resolve("hidden");
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(receipts.length).toBe(1));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await screen.findByRole("menu");
+  await waitFor(() => expect(last()?.visible).toBe(false));
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(receipts.length).toBe(2));
+  await act(async () => receipts[1]?.("shown"));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
+  await act(async () => receipts[0]?.("unavailable"));
+  expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull();
+});
+
+test("closing the other window restores the retained view without taking it over beforehand", async () => {
+  let visibility: ((event: { threadId: string; visible: boolean }) => void) | undefined;
+  Reflect.set(globalThis, "ace", {
+    browser: {
+      place: async (placement: NativeViewPlacement) => {
+        placed.push(placement);
+        return placement.visible ? "superseded" : "hidden";
+      },
+      onVisibility: (listener: typeof visibility) => {
+        visibility = listener;
+        return () => {
+          visibility = undefined;
+        };
+      },
+    },
+  });
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  expect(await within(panel).findByRole("img", { name: /^Live view of / })).toBeTruthy();
+  await act(async () => visibility?.({ threadId: "thread-cold-start", visible: true }));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
 });

@@ -1,3 +1,4 @@
+import { BrowserPlacementReceipt } from "./contract.ts";
 import { z } from "zod";
 import {
   AbsolutePath,
@@ -71,7 +72,7 @@ export const requests = {
   "settings.update": { request: DesktopSettingsPatch, result: DesktopSettings },
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
-  "browser.place": { request: BrowserPlacement, result: None },
+  "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
   /** The new lease arrives as a `browser.controller` event once the daemon grants it. */
   "browser.control": { request: BrowserControlRequest, result: None },
   "updates.check": { request: None, result: UpdateStatus },
@@ -88,6 +89,7 @@ export const events = {
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
   "browser.controller": BrowserController,
+  "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
   "browser.wants-control": BrowserWantsControl,
   "browser.shortcut": BrowserShortcut,
   "updates.status": UpdateStatus,

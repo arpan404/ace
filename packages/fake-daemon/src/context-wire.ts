@@ -237,6 +237,32 @@ export class FakeContextWire {
         if (![...this.attachments.values()].some((refs) => refs.has(op.sha256)))
           this.blobs.delete(op.sha256);
         result = { kind: "ok" };
+      } else if (op.op === "image.resolve") {
+        check(op.threadId);
+        const view = this.context.thread(op.threadId);
+        const boundary = op.itemId
+          ? (view?.itemOrder.indexOf(op.itemId) ?? -1)
+          : (view?.itemOrder.length ?? 0);
+        const found = view?.itemOrder
+          .slice(0, Math.max(0, boundary))
+          .toReversed()
+          .map((id) => view.items[id])
+          .find(
+            (item) =>
+              item?.type === "tool_call" &&
+              (!op.itemId ||
+                op.reference.startsWith("/") ||
+                item.agentId === view?.items[op.itemId]?.agentId) &&
+              item.call.detail.kind === "image" &&
+              (item.call.detail.path === op.reference ||
+                item.call.detail.sourcePath === op.reference),
+          );
+        result =
+          found?.type === "tool_call" &&
+          found.call.detail.kind === "image" &&
+          found.call.detail.attachment
+            ? { kind: "attachment", attachment: found.call.detail.attachment }
+            : { kind: "error", code: "not_found", message: "Image not saved" };
       } else if (op.op === "mention.resolve") {
         check(op.threadId);
         result = {

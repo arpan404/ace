@@ -8,6 +8,7 @@ import { createRedactor } from "@ace/redaction";
 import { checkpointDirectory, checkCheckpointBudget } from "./checkpoints.ts";
 import {
   Open,
+  Configure,
   Send,
   type CursorEnvelope,
   type OpenOptions,
@@ -30,6 +31,7 @@ export class HostRuntime {
   private agent: SdkAgentBoundary | undefined;
   private run: SdkRunBoundary | undefined;
   private completion: Promise<void> | undefined;
+  private terminalDraining = false;
   private opening = false;
   private openingDone: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
@@ -314,7 +316,22 @@ export class HostRuntime {
       opened.resolve();
     }
   }
+  async configure(value: unknown): Promise<{ configured: true }> {
+    await this.drainTerminal();
+    if (
+      !this.options ||
+      !this.agent ||
+      this.sending ||
+      this.completion ||
+      this.closing ||
+      this.transportFenced
+    )
+      throw new Error("Host not ready for model configuration");
+    this.options = { ...this.options, ...Configure.parse(value) };
+    return { configured: true };
+  }
   async send(value: unknown): Promise<{ runId: string }> {
+    await this.drainTerminal();
     if (
       !this.agent ||
       !this.options ||
@@ -334,6 +351,10 @@ export class HostRuntime {
       await this.frame("send", { input: input.input });
       let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(sdkInput(input.input), {
+        model: {
+          id: this.options.model ?? "composer-2.5",
+          ...(this.options.modelParams?.length ? { params: this.options.modelParams } : {}),
+        },
         idempotencyKey: `${input.commandId ?? input.operationId}:${input.segment}`,
         onDelta: async ({ update }) => {
           await this.frame("delta", update, input, segmentRun);
@@ -344,6 +365,7 @@ export class HostRuntime {
       const run = segmentRun;
       this.completion = this.consume(run, input).finally(() => {
         this.completion = undefined;
+        this.terminalDraining = false;
         this.run = undefined;
       });
       void this.completion.catch(() => {});
@@ -360,10 +382,14 @@ export class HostRuntime {
       this.sending = false;
     }
   }
+  private async drainTerminal(): Promise<void> {
+    if (this.terminalDraining) await this.completion;
+  }
   private async consume(run: SdkRunBoundary, scope: SendOptions): Promise<void> {
     try {
       for await (const message of run.stream()) await this.frame("message", message, scope, run);
       const result = await run.wait();
+      this.terminalDraining = true;
       await this.frame(
         "result",
         result.error

@@ -175,7 +175,10 @@ export function itemDraft(item: Obj, complete: boolean): ItemDraft {
             ),
           }
         : { kind: "web.fetch", url: str(action["url"]) };
-  } else if (type === "imageView" || type === "imageGeneration") detail = { kind: "image" };
-  else if (type === "dynamicToolCall") name = item["tool"];
+  } else if (type === "imageView" || type === "imageGeneration") {
+    const path = str(type === "imageView" ? item["path"] : item["savedPath"]);
+    detail = { kind: "image", ...(path ? { path } : {}) };
+    title = type === "imageView" ? "Viewed image" : "Generated image";
+  } else if (type === "dynamicToolCall") name = item["tool"];
   return toolDraft(detail, title, item, status, type, name);
 }

@@ -7,7 +7,7 @@ import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePermissionRules } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
-import type { ContentPart, InteractionResolution } from "@ace/protocol";
+import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
@@ -154,7 +154,7 @@ export class OpenCodeSession implements ProviderSession {
           : await s.client.session.create({
               title: "ace",
               location: { directory: ctx.cwd },
-              model: selectedModel(ctx.model),
+              model: selectedModel(ctx.model, ctx.options),
               ...(ctx.permissionMode
                 ? { permissions: opencodePermissionRules(ctx.permissionMode) }
                 : {}),
@@ -167,13 +167,16 @@ export class OpenCodeSession implements ProviderSession {
             ? { permissions: opencodePermissionRules(ctx.permissionMode) }
             : {}),
         });
-        const model = selectedModel(ctx.model);
-        const previous = z.object({ providerID: z.string(), id: z.string() }).safeParse(info.model);
+        const model = selectedModel(ctx.model, ctx.options);
+        const previous = z
+          .object({ providerID: z.string(), id: z.string(), variant: z.string().optional() })
+          .safeParse(info.model);
         if (
           model &&
           (!previous.success ||
             previous.data.providerID !== model.providerID ||
-            previous.data.id !== model.id)
+            previous.data.id !== model.id ||
+            previous.data.variant !== model.variant)
         ) {
           await s.client.session.switchModel({ sessionID: info.id, model });
           info.model = model;
@@ -337,6 +340,15 @@ export class OpenCodeSession implements ProviderSession {
     await this.ensureMcp(
       this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
     );
+  }
+  async configure(selection: ExecutionSelection): Promise<void> {
+    if (selection.provider !== "opencode" || !selection.model)
+      throw new Error("Invalid OpenCode selection");
+    await this.barrier();
+    const model = selectedModel(selection.model, selection.options);
+    if (!model) throw new Error("Missing OpenCode model");
+    await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
+    this.ctx = { ...this.ctx, model: selection.model, options: selection.options };
   }
   send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
     return this.prompts.send(input, delivery, commandId);

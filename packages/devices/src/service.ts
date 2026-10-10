@@ -319,22 +319,32 @@ export class DevicesService {
     }
     this.authorize(session, actor);
     if (operation.op === "controller") {
-      if (operation.controller === "none") session.lease.release();
-      else if (operation.controller === "human") session.lease.claim(actor);
-      else {
+      let requested = actor;
+      if (operation.controller === "agent") {
         if (!operation.threadId || !operation.agentId || session.threadId !== operation.threadId)
           throw new DeviceError(
             "permission_denied",
             "Agent must belong to approved thread",
             "Approve the thread and select an agent.",
           );
-        session.lease.claim({
+        requested = {
           kind: "agent",
           owner: agentOwner(operation.threadId, operation.agentId),
           threadId: operation.threadId,
           agentId: operation.agentId,
-        });
+        };
       }
+      const revision = ++session.controlRevision;
+      const generation = session.generation;
+      session.pendingController = actor.owner;
+      session.lease.release();
+      await session.capture?.releaseInput?.();
+      this.authorize(session, actor);
+      if (revision !== session.controlRevision || generation !== session.generation)
+        throw new DeviceError("busy", "Device control changed", "Take control again.");
+      delete session.pendingController;
+      if (operation.controller === "none") session.lease.release();
+      else session.lease.claim(requested);
       if (session.capture?.screenSessionId && this.options.screen) {
         mirrorDeviceController(
           session,
@@ -345,6 +355,11 @@ export class DevicesService {
       }
       session.leaseExpiry?.();
       session.leaseExpiry = watchDeviceLease(session.lease, this.options.runtime, () => {
+        void session.capture
+          ?.releaseInput?.()
+          .catch((error) =>
+            this.options.log?.("warn", "Device input cleanup failed", { message: String(error) }),
+          );
         try {
           if (session.capture?.screenSessionId && this.options.screen)
             this.options.screen.controller(session.capture.screenSessionId, "none");
@@ -597,6 +612,10 @@ export class DevicesService {
   disconnect(owner: string): void {
     this.streamOwners.disconnect(owner);
     for (const session of this.sessions.values()) {
+      if (session.pendingController === owner) {
+        session.controlRevision++;
+        delete session.pendingController;
+      }
       void session.streamControl
         ?.remove(owner)
         .catch((error) =>
@@ -606,6 +625,11 @@ export class DevicesService {
         session.leaseExpiry?.();
         delete session.leaseExpiry;
         session.lease.release(owner);
+        void session.capture
+          ?.releaseInput?.()
+          .catch((error) =>
+            this.options.log?.("warn", "Device input cleanup failed", { message: String(error) }),
+          );
         if (session.capture?.screenSessionId) this.options.screen?.releaseController(owner);
         this.emit(session);
       }

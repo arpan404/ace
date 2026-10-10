@@ -57,6 +57,7 @@ export async function registerDefaultModelInstances(
   preferences: import("@ace/protocol").ProviderConfigurations = [],
 ): Promise<void> {
   if (process.env.ACE_TEST_REAL_HOME) assertTestHomeIsolation(cwd);
+  if (signal.aborted) return;
   const candidates = [
     { provider: "codex", executable: "codex" },
     { provider: "claude", executable: "claude" },
@@ -80,7 +81,10 @@ export async function registerDefaultModelInstances(
           : (path ?? candidate.executable);
         return { provider: candidate.provider, path, executable };
       }),
-  );
+  ).catch((error: unknown) => {
+    if (signal.aborted) return [];
+    throw error;
+  });
   if (signal.aborted) return;
   for (const candidate of installed) {
     if (!candidate.path) continue;

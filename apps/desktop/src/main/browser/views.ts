@@ -12,7 +12,7 @@ import {
   type WebContents,
 } from "electron";
 import type { BrowserOpen } from "@ace/protocol";
-import type { BrowserPlacement } from "../../shared/contract.ts";
+import type { BrowserPlacementReceipt, BrowserPlacement } from "../../shared/contract.ts";
 import { emit } from "../ipc.ts";
 import { BrowserShortcut } from "../../shared/contract.ts";
 import { replayChord } from "../shortcuts.ts";
@@ -67,6 +67,8 @@ export class EmbeddedViews implements ViewHost {
   private ephemeralPartitions = new PartitionPool("ace-browser-ephemeral-");
   private placements = new PlacementBook();
   private hosts = new Map<number, PlacementHost>();
+  private generations = new Map<string, number>();
+  private ready = new Map<string, number>();
   /** Never shown or focused; unseen views render here while an agent drives them. */
   private parking: BaseWindow | undefined;
   private options: ViewHostOptions;
@@ -135,6 +137,9 @@ export class EmbeddedViews implements ViewHost {
         if (this.pages.get(threadId) === group) {
           this.pages.delete(threadId);
           this.placements.forget(threadId);
+          this.generations.delete(threadId);
+          this.ready.delete(threadId);
+          this.reportVisibility(threadId);
         }
         // An idle hidden window must not keep the app from quitting once its views are gone.
         if (!this.pages.size && this.parking && !this.parking.isDestroyed()) this.parking.destroy();
@@ -187,13 +192,13 @@ export class EmbeddedViews implements ViewHost {
   }
 
   /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */
-  place(placement: BrowserPlacement, host: PlacementHost): void {
+  async place(placement: BrowserPlacement, host: PlacementHost): Promise<BrowserPlacementReceipt> {
     this.hosts.set(host.id, host);
     const { threadId } = placement;
     // Hiding a thread with no view here releases the claim: nothing of it is kept.
     if (!placement.visible && !this.pages.has(threadId)) {
       this.placements.release(threadId, host.id);
-      return;
+      return "hidden";
     }
     const bounds = toWindowBounds(placement.bounds, host.zoom);
     this.placements.set(threadId, host.id, {
@@ -203,6 +208,31 @@ export class EmbeddedViews implements ViewHost {
       device: placement.device,
     });
     this.apply(threadId);
+    try {
+      await this.pages.get(threadId)?.placementReady();
+    } catch {
+      return "unavailable";
+    }
+    if (!placement.visible) return "hidden";
+    if (this.shownIn(threadId) !== host.id) return "superseded";
+    return this.ready.get(threadId) === this.generations.get(threadId) &&
+      (this.pages.get(threadId)?.isShown() ?? false)
+      ? "shown"
+      : "unavailable";
+  }
+
+  private reportVisibility(threadId: string): void {
+    const shown =
+      this.ready.has(threadId) &&
+      this.ready.get(threadId) === this.generations.get(threadId) &&
+      this.pages.get(threadId)?.isShown()
+        ? this.shownIn(threadId)
+        : undefined;
+    for (const [id] of this.hosts) {
+      const contents = webContents.fromId(id);
+      if (contents && !contents.isDestroyed())
+        emit(contents, "browser.visibility", { threadId, visible: id === shown });
+    }
   }
 
   /** The renderer (`webContents.id`) showing a thread's view now, if any shows it. */
@@ -235,6 +265,9 @@ export class EmbeddedViews implements ViewHost {
     const placement = this.placements.resolve(threadId);
     const host = placement.host === undefined ? undefined : this.hosts.get(placement.host);
     const window = host?.window;
+    const generation = (this.generations.get(threadId) ?? 0) + 1;
+    this.generations.set(threadId, generation);
+    this.ready.delete(threadId);
     page.place({
       window: window && !window.isDestroyed() ? window : undefined,
       bounds: placement.bounds,
@@ -243,6 +276,16 @@ export class EmbeddedViews implements ViewHost {
       device: placement.device,
     });
     this.options.onClaim?.(threadId, placement.owner);
+    this.reportVisibility(threadId);
+    void page.placementReady().then(
+      () => {
+        if (this.pages.get(threadId) !== page || this.generations.get(threadId) !== generation)
+          return;
+        this.ready.set(threadId, generation);
+        this.reportVisibility(threadId);
+      },
+      () => {},
+    );
   }
 
   private configure(partition: string): Session {

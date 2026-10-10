@@ -212,3 +212,19 @@ After exit, probe SDK status through the existing account driver, bump the login
 revision, rebind and refresh models/readiness. Selected pasted-key accounts mask
 the launch-environment key so the SDK's stored credential remains effective.
 This does not authorize Cursor ACP authentication or a hosted credential proxy.
+
+### Native model controls and checkpoint history
+
+Cursor effort parameter ids are account-reported (`effort`, `reasoning`, or
+`reasoning_effort`). The selection boundary compiles them, native defaults, and
+reported Fast support into a bounded parameter list persisted with the selected
+model. Opening and each subsequent send use that same list. Live changes retain
+the native agent and wait for terminal frame acknowledgement drainage before
+admitting a new turn.
+
+Resume history validates UUID, owner and message type from own data properties.
+SDK conversation payloads may be protobuf classes; ace neither serializes those
+objects nor invokes their getters or `toJSON`. Its durable canonical transcript
+already owns message contents. Identity pages still enforce revision, position,
+checkpoint, worker and frame budgets. A deliberate idle host disposal emits no
+false warning, while any unsettled child work remains explicitly uncertain.

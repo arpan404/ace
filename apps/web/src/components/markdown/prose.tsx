@@ -17,11 +17,13 @@ export function Prose(props: {
   streaming?: boolean;
   className?: string;
   tail?: ReactNode;
+  thread?: { threadId: string; cwd?: string; itemId?: string };
 }) {
   return (
     <Suspense fallback={<MarkdownLoading text={props.text} className={props.className} />}>
       <Markdown
         text={props.text}
+        thread={props.thread}
         stream={props.stream}
         streaming={props.streaming}
         className={props.className}

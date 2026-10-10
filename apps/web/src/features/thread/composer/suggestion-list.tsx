@@ -29,13 +29,22 @@ export function SuggestionList(props: {
         role="presentation"
         data-suggestions-popup
         side="top"
+        align="start"
         sideOffset={8}
         anchor={() => props.anchor.current}
         collisionPadding={{ top: 48, right: 8, bottom: 8, left: 8 }}
         initialFocus={false}
         finalFocus={false}
-        className="w-(--anchor-width) max-h-[min(420px,var(--available-height),calc(100dvh-56px))] overflow-x-hidden overflow-y-auto px-1.5 py-1"
+        className="w-120 max-w-(--anchor-width) max-h-[min(420px,var(--available-height),calc(100dvh-56px))] overflow-x-hidden overflow-y-auto px-1.5 py-1"
       >
+        {suggestions.state === "ready" && suggestions.refreshing && (
+          <p
+            role="status"
+            className="flex items-center gap-2 px-2.5 py-1 text-xs text-subtle-foreground"
+          >
+            <Spinner /> Refreshing commands…
+          </p>
+        )}
         {suggestions.state === "ready" ? (
           <ul id={props.id} role="listbox" aria-label={title}>
             {suggestions.items.map((item, index) => (

@@ -30,22 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
-  "enabled": false,
+  "concurrency": 6,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 8,
-  "missedRun": "skip",
+  "jitterMs": 7,
+  "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "manual"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -80,7 +78,7 @@ Example:
 
 ```json
 {
-  "before": 3,
+  "before": 5,
   "runs": []
 }
 ```
@@ -98,7 +96,7 @@ Example:
 
 ```json
 {
-  "at": 2,
+  "at": 5,
   "message": "example"
 }
 ```
@@ -120,19 +118,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 6,
-    "enabled": false,
+    "concurrency": 2,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 8,
-    "missedRun": "skip",
+    "jitterMs": 1,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "event": "issue_labelled",
-      "kind": "github",
-      "pollIntervalMs": 60006,
-      "repository": "hVGL/r0wsMXcO"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
     "worktree": false
@@ -210,8 +208,7 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "limit": 10,
+  "limit": 3,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -236,9 +233,13 @@ Example:
 
 ```json
 {
+  "error": "example",
+  "inbox": {
+    "before": null,
+    "runs": []
+  },
   "ok": true,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -266,11 +267,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 2,
   "id": "example",
-  "startedAt": 9,
+  "startedAt": 8,
   "status": "running",
   "title": "example",
-  "trigger": "manual"
+  "trigger": "schedule"
 }
 ```
 
@@ -350,11 +352,10 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "review_comment",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60008,
-  "repository": "2kFoHG/9NA0XI"
+  "pollIntervalMs": 60009,
+  "repository": "4E5_D19/p"
 }
 ```
 

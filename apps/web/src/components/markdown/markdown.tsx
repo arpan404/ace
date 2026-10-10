@@ -1,6 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import type { MarkedToken, Token } from "marked";
 import { createContext, memo, useContext, type ReactNode } from "react";
+import { ThreadReference, ThreadReferenceScope } from "../thread-reference.tsx";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import type { MarkdownBlock } from "./blocks.ts";
@@ -70,7 +71,8 @@ function Inline(props: { token: Token }): ReactNode {
       return <br />;
     case "link": {
       const href = safeHref(token.href);
-      if (!href) return inline(token.tokens);
+      if (!href)
+        return <ThreadReference reference={token.href}>{inline(token.tokens)}</ThreadReference>;
       return (
         <a
           href={href}
@@ -295,18 +297,24 @@ export const Markdown = memo(function Markdown(props: {
   streaming?: boolean | undefined;
   className?: string | undefined;
   tail?: ReactNode;
+  thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
 }) {
   const doc = useMarkdown(props.text, props.stream, !props.streaming);
   if (!doc) return <MarkdownLoading text={props.text} className={props.className} />;
   return (
-    <div className={props.className}>
-      {doc.blocks.length === 0 && props.tail}
-      {doc.blocks.map((block, index) => (
-        // A block's place is its identity: the open block keeps it when it settles.
-        <Tail.Provider key={index} value={index === doc.blocks.length - 1 ? props.tail : undefined}>
-          <TopBlock block={block} writing={index >= doc.settled} />
-        </Tail.Provider>
-      ))}
-    </div>
+    <ThreadReferenceScope value={props.thread}>
+      <div className={props.className}>
+        {doc.blocks.length === 0 && props.tail}
+        {doc.blocks.map((block, index) => (
+          // A block's place is its identity: the open block keeps it when it settles.
+          <Tail.Provider
+            key={index}
+            value={index === doc.blocks.length - 1 ? props.tail : undefined}
+          >
+            <TopBlock block={block} writing={index >= doc.settled} />
+          </Tail.Provider>
+        ))}
+      </div>
+    </ThreadReferenceScope>
   );
 });

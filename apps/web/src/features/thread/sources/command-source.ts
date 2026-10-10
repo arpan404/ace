@@ -3,9 +3,11 @@ import type { ClientApi } from "@ace/client";
 import { ThreadId, WorkspaceId, type CatalogEntry } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
 
+export type CommandScope = Omit<ThreadRef, "title">;
+
 export interface CommandSource {
   watch(
-    thread: ThreadRef,
+    thread: CommandScope,
     receive: (entries: readonly CatalogEntry[], stale: boolean) => void,
     failed: () => void,
   ): () => void;

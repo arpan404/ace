@@ -19,7 +19,10 @@ export function nativeCursorOptions(
       enableAgentRetries: false,
       ...(guidanceDirectory ? { dirs: [guidanceDirectory] } : {}),
     },
-    model: { id: options.model ?? "composer-2.5" },
+    model: {
+      id: options.model ?? "composer-2.5",
+      ...(options.modelParams?.length ? { params: options.modelParams } : {}),
+    },
     ...(injection ? { mcpServers: injection.mcpServers } : {}),
   };
 }

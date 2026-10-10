@@ -62,7 +62,14 @@ export function normalizeClaude(payload: unknown, instance: ModelInstance): Cata
         isDefault: native.isDefault ?? native.value === "default",
         deprecated: native.deprecated,
         serviceTiers: native.supportsFastMode
-          ? [{ id: "fast", name: "Fast", speed: "fast", parameters: { fastMode: true } }]
+          ? [
+              {
+                id: "fast",
+                name: "Fast",
+                speed: "fast",
+                parameters: { fastMode: true, serviceTier: "fast" },
+              },
+            ]
           : [],
       }),
     );
@@ -188,19 +195,46 @@ export function normalizeCursorSdk(
   );
   const models = available.flatMap(({ native, metadata, index }) => {
     const model = base(instance, native.id, metadata.displayName ?? native.id, native);
-    model.serviceTiers = (metadata.variants ?? []).map((variant, variantIndex) => ({
-      id: String(variantIndex),
-      name: variant.displayName,
-      parameters: Object.fromEntries(
-        variant.params.map((parameter) => [parameter.id, parameter.value]),
-      ),
-    }));
+    model.serviceTiers = (metadata.variants ?? []).map((variant, variantIndex) => {
+      const fast = variant.params.some((param) => param.id === "fast" && param.value === "true");
+      return Object.assign(
+        {
+          id: String(variantIndex),
+          name: variant.displayName,
+          parameters: Object.fromEntries([
+            ...variant.params.map((parameter) => [parameter.id, parameter.value]),
+            ...(fast ? [["serviceTier", "fast"]] : []),
+          ]),
+        },
+        fast ? { speed: "fast" as const } : {},
+      );
+    });
     const defaultVariant = metadata.variants?.findIndex((variant) => variant.isDefault);
     if (defaultVariant !== undefined && defaultVariant >= 0)
       model.defaultTier = String(defaultVariant);
-    const effort = metadata.parameters?.find((parameter) => parameter.id === "reasoning_effort");
+    const effort = metadata.parameters?.find((parameter) =>
+      ["reasoning_effort", "effort", "reasoning"].includes(parameter.id),
+    );
     model.reasoningEfforts =
       effort?.values.map((value) => value.value).filter((value) => value.length > 0) ?? [];
+    if (
+      !model.serviceTiers.some((tier) => tier.speed === "fast") &&
+      metadata.parameters?.some(
+        (parameter) =>
+          parameter.id === "fast" && parameter.values.some((value) => value.value === "true"),
+      )
+    )
+      model.serviceTiers.push({
+        id: "fast",
+        name: "Fast",
+        speed: "fast",
+        parameters: { fast: "true", serviceTier: "fast" },
+      });
+    const defaultParams = metadata.variants?.find((variant) => variant.isDefault)?.params;
+    const defaultEffort =
+      effort && defaultParams?.find((parameter) => parameter.id === effort.id)?.value;
+    if (defaultEffort && model.reasoningEfforts.includes(defaultEffort))
+      model.defaultEffort = defaultEffort;
     // Arbitrary SDK parameters remain in bounded raw metadata. No guessed defaults/modalities.
     const parsed = CatalogModel.safeParse(model);
     if (parsed.success) return [parsed.data];

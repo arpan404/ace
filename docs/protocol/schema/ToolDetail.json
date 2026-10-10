@@ -271,10 +271,35 @@
     },
     {
       "properties": {
+        "attachment": {
+          "$ref": "https://ace.local/protocol/v1/Attachment.json"
+        },
+        "kind": {
+          "const": "image",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "sourcePath": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "unavailable": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "kind": {
           "enum": [
             "browser",
-            "image",
             "notebook",
             "custom"
           ],

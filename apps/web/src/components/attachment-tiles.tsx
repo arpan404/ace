@@ -1,3 +1,4 @@
+import type { Attachment } from "@ace/protocol";
 import { useState, type CSSProperties } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -195,6 +196,39 @@ export function InlineImage(props: { src: string; alt: string }) {
   const { show, lightbox } = useLightbox(images);
   const [image] = images;
   if (!image) return null;
+  return (
+    <span className="my-1 inline-block align-middle">
+      <ImageTile
+        image={image}
+        size={tileSize(image, 1)}
+        fit="contain"
+        onOpen={(element) => show(0, element)}
+      />
+      {lightbox}
+    </span>
+  );
+}
+
+/** A captured local image remains phrasing content inside markdown paragraphs. */
+export function CapturedInlineImage(props: {
+  threadId: string;
+  attachment: Attachment;
+  alt?: string | undefined;
+}) {
+  const image: ShownImage = {
+    key: props.attachment.sha256,
+    name: props.alt || props.attachment.name,
+    width: props.attachment.width,
+    height: props.attachment.height,
+    source: {
+      kind: "attachment",
+      threadId: props.threadId,
+      sha256: props.attachment.sha256,
+      bytes: props.attachment.bytes,
+      thumbnail: props.attachment.thumbnailAvailable === true,
+    },
+  };
+  const { show, lightbox } = useLightbox([image]);
   return (
     <span className="my-1 inline-block align-middle">
       <ImageTile

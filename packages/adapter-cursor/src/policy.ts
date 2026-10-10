@@ -15,6 +15,8 @@ const baseCapabilities: Capabilities = {
   childControls: "read-only",
   childFidelity: "summary",
   steer: true,
+  sessionOptions: true,
+  launchOptions: ["effort", "serviceTier"],
   interruptCascades: true,
   resume: true,
   fork: true,

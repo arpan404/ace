@@ -1,16 +1,21 @@
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { ContentPart } from "@ace/protocol";
+import type { ContentPart, ExecutionOptions } from "@ace/protocol";
 export function messageId(now: number, sequence: number, entropy: string): string {
   const prefix = ((BigInt(now) << 12n) + BigInt(sequence % 4096)) & 0xffffffffffffn;
   return `msg_${prefix.toString(16).padStart(12, "0")}${entropy}`;
 }
-export function selectedModel(model?: string) {
+export function selectedModel(model?: string, options?: ExecutionOptions) {
   if (model === undefined) return undefined;
   const slash = model.indexOf("/");
   if (slash < 1 || slash === model.length - 1)
     throw new Error("OpenCode model must be provider/model");
-  return { providerID: model.slice(0, slash), id: model.slice(slash + 1) };
+  const variant = options?.["effort"];
+  return {
+    providerID: model.slice(0, slash),
+    id: model.slice(slash + 1),
+    ...(typeof variant === "string" ? { variant } : {}),
+  };
 }
 export function promptBody(input: ContentPart[], cwd: string, id: string) {
   const commands: { name: string; arguments: string }[] = [];
