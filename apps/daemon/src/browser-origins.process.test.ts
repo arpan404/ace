@@ -6,7 +6,7 @@ import { BrowserOrigins } from "./browser-origins.ts";
 import { BrowserService } from "@ace/browser";
 import { FakeHeadless } from "@ace/browser/testing";
 
-it("a human lease owner opens an external site, records consent, and the grant survives browser service and SQLite restart", async () => {
+it("human navigation stays page-scoped until the person explicitly grants the site", async () => {
   const f = await originFixture();
   const owner = await f.client();
   const threadId = f.thread.id;
@@ -23,7 +23,18 @@ it("a human lease owner opens an external site, records consent, and the grant s
   ).toMatchObject({ ok: true, result: { url: "https://youtube.com/watch?v=fixture" } });
   expect(
     await owner.request({ type: "browser.origins.list", requestId: "list", threadId }),
-  ).toMatchObject({ ok: true, result: [{ origin: "https://youtube.com", grantedAt: 1000 }] });
+  ).toMatchObject({
+    ok: true,
+    result: [{ origin: "https://youtube.com", grantedAt: 1000, scope: "page" }],
+  });
+  expect(
+    await owner.request({
+      type: "browser.origins.grant",
+      requestId: "grant",
+      threadId,
+      origin: "https://youtube.com",
+    }),
+  ).toMatchObject({ ok: true });
   await f.close();
   const restarted = await originFixture("ask", f.home);
   expect(await restarted.navigation()).toMatchObject({
@@ -48,7 +59,7 @@ it("the backend policy grants human main documents and allows temporary cross-or
   f.browser.handback(f.thread.id, "owner");
   expect(await backend.allowed("https://cdn.example/image.png")).toBe(false);
   expect(await backend.allowed("wss://socket.example/live")).toBe(false);
-  expect(await backend.allowed("wss://links.example/live")).toBe(true);
+  expect(await backend.allowed("wss://links.example/live")).toBe(false);
 });
 it("native full access requires consent and keeps a one-shot allowance page-only", async () => {
   const f = await originFixture(":danger-full-access");
@@ -417,6 +428,14 @@ it("thread grants survive a full public daemon stop and restart with isolated ho
         requestId: "visit",
         threadId: thread.id,
         command: { action: "navigate", url: "https://youtube.com" },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await client.request({
+        type: "browser.origins.grant",
+        requestId: "consent",
+        threadId: thread.id,
+        origin: "https://youtube.com",
       }),
     ).toMatchObject({ ok: true });
     await client.close();

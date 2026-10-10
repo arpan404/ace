@@ -5,6 +5,7 @@ import type { Store } from "./store.ts";
 const Row = z.object({ thread_id: ThreadId, workspace_id: WorkspaceId });
 
 export interface BrowserForgetPort {
+  closeThread?(threadId: string): Promise<void>;
   forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }>;
 }
 
@@ -39,7 +40,10 @@ export class BrowserForget {
     this.stop = store.subscribe((events) => {
       for (const event of events) {
         const payload = event.payload;
-        if (payload.type !== "thread.client.updated" || payload.changes.deletedAt == null) continue;
+        if (payload.type === "thread.updated" && payload.archivedAt != null)
+          void this.browser.closeThread?.(event.threadId).catch(this.onError);
+        if (payload.type !== "thread.client.updated") continue;
+        if (payload.changes.deletedAt == null) continue;
         const thread = store.getThread(event.threadId);
         if (thread) this.record(thread.id, thread.workspaceId);
       }
