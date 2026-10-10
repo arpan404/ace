@@ -221,15 +221,15 @@ test("a wide composer spells out the @ and / hints", async () => {
   );
 });
 
-test("approvals keep their readable mode on a phone and unknown effort is omitted", async () => {
+test("approvals and predefined effort keep their readable modes on a phone", async () => {
   layoutWidth(358);
   await open("busy");
   const approvals = await screen.findByRole("button", { name: /^Approvals: Auto review/ });
   expect(approvals.textContent).toBe("Auto review");
-  // The model chip retains identity; an unreported effort stays unset at every width.
+  // The model chip retains identity and honestly marks the next-turn preset as a default.
   const model = await screen.findByRole("button", { name: /^Model: Opus 5\.5/ });
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(within(model).getByRole("img", { name: "Personal account" })).toBeTruthy();
-  expect(within(model).queryByRole("img", { name: /reasoning/ })).toBeNull();
+  expect(within(model).getByRole("img", { name: "Medium reasoning · default" })).toBeTruthy();
 });

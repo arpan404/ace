@@ -126,9 +126,13 @@ test("projects added on another device appear without a reload", async () => {
   await other.projects.add({ path: "/home/dev/site" });
 
   await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
-  expect(await screen.findByRole("menuitemradio", { name: "site" })).toBeTruthy();
+  expect(await screen.findByRole("option", { name: "site" })).toBeTruthy();
   // The picker ends with Add project.
-  expect(screen.getByRole("menuitem", { name: /Add project…/ })).toBeTruthy();
+  expect(
+    within(screen.getByRole("dialog", { name: "Choose project" })).getByRole("button", {
+      name: "Add project",
+    }),
+  ).toBeTruthy();
 });
 
 test("an unselected project has Edit, Remove and Open in from its context menu", async () => {
@@ -226,7 +230,7 @@ test("a project starts with its local favicon and clearing custom artwork restor
   await ready(made.client);
   await made.client.projects.add({ path: "/home/dev/site" });
   await made.open("/new");
-  const picker = await screen.findByRole("button", { name: "Project: site" });
+  const picker = await screen.findByRole("button", { name: "Setup project: site" });
   await waitFor(() => expect(picker.querySelector("img")?.getAttribute("src")).toBe(favicon));
   await filterTo("site");
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));

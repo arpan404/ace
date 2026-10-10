@@ -98,12 +98,11 @@ test("arrow keys and Tab move between account rail and models, then Enter picks 
   await userEvent.keyboard("{ArrowDown}{Enter}");
   const chip = await screen.findByRole("button", { name: /^Model: Sonnet 5.5, Work/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Work" })).toBeTruthy();
-  expect(
-    within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByText("W"),
-  ).toBeTruthy();
-  expect(
-    within(screen.getByRole("link", { name: /Replay cursor resets/ })).getByTitle("Work account"),
-  ).toBeTruthy();
+  const row = screen.getByRole("link", { name: /Replay cursor resets/ });
+  expect(within(row.parentElement ?? row).getByText("W")).toBeTruthy();
+  await userEvent.hover(row);
+  const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
+  expect(within(details).getByText("Claude Code · Work (queued)")).toBeTruthy();
 });
 
 test("editing an account label updates its composer, thread row, picker, search and usage header", async () => {
@@ -149,8 +148,12 @@ test("editing an account label updates its composer, thread row, picker, search 
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio" })).toBeTruthy();
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
-  expect(within(row).getByText("ST")).toBeTruthy();
-  expect(within(row).getByTitle("Studio account")).toBeTruthy();
+  expect(within(row.parentElement ?? row).getByText("ST")).toBeTruthy();
+  await userEvent.hover(row);
+  const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
+  expect(within(details).getByText("Claude Code · Studio")).toBeTruthy();
+  expect(within(details).queryByText("Claude Code · Personal")).toBeNull();
+  await userEvent.unhover(row);
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
   expect(

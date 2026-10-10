@@ -125,9 +125,11 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
 });
 
-test("the live line counts the subagents the agent is waiting on", async () => {
+test("the composer status counts the root and its working subagents without a duplicate live line", async () => {
   await openReplay("finding");
-  expect(await screen.findByRole("status", { name: "Waiting on 2 subagents" })).toBeTruthy();
+  const label = await screen.findByText("3 agents working");
+  expect(label.closest('[role="status"]')).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Waiting on 2 subagents" })).toBeNull();
 });
 
 test("a network retry holds still: no spinner, no shimmer", async () => {

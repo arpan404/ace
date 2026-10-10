@@ -144,11 +144,11 @@ test("a move to another provider from another device resets what its model can't
   expect(await screen.findByText("Effort and speed reset for Opus 5.5")).toBeTruthy();
   expect(
     await screen.findByRole("button", {
-      name: "Model: Opus 5.5, Personal, provider default effort",
+      name: "Model: Opus 5.5, Personal, Medium effort (default)",
     }),
   ).toBeTruthy();
 
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));
-  expect(sent[0]?.options).toBeUndefined();
+  expect(sent[0]?.options).toEqual({ effort: "medium" });
 });

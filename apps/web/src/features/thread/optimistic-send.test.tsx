@@ -182,7 +182,7 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
 });
 
-test("Stop reads Stopping… on the button and the live line until the turn ends", async () => {
+test("Stop reads Stopping… on its disabled button until the turn ends", async () => {
   const storage = memoryStorage();
   const saved = Promise.withResolvers<void>();
   let hold = false;
@@ -199,8 +199,12 @@ test("Stop reads Stopping… on the button and the live line until the turn ends
   hold = true;
   try {
     await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-    expect(screen.getByRole("button", { name: "Stopping…" })).toBeTruthy();
-    expect(screen.getByRole("status", { name: "Stopping…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stopping…" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    // The surviving composer status keeps naming the work; stopping is on the button.
+    expect(screen.getByText("3 agents working").closest('[role="status"]')).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Stopping…" })).toBeNull();
 
     hold = false;
     saved.resolve();
