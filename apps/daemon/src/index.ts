@@ -1,3 +1,4 @@
+import { shutdownDeadline } from "./shutdown.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
@@ -112,17 +113,39 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   const disposeResources = async () => {
     resources.beginShutdown();
+    const runtime = { ...systemStartup, ...options.startup };
     try {
-      await server?.close();
+      await shutdownDeadline(
+        "Daemon",
+        (async () => {
+          // Service aborts and cleanup start before socket task drain. Shared store/log
+          // disposal follows both, so in-flight work can still record its termination.
+          const socketClose = server?.close();
+          const results = await Promise.allSettled([socketClose, resources.closeIndependent()]);
+          try {
+            await resources.close();
+          } catch (error) {
+            results.push({ status: "rejected", reason: error });
+          }
+          const errors = results.flatMap((result, index) =>
+            result.status === "rejected"
+              ? [
+                  new Error(`${index === 0 ? "Server" : "Resources"} shutdown failed`, {
+                    cause: result.reason,
+                  }),
+                ]
+              : [],
+          );
+          if (errors.length) throw new AggregateError(errors, "Daemon shutdown failed");
+        })(),
+        (expire, milliseconds) => runtime.schedule("shutdown", expire, milliseconds),
+        7_000,
+      );
     } finally {
       try {
-        await resources.close();
+        if (endpointPath) unlinkSync(endpointPath);
       } finally {
-        try {
-          if (endpointPath) unlinkSync(endpointPath);
-        } finally {
-          unlock();
-        }
+        unlock();
       }
     }
   };

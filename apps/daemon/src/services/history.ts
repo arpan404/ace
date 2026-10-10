@@ -32,6 +32,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function createHistorySession(context: SocketContext): SocketService {
   const { options, authorize, canReadThread, send, fail, tasks, connected } = context;
   const historyLifetime = new AbortController();
+  let pending = 0;
   return {
     close() {
       historyLifetime.abort();
@@ -61,7 +62,7 @@ export function createHistorySession(context: SocketContext): SocketService {
             fail("history_unavailable", "History is not configured", false, correlation);
             return true;
           }
-          if (tasks.size >= 8) {
+          if (pending >= 8) {
             fail("history_busy", "Too many history requests", false, correlation);
             return true;
           }
@@ -69,6 +70,7 @@ export function createHistorySession(context: SocketContext): SocketService {
             connected() &&
             authorize(scope) &&
             (message.type !== "history.continue" || canReadThread(message.threadId));
+          pending++;
           const task = options.history
             .handle(message, historyLifetime.signal, (event) => {
               if (readable()) send(event);
@@ -80,7 +82,10 @@ export function createHistorySession(context: SocketContext): SocketService {
               if (connected())
                 fail("history_rejected", "History operation rejected", false, correlation);
             })
-            .finally(() => tasks.delete(task));
+            .finally(() => {
+              pending--;
+              tasks.delete(task);
+            });
           tasks.add(task);
           return true;
         }

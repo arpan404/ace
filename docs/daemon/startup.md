@@ -182,3 +182,9 @@ See ADR 0041 for version checks and the desktop home-selection limitation.
 SQLite's exact uncoded experimental warning from Node 24.13.0 is filtered at the
 shared SQLite boundary in each isolate. Other warnings retain Node's formatter
 and consumer warning listeners. This does not disable `ExperimentalWarning`.
+
+## Shutdown deadlines
+
+Shutdown stops admission and aborts each service lifetime before draining socket work. Independent service owners close in parallel, with a six-second cleanup deadline that logs the service name on failure. Socket tasks and presence cleanup have a five-second drain deadline. Shared Store and log resources close after those drains.
+
+The overall shutdown deadline is seven seconds. Endpoint removal and home-lock release run even if cleanup fails or exceeds the deadline. The CLI arms a 7.5-second process exit fallback when it receives a termination signal; it remains armed after cancelled startup so leaked native handles cannot keep the process alive. The fallback is unreferenced, allowing successful shutdown to exit naturally.

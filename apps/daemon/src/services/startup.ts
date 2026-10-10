@@ -25,7 +25,7 @@ export interface StartupRuntime {
 }
 export const systemStartup: StartupRuntime = {
   timeoutMs: 15_000,
-  cleanupTimeoutMs: 8_000,
+  cleanupTimeoutMs: 6_000,
   schedule(_name, expire, milliseconds) {
     const timer = setTimeout(expire, milliseconds);
     return () => clearTimeout(timer);
@@ -77,7 +77,7 @@ function boundedCleanup(
   return bounded(
     name,
     () => resources.close(),
-    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 8_000 },
+    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 6_000 },
     undefined,
     "cleanup",
   );
@@ -197,7 +197,19 @@ export class ServiceStartup {
     const onListen: ServiceContext["onListen"] = [];
     resources.onShutdown(() => controller.abort());
     this.context.resources.onShutdown(() => resources.beginShutdown());
-    this.context.resources.own(() => boundedCleanup(name, resources, this.runtime));
+    this.context.resources.ownParallel(() =>
+      boundedCleanup(name, resources, this.runtime).catch((error: unknown) => {
+        this.context.log.log(
+          "error",
+          "Service cleanup failed",
+          logFields([
+            ["service", name],
+            ["error", error instanceof Error ? error.message : String(error)],
+          ]),
+        );
+        throw new Error(`Service ${name} cleanup failed`, { cause: error });
+      }),
+    );
     try {
       await bounded(
         name,
