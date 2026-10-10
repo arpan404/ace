@@ -188,7 +188,7 @@ it("failed viewers release the last pixel lease and subscription churn cannot ac
 it("v2 failure retains the visible indicator until owned process cleanup completes", async () => {
   const stopping = deferred<void>(),
     release = deferred<void>(),
-    failed = deferred<void>();
+    failed = deferred<boolean>();
   const f = await manager(
     { FAKE_V2: "1" },
     {
@@ -210,7 +210,7 @@ it("v2 failure retains the visible indicator until owned process cleanup complet
   f.screen.subscribe(state.sessionId, async () => {});
   await f.screen.captureScreenshot(state.sessionId);
   f.screen.watch((next) => {
-    if (next.lifecycle === "failed") failed.resolve();
+    if (next.lifecycle === "failed") failed.resolve(next.indicator);
   });
   f.screen.controller(state.sessionId, "agent", "agent");
   const crash = expect(
@@ -226,8 +226,8 @@ it("v2 failure retains the visible indicator until owned process cleanup complet
     release.resolve();
   }
   await crash;
-  await failed.promise;
-  expect(f.screen.state(state.sessionId).indicator).toBe(false);
+  expect(await failed.promise).toBe(false);
+  expect(f.screen.states()).toEqual([]);
 });
 it("named key, Unicode, scroll and pointer operations use the existing v2 process", async () => {
   const f = await manager({ FAKE_V2: "1" });

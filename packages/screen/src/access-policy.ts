@@ -50,8 +50,16 @@ export class ScreenAccessPolicy {
     if (changed) this.enabledChanged(enabled);
     if (!enabled) {
       const sessions = [...this.sessions.values()];
-      const results = await Promise.allSettled(
-        sessions.map((session) => this.stop(session.state.sessionId)),
+      const stops = sessions.map((session) => ({
+        session,
+        result: this.stop(session.state.sessionId),
+      }));
+      const results = Promise.allSettled(stops.map((stop) => stop.result));
+      // Publication can outlive capture; a rejected stop can never confirm capture.
+      await Promise.all(
+        stops.map(({ session, result }) =>
+          Promise.race([session.captureStopped.promise, result.catch(() => {})]),
+        ),
       );
       await this.launches.drain();
       await this.host.close();
