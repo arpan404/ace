@@ -23,7 +23,7 @@ async function rightClick(title: RegExp) {
   return screen.findByRole("menu", { name: /^Actions for/ });
 }
 
-test("Rename from the menu edits the title in place; Escape keeps the old one", async () => {
+test("Rename from the menu opens the shared title field; Escape keeps the old one", async () => {
   await openHome();
   let menu = await rightClick(/Retry budget/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: /Rename/ }));
@@ -36,7 +36,7 @@ test("Rename from the menu edits the title in place; Escape keeps the old one", 
   ).toBeTruthy();
 
   menu = await rightClick(/Cap app-server restarts/);
-  await userEvent.keyboard("r");
+  await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
   const again = await screen.findByRole("textbox", { name: "Thread title" });
   await userEvent.type(again, " later{Escape}");
   expect(
@@ -92,6 +92,11 @@ test("Delete hides the thread and permanently deletes it on the daemon", async (
   const app = await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Delete thread?" })).getByRole("button", {
+      name: "Delete",
+    }),
+  );
   await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
   await waitFor(() => expect(onDaemon(app, "thread-pdf-locale")).toBe(false));
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
@@ -101,6 +106,11 @@ test("Delete stays gone when the client reconnects", async () => {
   const app = await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Delete thread?" })).getByRole("button", {
+      name: "Delete",
+    }),
+  );
   await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
   await waitFor(() => expect(onDaemon(app, "thread-pdf-locale")).toBe(false), {
     timeout: 9_000,
@@ -132,10 +142,8 @@ test("a running thread refused for delete stays listed, says what runs, and Stop
   const app = await openHome();
   const menu = await rightClick(/Dedupe thread events/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
-  expect(
-    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
-  ).toBeTruthy();
-  await waitFor(() => expect(card(/Dedupe thread events/)).toBeTruthy());
+  const confirmation = await screen.findByRole("dialog", { name: "Delete thread?" });
+  expect(confirmation.textContent).toMatch(/agent.*running/);
   await userEvent.click(screen.getByRole("button", { name: "Stop and delete" }));
   await waitFor(() => expect(card(/Dedupe thread events/)).toBeNull());
   await waitFor(() => expect(onDaemon(app, "thread-dedupe")).toBe(false));

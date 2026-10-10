@@ -264,8 +264,6 @@ export function NewThreadPage(props: {
               }
               onSubmit={send}
               autoFocus
-              placeholder="Describe the change, a bug, or a question. @ to mention a file"
-              shortPlaceholder="Describe a change or a bug"
               attached={
                 <Suspense fallback={null}>
                   <DeferredEnvironment.Component

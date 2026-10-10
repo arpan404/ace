@@ -1,5 +1,3 @@
-import { MoonIcon } from "@phosphor-icons/react";
-import { Icon } from "@/components/icon.tsx";
 import { useNow } from "@/lib/time.ts";
 import { snoozePresets } from "@ace/ui-core";
 import { MenuItem, MenuLabel, MenuGroup, MenuSeparator } from "@/components/ui/menu.tsx";
@@ -19,7 +17,6 @@ export function SnoozeItems(props: {
         {snoozePresets(now).map((preset) => (
           <MenuItem
             key={preset.id}
-            icon={<Icon icon={MoonIcon} />}
             onClick={() => props.actions.snooze(props.entry, preset.until, now)}
           >
             <span className="flex w-full items-center">

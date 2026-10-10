@@ -73,7 +73,7 @@ export function QuestionForm(props: {
     props.composer,
     stepped && current
       ? {
-          label: ready && !last ? "Next" : ready && !takesText ? "Submit" : "Answer",
+          label: ready && !last ? "Next" : "Answer",
           blocked: ready
             ? undefined
             : takesText
@@ -211,36 +211,43 @@ function QuestionField(props: {
         key={option.id}
         className={cn(
           // The shared control owns focus and selection; the row stays plain.
-          "flex min-h-8 cursor-pointer items-start gap-2.5 px-2 py-1.5 text-ui",
+          "group/option flex min-h-8 cursor-pointer items-start gap-2.5 px-2 py-1.5 text-ui",
           checked && "text-foreground",
         )}
       >
-        {question.multiSelect ? (
-          <Checkbox
-            checked={checked}
-            disabled={props.disabled}
-            onCheckedChange={() => props.onToggle(option.id)}
-            className="mt-0.5"
-          />
-        ) : (
-          <RadioGroupItem value={option.id} disabled={props.disabled} className="mt-0.5" />
-        )}
+        <span className="relative shrink-0">
+          {question.multiSelect ? (
+            <Checkbox
+              checked={checked}
+              disabled={props.disabled}
+              onCheckedChange={() => props.onToggle(option.id)}
+              className="mt-0.5"
+            />
+          ) : (
+            <RadioGroupItem value={option.id} disabled={props.disabled} className="mt-0.5" />
+          )}
+          {index < 9 && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 mt-0.5 bg-background text-center text-xs text-subtle-foreground opacity-0 group-hover/option:opacity-100"
+            >
+              {index + 1}
+            </span>
+          )}
+        </span>
         {/* The option's words, its description under them so a narrow card never wraps
                 them into columns. */}
         <span className="min-w-0 flex-1">
-          <span className="block">{option.label}</span>
+          <span className="block">
+            {option.label}
+            {option.recommended && (
+              <small className="ml-2 text-xs text-subtle-foreground">Recommended</small>
+            )}
+          </span>
           {option.description && (
             <span className="block text-sm text-subtle-foreground">{option.description}</span>
           )}
         </span>
-        {option.recommended && (
-          <small className="shrink-0 text-xs text-subtle-foreground">recommended</small>
-        )}
-        {index < 9 && (
-          <kbd aria-hidden className="shrink-0 font-sans text-xs text-subtle-foreground">
-            {index + 1}
-          </kbd>
-        )}
       </label>
     );
   });

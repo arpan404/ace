@@ -1,6 +1,5 @@
-import { ProjectImage } from "@/components/project-image.tsx";
-import { FolderSimpleIcon } from "@phosphor-icons/react";
-import { projectTint } from "@ace/ui-core";
+import { ProjectMark } from "@/components/project-mark.tsx";
+import { projectBadge } from "@ace/ui-core";
 import { useMemo } from "react";
 import {
   Command,
@@ -84,20 +83,17 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
               <CommandGroupLabel>Projects</CommandGroupLabel>
               <CommandCollection>
                 {(choice: Choice) => (
-                  <CommandItem key={choice.id} value={choice} onClick={() => pick(choice)}>
-                    <ProjectImage
+                  <CommandItem
+                    key={choice.id}
+                    value={choice}
+                    title={choice.path}
+                    onClick={() => pick(choice)}
+                  >
+                    <ProjectMark
                       icon={choice.icon}
-                      fallback={
-                        <FolderSimpleIcon
-                          aria-hidden
-                          style={{ color: `var(--project-${projectTint(choice.id)})` }}
-                        />
-                      }
+                      badge={projectBadge({ id: choice.id, name: choice.name })}
                     />
                     <span className="shrink-0 truncate">{choice.name}</span>
-                    <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
-                      {choice.path}
-                    </span>
                   </CommandItem>
                 )}
               </CommandCollection>

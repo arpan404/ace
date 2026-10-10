@@ -70,7 +70,8 @@ test("Delete in Archived asks first, then deletes the thread on the daemon", asy
   await archive(app, /Invoice PDF/, "thread-pdf-locale");
   const archived = await openArchiveFromProfile();
 
-  await userEvent.click(within(archived).getByRole("button", { name: /^Delete Invoice PDF/ }));
+  await userEvent.click(within(archived).getByRole("button", { name: /^Actions for Invoice PDF/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   const dialog = await screen.findByRole("dialog", { name: /^Delete “Invoice PDF/ });
   expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete thread" }));

@@ -11,6 +11,7 @@ import {
   closeModelControl,
   openModelControl,
   openModelPicker,
+  selectAccount,
 } from "@/test/model-control.ts";
 import { Choices } from "./choices.ts";
 
@@ -86,12 +87,8 @@ test("a model id two providers share starts the thread on the provider it was pi
     await screen.findByRole("dialog", { name: "Model and effort" }),
   );
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
-  expect(within(picker).getByRole("option", { name: "GPT-6, Codex · Personal" }).ariaSelected).toBe(
-    "false",
-  );
-  expect(
-    within(picker).getByRole("option", { name: "GPT-6, Cursor · Your Cursor login" }).ariaSelected,
-  ).toBe("true");
+  expect(within(picker).getByRole("option", { name: /^GPT-6, Codex/ }).ariaSelected).toBe("false");
+  expect(within(picker).getByRole("option", { name: /^GPT-6, Cursor/ }).ariaSelected).toBe("true");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Trace the reconnect loop{Enter}");
@@ -152,14 +149,14 @@ test("picking the work account launches the work account's own default, not the 
 
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const models = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Claude Code · Work" }));
+  await selectAccount(popover, "Work");
   await userEvent.type(
     within(popover).getByRole("combobox", { name: "Search models" }),
     "Sonnet 4.5",
   );
   await userEvent.click(
     within(models).getByRole("option", {
-      name: /^Sonnet 4\.5, your choice, Claude Code · Work/,
+      name: /^Sonnet 4\.5, your choice, Claude Code/,
     }),
   );
   await closeModelControl();
@@ -280,8 +277,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   // Model and effort share one popover: picking a model comes back to its effort.
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{End}");
+  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
   await closeModelControl();
   expect(
     await screen.findByRole("button", { name: "Model: GPT-5 Codex, Personal, High effort" }),
@@ -397,7 +393,7 @@ test("slash commands are offered before the thread exists, for the chosen provid
   await app().open("/new?project=relay");
   const field = await prompt();
   await userEvent.type(field, "/");
-  const commands = await screen.findByRole("listbox", { name: "Add and commands" });
+  const commands = await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.click(within(commands).getByRole("option", { name: /Writing/ }));
   expect(field.textContent).toBe("Writing ");
 });
@@ -453,18 +449,14 @@ test("an unsent New thread draft waits for the next visit, and goes once the thr
 test("the speed toggle starts the thread on the model's faster tier", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  // Opus has no faster tier: the toggle is there, off, and says why.
   const claude = await openModelControl(/^Model: Opus 5.5/);
-  const unavailable = within(claude).getByRole("button", { name: "Fast mode" });
-  expect(unavailable.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.click(unavailable);
-  expect(unavailable.getAttribute("aria-pressed")).toBe("false");
+  expect(within(claude).queryByRole("button", { name: "Fast" })).toBeNull();
   await closeModelControl();
 
   await chooseModel("GPT-5 Codex", "Codex");
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
-  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
+  expect(within(popover).getByRole("button", { name: "Fast" }).ariaPressed).toBe("true");
   await closeModelControl();
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex, .*fast$/ })).toBeTruthy();
 
@@ -479,16 +471,12 @@ test("reset puts effort and speed back to the model's defaults", async () => {
   await made.open("/new?project=relay");
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
-  expect(reset.getAttribute("aria-disabled")).toBe("true");
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{End}");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
-  expect(reset.getAttribute("aria-disabled")).toBeNull();
-
-  await userEvent.click(reset);
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Medium");
-  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("false");
+  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
+  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
+  await userEvent.click(within(popover).getByRole("button", { name: "Reset" }));
+  expect(within(popover).getByRole("button", { name: "Medium" }).ariaPressed).toBe("true");
+  expect(within(popover).getByRole("button", { name: "Fast" }).ariaPressed).toBe("false");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Profile the relay startup{Enter}");

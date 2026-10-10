@@ -41,6 +41,7 @@ export function useSuggestions(
   thread: ThreadRef,
   trigger: Trigger | undefined,
   recent: () => readonly string[],
+  adding = false,
 ): Suggestions {
   const sources = useThreadSources();
   const ready = useConnectionState() === "ready";
@@ -83,7 +84,7 @@ export function useSuggestions(
       group: "Files",
       insert: `@${path}`,
       label: path.slice(path.lastIndexOf("/") + 1),
-      detail: path,
+      detail: path.includes("/") ? path : undefined,
       path,
     }));
     items.push(
@@ -100,7 +101,6 @@ export function useSuggestions(
           group: "Threads",
           insert: `@${t.title}`,
           label: t.title,
-          detail: "Conversation in this project",
           threadId: t.id,
         })),
     );
@@ -123,16 +123,33 @@ export function useSuggestions(
             invocation: { type: "action", action: "attachments" },
           } satisfies CatalogEntry,
         ];
-    const named = entries.filter(
+    const described = entries.map((entry) =>
+      entry.kind === "command" && !entry.description.trim()
+        ? { ...entry, description: "Run saved prompt" }
+        : entry,
+    );
+    const available = described.filter(
+      (entry) =>
+        entry.description.trim() &&
+        entry.invocation.type !== "unavailable" &&
+        (adding ? entry.kind === "builtin" : entry.kind !== "builtin" || !!query.trim()),
+    );
+    const named = available.filter(
       (entry) =>
         entry.name.toLowerCase().includes(q) || catalogDisplayName(entry).toLowerCase().includes(q),
     );
     items = (
-      named.length ? named : entries.filter((entry) => entry.description.toLowerCase().includes(q))
+      named.length
+        ? named
+        : available.filter((entry) => entry.description.toLowerCase().includes(q))
     )
       .map((entry) => ({
         kind,
-        group: groups[entry.kind],
+        group: adding
+          ? groups[entry.kind]
+          : entry.kind === "builtin"
+            ? "Commands"
+            : groups[entry.kind],
         insert: entry.name,
         label: entry.kind === "builtin" ? entry.name : catalogDisplayName(entry),
         detail: entry.description,

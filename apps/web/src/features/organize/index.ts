@@ -15,7 +15,11 @@ export {
 export { MoveToProjectHost } from "./move-host.tsx";
 export { useThreadMover } from "./mover.ts";
 export { SnoozeItems } from "./snooze-items.tsx";
-export { ThreadActionItems } from "./thread-action-items.tsx";
+export { ThreadActionItems, threadActions } from "./thread-action-items.tsx";
 export { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 export { useOrganizeOverlay, useOverlaidEntry, useRefusedTitle } from "./overlay.ts";
 export { useThreadActions, type ThreadActions, type ThreadTarget } from "./use-thread-actions.ts";
+
+export { DeleteConfirmationHost } from "./delete-confirmation.tsx";
+
+export { InlineRename } from "./inline-rename.tsx";

@@ -58,9 +58,7 @@ export function BasePicker(props: {
                   at === active && "bg-accent",
                 )}
               >
-                <span className="min-w-0 truncate font-mono text-sm text-foreground">
-                  {option.label}
-                </span>
+                <span className="min-w-0 truncate text-sm text-foreground">{option.label}</span>
                 {option.note && (
                   <span className="min-w-0 shrink truncate text-xs text-subtle-foreground">
                     {option.note}

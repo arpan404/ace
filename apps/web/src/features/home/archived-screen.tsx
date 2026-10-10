@@ -1,7 +1,10 @@
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { formatAgo } from "@ace/ui-core";
-import { ArchiveIcon, TrashIcon, TrayArrowUpIcon } from "@phosphor-icons/react";
+import { ArchiveIcon, TrayArrowUpIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -113,12 +116,12 @@ function ArchivedRow(props: { threadId: string; onDelete(entry: ThreadListEntry)
   if (!entry) return null;
   const archived = entry.archivedAt === undefined ? undefined : formatAgo(entry.archivedAt, now);
   return (
-    <li className="flex min-w-0 items-center gap-3 border-b py-3">
+    <li className="group/archived flex min-w-0 items-center gap-3 py-2 hover:bg-accent">
       <div className="min-w-0 flex-1">
         <Link
           to="/t/$threadId"
           params={{ threadId: entry.id }}
-          className="focus-ring block truncate rounded-xs text-ui font-medium text-foreground hover:underline"
+          className="focus-ring block truncate rounded-xs text-ui font-medium text-foreground"
         >
           {entry.title}
         </Link>
@@ -129,22 +132,30 @@ function ArchivedRow(props: { threadId: string; onDelete(entry: ThreadListEntry)
       </div>
       <Button
         size="sm"
-        variant="secondary"
+        variant="ghost"
+        className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100"
         aria-label={`Restore ${entry.title}`}
         onClick={() => actions.restore(entry)}
       >
         <TrayArrowUpIcon aria-hidden size={14} />
         Restore
       </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Delete ${entry.title}`}
-        onClick={() => props.onDelete(entry)}
-      >
-        <TrashIcon aria-hidden size={14} />
-        <span className="max-sm:sr-only">Delete</span>
-      </Button>
+      <Menu>
+        <MenuTrigger
+          render={
+            <IconButton
+              icon={DotsThreeIcon}
+              label={`Actions for ${entry.title}`}
+              className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100"
+            />
+          }
+        />
+        <MenuContent>
+          <MenuItem danger onClick={() => props.onDelete(entry)}>
+            Delete thread
+          </MenuItem>
+        </MenuContent>
+      </Menu>
     </li>
   );
 }

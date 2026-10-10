@@ -14,6 +14,10 @@ const order = () =>
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 const card = (title: string | RegExp) => within(threads()).getByRole("link", { name: title });
 
+async function rowAction(action: string, title: string) {
+  await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: action }));
+}
 /** The titles of the rows marked as the open thread. */
 const current = () =>
   within(threads())
@@ -110,9 +114,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
 /** Bring the settled thread back to the list, done and at rest. */
 async function unsettleBump() {
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
-  await userEvent.click(
-    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
-  );
+  await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
 }
 
@@ -167,26 +169,18 @@ test("a row's name says its status, provider and subagents, branch, pull request
   ).toBeTruthy();
 });
 
-test("hovering a row offers one quick action in place of its marks, named by its tooltip", async () => {
+test("a row's actions offer Settle for finished work and hide it while work continues", async () => {
   await openHome(workbenchApp());
   await unsettleBump();
-  await userEvent.hover(card(/^Bump Codex app-server to 0.48/));
-  // Finished: Settle. Its accessible name says which thread; its tooltip just what it does.
-  const settle = screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" });
-  expect(settle.textContent).toBe("Settle");
-  await userEvent.hover(settle);
-  await waitFor(() =>
-    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain("Settle"),
+  await userEvent.click(
+    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
-  await userEvent.hover(card(/^Dedupe thread events after reconnect/));
-  const busy = screen.getByRole("button", { name: "Settle Dedupe thread events after reconnect" });
-  expect(busy.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.hover(busy);
-  await waitFor(() =>
-    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toContain(
-      "Settle after the task finishes",
-    ),
+  expect(await screen.findByRole("menuitem", { name: "Settle" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Actions for Dedupe thread events after reconnect" }),
   );
+  expect(screen.queryByRole("menuitem", { name: "Settle" })).toBeNull();
 });
 
 test("Settled stays open or closed as the person left it, across a reload", async () => {
@@ -227,15 +221,11 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   const app = workbenchApp();
   await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
-  await userEvent.click(
-    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
-  );
+  await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(order()).toContain("Bump Codex app-server to 0.48");
 
-  await userEvent.click(
-    screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
-  );
+  await rowAction("Settle", "Bump Codex app-server to 0.48");
   expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
   await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
   const settledAt = () => {
@@ -252,27 +242,13 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
   expect(settledAt()).toBeUndefined();
 });
 
-test("a task still working cannot settle through its quick action", async () => {
-  await openHome(workbenchApp());
-  const settle = screen.getByRole("button", {
-    name: "Settle Dedupe thread events after reconnect",
-  });
-  await userEvent.click(settle);
-  expect(card(/^Dedupe thread events after reconnect/)).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy();
-});
-
 test("a settled thread comes back to the list as soon as it moves again", async () => {
   const app = workbenchApp();
   await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
-  await userEvent.click(
-    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
-  );
+  await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
-  await userEvent.click(
-    screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
-  );
+  await rowAction("Settle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
 
   // New work on it: the agent starts another turn and the thread is working again.
@@ -287,7 +263,7 @@ test("Settled lists settled threads without the settle rule, which lives in Sett
   const app = workbenchApp();
   await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
-  expect(await screen.findByRole("button", { name: /^Unsettle / })).toBeTruthy();
+  expect(card(/^Bump Codex/)).toBeTruthy();
   expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
 });
@@ -341,15 +317,13 @@ test("the project filter narrows Home to one project and is remembered", async (
   await waitFor(() => expect(order()).toHaveLength(2));
 });
 
-test("Tab walks a task link, Settle and Snooze, then the next task", async () => {
+test("Tab walks a task link, its actions, then the next task", async () => {
   await openHome(workbenchApp());
   const [first, second] = within(threads()).getAllByRole("link");
   if (!first || !second) throw new Error("expected two rows");
   first.focus();
   await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Settle /);
-  await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Actions for /);
   await userEvent.tab();
   expect(document.activeElement).toBe(second);
 });

@@ -1,4 +1,4 @@
-import { ArrowRightIcon, ArrowUpIcon, ClockIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -23,7 +23,7 @@ function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean):
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue · sends when the agent is free · ${mod} steers it in now`
+      ? `Queue for after this turn · ${mod} steers it in now`
       : "Queue · sends when the agent is free";
   return "Send";
 }
@@ -136,11 +136,7 @@ export function PrimaryAction(props: {
           props.off && "opacity-40",
         )}
       >
-        {mode === "queue" ? (
-          <ClockIcon aria-hidden size={16} weight="bold" />
-        ) : (
-          <ArrowUpIcon aria-hidden size={16} weight="bold" />
-        )}
+        <ArrowUpIcon aria-hidden size={16} weight="bold" />
       </button>
     </Tip>
   );
