@@ -186,7 +186,9 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
       if (!real) return;
       const result = await real.inspector.request({ type: "models.refresh", filter: {} });
       if (result.type !== "models.result" || !("models" in result.result))
-        throw new Error("Model catalog did not report ready");
+        throw new Error(
+          `Model catalog did not report ready: ${result.type === "models.result" && "ok" in result.result && !result.result.ok ? result.result.reason : "unexpected reply"}`,
+        );
       if (result.result.instances.some((instance) => instance.refreshing))
         throw new Error("Model catalog still refreshing");
       const providers = await real.inspector.request({
