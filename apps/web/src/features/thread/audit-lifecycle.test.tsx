@@ -1,4 +1,4 @@
-import { ThreadId } from "@ace/protocol";
+import { HistorySession, ThreadId } from "@ace/protocol";
 import { longHistory, replayCursor, workbench } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -31,26 +31,39 @@ async function idle(options: Parameters<typeof harness>[0] = {}) {
   return made;
 }
 
-test("new thread offers past sessions while the first scan is pending", async () => {
-  const made = app();
-  made.daemon.holdRequests("history.list");
-  await made.open("/new?project=relay");
-  expect(await screen.findByText("Loading past sessions…")).toBeTruthy();
-  expect(await screen.findByRole("button", { name: "Show all past sessions" })).toBeTruthy();
-});
-
-test("a failed past-session scan stays visible and can be retried", async () => {
-  const made = app();
-  made.daemon.failRequests("history.list");
-  await made.open("/new?project=relay");
-  const history = await screen.findByRole("region", { name: "Past sessions" });
-  expect(
-    await within(history).findByText(/Couldn't load past sessions/, {}, { timeout: 5000 }),
-  ).toBeTruthy();
-  made.daemon.restoreRequests();
-  await userEvent.click(within(history).getByRole("button", { name: "Try again" }));
-  expect(await within(history).findByText("No past sessions in relay.")).toBeTruthy();
-});
+test.each(["ready", "pending", "failed"])(
+  "new thread omits past sessions while history reads are %s",
+  async (state) => {
+    const made = app();
+    made.daemon.seedServices({
+      history: [
+        HistorySession.parse({
+          id: "saved-retry",
+          instanceId: "claude-personal",
+          provider: "claude",
+          nativeId: "native-retry",
+          cwd: "/Users/dev/relay",
+          title: "Fix the old retry loop",
+          lastActivity: 1000,
+          messageCount: 2,
+          countAccuracy: "exact",
+          support: { status: "supported" },
+        }),
+      ],
+    });
+    if (state === "pending") made.daemon.holdRequests("history.list");
+    if (state === "failed") made.daemon.failRequests("history.list");
+    await made.open("/new?project=relay");
+    await screen.findByRole("combobox", { name: "Message" }, { timeout: 5000 });
+    await screen.findByRole("region", { name: "Where this thread runs" }, { timeout: 5000 });
+    expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show all past sessions" })).toBeNull();
+    expect(screen.queryByText("Fix the old retry loop")).toBeNull();
+    expect(screen.queryByText("Loading past sessions…")).toBeNull();
+    expect(screen.queryByText(/Couldn't load past sessions/)).toBeNull();
+  },
+  10000,
+);
 
 test("catalog failure explains the missing model and Retry recovers it", async () => {
   const made = app();

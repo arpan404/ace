@@ -40,13 +40,43 @@ for (const theme of themes)
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
         );
-        if (name === "new")
-          await expect(page.getByRole("button", { name: "Show all past sessions" })).toBeVisible();
-        else await expect(page.getByText(/reconnect-audit found one more path/)).toBeVisible();
+        if (name === "new") {
+          await expect(page.getByRole("region", { name: "Past sessions" })).toHaveCount(0);
+          await expect(page.getByRole("button", { name: "Show all past sessions" })).toHaveCount(0);
+          await expect(page.getByText("Loading past sessions…")).toHaveCount(0);
+          await expect(page.getByText(/Couldn't load past sessions/)).toHaveCount(0);
+        } else await expect(page.getByText(/reconnect-audit found one more path/)).toBeVisible();
         await page.screenshot({ path: `${shots}/${theme}-${width}-${name}.png` });
       }
     });
   }
+
+test("Setup keeps the history dialog and importing reachable away from new thread", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/setup");
+  await page.getByRole("button", { name: "Get started" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByText("Bring an existing conversation").click();
+  await page.getByRole("combobox", { name: "Past sessions project" }).click();
+  await page.getByRole("option", { name: "relay", exact: true }).click();
+  await page.getByRole("button", { name: "Show all past sessions" }).click();
+  const dialog = page.getByRole("dialog", { name: "Past sessions" });
+  await expect(dialog.getByRole("textbox", { name: "Search past sessions" })).toBeVisible();
+  await dialog
+    .getByRole("button", { name: /^Import / })
+    .first()
+    .click();
+  await expect(page.getByRole("feed", { name: "Transcript" })).toContainText(
+    "The replay cursor advances only after the event is stored.",
+  );
+  await page.goto("/new?project=relay");
+  await expect(page.getByRole("region", { name: "Where this thread runs" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Past sessions" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Show all past sessions" })).toHaveCount(0);
+});
 
 test("failed starts retain three-line row height and recovery text", async ({ page }) => {
   await page.addInitScript(() => {

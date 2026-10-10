@@ -34,7 +34,6 @@ import { ModelPicker } from "./model-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
-import { PastSessions } from "@/features/history/index.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -348,7 +347,6 @@ export function NewThreadPage(props: {
               </p>
             )}
             <SignInNotice provider={provider} />
-            <PastSessions projectId={project} />
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 {error}
