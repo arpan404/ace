@@ -9,6 +9,7 @@ export const ClaudeRateLimitObservation = z
     rateLimitType: z.string().max(256).optional(),
     resetsAt: z.number().nonnegative().optional(),
     utilization: z.number().nonnegative().optional(),
+    isUsingOverage: z.boolean().optional(),
     overageStatus: z.string().optional(),
     overageResetsAt: z.number().nonnegative().optional(),
   })
@@ -19,7 +20,11 @@ export function rateLimitFacts(state: ClaudeState, data: Data): void {
   if (!parsed.success) return;
   const info = parsed.data;
   const bucket = info.rateLimitType ?? "unspecified";
-  if (info.status === "rejected") {
+  if (
+    info.status === "rejected" &&
+    info.isUsingOverage !== true &&
+    info.overageStatus !== "allowed"
+  ) {
     if (state.rateBlocks.size >= 64 && !state.rateBlocks.has(bucket)) {
       state.retryOn = "upstream";
       state.emit({
@@ -37,6 +42,7 @@ export function rateLimitFacts(state: ClaudeState, data: Data): void {
       agent: state.root,
       on: "rate_limit",
       message: "Claude rate limit",
+      ...(info.resetsAt === undefined ? {} : { until: Math.round(info.resetsAt * 1000) }),
     });
   } else {
     const wasBlocked = state.rateBlocks.delete(bucket);
@@ -45,4 +51,11 @@ export function rateLimitFacts(state: ClaudeState, data: Data): void {
       if (state.retryOn === "rate_limit") state.retryOn = undefined;
     }
   }
+}
+
+/** A native accepted run or successful result proves the previous block no longer prevents work. */
+export function clearRateLimit(state: ClaudeState): void {
+  state.rateBlocks.clear();
+  state.emit({ type: "limit.cleared", agent: state.root });
+  if (state.retryOn === "rate_limit") state.retryOn = undefined;
 }
