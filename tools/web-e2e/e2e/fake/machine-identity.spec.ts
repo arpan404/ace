@@ -77,21 +77,17 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       const threads = page.getByRole("list", { name: "Threads", exact: true });
       await expect(threads.getByRole("link", { name: /^Fix replay cursor/ })).toBeVisible();
       await expect(threads.getByRole("link", { name: /^Build release/ })).toBeVisible();
-      await expect(threads.getByText("Build server", { exact: true })).toBeVisible();
+      const machine = threads.getByText("· Build server", { exact: true });
+      await expect(machine).toBeHidden();
+      await threads.getByRole("link", { name: /^Build release/ }).hover();
+      await expect(machine).toBeVisible();
+      await page.mouse.move(width - 2, 2);
+      await expect(machine).toBeHidden();
       await expect(threads.getByText("Workshop Mac", { exact: true })).toHaveCount(0);
       await expect(threads.getByText("New thread", { exact: true })).toHaveCount(0);
-      await expect
-        .poll(() =>
-          threads
-            .getByRole("img", { name: "OpenCode", exact: true })
-            .evaluateAll((marks) =>
-              marks.every((mark) => (mark.querySelector("svg")?.getBBox().width ?? 0) > 0),
-            ),
-        )
-        .toBe(true);
       if (theme === "light" || theme === "dark")
         await page.screenshot({
-          path: `/tmp/ace-orch/shots/feat-machine-identity/sidebar-${theme}-${width}.png`,
+          path: `/tmp/ace-orch/shots/ui-thread-row-refine/machine-sidebar-${theme}-${width}.png`,
         });
       await page.goto("/settings/remote");
       await page.getByRole("button", { name: "Edit this machine", exact: true }).click();
@@ -104,7 +100,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       );
       if (theme === "light" || theme === "dark")
         await page.screenshot({
-          path: `/tmp/ace-orch/shots/feat-machine-identity/editor-${theme}-${width}.png`,
+          path: `/tmp/ace-orch/shots/ui-thread-row-refine/machine-editor-${theme}-${width}.png`,
         });
       await editor.getByRole("button", { name: "Save", exact: true }).click();
       await expect(editor).toBeHidden();

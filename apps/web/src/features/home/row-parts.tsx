@@ -1,5 +1,4 @@
 import { ProjectImage } from "@/components/project-image.tsx";
-import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
@@ -20,7 +19,7 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * What a row says beyond its title, in words: the status, the provider and its subagents, the
- * worktree or branch, the pull request or the diff, the project, another machine, a snooze.
+ * worktree or branch, the pull request, the project, another machine, a snooze.
  * Assistive tech hears it as part of the row; the row's tooltip shows it to the pointer.
  */
 export function threadDetails(card: ThreadCard): string[] {
@@ -35,7 +34,6 @@ export function threadDetails(card: ThreadCard): string[] {
         )
       : [card.pr !== undefined && `Pull request #${card.pr}`]),
     card.prState && `${card.prState} pull request`,
-    card.diff && `${card.diff.added} lines added, ${card.diff.removed} removed`,
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
     card.machine && `Running on ${card.machine}`,
@@ -186,30 +184,6 @@ export function titleTone(card: ThreadCard, selected: boolean): string {
   return quietCard(card) ? "text-subtle-foreground" : "text-sidebar-foreground";
 }
 
-/** PR and diff are independent facts; neither hides the other. */
-function ChangeMark(props: { card: ThreadCard }) {
-  const { card } = props;
-  const { diff } = card;
-  return (
-    <>
-      {diff && (
-        <span className="inline-flex items-center gap-1 tabular-nums">
-          {diff.added > 0 && (
-            <span className={quietCard(card) ? "text-subtle-foreground" : "text-status-done"}>
-              +{diff.added}
-            </span>
-          )}
-          {diff.removed > 0 && (
-            <span className={quietCard(card) ? "text-subtle-foreground" : "text-status-failed"}>
-              −{diff.removed}
-            </span>
-          )}
-        </span>
-      )}
-    </>
-  );
-}
-
 /** The provider's mark, with the count of subagents working beside it. */
 function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
@@ -241,35 +215,21 @@ export function RowIdentity(props: {
   card: ThreadCard;
   instance?: string | undefined;
   className?: string;
-  machinePrimary: boolean;
 }) {
   return (
     <span className={cn("inline-flex shrink-0 items-center gap-1.5", props.className)}>
-      {!props.machinePrimary && (
-        <span
-          role="img"
-          aria-label={`Device: ${props.card.machine ?? "This machine"}`}
-          className="inline-flex size-3.5 shrink-0 items-center justify-center text-subtle-foreground"
-        >
-          <MachineMark icon={props.card.machineIcon} />
-        </span>
-      )}
       <ProviderMark card={props.card} instance={props.instance} />
     </span>
   );
 }
 
 /** Match the sibling cluster's intrinsic width without subscribing or rendering its icons twice. */
-export function RowIdentitySpace(props: { card: ThreadCard; machinePrimary: boolean }) {
+export function RowIdentitySpace(props: { card: ThreadCard }) {
   return (
     <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-1.5">
-      {!props.machinePrimary && <span className="size-3.5" />}
       <span className="inline-flex items-center gap-0.5">
         {props.card.subagents > 0 && (
-          <span
-            data-count={`⑂ ${props.card.subagents}`}
-            className="text-2xs tabular-nums before:content-[attr(data-count)]"
-          />
+          <span className="text-2xs tabular-nums">⑂ {props.card.subagents}</span>
         )}
         <span className="size-4" />
       </span>
@@ -278,20 +238,28 @@ export function RowIdentitySpace(props: { card: ThreadCard; machinePrimary: bool
 }
 
 /** Task context stays visible while the project-line status gives way to the hover action. */
-export function RowDetail(props: { card: ThreadCard; machinePrimary: boolean }) {
+export function RowDetail(props: {
+  card: ThreadCard;
+  machinePrimary: boolean;
+  model: string | undefined;
+}) {
   const { card } = props;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-subtle-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        {card.branch && <span className="truncate">{card.branch.name}</span>}
+        <span className="truncate">
+          {card.branch?.name ?? props.model}
+          {!props.machinePrimary && card.machine && (
+            <span className="hidden group-focus-within/row:inline-flex group-hover/row:inline-flex">
+              {` · ${card.machine}`}
+            </span>
+          )}
+        </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         <PullRequest card={card} />
-        <span className="hidden items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
-          <ChangeMark card={card} />
-        </span>
       </span>
-      <RowIdentitySpace card={card} machinePrimary={props.machinePrimary} />
+      <RowIdentitySpace card={card} />
     </span>
   );
 }

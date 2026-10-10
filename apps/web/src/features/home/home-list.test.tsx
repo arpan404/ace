@@ -87,17 +87,24 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
-  expect(within(dedupe.parentElement ?? dedupe).getByText("⑂ 2")).toBeTruthy();
+  expect(
+    within(
+      within(dedupe.parentElement ?? dedupe).getByRole("img", {
+        name: "Claude Code · 2 subagents running",
+      }),
+    ).getByText("⑂ 2"),
+  ).toBeTruthy();
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
   );
-  // The branch and changes stay available on the row.
+  // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(
     within(install.parentElement ?? install).getByRole("img", { name: "OpenCode" }),
   ).toBeTruthy();
   expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
-  expect(within(install).getByText("+120")).toBeTruthy();
+  expect(within(install).queryByText("+120")).toBeNull();
+  expect(install.getAttribute("aria-label")).not.toMatch(/lines added|removed/);
 });
 
 /** Bring the settled thread back to the list, done and at rest. */
@@ -140,7 +147,7 @@ test("Up and Down (and j and k) move between rows, past the Settled heading", as
   expect(document.activeElement).toBe(card(/^Bump Codex app-server to 0.48/));
 });
 
-test("a row's name says its status, provider and subagents, branch, pull request, changes, project and machine", async () => {
+test("a row's name says its status, provider and subagents, branch, pull request, project and machine", async () => {
   await openHome(workbenchApp());
   expect(
     await within(threads()).findByRole("link", {
@@ -155,7 +162,7 @@ test("a row's name says its status, provider and subagents, branch, pull request
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
   expect(
     card(
-      /^Rewrite the install page for the daemon\..*Branch docs\/install-daemon, 120 lines added, 88 removed, Project docs-site/,
+      /^Rewrite the install page for the daemon\..*Branch docs\/install-daemon, Project docs-site/,
     ),
   ).toBeTruthy();
 });
