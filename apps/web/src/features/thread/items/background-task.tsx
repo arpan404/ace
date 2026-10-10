@@ -37,7 +37,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
   const stopping = intent?.state === "pending" || (intent?.state === "acked" && running);
   return (
-    <div role="group" aria-label={`Background task ${command}`} className="@container">
+    <div role="group" aria-label={`Background task ${command}`} className="group/task @container">
       {/* One line: the command gives way with an ellipsis. Phone-narrow, the label and Stop keep
           the first line and the command takes the second. */}
       <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
@@ -76,7 +76,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto shrink-0"
+            className="ml-auto shrink-0 sm:opacity-0 sm:group-hover/task:opacity-100 sm:group-focus-within/task:opacity-100"
             disabled={stopping}
             onClick={() =>
               void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})

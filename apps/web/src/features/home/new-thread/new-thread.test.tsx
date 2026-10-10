@@ -91,7 +91,11 @@ test("a model id two providers share starts the thread on the provider it was pi
   );
   await userEvent.clear(screen.getByRole("combobox", { name: "Search models" }));
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
-  expect(within(picker).getByRole("option", { name: /^GPT-6, Codex/ }).ariaSelected).toBe("false");
+  expect(
+    within(picker)
+      .getAllByRole("option", { name: /^GPT-6, Codex/ })
+      .every((option) => option.ariaSelected === "false"),
+  ).toBe(true);
   expect(within(picker).getByRole("option", { name: /^GPT-6, Cursor/ }).ariaSelected).toBe("true");
   await closeModelControl();
 

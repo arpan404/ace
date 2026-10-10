@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Dialog, DialogBody, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { useResolvedKeymap, scopeOf } from "@/lib/keybindings.ts";
 import { formatKeys, keymap, keymapIds, keymapEntry } from "@/lib/keymap.ts";
@@ -6,12 +7,13 @@ import { useLayout } from "@/lib/layout.tsx";
 export function ShortcutSheet() {
   const layout = useLayout();
   const effective = useResolvedKeymap();
+  const list = useRef<HTMLDListElement>(null);
   return (
     <Dialog open={layout.shortcutsOpen} onOpenChange={layout.setShortcutsOpen}>
-      <DialogContent size="lg">
+      <DialogContent size="lg" initialFocus={list}>
         <DialogTitle>Keyboard shortcuts</DialogTitle>
         <DialogBody>
-          <dl>
+          <dl ref={list} tabIndex={-1} className="focus-visible:outline-none">
             {keymapIds.map((id) => (
               <div key={id} className="flex min-h-8 items-center gap-3 text-ui">
                 <dt className="min-w-0 flex-1">

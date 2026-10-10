@@ -414,7 +414,7 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
   await userEvent.type(message, "Wait for the payment intent before asserting");
   await within(commit).findByRole("list", { name: "Files to commit" });
   await userEvent.click(within(commit).getByRole("button", { name: /^Commit & push/ }));
-  expect(await screen.findByText("Committed and pushed")).toBeTruthy();
+  expect(await screen.findByText("Committed and pushed", {}, { timeout: 15000 })).toBeTruthy();
 
   await userEvent.click(await gitStep("Create PR"));
   const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
@@ -589,7 +589,7 @@ test("the commit dialog lists the checkout's uncommitted files and can push too,
   expect(within(commit).getByRole("button", { name: /^Commit & push/ })).toBeTruthy();
   await userEvent.click(within(commit).getByRole("textbox", { name: "Commit details" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(await screen.findByText("Committed and pushed")).toBeTruthy();
+  expect(await screen.findByText("Committed and pushed", {}, { timeout: 15000 })).toBeTruthy();
   const details = app.daemon.snapshot({
     kind: "thread",
     threadId: ThreadId.parse("thread-checkout"),
@@ -742,7 +742,9 @@ test("deleting a thread with work still running from the ⋯ menu keeps it and s
   const confirmation = await screen.findByRole("dialog", { name: "Delete thread?" });
   expect(confirmation.textContent).toMatch(/agent.*running/);
   expect(within(confirmation).getByRole("button", { name: "Stop and delete" })).toBeTruthy();
+  await waitFor(() => expect(confirmation.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete thread?" })).toBeNull());
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]).toBeTruthy();

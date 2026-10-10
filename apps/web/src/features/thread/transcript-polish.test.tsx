@@ -35,7 +35,9 @@ test("only a command's final failure is labelled Failed after retries succeed", 
   await within(feed).findByText("Failed");
   expect(within(feed).getAllByText("Failed")).toHaveLength(1);
   expect(within(feed).queryByText(/exit [01]/)).toBeNull();
-  expect(within(feed).getByText("1 failed · 2 retried")).toBeTruthy();
+  expect(within(feed).getByRole("button", { name: /^Worked for/ }).textContent).toContain(
+    "1 failed · 2 retried",
+  );
 });
 
 test("an account usage warning appears beside the composer without repeating the provider notice in the transcript", async () => {

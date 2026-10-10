@@ -7,6 +7,8 @@ import {
   type ReactNode,
   type ComponentProps,
 } from "react";
+import { PanelControls } from "./workspace/panel-controls.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger, MenuSeparator, MenuItem } from "@/components/ui/menu.tsx";
 
@@ -48,12 +50,32 @@ export function Overflow(props: {
 function labelTools(nodes: ReactNode): ReactNode {
   return Children.map(nodes, (node) => {
     if (
-      !isValidElement<Partial<ComponentProps<typeof IconButton>> & { children?: ReactNode }>(node)
+      !isValidElement<
+        Partial<ComponentProps<typeof IconButton> & ComponentProps<typeof PanelControls>> & {
+          children?: ReactNode;
+        }
+      >(node)
     )
       return node;
+    if (node.type === PanelControls)
+      return cloneElement(node, {
+        renderAction: (action) => (
+          <MenuItem
+            icon={<Icon icon={action.icon} size={16} />}
+            shortcut={action.shortcut}
+            onClick={action.onClick}
+          >
+            {action.label}
+          </MenuItem>
+        ),
+      });
     if (node.props.label)
       return (
-        <MenuItem render={<button type="button" onClick={node.props.onClick} />}>
+        <MenuItem
+          icon={node.props.icon && <Icon icon={node.props.icon} size={16} />}
+          {...(node.props.shortcut ? { shortcut: node.props.shortcut } : {})}
+          render={<button type="button" className="text-left" onClick={node.props.onClick} />}
+        >
           {node.props.label === "Work card" ? "Details" : node.props.label}
         </MenuItem>
       );

@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { flakyCheckout, workbench } from "@ace/fake-daemon";
 import { configure, fireEvent, cleanup, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -11,7 +11,7 @@ configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 async function open(path = "/t/thread-checkout") {
   const app = harness({ storage: memoryKeyValue() });
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   await app.open(path);
   await screen.findByRole("navigation", { name: "Threads" }, { timeout: 10000 });
   if (path.startsWith("/t/"))
@@ -136,7 +136,7 @@ test("the shortcut sheet lists the keys saved by the person", async () => {
 
 test("fresh diff counts describe the displayed patch once even when saved counts disagree", async () => {
   const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setGitDiff(
     "thread-checkout",
     "diff --git a/readme.md b/readme.md\n--- a/readme.md\n+++ b/readme.md\n@@ -1 +1,2 @@\n existing\n+fresh line\n",

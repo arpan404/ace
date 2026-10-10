@@ -20,6 +20,13 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
     element.focus({ preventScroll: true });
   };
   const look = () => {
+    // A request arriving while a modal is open must not take its keyboard focus.
+    if (
+      root.ownerDocument.querySelector(
+        '[data-slot="dialog-content"], [data-slot="sheet-content"]:not([hidden])',
+      )
+    )
+      return;
     const cards = root.querySelectorAll<HTMLElement>("article[aria-label]");
     for (let index = cards.length - 1; index >= 0; index--) {
       // An answer first (a numbered choice, an option, a field), never the card's own chrome

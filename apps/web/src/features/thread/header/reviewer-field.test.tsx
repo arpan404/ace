@@ -14,7 +14,7 @@ function Form() {
   );
 }
 
-test("Enter and comma add reviewer names without submitting the dialog", async () => {
+test("Enter and comma add reviewers that can be removed again", async () => {
   render(<Form />);
   const field = screen.getByRole("textbox", { name: "Reviewers" });
   await userEvent.type(field, "alice{Enter}bob,");

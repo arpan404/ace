@@ -167,7 +167,7 @@ export function GitDialog(props: {
               <InlineMarkdown text={error} />
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" onClick={props.onClose}>
               Cancel
             </Button>

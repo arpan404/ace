@@ -44,7 +44,11 @@ test("typing finds threads that are absent from the empty palette", async () => 
   const search = await palette();
   expect(screen.queryByRole("group", { name: "Threads" })).toBeNull();
   await userEvent.type(search, "replay");
-  expect(await screen.findByRole("option", { name: /Cap cold-start replay/ })).toBeTruthy();
+  const match = await screen.findByRole("option", { name: /Dedupe thread events after reconnect/ });
+  await userEvent.click(match);
+  expect(
+    await screen.findByRole("heading", { name: "Dedupe thread events after reconnect", level: 1 }),
+  ).toBeTruthy();
 });
 
 test("picking a project narrows Home to it", async () => {

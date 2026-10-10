@@ -390,7 +390,7 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
   ).toBeTruthy();
 });
 
-test("Skills and a thread offer the same discovered skills for a project and provider", async () => {
+test("Skills and a thread offer available discovered skills and omit unavailable actions", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.seedServices(workbenchServices(Date.now()));
@@ -423,7 +423,7 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   expect(await screen.findByRole("option", { name: /^Review / })).toBeTruthy();
   expect(await screen.findByRole("option", { name: /^Writing / })).toBeTruthy();
   expect(await screen.findByRole("option", { name: /^Explain / })).toBeTruthy();
-  expect(await screen.findByRole("option", { name: /^Code Review / })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: /^Code Review / })).toBeNull();
   await app.client.request({
     type: "pluginRequest",
     request: {

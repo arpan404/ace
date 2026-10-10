@@ -10,6 +10,7 @@ export async function captureDialogExtras({ page, width, go, capture }: Componen
   await capture("profile", async () => {
     await go("/t/thread-ux-auth-error");
     await menu();
+    await expectReady(page.getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeVisible();
   });
   await capture("add-project", async () => {
     await go("/new");
@@ -37,9 +38,17 @@ export async function captureDialogExtras({ page, width, go, capture }: Componen
   });
   await capture("automation-editor", async () => {
     await go("/automations/auto-dependency-audit/edit");
+    await expectReady(page.getByRole("button", { name: /^Model:/ })).toBeVisible();
   });
   await capture("archived", async () => {
-    await go("/archived");
+    await go("/t/thread-ux-auth-error");
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: /Archive/ }).click();
+    await page.keyboard.press("Meta+k");
+    await page.getByRole("combobox", { name: "Search commands" }).fill("Archived threads");
+    await page.getByRole("option", { name: /^Archived threads/ }).click();
+    await expectReady(page.getByRole("list", { name: "Archived threads" })).toBeVisible();
+    await page.getByRole("list", { name: "Archived threads" }).hover();
   });
   await capture("setup-step1", async () => {
     await go("/setup");
@@ -49,6 +58,8 @@ export async function captureDialogExtras({ page, width, go, capture }: Componen
       await page
         .getByRole("button", { name: step === 2 ? "Get started" : "Continue", exact: true })
         .click();
+      if (step === 3)
+        await expectReady(page.getByText("iOS Simulator", { exact: true })).toBeVisible();
     });
   await capture("commit-dialog", async () => {
     await go("/t/thread-checkout");

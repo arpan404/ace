@@ -35,7 +35,7 @@ async function fork() {
     "GPT-5 Codex",
   );
   await userEvent.click(
-    await within(picker).findByRole("option", { name: /^GPT-5 Codex,.*Codex/ }),
+    await within(picker).findByRole("option", { name: /^GPT-5 Codex, Codex · Personal$/ }),
   );
   await userEvent.type(
     within(dialog).getByRole("textbox", { name: "First message of the fork" }),

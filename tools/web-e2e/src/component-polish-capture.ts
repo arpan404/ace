@@ -38,6 +38,25 @@ export function createCapture(
       try {
         await action();
         await expectReady(page.locator('[data-slot="skeleton"]:visible')).toHaveCount(0);
+        const feed = page.getByRole("feed", { name: "Transcript" });
+        if (await feed.count())
+          await expectReady
+            .poll(() =>
+              feed.evaluate((node) => {
+                const rows = [...node.children].filter(
+                  (child): child is HTMLElement =>
+                    child instanceof HTMLElement && child.getAttribute("role") === "article",
+                );
+                return rows.every((row, index) => {
+                  const next = rows[index + 1];
+                  return (
+                    !next ||
+                    row.getBoundingClientRect().bottom <= next.getBoundingClientRect().top + 1
+                  );
+                });
+              }),
+            )
+            .toBe(true);
         await page.screenshot({ path: `${out}/${name}-${suffix}.png` });
         console.log(`${name}-${suffix}`);
       } catch (error) {

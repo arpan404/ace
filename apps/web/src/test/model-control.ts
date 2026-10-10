@@ -66,6 +66,8 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
 
 /** Choose an account within the selected provider. */
 export async function selectAccount(popover: HTMLElement, name: string) {
-  await userEvent.click(within(popover).getByRole("combobox", { name: "Account" }));
+  const account = within(popover).queryByRole("combobox", { name: "Account" });
+  if (!account) return; // One account needs no selector.
+  await userEvent.click(account);
   await userEvent.click(await screen.findByRole("option", { name }));
 }

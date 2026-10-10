@@ -77,7 +77,8 @@ function arrange(
     for (const group of groups) {
       if (group.value === "Threads") {
         if (allThreads) out.push(group);
-      } else if (group.value === "This thread") out.push(group);
+      } else if (group.value === "This thread" || group.value === "Selected threads")
+        out.push(group);
       // Recently opened threads sit right after what acts on this thread.
       if (group.value === "This thread" && recentRows.length)
         out.push({ value: "Recent threads", items: recentRows });

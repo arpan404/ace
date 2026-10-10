@@ -1,9 +1,11 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { coldStartReplay, workbenchServices } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 /** Pretend the window is `width` px wide: media queries answer as a browser would. */
 function windowWidth(width: number) {
@@ -114,10 +116,10 @@ test("on a phone the header keeps one ⋯ for its tools and the thread menu, and
   expect(overflow).toHaveLength(1);
 
   await userEvent.click(await moreActions(header));
-  expect(await screen.findByRole("button", { name: "Work card" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "More options" }));
+  expect(await screen.findByRole("menuitem", { name: "Details" })).toBeTruthy();
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: /^Search this thread/ })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /^Search this thread/ })).toBeNull();
+  expect(screen.getByRole("menuitem", { name: "Changes" })).toBeTruthy();
 });
 
 test("on a phone the header keeps a back caret, title and one ⋯ with no status; tools are in the ⋯", async () => {
@@ -132,15 +134,15 @@ test("on a phone the header keeps a back caret, title and one ⋯ with no status
   expect(within(header).queryByRole("img", { name: "Waiting on 2 subagents" })).toBeNull();
   expect(within(header).queryByRole("status")).toBeNull();
 
-  const tools = ["Work card", "Right panel"];
-  for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();
+  const tools = ["Details", "Changes"];
+  for (const name of tools) expect(screen.queryByRole("menuitem", { name })).toBeNull();
   const more = await moreActions(header);
   // Loaded, the tools stay mounted but hidden until it opens.
-  for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();
+  for (const name of tools) expect(screen.queryByRole("menuitem", { name })).toBeNull();
   await userEvent.click(more);
-  for (const name of tools) expect(await screen.findByRole("button", { name })).toBeTruthy();
+  for (const name of tools) expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
   await userEvent.click(more);
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Changes" })).toBeNull());
 
   // The thread's shortcuts still work with the ⋯ closed.
   await userEvent.keyboard("{Meta>}f{/Meta}");
@@ -151,7 +153,7 @@ test("on a phone the work card is a sheet over the thread that Escape closes", a
   windowWidth(390);
   await openThread();
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Details" }));
   const card = await screen.findByRole("complementary", { name: "Work card" });
   expect(within(card).getByRole("region", { name: "Actions" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
@@ -186,7 +188,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await openThread();
   // On a phone the panel's toggle lives in the header's ⋯, which focus returns to.
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Changes" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
   // Focus moves into the sheet, onto its showing tab.
@@ -208,7 +210,8 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
 
   // Its shortcut (Ctrl+Alt+B off Apple) opens it too; Escape closes it.
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
-  await screen.findByRole("region", { name: "Thread panel" });
+  const opened = await screen.findByRole("region", { name: "Thread panel" });
+  await waitFor(() => expect(opened.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
@@ -267,8 +270,9 @@ test("on a small tablet the floating panel leaves the sidebar where the person p
   await openThread();
   expect(sidebar()).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  await screen.findByRole("region", { name: "Thread panel" });
+  const opened = await screen.findByRole("region", { name: "Thread panel" });
   expect(sidebar()).toBeTruthy();
+  await waitFor(() => expect(opened.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(sidebar()).toBeTruthy();

@@ -3,10 +3,20 @@ import {
   ArrowsOutSimpleIcon,
   SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
+import type { KeymapId } from "@/lib/keymap.ts";
+import type { IconGlyph } from "@/components/icon.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { withViewTransition } from "@/lib/motion.ts";
 import type { ScopeWorkspace, WorkspaceActions } from "@/lib/workspace/index.ts";
+
+export interface PanelControlAction {
+  icon: IconGlyph;
+  label: string;
+  shortcut: KeymapId;
+  onClick(): void;
+}
 
 /**
  * The side panel's controls, always at the far right of the window's top row: full view (while
@@ -18,9 +28,17 @@ export function PanelControls(props: {
   actions: WorkspaceActions;
   /** In the panel's own strip (it is showing) or in the header (it is not). */
   placement: "header" | "panel";
+  renderAction?: ((action: PanelControlAction) => ReactNode) | undefined;
 }) {
   const { workspace, actions } = props;
   const phone = usePhone();
+  if (props.renderAction)
+    return props.renderAction({
+      icon: SquareSplitHorizontalIcon,
+      label: "Changes",
+      shortcut: "rightPanel",
+      onClick: () => actions.open({ kind: "changes" }),
+    });
   return (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       {props.placement === "panel" && (

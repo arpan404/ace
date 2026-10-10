@@ -90,6 +90,7 @@ export async function captureThreadExtras({ page, width, go, capture }: Componen
       await expectReady(panel.getByRole("tab", { selected: true })).toContainText(
         tool === "Preview" ? "web" : tool,
       );
+      await expectReady(panel.getByRole("status", { name: "Loading", exact: true })).toHaveCount(0);
       if (tool === "Preview")
         await expectReady(panel.getByRole("button", { name: "Retry", exact: true })).toBeVisible({
           timeout: 15000,
