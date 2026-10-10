@@ -27,6 +27,8 @@ export interface FilesOptions {
   exportOutput?(device: string, streamId: string, assertAuthorized: () => void): Promise<string>;
   onChange?(change: WorkspaceFileChange): void;
   maxTransfers?: number;
+  transferIdleMs?: number;
+  scheduleTimeout?(callback: () => void, milliseconds: number): () => void;
   maxUploadBytes?: number;
   maxReservedBytes?: number;
   maxTrashBytes?: number;

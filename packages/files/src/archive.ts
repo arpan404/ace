@@ -29,6 +29,7 @@ export async function previewArchive(
   includeIgnored: boolean,
   id: string,
   expires: number,
+  signal?: AbortSignal,
 ): Promise<Preview> {
   const base = safe.path(path);
   const rootVersion = version((await safe.metadata(base)).info);
@@ -41,6 +42,7 @@ export async function previewArchive(
     dir: base,
     depth: Number.MAX_SAFE_INTEGER,
     includeIgnored,
+    ...(signal ? { signal } : {}),
   })) {
     if (entry.type !== "file" && entry.type !== "directory") continue;
     const { info } = await safe.metadata(entry.path);

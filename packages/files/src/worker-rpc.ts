@@ -7,23 +7,29 @@ import { FileError } from "./types.ts";
 export function workerRequest(createWorker: () => Worker) {
   let worker: Worker | undefined;
   let closed = false;
-  let problem: Error | undefined;
   let waiting: { resolve(value: unknown): void; reject(error: Error): void } | undefined;
   const fail = (error: Error) => {
-    problem = error;
+    const failed = worker;
+    worker = undefined;
+    if (failed) {
+      failed.removeAllListeners();
+      failed.on("error", () => {});
+      void failed.terminate().catch(() => {});
+    }
     waiting?.reject(error);
     waiting = undefined;
   };
   return {
     async request(input: unknown): Promise<unknown> {
       if (closed) throw new FileError("CLOSED", "Worker owner closed");
-      if (problem) throw problem;
       if (waiting) throw new FileError("BUSY", "Worker already has a request");
       if (!worker) {
         worker = createWorker();
         worker.on("error", fail);
         worker.on("exit", () => fail(new FileError("IO_ERROR", "I/O worker exited")));
+        const current = worker;
         worker.on("message", (value: unknown) => {
+          if (worker !== current) return;
           const pending = waiting;
           waiting = undefined;
           pending?.resolve(value);
@@ -41,8 +47,9 @@ export function workerRequest(createWorker: () => Worker) {
     },
     async close() {
       closed = true;
+      const owned = worker;
       fail(new FileError("CLOSED", "Worker owner closed"));
-      await worker?.terminate();
+      await owned?.terminate();
     },
   };
 }

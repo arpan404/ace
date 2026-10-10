@@ -45,9 +45,13 @@ export async function freezeRemoteAttachments(
   for (const path of selection?.files ?? []) {
     signal.throwIfAborted();
     if (!context || !options.files) throw new Error("Source workspace files unavailable");
-    const download = await (
-      await options.files.get(threadId)
-    ).download(owner, { op: "download", path, offset: 0 });
+    const lease = await options.files.acquire(threadId);
+    let download;
+    try {
+      download = await lease.service.download(owner, { op: "download", path, offset: 0 });
+    } finally {
+      lease.release();
+    }
     try {
       if (
         download.size === null ||

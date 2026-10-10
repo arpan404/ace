@@ -113,9 +113,10 @@ export function createFilesSession(context: SocketContext): SocketService {
         if (!threadId || !files || !context.canReadThread(threadId))
           throw new Error("File thread unavailable");
         const root = files.root(threadId);
-        const service = await files.get(threadId);
+        const { service, release } = await files.acquire(threadId);
         return {
           service,
+          release,
           allowed: (access) =>
             context.connected() &&
             context.authorize(access) &&

@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { SafeRoot, GitIgnore, listWorkspace } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
-import { archiveDownload, previewArchive, type Preview } from "./archive.ts";
+import { ArchivePreviews } from "./archive-previews.ts";
+import { FileRequestLifetime } from "./request-lifetime.ts";
 import { openDownload, openBorrowedDownload } from "./download.ts";
 import { newId, observed } from "./filesystem.ts";
 import { Mutations } from "./mutations.ts";
@@ -19,8 +20,22 @@ export class FilesService {
   private readonly exclusive: ExclusiveRename;
   private readonly uploads: Uploads;
   private readonly roots: Map<string, SafeRoot>;
-  private readonly previews = new Map<string, Preview>();
+  private readonly previews: ArchivePreviews;
   private readonly listeners = new Set<(change: WorkspaceFileChange) => void>();
+  private readonly lifetime: FileRequestLifetime;
+  get idle(): boolean {
+    return (
+      !this.closed &&
+      this.active === 0 &&
+      this.owners === 0 &&
+      this.pending === 0 &&
+      this.artifactBytes === 0 &&
+      this.lifetime.idle &&
+      this.listeners.size === 0
+    );
+  }
+  private owners = 0;
+  private revision = 0;
   private artifactBytes = 0;
   private active = 0;
   private pending = 0;
@@ -29,6 +44,8 @@ export class FilesService {
   private constructor(safe: SafeRoot, options: FilesOptions, roots: Map<string, SafeRoot>) {
     this.safe = safe;
     this.options = options;
+    this.lifetime = new FileRequestLifetime(options.scheduleTimeout);
+    this.previews = new ArchivePreviews(safe, options, this.lifetime);
     this.roots = roots;
     this.catalog = new Catalog(join(options.dataDir, "files.sqlite"));
     this.exclusive = options.exclusiveRename ?? createExclusiveRename();
@@ -52,6 +69,24 @@ export class FilesService {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
     if (!this.options.authorize(device, capability))
       throw new FileError("FORBIDDEN", "Device scope denies this operation");
+  }
+  scheduleTransferTimeout(callback: () => void): () => void {
+    const milliseconds = this.options.transferIdleMs ?? 60_000;
+    if (this.options.scheduleTimeout) return this.options.scheduleTimeout(callback, milliseconds);
+    const timer = setTimeout(callback, milliseconds);
+    timer.unref();
+    return () => clearTimeout(timer);
+  }
+  retain(): () => void {
+    if (this.closed) throw new FileError("CLOSED", "File service closed");
+    this.owners++;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.owners--;
+      }
+    };
   }
   reserve(): () => void {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
@@ -86,6 +121,7 @@ export class FilesService {
     };
   }
   private serial<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closed) return Promise.reject(new FileError("CLOSED", "File service closed"));
     if (this.pending >= 16) return Promise.reject(new FileError("BUSY", "Mutation queue is full"));
     this.pending++;
     const next = this.tail.then(action);
@@ -102,6 +138,7 @@ export class FilesService {
     return () => this.listeners.delete(listener);
   }
   private emit(change: WorkspaceFileChange): void {
+    this.revision++;
     // A UI or engine consumer failure cannot roll back a completed filesystem mutation.
     for (const listener of this.listeners) {
       try {
@@ -116,7 +153,14 @@ export class FilesService {
       /* sink owns recovery */
     }
   }
-  async request(device: string, input: unknown, guard: () => void = () => {}): Promise<unknown> {
+  request(device: string, input: unknown, guard: () => void = () => {}): Promise<unknown> {
+    return this.lifetime.run(() => this.performRequest(device, input, guard));
+  }
+  private async performRequest(
+    device: string,
+    input: unknown,
+    guard: () => void,
+  ): Promise<unknown> {
     guard();
     const operation = FileOperation.parse(input);
     const reading = [
@@ -145,7 +189,9 @@ export class FilesService {
       };
     }
     if (operation.op === "stat") {
-      const current = await observed(this.safe, operation.path);
+      const current = await this.lifetime.walk((signal) =>
+        observed(this.safe, operation.path, signal),
+      );
       if (current === null) return { path: operation.path, version: null };
       const { info, type } = await this.safe.metadata(operation.path);
       return { path: operation.path, version: current, size: info.size, type };
@@ -179,30 +225,26 @@ export class FilesService {
           size: artifact.bytes,
         };
       });
+    if (operation.op === "archive.preview") {
+      const result = await this.previews.preview(operation);
+      guard();
+      this.authorize(device, "files.read");
+      return result;
+    }
+    switch (operation.op) {
+      case "write":
+      case "create":
+      case "mkdir":
+      case "rename":
+      case "move":
+      case "delete":
+      case "restore":
+        return this.mutate(device, operation, guard);
+    }
     return this.serial(async () => {
       guard();
       this.authorize(device, reading ? "files.read" : "files.write");
       switch (operation.op) {
-        case "archive.preview": {
-          for (const [id, preview] of this.previews)
-            if (preview.expires <= this.options.now()) this.previews.delete(id);
-          if (this.previews.size >= 4) throw new FileError("BUSY", "Archive preview limit reached");
-          const preview = await previewArchive(
-            this.safe,
-            operation.path,
-            operation.includeIgnored,
-            newId(this.options.id),
-            this.options.now() + 300_000,
-          );
-          this.previews.set(preview.id, preview);
-          return {
-            previewId: preview.id,
-            bytes: preview.bytes,
-            entries: preview.entries.length,
-            format: "tar.gz",
-            validator: preview.validator,
-          };
-        }
         case "upload.begin":
           return this.uploads.begin(device, operation.path, operation.expected, operation.size);
         case "upload.resume":
@@ -221,23 +263,34 @@ export class FilesService {
           this.emit(change);
           return change;
         }
-        case "write":
-        case "create":
-        case "mkdir":
-        case "rename":
-        case "move":
-        case "delete":
-        case "restore": {
-          if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
-            this.uploads.assertUnoccupied(operation.path);
-          const change = await this.mutations.apply(operation);
-          this.emit(change);
-          return change;
-        }
         default:
           throw new FileError("INVALID_OPERATION", "Use the binary transfer channel");
       }
     });
+  }
+  private async mutate(
+    device: string,
+    operation: Parameters<Mutations["apply"]>[0],
+    guard: () => void,
+  ): Promise<WorkspaceFileChange> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const revision = this.revision;
+      const prepared = await this.lifetime.walk((signal) =>
+        this.mutations.prepare(operation, signal),
+      );
+      const result = await this.serial(async () => {
+        guard();
+        this.authorize(device, "files.write");
+        if (revision !== this.revision) return undefined;
+        if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
+          this.uploads.assertUnoccupied(operation.path);
+        const change = await this.mutations.apply(operation, prepared);
+        this.emit(change);
+        return change;
+      });
+      if (result) return result;
+    }
+    throw new FileError("BUSY", "Workspace changed during preparation; try again");
   }
   append(
     device: string,
@@ -287,10 +340,7 @@ export class FilesService {
           break;
         }
         case "archive.download": {
-          const preview = this.previews.get(operation.previewId);
-          if (!preview || preview.expires <= this.options.now())
-            throw new FileError("EXPIRED", "Archive preview expired");
-          download = archiveDownload(this.safe, preview);
+          download = this.previews.download(operation.previewId);
           break;
         }
         default:
@@ -383,15 +433,15 @@ export class FilesService {
         if (record.expires <= this.options.now())
           await this.mutations.expire(TrashRecord.parse(record));
       }
-      for (const [id, preview] of this.previews)
-        if (preview.expires <= this.options.now()) this.previews.delete(id);
+      this.previews.sweep();
     });
   }
   async close(): Promise<void> {
     this.closed = true;
+    await this.lifetime.close();
     await this.tail;
     this.listeners.clear();
-    this.previews.clear();
+    this.previews.close();
     this.catalog.close();
     await this.exclusive.close();
   }
