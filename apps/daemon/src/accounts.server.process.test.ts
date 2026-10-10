@@ -118,18 +118,14 @@ createInterface({input:process.stdin}).on('line', async line => {
     });
     client = new Client(daemon.url);
     await once(client.socket, "open");
-    const list = async (path: string) =>
-      AccountSummary.array()
-        .max(256)
-        .parse(
-          JSON.parse(
-            (
-              await promisify(execFile)(process.execPath, [path, "accounts", "list"], {
-                env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined },
-              })
-            ).stdout,
-          ),
-        );
+    const list = async (path: string): Promise<unknown> => {
+      const { stdout } = await promisify(execFile)(process.execPath, [path, "accounts", "list"], {
+        env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined },
+      });
+      const accounts: unknown = JSON.parse(stdout);
+      AccountSummary.array().max(256).parse(accounts);
+      return accounts;
+    };
     await statusStarted.promise;
     expect(await list("packages/accounts/src/cli.ts")).toEqual(
       expect.arrayContaining([
