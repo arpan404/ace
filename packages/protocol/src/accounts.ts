@@ -175,6 +175,8 @@ export const AccountAvailability = z.enum([
   "unknown",
 ]);
 export const AccountSummary = z.object({
+  /** Display-only normal CLI home; isolated account homes remain private. */
+  cliHome: z.string().max(4096).optional(),
   implicit: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   id: AccountInstanceId,

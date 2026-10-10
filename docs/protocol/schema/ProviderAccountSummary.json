@@ -30,6 +30,10 @@
         }
       ]
     },
+    "cliHome": {
+      "maxLength": 4096,
+      "type": "string"
+    },
     "homeStrategy": {
       "const": "default_cli",
       "type": "string"

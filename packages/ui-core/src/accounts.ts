@@ -32,6 +32,7 @@ export interface AccountView {
   signedInAs?: string | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
   implicit?: boolean | undefined;
+  cliHome?: string | undefined;
   /** New threads on this provider start on it. */
   isDefault?: boolean | undefined;
   /** What the daemon said when it was read; `accountLimit` says what holds at a later moment. */
@@ -130,7 +131,7 @@ export function accountView(summary: Summary): AccountView {
     badgeColor: summary.badgeColor,
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
-    ...(summary.implicit ? { implicit: true } : {}),
+    ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),
     ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,
     signedIn: summary.quota.auth === "logged_in" && summary.availability !== "logged_out",

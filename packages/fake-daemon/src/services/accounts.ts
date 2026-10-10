@@ -68,6 +68,7 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     label: "Your CLI login",
     authMethod: "unknown",
     implicit: true,
+    cliHome: `/Users/ada/.${id}`,
     isDefault: true,
     availability: "unknown",
     quota: { auth: "unknown", observedAt: now, windows: {}, blockers: {}, usage: {} },
@@ -106,6 +107,7 @@ export function accountSummaries(now: number): AccountSummary[] {
           ?.cliVersion,
         label: "Your CLI login",
         implicit: true,
+        cliHome: `/Users/ada/.${provider}`,
         isDefault: true,
         availability: "unknown" as const,
         quota: {

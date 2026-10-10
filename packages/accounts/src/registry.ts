@@ -48,6 +48,7 @@ function summarize(
   return {
     id: instance.id,
     implicit: instance.implicit ?? false,
+    ...(instance.implicit ? { cliHome: instance.homeDir } : {}),
     provider: instance.provider,
     label: instance.label,
     shortLabel: accountShortLabel(instance),
