@@ -12,9 +12,9 @@ export const toastTimeouts = { plain: 5000, action: 8000, error: 8000 } as const
 const limit = 3;
 
 /**
- * Toasts sit below the header at the top centre of the main pane, clear of side panels.
- * Short confirmations take only the room their words need; descriptions and actions wrap
- * within a bounded card. Queue them under <ToastProvider> with useToast().add() or .error().
+ * Toasts sit at the bottom-left, clear of the thread title. Titles and descriptions share
+ * one line; an optional action follows them. Queue them under <ToastProvider> with
+ * useToast().add() or .error().
  * F6 moves focus to them (Base UI); hovering or focusing one pauses every timer.
  */
 interface ToastLedger {
@@ -84,7 +84,7 @@ function ToastList() {
       aria-hidden={false}
       className={cn(
         overlaySurface,
-        "group/toast pointer-events-auto relative w-max max-w-full rounded-[12px] text-ui font-medium text-popover-foreground",
+        "group/toast pointer-events-auto relative w-max max-w-full rounded-popup text-ui font-medium text-popover-foreground",
         "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
@@ -92,9 +92,9 @@ function ToastList() {
         {toast.type === "error" && (
           <WarningCircleIcon aria-hidden size={14} className="shrink-0 text-status-failed" />
         )}
-        <div className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+        <div className="flex min-w-0 items-baseline gap-1">
           <Toast.Title className="truncate" />
-          <Toast.Description className="text-sm font-normal text-muted-foreground empty:hidden" />
+          <Toast.Description className="truncate font-normal text-muted-foreground empty:hidden" />
         </div>
         <Toast.Action
           className={cn(buttonVariants({ size: "sm" }), "ml-1.5 shrink-0 empty:hidden")}

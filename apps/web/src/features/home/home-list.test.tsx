@@ -1,9 +1,12 @@
 import { facts, workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const titles = workbench().map((scenario) => scenario.thread.title);

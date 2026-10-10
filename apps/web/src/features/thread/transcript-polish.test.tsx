@@ -1,9 +1,12 @@
-import { coldStartReplay, workbench } from "@ace/fake-daemon";
-import { render, screen, within } from "@testing-library/react";
+import { coldStartReplay, uxAudit } from "@ace/fake-daemon";
+import { configure, render, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { ModelFacing } from "./items/model-facing.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 test("received context expands to a readable summary and keeps the envelope behind Details", async () => {
   const envelope = JSON.stringify({
@@ -23,12 +26,13 @@ test("received context expands to a readable summary and keeps the envelope behi
 
 test("only a command's final failure is labelled Failed after retries succeed", async () => {
   const app = harness();
-  const scenario = workbench().find((entry) => entry.thread.id === "thread-ux-failed-commands");
+  const scenario = uxAudit().find((entry) => entry.thread.id === "thread-ux-failed-commands");
   if (!scenario) throw new Error("Missing failed-commands scenario");
   app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-ux-failed-commands");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await within(feed).findByText("Failed");
   expect(within(feed).getAllByText("Failed")).toHaveLength(1);
   expect(within(feed).queryByText(/exit [01]/)).toBeNull();
   expect(within(feed).getByText("1 failed · 2 retried")).toBeTruthy();

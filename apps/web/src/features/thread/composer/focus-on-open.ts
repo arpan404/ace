@@ -6,6 +6,19 @@
 export function focusOpenRequest(root: Element, tries = 60): () => void {
   let frame = 0;
   let left = tries;
+  let release: (() => void) | undefined;
+  const focus = (element: HTMLElement) => {
+    element.setAttribute("data-auto-focused", "");
+    const clear = () => {
+      element.removeAttribute("data-auto-focused");
+      element.ownerDocument.removeEventListener("keydown", clear, true);
+      element.removeEventListener("blur", clear);
+    };
+    element.ownerDocument.addEventListener("keydown", clear, { capture: true, once: true });
+    element.addEventListener("blur", clear, { once: true });
+    release = clear;
+    element.focus({ preventScroll: true });
+  };
   const look = () => {
     const cards = root.querySelectorAll<HTMLElement>("article[aria-label]");
     for (let index = cards.length - 1; index >= 0; index--) {
@@ -17,7 +30,7 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
           "[data-approval-refusal]:not([disabled]):not([aria-disabled='true'])",
         );
         if (!deny) card.setAttribute("tabindex", "-1");
-        (deny ?? card).focus({ preventScroll: true });
+        focus(deny ?? card);
         return;
       }
       const option =
@@ -30,12 +43,15 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
       if (option) {
         // The card sits above the composer, in view; scrolling to it mid-rise would drag the
         // whole shell up with it.
-        option.focus({ preventScroll: true });
+        focus(option);
         return;
       }
     }
     if (--left > 0) frame = requestAnimationFrame(look);
   };
   frame = requestAnimationFrame(look);
-  return () => cancelAnimationFrame(frame);
+  return () => {
+    cancelAnimationFrame(frame);
+    release?.();
+  };
 }

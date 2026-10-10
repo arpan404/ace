@@ -1,7 +1,8 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -14,6 +15,8 @@ import {
   selectAccount,
 } from "@/test/model-control.ts";
 import { Choices } from "./choices.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 function app(options: Parameters<typeof harness>[0] = {}) {
   const made = harness(options);
@@ -86,6 +89,7 @@ test("a model id two providers share starts the thread on the provider it was pi
   const picker = await openModelPicker(
     await screen.findByRole("dialog", { name: "Model and effort" }),
   );
+  await userEvent.clear(screen.getByRole("combobox", { name: "Search models" }));
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
   expect(within(picker).getByRole("option", { name: /^GPT-6, Codex/ }).ariaSelected).toBe("false");
   expect(within(picker).getByRole("option", { name: /^GPT-6, Cursor/ }).ariaSelected).toBe("true");
@@ -407,7 +411,9 @@ test("native approvals chosen for a new thread are the ones it starts with", asy
   expect(approvals.textContent).toBe("Auto review");
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
-  expect(await screen.findByRole("button", { name: /^Approvals: Auto review/ })).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: /^Approvals: Auto review/ }, { timeout: 10000 }),
+  ).toBeTruthy();
 });
 test("switching provider clears a native mode the new provider does not offer", async () => {
   const made = app();

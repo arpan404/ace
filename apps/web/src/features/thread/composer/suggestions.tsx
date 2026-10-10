@@ -125,7 +125,7 @@ export function useSuggestions(
         ];
     const described = entries.map((entry) =>
       entry.kind === "command" && !entry.description.trim()
-        ? { ...entry, description: "Run saved prompt" }
+        ? Object.assign({}, entry, { description: "Run saved prompt" })
         : entry,
     );
     const available = described.filter(

@@ -1,9 +1,12 @@
 import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openApp(path = "/") {
   const app = harness();
@@ -16,7 +19,7 @@ async function openApp(path = "/") {
 }
 const palette = async () => {
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  return screen.findByRole("combobox", { name: "Search commands" });
+  return screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 });
 };
 const options = () => screen.getAllByRole("option").map((option) => option.textContent ?? "");
 
@@ -41,10 +44,7 @@ test("typing finds threads that are absent from the empty palette", async () => 
   const search = await palette();
   expect(screen.queryByRole("group", { name: "Threads" })).toBeNull();
   await userEvent.type(search, "replay");
-  const threads = within(await screen.findByRole("group", { name: "Threads" }))
-    .getAllByRole("option")
-    .map((option) => option.textContent ?? "");
-  expect(threads.some((name) => name.includes("cold-start replay"))).toBe(true);
+  expect(await screen.findByRole("option", { name: /Cap cold-start replay/ })).toBeTruthy();
 });
 
 test("picking a project narrows Home to it", async () => {

@@ -91,7 +91,7 @@ export function TurnsPanel(props: { nav: ThreadNav }) {
       aria-label="Turns"
       className={cn(
         overlaySurface,
-        "fx-rise-in absolute top-3 right-4 z-[7] flex w-[min(340px,calc(100vw-2rem))] flex-col rounded-[12px] p-1",
+        "fx-rise-in absolute top-3 right-4 z-[7] flex w-[min(340px,calc(100vw-2rem))] flex-col rounded-popup p-1",
       )}
       style={{ height: "min(70vh, 640px)" }}
     >

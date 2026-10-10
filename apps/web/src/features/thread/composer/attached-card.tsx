@@ -44,7 +44,7 @@ export function AttachedCard(props: {
         className={cn(
           "fx-panel-in relative",
           props.strip ? "" : "max-h-[50vh] overflow-y-auto overscroll-contain pb-3",
-          props.label === "Plan" ? "" : attachedSurface,
+          props.label === "Plan" || props.label === "Waiting for you" ? "" : attachedSurface,
         )}
       >
         {/* What it shows changing settles in place; the surface stays. */}

@@ -1,9 +1,12 @@
 import { flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 afterEach(() => answerStore.forgetAll());

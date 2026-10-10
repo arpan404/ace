@@ -1,14 +1,13 @@
-import { chromium, expect, type Page } from "@playwright/test";
+import { chromium } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createCapture, expectReady } from "./component-polish-capture.ts";
+import { captureThreadExtras } from "./component-polish-extra-shots.ts";
+import { captureDialogExtras } from "./component-polish-dialog-shots.ts";
 const out = "/tmp/ace-orch/shots/ui-polish-components";
 const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
 const browser = await chromium.launch();
 const errors: string[] = [];
 await mkdir(out, { recursive: true });
-async function shot(page: Page, name: string, suffix: string) {
-  await page.screenshot({ path: `${out}/${name}-${suffix}.png` });
-  console.log(`${name}-${suffix}`);
-}
 try {
   for (const theme of themes)
     for (const width of [1440, 390]) {
@@ -32,53 +31,44 @@ try {
         theme,
       );
       const page = await context.newPage();
-      page.setDefaultTimeout(30000);
+      page.setDefaultTimeout(20000);
       page.on("pageerror", (error) => errors.push(`${theme}-${width}: ${error.message}`));
       const suffix = `${theme}-${width}`;
-      const go = async (path: string) => {
-        await page.goto(`http://127.0.0.1:5397${path}`);
-        await expect(page.locator("header h1").first()).toBeVisible();
-      };
-      const capture = async (name: string, action: () => Promise<void>) => {
-        try {
-          await action();
-          await shot(page, name, suffix);
-        } catch (error) {
-          errors.push(
-            `${name}-${suffix}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
-          );
-          await shot(page, `failed-${name}`, suffix);
-        }
-      };
+      const contextCapture = createCapture(page, width, out, suffix, errors);
+      const { go, capture } = contextCapture;
       await capture("composer-idle", async () => {
         await go("/t/thread-ux-auth-error");
-        await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
+        await expectReady(
+          page.getByRole("combobox", { name: "Message", exact: true }),
+        ).toBeVisible();
       });
       await capture("composer-add", async () => {
         await page.getByRole("button", { name: "Add files and context" }).click();
-        await expect(page.getByRole("listbox", { name: "Add", exact: true })).toBeVisible();
+        await expectReady(page.getByRole("listbox", { name: "Add", exact: true })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("composer-commands", async () => {
         const message = page.getByRole("combobox", { name: "Message", exact: true });
         await message.fill("/");
-        await expect(page.getByRole("listbox", { name: "Commands", exact: true })).toBeVisible();
+        await expectReady(
+          page.getByRole("listbox", { name: "Commands", exact: true }),
+        ).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("composer-mentions", async () => {
         await page.getByRole("combobox", { name: "Message", exact: true }).fill("@read");
-        await expect(page.getByRole("listbox", { name: "Files and threads" })).toBeVisible();
+        await expectReady(page.getByRole("listbox", { name: "Files and threads" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await page.getByRole("combobox", { name: "Message", exact: true }).fill("");
       await capture("model-menu", async () => {
         await page.getByRole("button", { name: /^Model:/ }).click();
-        await expect(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
+        await expectReady(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("permissions", async () => {
         await page.getByRole("button", { name: /^Approvals:/ }).click();
-        await expect(page.getByRole("menu").last()).toBeVisible();
+        await expectReady(page.getByRole("menu").last()).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("thread-menu", async () => {
@@ -86,11 +76,11 @@ try {
           .getByRole("button", { name: /More actions/ })
           .last()
           .click();
-        await expect(page.getByRole("menuitem", { name: /Rename/ })).toBeVisible();
+        await expectReady(page.getByRole("menuitem", { name: /Rename/ })).toBeVisible();
       });
       await capture("rename-field", async () => {
         await page.getByRole("menuitem", { name: /Rename/ }).click();
-        await expect(page.getByRole("textbox", { name: "Thread title" })).toBeVisible();
+        await expectReady(page.getByRole("textbox", { name: "Thread title" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("delete-dialog", async () => {
@@ -99,22 +89,24 @@ try {
           .last()
           .click();
         await page.getByRole("menuitem", { name: "Delete thread" }).click();
-        await expect(page.getByRole("dialog", { name: "Delete thread?" })).toBeVisible();
+        await expectReady(page.getByRole("dialog", { name: "Delete thread?" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("palette", async () => {
         await page.keyboard.press("Meta+k");
-        await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+        await expectReady(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("search", async () => {
         await page.keyboard.press("Meta+Shift+k");
-        await expect(page.getByRole("combobox", { name: "Search every thread" })).toBeVisible();
+        await expectReady(
+          page.getByRole("combobox", { name: "Search every thread" }),
+        ).toBeVisible();
       });
       await page.keyboard.press("Escape");
       await capture("shortcuts", async () => {
         await page.keyboard.press("Meta+/");
-        await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+        await expectReady(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
       });
       await page.keyboard.press("Escape");
       for (const [path, name] of [
@@ -126,14 +118,16 @@ try {
       ]) {
         await capture(name ?? "thread", async () => {
           await go(path ?? "/");
-          await expect(page.getByRole("feed", { name: "Transcript" })).toBeVisible();
+          await expectReady(page.getByRole("feed", { name: "Transcript" })).toBeVisible();
         });
       }
       await capture("changes-panel", async () => {
         await go("/t/thread-checkout");
         await page.keyboard.press("Meta+Shift+d");
-        await expect(page.getByText("No uncommitted changes")).toBeVisible();
+        await expectReady(page.getByText("No uncommitted changes")).toBeVisible();
       });
+      await captureThreadExtras(contextCapture);
+      await captureDialogExtras(contextCapture);
       await context.close();
     }
 } finally {

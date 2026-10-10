@@ -230,7 +230,7 @@ function hasStepDetail(item: import("@ace/protocol").Item): boolean {
   const detail = item.call.detail;
   if (item.call.error) return true;
   if (detail.kind === "shell") return !!detail.output;
-  if (detail.kind === "search") return detail.matches !== undefined && detail.matches > 0;
+  if (detail.kind === "search") return false;
   if (detail.kind === "web.search" || detail.kind === "web.fetch" || detail.kind === "file.read")
     return false;
   return true;

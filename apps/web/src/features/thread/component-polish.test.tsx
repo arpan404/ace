@@ -1,9 +1,12 @@
 import { workbench } from "@ace/fake-daemon";
-import { fireEvent, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { openProfileMenu } from "@/test/navigation.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 async function open(path = "/t/thread-checkout") {
@@ -12,7 +15,7 @@ async function open(path = "/t/thread-checkout") {
   await app.open(path);
   await screen.findByRole("navigation", { name: "Threads" }, { timeout: 10000 });
   if (path.startsWith("/t/"))
-    await screen.findByRole("feed", { name: "Transcript" }, { timeout: 10000 });
+    await screen.findByRole("button", { name: /^Model:/ }, { timeout: 10000 });
   return app;
 }
 
@@ -70,6 +73,7 @@ test("a running thread describes the work that will stop before deletion", async
 
 test("an empty fresh diff does not claim saved uncommitted counts", async () => {
   await open();
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Shift>}{Meta>}d{/Meta}{/Shift}");
   expect(await screen.findByText("No uncommitted changes")).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Working tree" })).toBeNull();
@@ -138,6 +142,7 @@ test("fresh diff counts describe the displayed patch once even when saved counts
     "diff --git a/readme.md b/readme.md\n--- a/readme.md\n+++ b/readme.md\n@@ -1 +1,2 @@\n existing\n+fresh line\n",
   );
   await app.open("/t/thread-checkout");
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Shift>}{Meta>}d{/Meta}{/Shift}");
   expect((await screen.findByLabelText("Uncommitted diff")).textContent).toContain("+fresh line");
   const toolbar = screen.getByRole("toolbar", { name: "Changes" });

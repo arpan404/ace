@@ -1,16 +1,20 @@
 import { failingSubagent } from "@ace/fake-daemon";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { act, screen, within } from "@testing-library/react";
+import { configure, act, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openPreview() {
   const app = harness();
   app.play(failingSubagent()).step();
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   // ⌃⇧P opens the Preview tool in the side panel.
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });

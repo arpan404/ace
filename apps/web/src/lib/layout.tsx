@@ -23,6 +23,7 @@ export interface ScreenActions {
   scope: string;
   rename(): void;
   fork?: (() => void) | undefined;
+  merge?: (() => void) | undefined;
   attachments(): void;
   find(): void;
   turns(): void;

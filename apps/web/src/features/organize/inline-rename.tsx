@@ -3,11 +3,13 @@ import { Input } from "@/components/ui/input.tsx";
 import { useThreadActions, type ThreadTarget } from "./use-thread-actions.ts";
 
 /** The title's shared field: Enter or blur saves; Escape keeps the original. */
-export function InlineRename(props: {
+export interface InlineRenameProps {
   thread: ThreadTarget;
   initialTitle?: string;
   onDone(): void;
-}) {
+}
+
+export function InlineRename(props: InlineRenameProps) {
   const actions = useThreadActions();
   const [title, setTitle] = useState(props.initialTitle ?? props.thread.title);
   const finished = useRef(false);

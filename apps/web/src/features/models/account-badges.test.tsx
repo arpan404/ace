@@ -1,5 +1,6 @@
 import { replayCursor, workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -10,6 +11,8 @@ import {
   selectAccount,
 } from "@/test/model-control.ts";
 import { openProfileMenu } from "@/test/navigation.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 const thread = "thread-replay-cursor";

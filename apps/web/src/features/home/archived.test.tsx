@@ -1,9 +1,12 @@
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 /*
  * The archive (QA-09): an archived thread waits where it can be found again after Undo is gone,

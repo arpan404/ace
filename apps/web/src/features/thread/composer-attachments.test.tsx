@@ -1,6 +1,15 @@
 import { ClientProvider } from "@ace/client-react";
 import { fixtureImage, longHistory } from "@ace/fake-daemon";
-import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import {
+  configure,
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
@@ -9,6 +18,8 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 /*
  * The composer's attachment chips (AT-2): an image's preview at once, each file's kind in

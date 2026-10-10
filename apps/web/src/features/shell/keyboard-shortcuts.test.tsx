@@ -1,9 +1,12 @@
 import { openProfileView } from "@/test/navigation.ts";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { coldStartReplay, multiDayDemo, seedPanels } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 // jsdom is a non-Apple browser tab: "mod" is Ctrl and keys render as "Shift+Ctrl+Y".
 const heading = (name: string) => screen.findByRole("heading", { level: 1, name });

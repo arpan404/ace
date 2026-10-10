@@ -171,6 +171,16 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
                       },
                     ]
                   : []),
+                ...(screen.merge
+                  ? [
+                      {
+                        id: "thread-merge",
+                        label: "Bring back to parent…",
+                        icon: "action" as const,
+                        run: run(screen.merge),
+                      },
+                    ]
+                  : []),
                 {
                   id: "thread-attachments",
                   label: "Attachments",

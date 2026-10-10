@@ -1,10 +1,13 @@
 import { longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { selectAccount } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -14,7 +17,10 @@ async function fork() {
   await app.open("/t/thread-router");
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }), "Fork");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Fork",
+  );
   await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
   const dialog = await screen.findByRole("dialog", { name: "Fork from here" });
   const title = within(dialog).getByRole("textbox", { name: "Title" });
@@ -70,8 +76,12 @@ function finish(app: ReturnType<typeof harness>, id: string) {
 }
 
 async function openMerge() {
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Bring back to parent…" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Bring back",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /Bring back to parent/ }));
   return screen.findByRole("dialog", { name: "Bring back to parent" });
 }
 

@@ -68,7 +68,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
           }}
           onKeyDown={keyDown}
           ref={input}
-          className="h-full min-w-0 flex-1 rounded-[8px] bg-input text-ui outline-none"
+          className="h-full min-w-0 flex-1 rounded-sm bg-input text-ui outline-none focus-ring"
         />
       </div>
       <div id={id} role="listbox" aria-label="Project sources" className="grid gap-1">
@@ -82,7 +82,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
             aria-selected={at === current}
             onPointerMove={() => setActive(at)}
             onClick={() => props.onChoose(source.tab)}
-            className="flex w-full items-center gap-3 h-11 rounded-[8px] px-2 text-left focus-ring aria-selected:bg-accent"
+            className="flex w-full items-center gap-3 h-11 rounded-sm px-2 text-left focus-ring aria-selected:bg-accent"
           >
             <Icon icon={source.icon} size={20} className="shrink-0 text-muted-foreground" />
             <span className="grid gap-1">

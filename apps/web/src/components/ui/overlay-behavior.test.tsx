@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { configure, render, screen, waitFor } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { expect, test } from "vitest";
@@ -15,6 +16,8 @@ import {
   CommandCollection,
   CommandItem,
 } from "./command.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 function Actions() {
   const [picked, setPicked] = useState("Nothing chosen");

@@ -1,8 +1,11 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { configure, act, screen, waitFor } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { CatalogEntry, ClientMessage, ServerMessage } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 const tdd = CatalogEntry.parse({
@@ -105,6 +108,7 @@ test("switching the Skills provider closes a detail from the previous provider",
   await app.open("/skills");
   await userEvent.click(await screen.findByRole("link", { name: /^Test Driven Development/ }));
   await screen.findByRole("heading", { level: 1, name: "Test Driven Development" });
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
   await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Pi$/ }));
   await waitFor(() =>

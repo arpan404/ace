@@ -39,7 +39,7 @@ const MergeDialog = lazy(() =>
 const ForkDialog = lazy(() =>
   import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
 );
-import { InlineRename } from "@/features/organize/index.ts";
+import { InlineRenameField } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
@@ -163,11 +163,12 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       scope: id,
       rename: () => setRenaming(true),
       fork: forkPoint ? () => setForking(forkPoint) : undefined,
+      merge: meta?.lineage ? () => setMerging(true) : undefined,
       attachments: () => setAttachmentsOpen(true),
       find: () => findInThread(nav),
       turns: () => nav.setTurnsOpen(!nav.turnsOpen),
     }),
-    [id, forkPoint, nav],
+    [id, forkPoint, nav, meta?.lineage],
   );
   useEffect(() => {
     setScreenActions(screenActions);
@@ -200,7 +201,9 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         }
         title={
           renaming && thread ? (
-            <InlineRename thread={thread} onDone={() => setRenaming(false)} />
+            <Suspense fallback={null}>
+              <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
+            </Suspense>
           ) : error ? (
             "Thread unavailable"
           ) : (
@@ -215,7 +218,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 thread={thread}
                 onRename={() => setRenaming(true)}
                 onFork={setForking}
-                onMerge={() => setMerging(true)}
               />
             </Suspense>
           )

@@ -24,7 +24,7 @@ function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean):
   if (mode === "queue")
     return canSteer
       ? `Queue for after this turn · ${mod} steers it in now`
-      : "Queue · sends when the agent is free";
+      : "Queue for after this turn";
   return "Send";
 }
 
@@ -72,7 +72,7 @@ export function PrimaryAction(props: {
             "fx-pop",
             blocked
               ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-              : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+              : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           )}
         >
           {label}
@@ -105,7 +105,7 @@ export function PrimaryAction(props: {
           onClick={props.onStop}
           className={cn(
             iconControl,
-            "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+            "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           )}
         >
           <StopIcon aria-hidden size={12} weight="fill" />
@@ -132,7 +132,7 @@ export function PrimaryAction(props: {
           iconControl,
           blocked
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-            : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+            : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           props.off && "opacity-40",
         )}
       >

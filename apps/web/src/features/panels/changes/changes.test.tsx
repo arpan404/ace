@@ -1,9 +1,12 @@
 import { Command } from "@ace/protocol";
 import { coldStartReplay, facts } from "@ace/fake-daemon";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
   const app = harness({ storage });

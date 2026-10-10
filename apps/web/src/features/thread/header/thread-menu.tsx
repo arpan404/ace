@@ -32,7 +32,6 @@ export function ThreadMenuItems(props: {
   onRename(): void;
   onFork(point: ForkPoint): void;
   onAttachments(): void;
-  onMerge(): void;
 }) {
   const meta = useThreadMeta(props.thread.id);
   const point = useLatestForkPoint(props.thread.id);
@@ -52,7 +51,6 @@ export function ThreadMenuItems(props: {
       onLeave={() => void navigate({ to: "/" })}
       extra={
         <>
-          {meta.lineage && <MenuItem onClick={props.onMerge}>Bring back to parent…</MenuItem>}
           <MenuSub>
             <MenuSubTrigger icon={<ArrowSquareOutIcon aria-hidden size={16} />}>
               Open in…

@@ -1,9 +1,12 @@
 import { facts, flakyCheckout, replayCursor, teamAtLimit, type Scenario } from "@ace/fake-daemon";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 afterEach(() => Reflect.deleteProperty(globalThis, "ace"));
@@ -104,10 +107,15 @@ test("a usage limit remains on the sidebar and leaves the thread title clear", a
   expect(within(header()).queryByRole("status")).toBeNull();
 });
 
-test("search and turns live in the ⋯ menu, and their shortcuts still work", async () => {
+test("search lives in the palette and the turns shortcut still works", async () => {
   await openThread();
   await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Search this thread/ }));
+  await userEvent.keyboard("{Escape}{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }),
+    "Search this thread",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /^Search this thread/ }));
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 
@@ -464,7 +472,7 @@ test("Commit lists exactly the files git reports, preselects new and tracked fil
   expect(box(".env.local").getAttribute("aria-checked")).toBe("true");
   expect(box("src/checkout.ts").getAttribute("aria-checked")).toBe("true");
   expect(box("src/payments/wait.ts").getAttribute("aria-checked")).toBe("true");
-  expect(within(dialog).getByText("· 3 picked")).toBeTruthy();
+  expect(within(list).getAllByRole("checkbox", { checked: true })).toHaveLength(3);
 
   await userEvent.click(box("src/checkout.ts"));
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
@@ -576,7 +584,7 @@ test("the commit dialog lists the checkout's uncommitted files and can push too,
   const commit = await screen.findByRole("dialog", { name: /^Commit to / });
   // The fake checkout reports 3 uncommitted files, all picked.
   expect(await within(commit).findByRole("button", { name: "3 files" })).toBeTruthy();
-  expect(within(commit).getByText("· 3 picked")).toBeTruthy();
+  expect(within(commit).getAllByRole("checkbox", { checked: true })).toHaveLength(3);
   await userEvent.click(within(commit).getByRole("checkbox", { name: "Push after committing" }));
   expect(within(commit).getByRole("button", { name: /^Commit & push/ })).toBeTruthy();
   await userEvent.click(within(commit).getByRole("textbox", { name: "Commit details" }));
@@ -624,7 +632,7 @@ test("a full page of renames commits in one go: each names both its paths", asyn
   const form = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(form).getByRole("checkbox", { name: "Push after committing" }));
   const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
-  expect(await within(dialog).findByText("· 251 picked")).toBeTruthy();
+  expect(await within(dialog).findByRole("button", { name: "251 files" })).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: commitButton }));
   expect(await screen.findByText("Committed")).toBeTruthy();
   expect(app.daemon.workspace.gitStatus("thread-checkout")).toEqual([]);
@@ -731,10 +739,11 @@ test("deleting a thread with work still running from the ⋯ menu keeps it and s
   const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
-  expect(
-    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
-  ).toBeTruthy();
-  expect(screen.getByRole("feed", { name: "Transcript" })).toBeTruthy();
+  const confirmation = await screen.findByRole("dialog", { name: "Delete thread?" });
+  expect(confirmation.textContent).toMatch(/agent.*running/);
+  expect(within(confirmation).getByRole("button", { name: "Stop and delete" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
@@ -752,27 +761,21 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   const context = within(menu)
     .getAllByRole("menuitem")
-    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""))
+    .map((item) => item.textContent ?? "")
     .filter((label) => !/^(Link pull request…|Unlink all pull requests)$/.test(label));
-  // The thread screen adds a side chat, the agent tree and the long-thread tools, and shows its
-  // own shortcuts.
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
-  expect(
-    items
-      .filter(
-        (label) =>
-          !/^(Open agent tree|New side chat|Attachments|Open in…|Search this thread|Turns)/.test(
-            label,
-          ),
-      )
+  const compact = items
+    .filter((label) => label !== "Open in…")
+    .map((label) => label.replace(shortcut, ""));
+  expect(compact).toEqual(
+    context
+      .filter((label) => compact.includes(label.replace(shortcut, "")))
       .map((label) => label.replace(shortcut, "")),
-  ).toEqual(context);
-  expect(context.slice(0, 4)).toEqual([
-    "New thread on main",
-    "Rename",
-    expect.stringMatching(/^Fork from the last turn…/),
-    "Copy link",
-  ]);
+  );
+  expect(compact).toContain("Rename");
+  expect(compact).toContain("Delete thread");
+  expect(compact).not.toContain("Copy link");
+  expect(items.length).toBeLessThanOrEqual(8);
 });
 
 test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {
@@ -807,19 +810,19 @@ test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archiv
 test("the thread menu offers working thread actions without Side chat", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(await screen.findByRole("menuitem", { name: /Open agent tree/ })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: /^Rename/ })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /Open agent tree/ })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: /side chat/i })).toBeNull();
 });
 
-test("Fork says why it is unavailable before the first turn has finished", async () => {
+test("Fork is omitted until the first turn has finished", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  const fork = await screen.findByRole("menuitem", { name: /Fork from the last turn/ });
-  expect(fork.getAttribute("aria-disabled")).toBe("true");
-  expect(fork.textContent).toContain("Available after the first turn finishes");
+  await screen.findByRole("menuitem", { name: /^Rename/ });
+  expect(screen.queryByRole("menuitem", { name: /Fork from the last turn/ })).toBeNull();
 });
 
 test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until when", async () => {

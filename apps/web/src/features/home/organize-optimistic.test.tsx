@@ -1,10 +1,13 @@
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 

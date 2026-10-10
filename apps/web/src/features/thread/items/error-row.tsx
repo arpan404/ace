@@ -77,7 +77,12 @@ export function ErrorRow(props: {
           )}
           {view.action === "sign_in" &&
             (signIn && signInTo ? (
-              <Button size="sm" variant="primary" onClick={() => signIn({ provider: signInTo })}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-ring-text"
+                onClick={() => signIn({ provider: signInTo })}
+              >
                 Sign in
               </Button>
             ) : (

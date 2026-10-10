@@ -86,6 +86,7 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
                   <CommandItem
                     key={choice.id}
                     value={choice}
+                    aria-label={choice.name}
                     title={choice.path}
                     onClick={() => pick(choice)}
                   >

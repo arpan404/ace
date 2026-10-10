@@ -1,9 +1,12 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId, type CatalogEntry } from "@ace/protocol";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 async function open() {

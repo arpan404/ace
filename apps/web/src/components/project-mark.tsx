@@ -19,7 +19,7 @@ export function ProjectMark(props: {
           aria-hidden
           style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
           className={cn(
-            "inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs text-[9px] leading-none font-semibold",
+            "inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs text-2xs leading-none font-semibold",
             props.quiet ? "bg-secondary text-subtle-foreground" : "bg-(--tint)/12 text-(--tint)",
           )}
         >

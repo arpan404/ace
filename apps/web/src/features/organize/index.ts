@@ -20,6 +20,8 @@ export { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 export { useOrganizeOverlay, useOverlaidEntry, useRefusedTitle } from "./overlay.ts";
 export { useThreadActions, type ThreadActions, type ThreadTarget } from "./use-thread-actions.ts";
 
-export { DeleteConfirmationHost } from "./delete-confirmation.tsx";
+export { DeleteConfirmationHost } from "./delete-host.tsx";
 
 export { InlineRename } from "./inline-rename.tsx";
+
+export { InlineRenameField } from "./inline-rename-host.tsx";

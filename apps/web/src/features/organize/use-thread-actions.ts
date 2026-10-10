@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
-import { useDeleteConfirmation } from "./delete-confirmation.tsx";
+import { useDeleteConfirmation } from "./delete-confirmation.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */

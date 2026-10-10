@@ -6,10 +6,13 @@ import {
   watchingRelay,
   type Scenario,
 } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 

@@ -52,13 +52,13 @@ export function PermissionMenu(props: {
                 aria-description={option.unavailable ?? option.description}
                 disabled={!!option.unavailable}
                 closeOnClick
-                className={cn(menuItem, "h-auto items-start gap-2.5 px-2.5 py-2")}
+                className={cn(menuItem, "h-11 items-start gap-2 px-2 py-1.5")}
               >
                 <Icon
                   icon={riskIcons[option.risk]}
                   className={cn("mt-px", attention && "text-status-needs-you!")}
                 />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
+                <span className="flex min-w-0 flex-1 flex-col whitespace-normal">
                   <span className={cn(attention && "text-status-needs-you")}>{option.label}</span>
                   <span className="text-xs leading-4 text-muted-foreground">
                     {option.unavailable ?? option.description}

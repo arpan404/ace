@@ -75,13 +75,14 @@
   --color-status-done: var(--status-done);
 
   /*
-   * 4 kbd/tags · 8 small buttons, dense rows, tooltips · 10 rows/buttons/inputs · 14 cards ·
-   * 16 popovers and menus · 22 the composer, dialogs and bubbles. Chips are pills (full).
+   * 4 tags · 8 buttons, dense rows and inputs · 10 general rows · 12 popups ·
+   * 14 cards · 16 dialogs · 22 the composer and bubbles.
    */
   --radius-xs: 4px;
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);
   --radius-card: 14px;
+  --radius-popup: 12px;
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
 
@@ -291,7 +292,7 @@
  */
 @utility focus-ring {
   outline: none;
-  &:focus-visible {
+  &:focus-visible:not([data-auto-focused]) {
     box-shadow:
       0 0 0 2px var(--background),
       0 0 0 4px var(--focus, var(--ring));
