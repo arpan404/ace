@@ -238,6 +238,21 @@ export class RemoteDelegations {
       const task = this.journal.get(report.taskId);
       if (!task || !task.dispatched) return undefined;
       if (remoteTerminal(task)) {
+        // A sealed answer may arrive after a cancellation deadline or failed admission report.
+        // Keep the terminal fence, but deliver that first answer even if failure was already sent.
+        if (
+          task.result === undefined &&
+          report.result !== undefined &&
+          ["completed", "failed", "cancelled"].includes(report.phase)
+        ) {
+          task.result = report.result;
+          task.truncated = report.truncated;
+          task.artifactsUnavailable = report.artifactsUnavailable;
+          if (report.error)
+            task.error = [task.error, report.error].filter(Boolean).join(" ").slice(0, 256);
+          task.delivered = false;
+          this.journal.save(task);
+        }
         this.finish(task);
         return task;
       }
@@ -323,7 +338,11 @@ export class RemoteDelegations {
           // Results are context on the originating host, with explicit remote identity.
           if (this.waiters.has(task.id)) return;
           if (task.phase !== "cancelled" || task.result !== undefined) {
-            const commandId = CommandId.parse(`remote-result:${task.id}`);
+            const answer =
+              ["failed", "cancelled"].includes(task.phase) && task.result !== undefined
+                ? ":answer"
+                : "";
+            const commandId = CommandId.parse(`remote-result:${task.id}${answer}`);
             const text = `[ace remote task ${task.id}; host ${task.request.hostId}; thread ${task.threadId}; ${task.phase}]\n${task.result ?? task.error ?? "No text result returned."}${task.truncated ? "\n[Remote answer truncated.]" : ""}${task.result && task.error ? `\n${task.error}` : ""}\n${task.artifacts?.attachments.length ? "Published images/files are attached as immutable copies on this source device. Their producing host/thread remain in the task provenance." : "No files were published for this task."} No workspace changes are overwritten or merged.`;
             const result = this.local.command(commandId, {
               type: "thread.send",

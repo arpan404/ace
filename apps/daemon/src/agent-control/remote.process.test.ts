@@ -512,3 +512,41 @@ test("ten thousand historical tasks do not prevent a new delegation", async () =
   );
   expect(next).toMatchObject({ ok: true, data: { phase: "queued" } });
 });
+
+test("a sealed answer arriving after the cancellation deadline reaches the parent once without undoing the failure", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  await f.remote.execute(
+    f.caller,
+    { op: "device.task_cancel", taskId: task.id },
+    new AbortController().signal,
+  );
+  f.clock.advance(f.clock.now() + 30000);
+  f.remote.drain();
+  expect(f.remote.journal.get(task.id)).toMatchObject({ phase: "failed", delivered: true });
+  const lease = f.remote.register("window", [], () => true);
+  if (!lease) throw new Error("No broker lease");
+  const report = {
+    taskId: task.id,
+    phase: "completed" as const,
+    result: "Late sealed answer",
+    truncated: true,
+    artifactsUnavailable: true,
+  };
+  f.remote.report("window", lease, report);
+  f.remote.report("window", lease, report);
+  expect(f.remote.journal.get(task.id)).toMatchObject({
+    phase: "failed",
+    delivered: true,
+    result: "Late sealed answer",
+  });
+  const text = f.events.flatMap((event) =>
+    event.payload.type === "item.created" && event.payload.item.type === "message"
+      ? event.payload.item.parts
+      : [],
+  );
+  expect(
+    text.filter((part) => part.type === "text" && part.text.includes("Late sealed answer")),
+  ).toHaveLength(1);
+});
