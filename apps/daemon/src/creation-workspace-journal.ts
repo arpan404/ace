@@ -12,6 +12,7 @@ const Resource = z.object({
     .string()
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .nullable(),
+  ran_setup: z.number().int().min(0).max(1).default(0),
   uncertain: z.number().int().min(0).max(1),
 });
 export type CreationResource = z.infer<typeof Resource>;
@@ -26,6 +27,20 @@ export class CreationWorkspaceJournal {
       base_head TEXT NOT NULL,cleanup_head TEXT,uncertain INTEGER NOT NULL DEFAULT 1
     )`),
     );
+    const columns = store.atomic((db) =>
+      db.prepare("PRAGMA table_info(workspace_creation_resources)").all(),
+    );
+    if (!columns.some((column) => column.name === "ran_setup"))
+      store.atomic((db) =>
+        db.exec(
+          "ALTER TABLE workspace_creation_resources ADD COLUMN ran_setup INTEGER NOT NULL DEFAULT 1",
+        ),
+      );
+  }
+  setup(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE workspace_creation_resources SET ran_setup=1 WHERE id=?").run(id),
+    );
   }
   list(): CreationResource[] {
     return this.store
@@ -39,7 +54,9 @@ export class CreationWorkspaceJournal {
         db.prepare("SELECT COUNT(*) AS count FROM workspace_creation_resources").get()?.count,
       );
       if (count >= 16) throw new Error("workspace_busy");
-      db.prepare("INSERT INTO workspace_creation_resources VALUES (?,?,?,?,?,?,?)").run(
+      db.prepare(
+        "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup) VALUES (?,?,?,?,?,?,?,?)",
+      ).run(
         row.id,
         row.repo,
         row.path,
@@ -47,6 +64,7 @@ export class CreationWorkspaceJournal {
         row.base_head,
         row.cleanup_head,
         row.uncertain,
+        row.ran_setup,
       );
     });
   }
