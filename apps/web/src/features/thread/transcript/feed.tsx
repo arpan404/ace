@@ -1,3 +1,4 @@
+import { listenScrollIntent } from "./scroll-intent.ts";
 import type { ThreadReader } from "@ace/client";
 import { useItemOrder, type HistoryPager } from "@ace/client-react";
 import { ledgerOf } from "@ace/ui-core";
@@ -233,6 +234,8 @@ export function Feed(props: FeedProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(!detached);
+  const upwardIntent = useRef(false);
+  const [overflowing, setOverflowing] = useState(false);
   const glidingUntil = useRef(0);
   // Until this moment the view is where code put it (a restored place, a jump): its scroll
   // events are not the reader's and never page the window.
@@ -358,15 +361,18 @@ export function Feed(props: FeedProps) {
     const stop = () => {
       landing.current++;
     };
-    el.addEventListener("wheel", stop, { passive: true });
-    el.addEventListener("touchstart", stop, { passive: true });
-    el.addEventListener("keydown", stop);
-    return () => {
-      el.removeEventListener("wheel", stop);
-      el.removeEventListener("touchstart", stop);
-      el.removeEventListener("keydown", stop);
-    };
-  }, []);
+    return listenScrollIntent(
+      el,
+      (upward) => {
+        upwardIntent.current = upward;
+        if (upward) {
+          glidingUntil.current = 0;
+          setPinned(false);
+        }
+      },
+      stop,
+    );
+  }, [setPinned]);
   const keepLanding = useCallback(
     (key: string, itemId: string, align: "start" | "center") => {
       const nonce = ++landing.current;
@@ -412,10 +418,25 @@ export function Feed(props: FeedProps) {
     if (key) keepLanding(key, focus.itemId, focus.query ? "center" : "start");
   }, [focus, rows, focusOrdinal, virtualizer, setPinned, keepLanding]);
   useEffect(() => {
-    if (!flash || flash.hit) return;
+    if (!flash) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
     return () => clearTimeout(timer);
   }, [flash]);
+
+  useEffect(() => {
+    if (!nav.searchOpen) setFlash(undefined);
+  }, [nav.searchOpen]);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const read = () => setOverflowing(el.scrollHeight > el.clientHeight + 1);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    if (feed.current) observer.observe(feed.current);
+    return () => observer.disconnect();
+  }, [total]);
 
   const items = virtualizer.getVirtualItems();
   const firstVisible = items[0]?.index;
@@ -450,6 +471,7 @@ export function Feed(props: FeedProps) {
       void nav.jump.newer();
   };
   const toLive = () => {
+    upwardIntent.current = false;
     glidingUntil.current = performance.now() + 800;
     setPinned(true);
     if (window) nav.jump.live();
@@ -464,7 +486,7 @@ export function Feed(props: FeedProps) {
       {/* The rows and the bars that float over their top (search, the jump bar). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <Suspense fallback={null}>
-          <DeferredTurnRail.Component nav={nav} />
+          <DeferredTurnRail.Component nav={nav} overflowing={overflowing} />
         </Suspense>
         <div
           ref={viewport}
@@ -481,7 +503,7 @@ export function Feed(props: FeedProps) {
             const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
             if (!atEnd && performance.now() < glidingUntil.current) return;
             // A detached window's end is not the live end.
-            const following = atEnd && !detached;
+            const following = atEnd && !detached && !upwardIntent.current;
             if (following !== pinnedRef.current) setPinned(following);
           }}
         >
