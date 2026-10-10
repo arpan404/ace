@@ -278,6 +278,11 @@ export class FilesService {
       const prepared = await this.lifetime.walk((signal) =>
         this.mutations.prepare(operation, signal),
       );
+      // Failed queued I/O emits no change event; refresh its old observation too.
+      if (this.pending > 0) {
+        await this.tail;
+        continue;
+      }
       const result = await this.serial(async () => {
         guard();
         this.authorize(device, "files.write");
