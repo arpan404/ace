@@ -14,7 +14,9 @@ export function AddAccountDialog(props: { provider: ProviderKind; onClose(): voi
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add account</DialogTitle>
+          <DialogTitle>
+            Add {props.provider === "opencode" ? "an" : "a"} {name} account
+          </DialogTitle>
         </DialogHeader>
         <AddAccountForm provider={props.provider} name={name} onClose={props.onClose} />
       </DialogContent>

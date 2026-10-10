@@ -31,7 +31,6 @@ import {
 } from "./usage-source.ts";
 import { useAccountViews } from "./accounts-source.ts";
 import { DailyBars } from "./daily-bars.tsx";
-import { Headroom } from "./headroom.tsx";
 
 type Range = "7" | "14" | "30";
 const ranges = [
@@ -202,7 +201,6 @@ export function UsageSection() {
           onValueChange={(value) => setRange(value)}
         />
       </div>
-      {accounts.data && <Headroom accounts={accounts.data} />}
       {daily.isError ? (
         <p role="alert" className="mt-3 text-ui text-muted-foreground">
           {describeDaemonError(daemonErrorCode(daily.error))}

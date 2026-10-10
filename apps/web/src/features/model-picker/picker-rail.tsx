@@ -1,8 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
-import { PlusIcon, StarIcon } from "@phosphor-icons/react";
+import { StarIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, Ref } from "react";
-import { canAddAccounts, useAddAccount } from "@/features/account-management/index.ts";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import type { PickerEntry } from "./picker-entries.ts";
@@ -26,7 +24,6 @@ export function PickerRail({
   onSelect(id: string): void;
   onClose?: (() => void) | undefined;
 }) {
-  const addAccount = useAddAccount();
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowRight" || (event.key === "Tab" && !event.shiftKey)) {
       event.preventDefault();
@@ -89,17 +86,6 @@ export function PickerRail({
               </Tip>
             );
           })}
-          {!props.only && props.provider && canAddAccounts(props.provider) && addAccount && (
-            <IconButton
-              icon={PlusIcon}
-              label="Add account…"
-              size="sm"
-              onClick={() => {
-                props.onClose?.();
-                if (props.provider) addAccount(props.provider);
-              }}
-            />
-          )}
         </div>
       )}
     </>

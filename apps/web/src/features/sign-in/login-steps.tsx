@@ -111,6 +111,7 @@ export function LoginBody(props: {
           ) : (
             <BrowserStep
               progress={progress}
+              compact={!!login.target.newAccount}
               claimOpen={() => login.claimPageOpen()}
               footer={footer}
             />
@@ -166,6 +167,23 @@ export function LoginBody(props: {
     case "cancelled":
       return null;
     case "failed":
+      if (login.target.newAccount && !progress.manual)
+        return (
+          <div className="grid gap-3">
+            <p role="alert" className="text-sm text-status-failed">
+              {[progress.message, progress.hint].filter(Boolean).join(" ") ||
+                "Sign-in did not finish. Try again."}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="primary" onClick={props.onRetry}>
+                Retry
+              </Button>
+              <Button variant="ghost" onClick={props.onClose}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        );
       if (progress.manual)
         return (
           <Step key={key}>

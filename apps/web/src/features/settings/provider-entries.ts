@@ -25,6 +25,8 @@ export const providerPageId = (install: ProviderInstall): string =>
 
 /** Not on this computer: listed apart, with how to get it. */
 export function isMissing(entry: ProviderEntry): boolean {
+  // An approved custom command has no registry install to offer.
+  if (entry.install.added) return false;
   return entry.view
     ? entry.view.state === "not_installed"
     : entry.install.state === "not_installed";

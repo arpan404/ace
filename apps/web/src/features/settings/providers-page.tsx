@@ -1,10 +1,12 @@
+import { CaretRightIcon } from "@phosphor-icons/react";
+import { useAccountViews } from "@/lib/account-views.ts";
+import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
-import { RediscoverButton } from "./rediscover-button.tsx";
 import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
 
 /**
@@ -19,16 +21,14 @@ export function ProviderSettings() {
   if (!entries)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
-        Couldn't check providers. Try again. <RediscoverButton />
+        Couldn't check providers. Try again.
       </p>
     );
-  const builtIn = entries.filter((entry) => entry.install.kind !== "acp");
-  const installed = builtIn.filter((entry) => !isMissing(entry));
-  const missing = builtIn.filter(isMissing);
-  const agents = entries.filter((entry) => entry.install.kind === "acp");
+  const installed = entries.filter((entry) => !isMissing(entry));
+  const missing = entries.filter(isMissing);
   return (
     <>
-      <SettingSection label="On this computer" actions={<RediscoverButton />}>
+      <SettingSection label="Installed providers">
         {installed.length ? (
           installed.map((entry) => <ProviderRow key={entry.id} entry={entry} />)
         ) : (
@@ -38,23 +38,15 @@ export function ProviderSettings() {
         )}
       </SettingSection>
       {missing.length > 0 && (
-        <SettingSection label="Not installed">
+        <SettingSection label="Available to install">
           {missing.map((entry) => (
             <ProviderRow key={entry.id} entry={entry} />
           ))}
         </SettingSection>
       )}
-      <SettingSection label="ACP agents" actions={<AddAcpAgent />}>
-        {agents.map((entry) => (
-          <ProviderRow key={entry.id} entry={entry} />
-        ))}
-      </SettingSection>
-      <p className="mt-6 text-sm text-muted-foreground">
-        All accounts and scheduling are in{" "}
-        <Link to="/accounts" className="font-medium text-foreground hover:underline">
-          Usage &amp; accounts ›
-        </Link>
-      </p>
+      <div className="mt-2">
+        <AddAcpAgent>Add an ACP agent…</AddAcpAgent>
+      </div>
     </>
   );
 }
@@ -62,6 +54,12 @@ export function ProviderSettings() {
 /** The name opens preferences; the primary action stays on this screen. */
 function ProviderRow(props: { entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
+  const accounts = useAccountViews();
+  const own = accounts.data?.filter(
+    (account) =>
+      account.provider === install.kind &&
+      (install.kind !== "acp" || account.acpAgentId === install.acpAgentId),
+  );
   return (
     <div role="group" aria-label={install.name}>
       <ProviderSetupRow
@@ -76,6 +74,25 @@ function ProviderRow(props: { entry: ProviderEntry }) {
           (!!install.registry?.agent &&
             compareVersions(install.registry.agent.version, install.registry.version) > 0)
         }
+        secondary={
+          !isMissing(props.entry) && (
+            <>
+              <span className="flex items-center -space-x-1 sm:space-x-1">
+                {own?.map((account) => (
+                  <AccountBadge key={account.id} account={account} />
+                ))}
+              </span>
+              <Link
+                to="/settings/providers/$provider"
+                params={{ provider: props.entry.id }}
+                aria-label={`Open ${install.name}`}
+                className="rounded-xs text-subtle-foreground focus-ring"
+              >
+                <CaretRightIcon aria-hidden size={14} />
+              </Link>
+            </>
+          )
+        }
         title={
           <Link
             to="/settings/providers/$provider"
@@ -84,11 +101,9 @@ function ProviderRow(props: { entry: ProviderEntry }) {
             className="font-medium hover:underline"
           >
             {install.name}
-            {props.entry.accountCount !== undefined && (
-              <span className="ml-2 font-normal text-muted-foreground">
-                {props.entry.accountCount} {props.entry.accountCount === 1 ? "account" : "accounts"}
-              </span>
-            )}
+            <span className="ml-2 hidden text-xs font-normal sm:inline text-subtle-foreground">
+              {row?.version ?? install.version}
+            </span>
           </Link>
         }
       />

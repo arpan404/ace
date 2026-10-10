@@ -1,9 +1,11 @@
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { accountStatus, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useState } from "react";
+import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
+import { accountLimit } from "@ace/ui-core";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -18,10 +20,11 @@ import {
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import { AddAccountInline, AccountKeyMark } from "@/features/account-management/index.ts";
+import { AddAccountButton, AccountKeyMark } from "@/features/account-management/index.ts";
 import {
   apiKeyUpstreamLabel,
   canAddAccounts,
@@ -49,8 +52,19 @@ export function ProviderAccounts(props: {
   const manageable = canAddAccounts(props.provider);
   if (!own.length && !manageable) return null;
   return (
-    <SettingSection label="Accounts">
-      <ul aria-label={`${props.name} accounts`} className="divide-y">
+    <SettingSection
+      label="Accounts"
+      actions={<span className="text-xs text-subtle-foreground">New threads use the default</span>}
+    >
+      {accounts.isError && (
+        <p role="alert" className="text-sm text-status-failed">
+          {describeDaemonError(daemonErrorCode(accounts.error))}{" "}
+          <Button size="sm" variant="ghost" onClick={() => void accounts.refetch()}>
+            Retry
+          </Button>
+        </p>
+      )}
+      <ul aria-label={`${props.name} accounts`}>
         {own.map((account) => (
           <AccountItem
             key={account.id}
@@ -58,12 +72,11 @@ export function ProviderAccounts(props: {
             provider={props.provider}
             name={props.name}
             manageable={manageable}
-            only={own.length === 1}
           />
         ))}
         {manageable && (
           <li>
-            <AddAccountInline provider={props.provider} />
+            <AddAccountButton provider={props.provider} label="+ Add account" />
           </li>
         )}
       </ul>
@@ -76,8 +89,6 @@ function AccountItem(props: {
   provider: ProviderKind;
   name: string;
   manageable: boolean;
-  /** The provider's only account: no point saying which is the default. */
-  only: boolean;
 }) {
   const { account } = props;
   const now = useNow();
@@ -97,8 +108,12 @@ function AccountItem(props: {
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
   return (
-    <li className="py-0.5">
-      <div className="flex min-h-8 items-center gap-2">
+    <li
+      id={`account-${account.id}`}
+      tabIndex={-1}
+      className="group rounded-md py-0.5 focus-ring target:bg-accent hover:bg-accent/50"
+    >
+      <div className="flex min-h-8 flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {renaming ? (
             <AccountLabelEditor
@@ -113,16 +128,80 @@ function AccountItem(props: {
             />
           ) : (
             <span className="flex min-w-0 items-center gap-2">
-              <ProviderAccountIcon provider={provider} account={account} size={16} />
+              <AccountBadge account={account} />
               <span className="truncate font-medium">{label}</span>
               <AccountKeyMark method={account.authMethod} />
-              {account.isDefault && !props.only && (
+              {account.isDefault && (
                 <span className="shrink-0 text-xs text-muted-foreground">Default</span>
               )}
             </span>
           )}
+          {account.implicit && account.cliHome && (
+            <span
+              className="hidden truncate text-xs text-subtle-foreground sm:inline"
+              title={account.cliHome}
+            >
+              {account.cliHome}
+            </span>
+          )}
         </div>
-        {!renaming && <StatusLine tone={state.tone} text={state.text} />}
+        {!renaming &&
+          (state.canRun ? (
+            account.windows[0] && (
+              <span className="inline-flex group-hover:hidden group-focus-within:hidden">
+                <CompactWindow
+                  window={
+                    account.windows.find((window) => window.label === "5-hour") ??
+                    account.windows[0]
+                  }
+                  now={now}
+                />
+              </span>
+            )
+          ) : (
+            <StatusLine
+              tone={state.tone}
+              text={
+                state.text === "Limit reached" && accountLimit(account, now).resetsAt !== undefined
+                  ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
+                  : state.text
+              }
+            />
+          ))}
+        {!renaming &&
+          signIn &&
+          props.manageable &&
+          (state.text === "Signed out" ||
+            state.text === "Not signed in yet" ||
+            (state.text !== "Limit reached" &&
+              !state.canRun &&
+              !account.quota.blockers.homeUnavailable)) && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
+              }
+            >
+              {state.text === "Signed out" || state.text === "Not signed in yet"
+                ? "Sign in"
+                : "Reconnect"}
+            </Button>
+          )}
+        {!renaming && !account.isDefault && native && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="hidden group-hover:inline-flex group-focus-within:inline-flex [@media(hover:none)]:inline-flex"
+            onClick={() =>
+              actions
+                .setDefault(native, account.id)
+                .catch(fail(`Couldn't make ${label} the default`))
+            }
+          >
+            Make default
+          </Button>
+        )}
         {!renaming && signIn && props.manageable && (
           <Menu>
             <MenuTrigger
@@ -131,6 +210,7 @@ function AccountItem(props: {
                   icon={DotsThreeIcon}
                   label={`Manage ${label}`}
                   size="sm"
+                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                   onPointerEnter={() => void preloadSignIn()}
                 />
               }
@@ -178,20 +258,21 @@ function AccountItem(props: {
                     Use API key
                   </MenuItem>
                 ))}
-              {!account.isDefault && native && (
-                <MenuItem
-                  onClick={() =>
-                    actions
-                      .setDefault(native, account.id)
-                      .catch(fail(`Couldn't make ${label} the default`))
-                  }
-                >
-                  Make default
-                </MenuItem>
-              )}
+              <MenuItem
+                onClick={() =>
+                  signIn({
+                    provider,
+                    action: "logout",
+                    ...(account.implicit ? {} : { instance: account.id }),
+                  })
+                }
+              >
+                Sign out
+              </MenuItem>
               {!account.implicit && (
                 <>
-                  <MenuItem onClick={() => setRenaming(true)}>Edit label…</MenuItem>
+                  <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
+                  <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
                   <MenuSeparator />
                   <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
                     Remove

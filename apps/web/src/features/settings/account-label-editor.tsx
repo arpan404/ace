@@ -1,13 +1,10 @@
+import { accountBadge } from "@/components/ui/account-badge.ts";
 import { AccountBadgeField, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { accountColors } from "@/components/ui/provider-account-icon.tsx";
-import { Select } from "@/components/ui/select.tsx";
-
-const colors: AccountBadgeColor[] = ["neutral", "blue", "green", "amber", "rose", "violet"];
 
 export function AccountLabelEditor(props: {
   account: AccountView;
@@ -15,13 +12,13 @@ export function AccountLabelEditor(props: {
   onCancel(): void;
 }) {
   const [name, setName] = useState(props.account.label);
-  const [shortLabel, setLabel] = useState(props.account.shortLabel ?? "•");
+  const [shortLabel, setLabel] = useState(props.account.shortLabel ?? "");
   const [color, setColor] = useState<AccountBadgeColor>(props.account.badgeColor ?? "neutral");
   const save = (event: FormEvent) => {
     event.preventDefault();
     if (name.trim() && !accountBadgeProblem(shortLabel))
       props.onSave(name.trim(), {
-        shortLabel: shortLabel.trim(),
+        shortLabel: accountBadge(name, shortLabel),
         badgeColor: color === "neutral" ? null : color,
       });
   };
@@ -43,22 +40,9 @@ export function AccountLabelEditor(props: {
         value={shortLabel}
         onChange={setLabel}
         name={name}
+        color={color}
+        onColorChange={setColor}
       />
-      <Select
-        label="Label colour"
-        value={color}
-        options={colors.map((value) => ({
-          value,
-          label: value === "neutral" ? "No colour" : value[0]?.toUpperCase() + value.slice(1),
-        }))}
-        onValueChange={(value) => {
-          const next = colors.find((entry) => entry === value);
-          if (next) setColor(next);
-        }}
-      />
-      <span aria-hidden style={{ color: accountColors[color] }}>
-        ●
-      </span>
       <Button type="submit" size="sm" disabled={!name.trim() || !!accountBadgeProblem(shortLabel)}>
         Save
       </Button>

@@ -123,7 +123,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
             run: run(() => openSearch()),
           },
           { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
-          { id: "go-accounts", label: "Usage & accounts", icon: "view", run: go("/accounts") },
+          { id: "go-accounts", label: "Usage", icon: "view", run: go("/accounts") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",

@@ -53,3 +53,37 @@ export function WindowBar(props: { window: QuotaWindowView; now: number }) {
     </span>
   );
 }
+
+/** A single line in account and usage rows; stale readings never imply available quota. */
+export function CompactWindow(props: { window: QuotaWindowView; now: number }) {
+  const window = props.window;
+  if (window.resetsAt !== null && window.resetsAt <= props.now)
+    return (
+      <span title="Waiting for a new provider reading" className="text-xs text-subtle-foreground">
+        {window.label} · Not reported yet
+      </span>
+    );
+  return (
+    <span
+      className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+      title={formatResetCountdown(window.resetsAt, props.now)}
+    >
+      <span className="shrink-0">{window.label}</span>
+      <span
+        role="meter"
+        aria-label={`${window.label} window`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={window.usedPercent}
+        aria-valuetext={`${window.usedPercent}% used, ${formatResetCountdown(window.resetsAt, props.now)}`}
+        className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-secondary"
+      >
+        <span
+          style={{ width: `${window.usedPercent}%` }}
+          className={cn("block h-full", windowTone(window.usedPercent))}
+        />
+      </span>
+      <span className="w-8 text-right tabular-nums">{window.usedPercent}%</span>
+    </span>
+  );
+}

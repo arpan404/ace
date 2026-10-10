@@ -1,5 +1,4 @@
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { AddAccountButton } from "@/features/account-management/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
@@ -107,9 +106,6 @@ export function QueueNotice(props: {
         </div>
       </div>
       <div className="flex items-center gap-1">
-        {notice.kind === "limited" && account && (
-          <AddAccountButton provider={account.provider} label="Add another account" />
-        )}
         {rest.length > 0 && (
           <Menu>
             <MenuTrigger

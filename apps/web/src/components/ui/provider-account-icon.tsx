@@ -36,6 +36,15 @@ export function ProviderAccountIcon(
   const siblings = own?.filter(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
+  if (account && !props.accountLabel)
+    return (
+      <AccountBadge
+        account={account}
+        className={props.className}
+        decorative={props.decorative}
+        tooltip={props.tooltip}
+      />
+    );
   const multiple = siblings !== undefined && siblings.length > 1;
   const size = props.size ?? 16;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
@@ -77,4 +86,35 @@ function hoverTitle(
 ): string | undefined {
   if (enabled === false) return undefined;
   return shortLabel ? `${name} · ${shortLabel}` : name;
+}
+
+/** Readable account identity shared by settings, usage and model sources. */
+export function AccountBadge(props: {
+  account: Pick<AccountView, "label" | "shortLabel" | "badgeColor">;
+  className?: string | undefined;
+  decorative?: boolean | undefined;
+  tooltip?: boolean | undefined;
+}) {
+  const { account } = props;
+  return (
+    <span
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+        props.className,
+      )}
+      style={{
+        background: accountColors[account.badgeColor ?? "neutral"],
+        color: "var(--background)",
+      }}
+      title={props.tooltip === false ? undefined : account.label}
+      {...(props.decorative
+        ? { "aria-hidden": true }
+        : { role: "img", "aria-label": `${account.label} account` })}
+    >
+      {accountBadge(
+        account.label,
+        account.shortLabel ?? [...account.label.trim()][0]?.toLocaleUpperCase(),
+      )}
+    </span>
+  );
 }

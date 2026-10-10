@@ -21,7 +21,7 @@ const ViewListContext = createContext<ViewList | null>(null);
 
 /**
  * Where a view's own list goes. `threads`: the view is the thread list the sidebar always shows
- * (Home, and pages that keep it, like Usage & accounts). `sidebar`: the list takes the sidebar's
+ * (Home, and pages that keep it, like Usage). `sidebar`: the list takes the sidebar's
  * body in its place (Settings' pages). Activity, Automations and Skills also replace the thread list in the sidebar.
  */
 export type ViewListPlace = "threads" | "sidebar";

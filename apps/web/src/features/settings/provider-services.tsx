@@ -45,20 +45,12 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
             />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className="truncate font-medium">{source.label}</span>
-              <span className="shrink-0 text-sm text-muted-foreground">
+              {error && (
                 <StatusLine
-                  tone={error && error.code !== "no_models" ? "problem" : "ready"}
-                  text={
-                    error?.code === "no_models"
-                      ? "No models enabled"
-                      : error
-                        ? "Needs attention"
-                        : source.requiresAuth === false
-                          ? "Free models available"
-                          : "Connected"
-                  }
+                  tone={error.code === "no_models" ? "idle" : "problem"}
+                  text={error.code === "no_models" ? "No models enabled" : "Needs attention"}
                 />
-              </span>
+              )}
             </div>
             {error?.code === "no_models" ? (
               <Button

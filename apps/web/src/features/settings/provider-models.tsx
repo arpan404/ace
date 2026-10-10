@@ -12,6 +12,7 @@ import {
   type PickerModel,
 } from "@ace/ui-core";
 import { EyeIcon, EyeSlashIcon, StarIcon } from "@phosphor-icons/react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -68,67 +69,86 @@ export function ProviderModels(props: { provider: ProviderKind }) {
         models={models}
         catalog={catalog === undefined ? undefined : rows}
       />
-      <SettingRow title="Hide deprecated models" htmlFor="hide-deprecated" inline>
-        <Switch
-          id="hide-deprecated"
-          checked={preferences.value?.hideDeprecated !== false}
-          disabled={preferences.disabled}
-          onCheckedChange={(hideDeprecated) =>
-            void preferences.update((row) => ({ ...row, hideDeprecated }))
-          }
-        />
-      </SettingRow>
-      <SettingRow title="Only favourites" htmlFor="only-favourites" inline>
-        <Switch
-          id="only-favourites"
-          checked={preferences.value?.showOnlyFavourites === true}
-          disabled={preferences.disabled}
-          onCheckedChange={(showOnlyFavourites) =>
-            void preferences.update((row) => ({ ...row, showOnlyFavourites }))
-          }
-        />
-      </SettingRow>
-      <div className="flex min-h-9 items-center gap-2 text-ui">
-        <span className="min-w-0 flex-1 text-muted-foreground">
-          {catalog === undefined ? "Loading models…" : pluralCount(unique.length, "model")}
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={refresh.pending || !!refresh.reason}
-          onClick={() => refresh.refresh(props.provider)}
-        >
-          Refresh
+      <SettingRow
+        title="Models in the picker"
+        description={
+          catalog === undefined
+            ? "Loading models…"
+            : `${pluralCount(unique.filter((model) => !model.hidden).length, "model")} · legacy models in a submenu`
+        }
+        inline
+      >
+        <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+          Manage
         </Button>
-        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? "Hide models" : "Show models"}
-        </Button>
-      </div>
-      {open && (
-        <ul aria-label="Models">
-          {groups.map((group) => (
-            <li key={group.id}>
-              {group.label && <p className="py-1 text-xs text-muted-foreground">{group.label}</p>}
-              <ul aria-label={group.label ?? "Provider models"}>
-                {[...group.current, ...group.legacy].map((entry) => {
-                  const model = byKey.get(entry.key);
-                  return (
-                    model && (
-                      <ModelRow
-                        key={entry.key}
-                        model={model}
-                        starred={stars.favorites.includes(entry.key)}
-                        toggleStar={() => stars.toggle(entry.key)}
-                      />
-                    )
-                  );
-                })}
-              </ul>
-            </li>
-          ))}
-        </ul>
-      )}
-      <CustomModel provider={props.provider} />
+      </SettingRow>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Manage models</DialogTitle>
+          </DialogHeader>
+          <SettingRow title="Hide deprecated models" htmlFor="hide-deprecated" inline>
+            <Switch
+              id="hide-deprecated"
+              checked={preferences.value?.hideDeprecated !== false}
+              disabled={preferences.disabled}
+              onCheckedChange={(hideDeprecated) =>
+                void preferences.update((row) => ({ ...row, hideDeprecated }))
+              }
+            />
+          </SettingRow>
+          <SettingRow title="Only favourites" htmlFor="only-favourites" inline>
+            <Switch
+              id="only-favourites"
+              checked={preferences.value?.showOnlyFavourites === true}
+              disabled={preferences.disabled}
+              onCheckedChange={(showOnlyFavourites) =>
+                void preferences.update((row) => ({ ...row, showOnlyFavourites }))
+              }
+            />
+          </SettingRow>
+          <div className="flex min-h-9 items-center gap-2 text-ui">
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {catalog === undefined ? "Loading models…" : pluralCount(unique.length, "model")}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={refresh.pending || !!refresh.reason}
+              onClick={() => refresh.refresh(props.provider)}
+            >
+              Refresh
+            </Button>
+          </div>
+          {open && (
+            <ul aria-label="Models">
+              {groups.map((group) => (
+                <li key={group.id}>
+                  {group.label && (
+                    <p className="py-1 text-xs text-muted-foreground">{group.label}</p>
+                  )}
+                  <ul aria-label={group.label ?? "Provider models"}>
+                    {[...group.current, ...group.legacy].map((entry) => {
+                      const model = byKey.get(entry.key);
+                      return (
+                        model && (
+                          <ModelRow
+                            key={entry.key}
+                            model={model}
+                            starred={stars.favorites.includes(entry.key)}
+                            toggleStar={() => stars.toggle(entry.key)}
+                          />
+                        )
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+          <CustomModel provider={props.provider} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

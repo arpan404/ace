@@ -1,4 +1,8 @@
-import { AccountBadgeField, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
+import { accountBadge } from "@/components/ui/account-badge.ts";
+import { AccountBadgeChooser, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
+import { AccountBadgeColor } from "@ace/protocol/accounts";
+import { useNavigate } from "@tanstack/react-router";
 import { serviceInfo } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
@@ -6,8 +10,13 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import { apiKeyUpstreamLabel, canAddAccounts, useApiKeySupport } from "./actions.ts";
+import { useInlineSignIn } from "@/features/sign-in/index.ts";
+import {
+  apiKeyUpstreamLabel,
+  canAddAccounts,
+  useApiKeySupport,
+  useAccountActions,
+} from "./actions.ts";
 
 const apiServices = ApiKeyUpstream.options.map((value) => ({
   value,
@@ -28,10 +37,35 @@ const apiServices = ApiKeyUpstream.options.map((value) => ({
  */
 export function AddAccountForm(props: { provider: ProviderKind; name: string; onClose(): void }) {
   const nameId = useId();
-  const signIn = useSignIn();
-  const keyLogin = useInlineSignIn({ onClose: props.onClose });
+
   const [label, setLabel] = useState("");
-  const [badge, setBadge] = useState("•");
+  const [badge, setBadge] = useState("");
+  const [color, setColor] = useState<AccountBadgeColor>("violet");
+  const actions = useAccountActions();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const keyLogin = useInlineSignIn({
+    onClose: props.onClose,
+    onSuccess: async (progress) => {
+      if (!progress.instance) return;
+      await actions
+        .rename(progress.instance, label.trim(), {
+          shortLabel: accountBadge(label, badge),
+          badgeColor: color,
+        })
+        .catch(() =>
+          toast.error({
+            title: "Account added, but its badge could not be saved",
+            description: "Change the badge from the account menu.",
+          }),
+        );
+      void navigate({
+        to: "/settings/providers/$provider",
+        params: { provider: props.provider },
+        hash: `account-${progress.instance}`,
+      });
+    },
+  });
   const [error, setError] = useState<string>();
   const provider = props.provider;
   const support = useApiKeySupport(provider);
@@ -39,7 +73,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const [upstream, setUpstream] = useState<"openai" | "anthropic" | "openrouter" | "opencode">(
     "openai",
   );
-  if (!signIn || !canAddAccounts(provider)) return null;
+  if (!canAddAccounts(provider)) return null;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const name = label.trim();
@@ -47,16 +81,13 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
     if (!name) return setError("Give the account a name, like Work.");
     setError(undefined);
     try {
-      setLabel("");
-      const login = method === "api_key" ? keyLogin.start : signIn;
-      login({
+      keyLogin.start({
         provider,
         newAccount: name,
-        shortLabel: badge.trim(),
+        shortLabel: accountBadge(label, badge),
         method,
         ...(method === "api_key" && provider === "opencode" ? { upstream } : {}),
       });
-      if (method !== "api_key") props.onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn't add the account.");
     }
@@ -69,12 +100,31 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         onSubmit={(event) => void submit(event)}
         className="flex flex-col gap-2"
       >
-        <label htmlFor={nameId} className="font-medium">
-          Add {props.provider === "opencode" ? "an" : "a"} {props.name} account
-        </label>
         <p className="text-sm text-muted-foreground">
-          Name it, then sign in. ace keeps it separate from your other {props.name} sign-ins.
+          ace opens {props.name}'s own sign-in in your browser. Your password and tokens stay with{" "}
+          {props.name}; ace never sees them.
         </p>
+        <label htmlFor={nameId} className="text-sm">
+          Name
+        </label>
+        <Input
+          id={nameId}
+          aria-label="Account name"
+          autoFocus
+          placeholder="Work"
+          value={label}
+          maxLength={128}
+          aria-invalid={error !== undefined}
+          onChange={(event) => setLabel(event.target.value)}
+        />
+        <AccountBadgeChooser
+          provider={provider}
+          value={badge}
+          onChange={setBadge}
+          name={label || "Work"}
+          color={color}
+          onColorChange={setColor}
+        />
         {support.data?.supported && (
           <div className="flex flex-wrap items-center gap-2">
             <Select<"login" | "api_key">
@@ -98,22 +148,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
             )}
           </div>
         )}
-        <AccountBadgeField provider={provider} value={badge} onChange={setBadge} name={label} />
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            id={nameId}
-            aria-label="Account name"
-            autoFocus
-            placeholder="Work"
-            value={label}
-            maxLength={128}
-            aria-invalid={error !== undefined}
-            onChange={(event) => setLabel(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") props.onClose();
-            }}
-            className="max-w-64 flex-1"
-          />
           <Button type="submit" variant="primary" disabled={!!accountBadgeProblem(badge)}>
             Add and sign in
           </Button>
