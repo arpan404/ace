@@ -28,6 +28,8 @@ import AppKit
     }
     private func select(_ request: Request) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw HelperError("Accessibility permission denied", code: "permission_denied") }
+        let timeout: Float = request.op == "ui.tree" || request.op == "ui.find" ? 0.2 : 0.05
+        if let root { AXUIElementSetMessagingTimeout(root, timeout) }
         guard let target = request.target, let bundle = target.bundleId, ["app", "window"].contains(target.kind), target.bundleIds == nil, bundle.utf8.count <= 256, let allowlist = request.allowlist, allowlist.count <= 64, allowlist.contains(bundle) else { throw HelperError("Application approval required", code: "permission_denied") }
         if active == target, let cachedApp = NSRunningApplication(processIdentifier: pid), cachedApp.bundleIdentifier == bundle, !cachedApp.isTerminated, let root {
             guard axAttribute(root, kAXRoleAttribute) != nil else { throw HelperError("Accessible target is gone", code: "target_gone") }
@@ -38,7 +40,7 @@ import AppKit
         if active == target, pid == app.processIdentifier, let root { return root }
         reset(); active = target; pid = app.processIdentifier
         let application = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(application, 0.05)
+        AXUIElementSetMessagingTimeout(application, request.op == "ui.tree" || request.op == "ui.find" ? 0.2 : 0.05)
         if target.kind == "window" {
             guard let id = target.windowId else { throw HelperError("Window ID required", code: "bounds") }
             root = try resolver.resolve(id: id, pid: pid)
@@ -57,6 +59,7 @@ import AppKit
             CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .defaultMode)
         }
         guard let root else { throw HelperError("No accessible root", code: "target_gone") }
+        AXUIElementSetMessagingTimeout(root, timeout)
         return root
     }
     private func changed(_ element: AXUIElement, notification: CFString) {
@@ -163,6 +166,7 @@ import AppKit
         }
         guard let action = request.semanticAction, ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"].contains(action), (request.value?.utf16.count ?? 0) <= 4096 else { throw HelperError("Unsupported semantic action", code: "not_supported") }
         let snapshot = axMetadata(entry.element, ref: ref)
+        try requireMenuConsent(mode: request.mode, action: action, role: snapshot.node.role, secondary: request.name)
         let node = snapshot.node
         if node.states.contains("disabled") { throw HelperError("Element is disabled", code: "bounds") }
         if ["setValue", "selectText"].contains(action) { try TextDestination(element: entry.element, security: textSecurity(entry.element)).requireConsent(request.secureInputAllowed == true) }
