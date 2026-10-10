@@ -66,13 +66,14 @@ test("a desktop daemon that failed says why and offers restart, diagnostics, log
   expect(asked).toEqual(["restart", "logs", "quit"]);
 });
 
-test("a long desktop start explains itself after 10s and offers a way out after a minute", async () => {
+test("a long desktop start shows its installed version and offers bounded service recovery", async () => {
   const { daemon, emit } = desktop();
   const timers: { delay: number; run: () => void }[] = [];
   render(
     <AppFrame environment={{}}>
       <StartingScreen
         daemon={daemon}
+        version="1.2.3"
         onConnectManually={() => {}}
         schedule={(delay, run) => {
           timers.push({ delay, run });
@@ -85,14 +86,15 @@ test("a long desktop start explains itself after 10s and offers a way out after 
     act(() => {
       for (const timer of timers) if (timer.delay === delay) timer.run();
     });
-  expect(screen.getByRole("status").textContent).toBe("Starting ace…");
-  expect(screen.queryByText(/scans your provider history/)).toBeNull();
+  expect(screen.getByRole("status").textContent).toBe("Loading your workspace…");
+  expect(screen.getByText("v1.2.3")).toBeTruthy();
+  expect(screen.queryByText(/Preparing local services/)).toBeNull();
 
   elapse(startingNoteMs);
-  expect(screen.getByText(/scans your provider history/)).toBeTruthy();
+  expect(screen.getByText(/Preparing local services/)).toBeTruthy();
   emit({ state: "unreachable" });
   expect(screen.getByText("Waiting for ace to answer…")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Restart ace" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Restart ace" })).toBeTruthy();
 
   elapse(startingHelpMs);
   for (const name of ["Show logs", "Restart ace", "Connect manually…", "Quit ace"])

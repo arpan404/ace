@@ -1,6 +1,65 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
 import { obj, str } from "./native.ts";
+test("oversized optional catalog notifications and replies do not block configuration or a turn", async () => {
+  const h = await sessionHarness(false, "oversized-catalog");
+  try {
+    await h.wait(
+      (frame) =>
+        frame.dir === "note" && obj(frame.data)["event"] === "optional-catalog-frame-omitted",
+    );
+    if (!h.session.configure) throw new Error("No live native configuration");
+    await h.session.configure({
+      provider: "codex",
+      model: "gpt-6-luna",
+      options: { effort: "medium" },
+    });
+    await h.session.send([{ type: "text", text: "same-chunk" }], "queue");
+    await h.wait((frame) => obj(frame.data)["method"] === "turn/completed");
+    expect(
+      h.frames
+        .filter((frame) => obj(frame.data)["event"] === "optional-catalog-frame-omitted")
+        .map((frame) => obj(frame.data)["method"]),
+    ).toEqual(expect.arrayContaining(["app/list/updated", "app/list"]));
+    expect(h.frames.some((frame) => obj(frame.data)["method"] === "turn/start")).toBe(true);
+    expect(h.exits).toEqual([]);
+  } finally {
+    await h.dispose();
+  }
+}, 5000);
+test("a fresh auto-review session accepts the explicit default effort before any turn starts", async () => {
+  const h = await sessionHarness(
+    false,
+    "",
+    undefined,
+    { effort: "medium" },
+    undefined,
+    '{"permissions":":workspace","approvalsReviewer":"auto_review"}',
+  );
+  try {
+    if (!h.session.configure) throw new Error("No live native configuration");
+    await h.session.configure({
+      provider: "codex",
+      model: "gpt-6-luna",
+      options: { effort: "medium" },
+    });
+    const updates = h.frames.filter(
+      (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/settings/update",
+    );
+    expect(updates).toHaveLength(2);
+    expect(obj(updates.at(-1)?.data)["params"]).toEqual({
+      threadId: h.session.nativeSessionId,
+      model: "gpt-6-luna",
+      effort: "medium",
+      summary: null,
+      serviceTier: null,
+    });
+    expect(h.frames.some((frame) => obj(frame.data)["method"] === "turn/start")).toBe(false);
+    expect(h.exits).toEqual([]);
+  } finally {
+    await h.dispose();
+  }
+});
 test("native forks copy the requested source through the chosen turn into a different session", async () => {
   const h = await sessionHarness(false, "", {
     nativeSessionId: "source-native",

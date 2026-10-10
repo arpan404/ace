@@ -1,6 +1,6 @@
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
@@ -84,6 +84,7 @@ export function NewThreadPage(props: {
   skill?: string | undefined;
 }) {
   const { storage } = useLayout();
+  const readinessId = useId();
   const { project: filter } = useOrganizerState();
   const { ids: projects, name, loaded } = useRegisteredProjects();
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
@@ -163,8 +164,16 @@ export function NewThreadPage(props: {
   const scope = useDraftScope(project);
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId);
+  const waitingForAdmission = defaultMode === undefined || permissions.loading;
+  const admissionProblem = waitingForAdmission
+    ? "Checking provider settings…"
+    : permissions.failed
+      ? "Couldn't check provider permissions. Reconnect and try again."
+      : !resolved.model
+        ? "Choose an available model before sending."
+        : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admitted.fallback) return false;
+    if (!project || !resolved.model || admissionProblem) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
@@ -248,6 +257,11 @@ export function NewThreadPage(props: {
               draftKey={project ? draftKeyFor(project) : undefined}
               initialText={props.skill ? `/${props.skill} ` : undefined}
               busy={false}
+              sendBlocked={
+                admissionProblem
+                  ? { reason: admissionProblem, describedBy: readinessId }
+                  : undefined
+              }
               onSubmit={send}
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
@@ -324,6 +338,11 @@ export function NewThreadPage(props: {
                 />
               }
             />
+            {admissionProblem && (
+              <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
+                {admissionProblem}
+              </p>
+            )}
             <SignInNotice provider={provider} />
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">

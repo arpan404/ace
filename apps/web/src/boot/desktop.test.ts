@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { desktopConnection, desktopDaemon, hasDesktopBridge } from "./desktop.ts";
+import {
+  desktopAppVersion,
+  desktopConnection,
+  desktopDaemon,
+  hasDesktopBridge,
+} from "./desktop.ts";
 
 const token = "ab".repeat(32);
 
 describe("desktop daemon hand-off", () => {
+  it("uses only the installed app version supplied by preload", () => {
+    expect(desktopAppVersion({ ace: { version: " 1.2.3 " } })).toBe("1.2.3");
+    expect(desktopAppVersion({ ace: { version: 42 } })).toBeUndefined();
+    expect(desktopAppVersion({ ace: { version: " " } })).toBeUndefined();
+    expect(desktopAppVersion({})).toBeUndefined();
+  });
+
   it("a browser in fake mode isn't the desktop app, though it exposes a debugging `ace`", () => {
     const fakeDebug = { ace: { daemon: { token: "x", threads: new Map() }, client: {} } };
     expect(hasDesktopBridge(fakeDebug)).toBe(false);

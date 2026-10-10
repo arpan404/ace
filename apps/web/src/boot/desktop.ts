@@ -10,6 +10,12 @@ export function hasDesktopBridge(scope: object = globalThis): boolean {
   return daemonBridge(scope) !== undefined;
 }
 
+/** Installed desktop version comes directly from preload's app.getVersion(), never the daemon. */
+export function desktopAppVersion(scope: object = globalThis): string | undefined {
+  const value = record(Reflect.get(scope, "ace"))?.version;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /** What the desktop app said about its daemon at boot. */
 export type DesktopConnection =
   /** No bridge (a browser), or the desktop's fake mode: the browser flow applies. */

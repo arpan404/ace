@@ -48,4 +48,4 @@ export {
   type LoginUpdate,
   type LoginSessionsOptions,
 } from "./login-sessions.ts";
-export { loginObservation, loginUrl } from "./login-output.ts";
+export { loginObservation, loginUrl, loginDeviceCodePrompt } from "./login-output.ts";

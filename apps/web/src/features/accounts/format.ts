@@ -12,12 +12,12 @@ export function formatResets(at: number, now: number, locale?: string): string {
 
 /**
  * ["Resets 15:20", "in 1h 27m"]: when a window resets and how long until then; just "Reset time
- * not reported" when the provider didn't say, "Resets now" once the moment has passed (the next
- * read brings the fresh window).
+ * not reported" when the provider didn't say. A passed reset awaits a new provider reading;
+ * rereading cached accounts does not refresh the window.
  */
 export function resetParts(at: number | null, now: number, locale?: string): string[] {
   if (at === null) return ["Reset time not reported"];
-  if (at <= now) return ["Resets now"];
+  if (at <= now) return ["Reset time passed", "waiting for a new provider reading"];
   return [formatResets(at, now, locale), `in ${formatCountdown(at - now)}`];
 }
 

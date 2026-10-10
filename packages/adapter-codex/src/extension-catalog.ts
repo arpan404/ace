@@ -1,5 +1,32 @@
 import type { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { obj } from "./native.ts";
+const catalogRequests = new Set(["skills/list", "app/list", "mcpServerStatus/list"]);
+const catalogNotifications = new Set(["skills/changed", "app/list/updated", "mcpServer/updated"]);
+/** Track only optional metadata envelopes; execution frames always retain strict admission. */
+export function optionalCatalogFrames() {
+  const requests = new Map<unknown, string>();
+  return {
+    method(direction: "send" | "recv", data: unknown): string | undefined {
+      const message = obj(data);
+      const id = message["id"];
+      const method = message["method"];
+      if (direction === "send") {
+        if (typeof method === "string" && catalogRequests.has(method)) {
+          // Match the RPC pending-request bound, including expired requests awaiting late replies.
+          if (requests.size >= 256) requests.delete(requests.keys().next().value);
+          requests.set(id, method);
+        }
+        return undefined;
+      }
+      if (typeof method === "string")
+        return id === undefined && catalogNotifications.has(method) ? method : undefined;
+      const request = requests.get(id);
+      requests.delete(id);
+      return request;
+    },
+    clear: () => requests.clear(),
+  };
+}
 /** Coalesced read-only metadata refreshes; notifications during a read cause one more read. */
 export function createExtensionCatalog(
   rpc: JsonRpcPeer,

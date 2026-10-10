@@ -204,3 +204,20 @@ test("switching daemons never shows the old daemon's app while the new client is
   await screen.findByRole("button", { name: "Switch ace" });
   expect(shell()).toBeNull();
 });
+
+test("desktop startup stays visible and withholds the composer until authenticated welcome, then offers recovery on timeout", async () => {
+  const { runOutFirstAttempt } = boot({
+    desktop: true,
+    remembered: true,
+    createClient: silentClient,
+  });
+  expect(await screen.findByRole("status")).toHaveProperty(
+    "textContent",
+    "Loading your workspace…",
+  );
+  expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
+  runOutFirstAttempt();
+  expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
+});

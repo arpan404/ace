@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { codexCapabilities } from "./capabilities.ts";
-import { createExtensionCatalog } from "./extension-catalog.ts";
+import { createExtensionCatalog, optionalCatalogFrames } from "./extension-catalog.ts";
 import { codexMcpControls } from "./mcp-controls.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
@@ -95,8 +95,27 @@ export async function openCodexSession(
     new Map();
   const plans = new Map<string, { thread: string; markdown: string }>();
   const timers = new Map<string, () => void>();
-  const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
-    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
+  const optionalFrames = optionalCatalogFrames();
+  const emit = (
+    dir: "send" | "recv" | "stderr" | "note",
+    data: unknown,
+    channel = "stdio",
+    optionalMethod?: string,
+  ) => {
+    const encoded = redactMcpCredential(JSON.stringify(data), ctx.aceMcp);
+    let payload: ProviderPayload;
+    try {
+      payload = new ProviderPayload(encoded);
+    } catch (error) {
+      if (!optionalMethod || !(error instanceof RangeError)) throw error;
+      emit("note", {
+        event: "optional-catalog-frame-omitted",
+        method: optionalMethod,
+        bytes: Buffer.byteLength(encoded),
+        reason: error.message,
+      });
+      return;
+    }
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(io.now() - started),
@@ -159,7 +178,7 @@ export async function openCodexSession(
         });
       if (dir === "send" && method === "thread/read") scopedReads.add(m["id"]);
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
-      emit(dir, data, scoped ? "codex-discovery" : "stdio");
+      emit(dir, data, scoped ? "codex-discovery" : "stdio", optionalFrames.method(dir, data));
       if (dir !== "recv") return;
       if (thread && !known.has(thread) && !timers.has(thread) && timers.size < 256)
         scheduleRecovery(thread);
@@ -282,6 +301,7 @@ export async function openCodexSession(
     emit,
     cleanup() {
       closed = true;
+      optionalFrames.clear();
       for (const cancel of timers.values()) cancel();
       timers.clear();
       for (const entry of pending.values()) entry.reject(new Error("Codex session ended"));

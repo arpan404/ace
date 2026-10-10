@@ -20,6 +20,31 @@ function child(script: string) {
   return proc;
 }
 
+it("a failed receive observer rejects pending RPCs with its cause without breaking another peer's pipe", async () => {
+  const proc = child(
+    `require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);console.log(JSON.stringify({id:m.id,result:'alive'}));});`,
+  );
+  const failure = new Error("receive observer failed");
+  const rpc = new JsonRpcPeer(proc, {
+    onFrame: (direction) => {
+      if (direction === "recv") throw failure;
+    },
+  });
+  try {
+    await expect(rpc.request("echo", undefined, { timeoutMs: 1000 })).rejects.toThrow(
+      "receive observer failed",
+    );
+    const active = new JsonRpcPeer(proc);
+    try {
+      expect(await active.request("echo")).toBe("alive");
+    } finally {
+      active.close();
+    }
+  } finally {
+    rpc.close();
+  }
+});
+
 it("injected deadlines expire silent requests without waiting on wall time", async () => {
   let expire: () => void = unarmedDeadline;
   const rpc = new JsonRpcPeer(

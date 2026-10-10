@@ -79,7 +79,7 @@ export function CodeStep(props: { progress: ProviderLoginProgress; footer: React
     <>
       <StepTitle
         title="Enter this code on the sign-in page"
-        line="It confirms that the sign-in is yours."
+        line="Sign in on the provider’s page, then enter this one-time code."
       />
       <div className="flex flex-col items-center gap-2">
         <button

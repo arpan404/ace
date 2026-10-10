@@ -75,7 +75,7 @@ export function ModelPicker(props: {
   );
   const view: ModelControlView = {
     provider,
-    side: "bottom",
+    side: "top",
     accountLabel:
       (props.options?.accounts.filter((option) => option.provider === provider).length ?? 0) > 1
         ? tag

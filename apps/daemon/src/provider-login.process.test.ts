@@ -262,3 +262,24 @@ test.each(["cancel", "timeout"])(
     expect(f.events.some((event) => event.state === "succeeded")).toBe(false);
   },
 );
+
+test("Codex native one-time prompt relays its split ANSI-colored code without private diagnostics", async () => {
+  const f = await harness(
+    "codex",
+    `
+    process.stdout.write('1. Open this link in your browser and sign in to your account\\n   \\x1b[94mhttps://auth.openai.com/codex/device\\x1b[0m\\n\\n2. Enter this one-time code \\x1b[90m(expires in 15 minutes)\\x1b[0m\\n');
+    setTimeout(() => process.stdout.write('   \\x1b[94mABCD-'), 5);
+    setTimeout(() => process.stdout.write('2048\\x1b[0m\\n\\nContinue only if you started this login in Codex.\\naccess_token=sk-syntheticSecretNeverForwarded0123456789\\n'), 10);
+    process.stdin.resume();
+  `,
+  );
+  await f.start();
+  const progress = await f.wait("awaiting_code_entry");
+  expect(progress).toMatchObject({
+    url: "https://auth.openai.com/codex/device",
+    userCode: "ABCD-2048",
+  });
+  expect(JSON.stringify(f.events)).not.toMatch(
+    /syntheticSecret|access_token|expires in|Continue only/,
+  );
+});
