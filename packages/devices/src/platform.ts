@@ -291,16 +291,9 @@ export class DevicePlatform {
           authorize,
         );
       if (settings.location)
-        await this.android.adb(
+        await this.android.console(
           device,
-          [
-            "emu",
-            "geo",
-            "fix",
-            String(settings.location.longitude),
-            String(settings.location.latitude),
-          ],
-          undefined,
+          ["geo", "fix", String(settings.location.longitude), String(settings.location.latitude)],
           authorize,
         );
     }

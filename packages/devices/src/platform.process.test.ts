@@ -7,7 +7,7 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import { DevicePlatform, type Device } from "./index.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
-async function fixture(platform = "linux") {
+async function fixture(platform = "linux", native: Record<string, string> = {}) {
   const home = await mkdtemp(join(tmpdir(), "ace-device-platform-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const sdk = join(home, "Library/Android/sdk");
@@ -32,8 +32,12 @@ async function fixture(platform = "linux") {
     else if (args.includes('wait-for-device')) { fs.writeFileSync(process.env.DEVICE_STATE,'attached'); }
     else if (args.some(arg=>arg.includes('sys.boot_completed'))) { fs.writeFileSync(process.env.DEVICE_STATE,'booted'); }
     else if(args.includes('install') && connection!=='booted') { process.exit(2); }
+    else if (args[2] === 'emu' && process.env.DEVICE_CONSOLE === 'refuse') { if (!args.includes('avd')) console.log("KO: unknown command, try 'help'"); }
+    else if (args.some(arg => arg.includes("'getprop'"))) { if (process.env.DEVICE_PROPS === 'fail') process.exit(1); if (process.env.DEVICE_PROPS !== 'none' && args[3].includes('ro.boot.qemu.avd_name')) console.log('Pixel_API_35'); }
+    else if (args.some(arg => arg.includes("'reboot' '-p'"))) fs.writeFileSync(process.env.DEVICE_STATE,'shutdown');
     else if (args.includes('avd')) console.log('Pixel_API_35\\nOK');
-    else if (args.includes('kill')) fs.writeFileSync(process.env.DEVICE_STATE,'shutdown');
+    else if (args.includes('kill')) { fs.writeFileSync(process.env.DEVICE_STATE,'shutdown'); console.log('OK: killing emulator, bye bye\\nOK'); }
+    else if (args.includes('geo')) console.log('OK');
     else if (args.includes('cat')) console.log(fs.readFileSync(process.env.DEVICE_TREE,'utf8'));
     else if (args.some(arg => arg.includes('resolve-activity'))) console.log('dev.example/.MainActivity');
     else if (args.some(arg => arg.includes("'wm' 'size'"))) console.log('Physical size: 1080x2400'+(process.env.DEVICE_OVERRIDE==='1'?'\\nOverride size: 720x1600':''));
@@ -73,7 +77,13 @@ async function fixture(platform = "linux") {
     tree,
     '<hierarchy rotation="0"><node index="0" text="Launch" resource-id="dev.example:id/launch" class="android.widget.Button" package="dev.example" content-desc="" clickable="true" enabled="true" bounds="[10,20][110,80]" /></hierarchy>',
   );
-  const env = { PATH: bin, DEVICE_JOURNAL: journal, DEVICE_STATE: state, DEVICE_TREE: tree };
+  const env = {
+    PATH: bin,
+    DEVICE_JOURNAL: journal,
+    DEVICE_STATE: state,
+    DEVICE_TREE: tree,
+    ...native,
+  };
   const manager = new DevicePlatform({ platform, home, env });
   onTestFinished(() => manager.close());
   const commands = async () =>
@@ -309,6 +319,47 @@ it("keeps previously identified emulators offline or unauthorized and refuses th
     code: "permission_denied",
   });
 });
+it("identifies and shuts down a running emulator whose console refuses unauthenticated commands", async () => {
+  const f = await fixture("linux", { DEVICE_CONSOLE: "refuse" });
+  await writeFile(f.state, "booted");
+  expect(await f.manager.list()).toEqual([
+    { ...android(), state: "booted", serial: "emulator-5554" },
+  ]);
+  await f.manager.shutdown(android());
+  expect(await f.manager.list()).toEqual([android()]);
+});
+it("identifies a running emulator through its console when the image lacks boot properties", async () => {
+  const f = await fixture("linux", { DEVICE_PROPS: "none" });
+  await writeFile(f.state, "booted");
+  expect(await f.manager.list()).toEqual([
+    { ...android(), state: "booted", serial: "emulator-5554" },
+  ]);
+});
+it("an emulator whose identity cannot be read stays offline without hiding other devices", async () => {
+  const f = await fixture("darwin", { DEVICE_CONSOLE: "refuse", DEVICE_PROPS: "fail" });
+  await writeFile(f.state, "booted");
+  const devices = await f.manager.list();
+  expect(devices).toContainEqual({
+    id: "android:emulator-5554",
+    platform: "android",
+    name: "emulator-5554",
+    state: "offline",
+    serial: "emulator-5554",
+  });
+  expect(devices).toContainEqual(android());
+  expect(devices).toContainEqual({ ...ios(), state: "booted", runtime: "iOS 18.0" });
+  await expect(f.manager.input(android(), { kind: "tap", x: 0, y: 0 })).rejects.toMatchObject({
+    code: "not_booted",
+  });
+});
+it("a location change the emulator console refuses fails instead of reporting success", async () => {
+  const f = await fixture("linux", { DEVICE_CONSOLE: "refuse" });
+  await writeFile(f.state, "booted");
+  await f.manager.list();
+  await expect(
+    f.manager.configure(android(), { location: { latitude: 41, longitude: -87 } }),
+  ).rejects.toMatchObject({ code: "command_failed", hint: expect.stringContaining("auth_token") });
+});
 it("reports a command-line-tools-only Xcode selection instead of treating it as a Simulator SDK", async () => {
   const f = await fixture("darwin");
   await nodeBinary(f.bin, "xcode-select", "console.log('/Library/Developer/CommandLineTools');");
@@ -472,7 +523,8 @@ for (const operation of ["install", "openApp", "boot"] as const) {
           (operation === "boot"
             ? args[0] === "devices"
             : args.some((arg) => arg.includes("resolve-activity")) ||
-              (operation === "install" && args.includes("avd")))
+              (operation === "install" &&
+                (args.includes("avd") || args.some((arg) => arg.includes("avd_name")))))
         ) {
           blocked = true;
           lookup.resolve();

@@ -55,8 +55,13 @@ export function avdNames(output: string): string[] {
         .filter(Boolean),
     );
 }
-export function avdName(output: string): string {
-  return AVD.parse(output.split("\n")[0]?.trim());
+export function avdName(output: string): string | undefined {
+  const parsed = AVD.safeParse(output.split("\n")[0]?.trim());
+  return parsed.success ? parsed.data : undefined;
+}
+/** The emulator console exits 0 even when it refuses a command; only an `OK` reply means it ran. */
+export function consoleAccepted(output: string): boolean {
+  return output.split("\n").some((line) => /^OK\b/.test(line.trim()));
 }
 /** adb shell joins its arguments before passing them to the device's shell. */
 export function adbShell(tokens: readonly string[]): string[] {

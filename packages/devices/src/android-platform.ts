@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { AndroidInputShell } from "./android-input-shell.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
@@ -6,6 +7,7 @@ import {
   adbDevices,
   avdNames,
   avdName,
+  consoleAccepted,
   nativeId,
   adbShell,
   androidDimensions,
@@ -58,11 +60,15 @@ export class AndroidPlatform {
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
-    for (const { serial, state } of transports) {
+    for (const transport of transports) {
+      const { serial } = transport;
+      let { state } = transport;
       let name = this.serialNames.get(serial) ?? serial;
       if (state === "booted") {
-        name = avdName((await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout);
-        this.serialNames.set(serial, name);
+        const resolved = await this.avdNameOf(adb, serial);
+        // An emulator whose identity cannot be read must never become an input target.
+        if (resolved) this.serialNames.set(serial, (name = resolved));
+        else state = "offline";
       }
       const existing = devices.get(name);
       if (existing?.serial && existing.serial !== serial)
@@ -114,10 +120,7 @@ export class AndroidPlatform {
         "Boot the emulator and authorize adb before retrying.",
       );
     const { adb } = await this.resolve();
-    const name = avdName(
-      (await this.run(adb, ["-s", current.serial, "emu", "avd", "name"], 4096)).stdout,
-    );
-    if (name !== nativeId(device))
+    if ((await this.avdNameOf(adb, current.serial)) !== nativeId(device))
       throw new DeviceError(
         "not_found",
         "Emulator transport now belongs to another AVD",
@@ -130,6 +133,33 @@ export class AndroidPlatform {
     const { adb } = await this.resolve();
     authorize?.();
     return this.run(adb, ["-s", serial, ...args], maxBytes);
+  }
+  /** Runs an emulator console command and fails when the console did not accept it. */
+  async console(device: Device, args: readonly string[], authorize?: () => void): Promise<void> {
+    const { stdout } = await this.adb(device, ["emu", ...args], 4096, authorize);
+    if (!consoleAccepted(stdout))
+      throw new DeviceError(
+        "command_failed",
+        "The emulator console refused the command",
+        "Make sure the daemon can read ~/.emulator_console_auth_token, then retry.",
+      );
+  }
+  /** Boot properties identify the AVD without the console's auth token; older images need the console. */
+  private async avdNameOf(adb: string, serial: string): Promise<string | undefined> {
+    const read = async (args: readonly string[]) => {
+      try {
+        return avdName((await this.run(adb, ["-s", serial, ...args], 4096)).stdout);
+      } catch (error) {
+        // A transport that is still booting or already shutting down has no readable identity.
+        if (error instanceof DeviceError && error.code === "command_failed") return undefined;
+        throw error;
+      }
+    };
+    for (const property of ["ro.boot.qemu.avd_name", "ro.kernel.qemu.avd_name"]) {
+      const name = await read(adbShell(["getprop", property]));
+      if (name) return name;
+    }
+    return read(["emu", "avd", "name"]);
   }
   async input(device: Device, args: readonly string[], authorize: () => void): Promise<void> {
     if (args[0] !== "shell" || args.length !== 2 || !args[1])
@@ -182,8 +212,7 @@ export class AndroidPlatform {
     );
   }
   private async verifyTransport(adb: string, device: Device, serial: string) {
-    const name = avdName((await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout);
-    if (name !== nativeId(device)) throw this.identityError();
+    if ((await this.avdNameOf(adb, serial)) !== nativeId(device)) throw this.identityError();
   }
   async captureTransport(device: Device, expectedSerial?: string) {
     const serial = await this.serial(device);
@@ -338,7 +367,20 @@ export class AndroidPlatform {
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
     try {
-      await this.adb(device, ["emu", "kill"], undefined, authorize);
+      const serial = await this.serial(device);
+      const { adb } = await this.resolve();
+      authorize?.();
+      const killed = await this.run(adb, ["-s", serial, "emu", "kill"], 4096);
+      if (!consoleAccepted(killed.stdout))
+        await this.run(adb, ["-s", serial, ...adbShell(["reboot", "-p"])], 4096);
+      // The console replies before the emulator exits, and adb reports the transport offline
+      // briefly before dropping it. Report shutdown only once adb no longer lists it.
+      await this.run(adb, ["-s", serial, "wait-for-disconnect"], 4096, 60_000);
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const { stdout } = await this.run(adb, ["devices"], 128 * 1024);
+        if (!adbDevices(stdout).some((transport) => transport.serial === serial)) break;
+        await delay(250);
+      }
     } finally {
       authorize?.();
       await this.emulators.get(device.id)?.stop({ graceMs: 0 });
