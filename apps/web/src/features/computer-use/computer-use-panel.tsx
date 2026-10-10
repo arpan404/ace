@@ -14,32 +14,38 @@ export default function ComputerUsePanel(props: TabViewProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto px-3 pt-1 pb-6">
       <EnableRow use={use} />
-      <SharePicker use={use} threadId={threadId} />
-      <section aria-label="Live sessions" className="mt-4">
-        <div className="mb-2 flex items-center gap-2">
-          <h2 className="min-w-0 flex-1 text-xs font-medium text-subtle-foreground">
-            Live sessions
-          </h2>
-          <StopAllButton use={use} />
-        </div>
-        <LiveSessions use={use} threadId={threadId} narrow />
-      </section>
-      <section aria-label="Approved for this thread" className="mt-6">
-        <h2 className="mb-1 text-xs font-medium text-subtle-foreground">
-          Approved for this thread
-        </h2>
-        <ApprovedApps use={use} threadId={threadId} />
-      </section>
-      <p className="mt-6 text-xs text-subtle-foreground">
-        Permissions and every app's grants are in{" "}
-        <Link
-          to="/settings/computer-use"
-          className="text-link focus-ring rounded-xs hover:underline"
-        >
-          Settings › Computer use
-        </Link>
-        .
-      </p>
+      {use.snapshot.enabled ? (
+        <>
+          <SharePicker use={use} threadId={threadId} />
+          <section aria-label="Live sessions" className="mt-4">
+            <div className="mb-2 flex items-center gap-2">
+              <h2 className="min-w-0 flex-1 text-xs font-medium text-subtle-foreground">
+                Live sessions
+              </h2>
+              <StopAllButton use={use} />
+            </div>
+            <LiveSessions use={use} threadId={threadId} narrow />
+          </section>
+          <section aria-label="Approved for this thread" className="mt-6">
+            <h2 className="mb-1 text-xs font-medium text-subtle-foreground">
+              Approved for this thread
+            </h2>
+            <ApprovedApps use={use} threadId={threadId} />
+          </section>
+          <p className="mt-6 text-xs text-subtle-foreground">
+            Permissions and every app's grants are in{" "}
+            <Link
+              to="/settings/computer-use"
+              className="text-link focus-ring rounded-xs hover:underline"
+            >
+              Settings › Computer use
+            </Link>
+            .
+          </p>
+        </>
+      ) : (
+        <p className="py-2 text-ui text-muted-foreground">Off · Turn on to let agents use apps.</p>
+      )}
     </div>
   );
 }

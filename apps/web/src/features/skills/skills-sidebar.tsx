@@ -1,7 +1,8 @@
+import { SlashIcon } from "@/components/slash-icon.tsx";
 import { useSkillDiscovery } from "./discovered-skills.tsx";
 import {
   ClockIcon,
-  CommandIcon,
+  FunnelIcon,
   PlugIcon,
   RobotIcon,
   ScrollIcon,
@@ -11,6 +12,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SearchField } from "@/components/search-field.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -34,7 +37,7 @@ import { useSkills } from "./skills-source.ts";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: SparkleIcon },
-  { kind: "command", label: "Slash commands", icon: CommandIcon },
+  { kind: "command", label: "Slash commands", icon: SlashIcon },
   { kind: "agent", label: "Agents", icon: RobotIcon },
   { kind: "rule", label: "Rules", icon: ScrollIcon },
   { kind: "plugin", label: "Plugins", icon: PlugIcon },
@@ -79,29 +82,36 @@ export function SkillsSidebar() {
       actions={
         skills.data?.length ? (
           <>
-            <FilterMenu
-              label="Plugin"
-              value={plugin}
-              options={[
-                { value: "all", label: "All plugins" },
-                ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
-              ]}
-              onValueChange={setPlugin}
-            />
             <InstallPluginButton />
           </>
         ) : undefined
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          {discovery.controls}
-          <SearchField
-            label="Search skills"
-            placeholder="Search skills"
-            value={query}
-            onValueChange={setQuery}
-            className="bg-sidebar-accent"
-          />
+          <div className="flex items-center gap-1">
+            <SearchField
+              label="Search skills"
+              placeholder="Search skills"
+              value={query}
+              onValueChange={setQuery}
+              className="bg-sidebar-accent"
+            />
+            <Popover>
+              <PopoverTrigger render={<IconButton icon={FunnelIcon} label="Filter skills" />} />
+              <PopoverContent className="w-64 space-y-2">
+                {discovery.controls}
+                <FilterMenu
+                  label="Plugin"
+                  value={plugin}
+                  options={[
+                    { value: "all", label: "All plugins" },
+                    ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
+                  ]}
+                  onValueChange={setPlugin}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       }
     >

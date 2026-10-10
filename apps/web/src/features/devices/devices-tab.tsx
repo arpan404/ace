@@ -84,10 +84,11 @@ export function DevicesTab(props: { threadId: string }) {
     return (
       <EmptyState
         icon={DeviceMobileIcon}
+        className="items-start justify-start text-left p-4"
         title="Simulators and emulators"
-        description="Let ace see and drive the iOS Simulators and Android emulators on this machine. Agents only reach a device you approve for their thread."
+        description="Enable devices to use a simulator or emulator with this thread."
         action={
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-start gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
               Enable devices
             </Button>

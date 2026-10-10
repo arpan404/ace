@@ -1,8 +1,8 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { workbench, workbenchServices } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
@@ -251,10 +251,8 @@ test("a new automation is validated, read back in words and opened once created"
   await userEvent.clear(screen.getByLabelText("At"));
   await userEvent.type(screen.getByLabelText("At"), "08:30");
   await choose("Time zone", "Europe/London");
-  const readBack = await screen.findByText(/^Runs:/);
-  expect(readBack.textContent).toMatch(
-    /Weekdays at 08:30 \(Europe\/London\)\. Next: \w{3} \d+ \w{3} 08:30/,
-  );
+  const readBack = await screen.findByText(/^Next run/);
+  expect(readBack.textContent).toMatch(/Next run \w{3} \d+ \w{3} 08:30/);
 
   await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
 
@@ -269,7 +267,10 @@ test("every few hours is picked from a list, so it can't be anything but a whole
   await heading("New automation");
   await choose("Repeat", "Every few hours");
   await choose("How often", "Every 12 hours");
-  expect((await screen.findByText(/^Runs:/)).textContent).toMatch(/Every 12 hours/);
+  expect((await screen.findByText(/^Next run/)).textContent).toMatch(/Next run/);
+  expect(screen.getByRole("combobox", { name: "How often" }).textContent).toContain(
+    "Every 12 hours",
+  );
   expect(screen.queryByText(/NaN/)).toBeNull();
 });
 
@@ -310,7 +311,7 @@ test("a custom cron schedule must have five fields and is described once it does
   await waitFor(() =>
     expect(screen.queryByText("Cron needs five fields: minute hour day month weekday.")).toBeNull(),
   );
-  expect(screen.getByText("Weekdays at 07:30")).toBeTruthy();
+  expect(screen.getByText(/^Next run/).textContent).toContain("07:30");
 });
 
 test("a GitHub trigger needs an owner/name repository", async () => {
@@ -337,7 +338,8 @@ test("an issue-label trigger asks for its label and keeps it through an edit", a
   });
   await heading("Review pull requests on open");
   expect(main().getByText(/When an issue is labelled \(needs-triage\)/)).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   expect((field("Label") as HTMLInputElement).value).toBe("needs-triage");
 
@@ -355,7 +357,8 @@ test("an automation that watches files keeps its own trigger in the editor", asy
         automation.trigger = { kind: "file", paths: ["src/**/*.test.ts"] };
   });
   await heading("Flaky test triage");
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   expect(screen.getByRole("combobox", { name: "When it runs" }).textContent).toContain(
     "On file change",
@@ -401,7 +404,8 @@ test("editing an automation's schedule changes how it reads everywhere", async (
   const { sidebar } = await open("/automations/auto-flaky-triage");
   await heading("Flaky test triage");
 
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   expect((field("Name") as HTMLInputElement).value).toBe("Flaky test triage");
   await choose("Repeat", "Once a week");
@@ -442,8 +446,18 @@ test("a deletion that isn't undone is sent once its toast closes", async () => {
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const toasts = within(screen.getByRole("region", { name: "Notifications" }));
+  await toasts.findByText("Deleted · Changelog draft");
   await userEvent.hover(await toasts.findByText("Deleted · Changelog draft"));
-  await userEvent.click(await toasts.findByRole("button", { name: "Dismiss" }));
+  vi.useFakeTimers();
+  try {
+    const clockUser = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await clockUser.unhover(toasts.getByText("Deleted · Changelog draft"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
   await waitFor(async () => expect(await stored(app, "auto-changelog")).toBeUndefined());
   expect(sidebar.queryByRole("link", { name: /Changelog draft/ })).toBeNull();
 });
@@ -553,7 +567,8 @@ test("an explicit automation model is saved as the provider model and survives e
   const reply = await app.client.request({ type: "automation.list" });
   const saved = reply.automations?.find((automation) => automation.title === "Explicit model QA");
   expect(saved?.model).toBe("gpt-5-codex");
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   expect((await screen.findByRole("button", { name: /^Model: / })).textContent).toContain(
     "GPT-5 Codex",
@@ -613,13 +628,15 @@ test("a poll failure shows a fix hint and stays visible until the trigger is rep
       name: "Needs attention",
     }),
   ).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   await userEvent.type(field("Name"), " fixed");
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await heading("Review pull requests on open fixed");
   expect(main().getByRole("alert")).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   await choose("When it runs", "By hand");
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -695,17 +712,16 @@ test("a failed run shows its complete error even without a produced thread", asy
 test("the detail has one Edit entry point and keeps a selected time zone when reopened", async () => {
   await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
-  expect(screen.getAllByRole("link", { name: "Edit" })).toHaveLength(1);
+  expect(screen.queryByRole("link", { name: "Edit" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
-  await userEvent.keyboard("{Escape}");
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   await choose("Time zone", "Asia/Tokyo");
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await heading("Nightly dependency audit");
   expect(main().getByText("Every day at 02:00 (Asia/Tokyo)")).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   await heading("Edit automation");
   expect(screen.getByRole("combobox", { name: "Time zone" }).textContent).toContain("Asia/Tokyo");
 });

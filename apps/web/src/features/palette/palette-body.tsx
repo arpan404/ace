@@ -40,7 +40,6 @@ const icons = {
 } as const;
 
 /** Threads shown before "Show all threads…" with an empty query, and ranked ones with a query. */
-const threadsShown = 8;
 const threadMatches = 30;
 
 interface Row extends PaletteCommand {
@@ -61,7 +60,7 @@ function arrange(
   recent: readonly { id: string; at: number }[],
   current: string | undefined,
   allThreads: boolean,
-  showAllThreads: () => void,
+  _showAllThreads: () => void,
   searchAll: (query: string) => void,
 ): RowGroup[] {
   const q = query.trim();
@@ -77,22 +76,8 @@ function arrange(
     const out: RowGroup[] = [];
     for (const group of groups) {
       if (group.value === "Threads") {
-        const capped = allThreads ? group.items : group.items.slice(0, threadsShown);
-        const more =
-          !allThreads && group.items.length > threadsShown
-            ? [
-                {
-                  id: "threads-show-all",
-                  label: `Show all ${group.items.length} threads…`,
-                  icon: "thread" as const,
-                  stay: true,
-                  run: showAllThreads,
-                },
-              ]
-            : [];
-        out.push({ value: group.value, items: [...capped, ...more] });
-        // Single settings are found by searching; listed whole they'd bury everything else.
-      } else if (group.value !== "Settings") out.push(group);
+        if (allThreads) out.push(group);
+      } else if (group.value === "This thread") out.push(group);
       // Recently opened threads sit right after what acts on this thread.
       if (group.value === "This thread" && recentRows.length)
         out.push({ value: "Recent threads", items: recentRows });

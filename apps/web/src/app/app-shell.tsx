@@ -3,14 +3,14 @@ import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { ActivityNotifier } from "@/features/activity/index.ts";
-import { MoveToProjectHost } from "@/features/organize/index.ts";
+import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
 import { ThreadsSidebar } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
-import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
+import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { cn } from "@/lib/cn.ts";
@@ -53,7 +53,9 @@ export function AppShell() {
             <CommandPalette />
             <SearchHost />
             <MoveToProjectHost />
+            <DeleteConfirmationHost />
             <ShellHotkeys />
+            <ShortcutHost />
             <ActivityNotifier />
           </div>
         </AddAccountHost>

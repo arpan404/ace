@@ -3,6 +3,7 @@ import {
   ArrowsOutSimpleIcon,
   SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
+import { usePhone } from "@/lib/breakpoints.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { withViewTransition } from "@/lib/motion.ts";
 import type { ScopeWorkspace, WorkspaceActions } from "@/lib/workspace/index.ts";
@@ -19,6 +20,7 @@ export function PanelControls(props: {
   placement: "header" | "panel";
 }) {
   const { workspace, actions } = props;
+  const phone = usePhone();
   return (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       {props.placement === "panel" && (
@@ -31,11 +33,11 @@ export function PanelControls(props: {
       )}
       <IconButton
         icon={SquareSplitHorizontalIcon}
-        label="Right panel"
+        label={phone ? "Changes" : "Right panel"}
         shortcut="rightPanel"
         data-panel-toggle
         pressed={workspace.open}
-        onClick={() => actions.toggle()}
+        onClick={() => (phone ? actions.open({ kind: "changes" }) : actions.toggle())}
       />
     </div>
   );

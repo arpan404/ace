@@ -66,7 +66,6 @@ export function SkillSource({ skill }: { skill: Skill }) {
   };
   return (
     <SettingSection label="Source">
-      <p className="break-words font-mono text-sm text-muted-foreground">{skill.path}</p>
       {source.isError ? (
         <p role="alert" className="text-sm text-destructive">
           Couldn't read the source.{" "}
@@ -78,7 +77,10 @@ export function SkillSource({ skill }: { skill: Skill }) {
         <SkeletonText lines={4} />
       ) : (
         <>
-          <div className="flex h-9 items-center justify-end gap-2">
+          <div className="flex min-h-9 items-center gap-2">
+            <p className="min-w-0 flex-1 break-words font-mono text-sm text-muted-foreground">
+              {skill.path}
+            </p>
             {draft === undefined ? (
               <Button
                 variant="ghost"

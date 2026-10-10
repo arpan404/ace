@@ -8,7 +8,7 @@ const coldStart = "Cap cold-start replay at 200 events";
 /** The Preview tab, titled by the dev server it shows (the thread's web server on 5173). */
 const web = "web · :5173";
 /** The cold-start totals belong to the last completed turn. */
-const changes = "ChangesLast turn";
+const changes = "Changes";
 
 async function openColdStart(storage = memoryKeyValue()) {
   const app = harness({ storage });

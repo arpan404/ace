@@ -58,9 +58,9 @@ test("a new project prompt is created in the chosen project and available from t
   await app.open("/new?project=ace");
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Try /branch");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
-  const choice = within(menu).getByRole("option", { name: /^Branch Project$/ });
-  expect(within(choice).getByText("Project")).toBeTruthy();
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
+  const choice = within(menu).getByRole("option", { name: /^Branch Run saved prompt/ });
+  expect(within(choice).getByText("Run saved prompt")).toBeTruthy();
   await userEvent.click(choice);
   expect(message.textContent).toBe("Try Branch ");
 });

@@ -8,7 +8,7 @@ import { harness } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
-const offline = /^Offline · messages, answers and Stop will send when the connection returns/;
+const offline = /^Offline/;
 
 async function openHome() {
   const app = harness();
@@ -18,7 +18,7 @@ async function openHome() {
   return app;
 }
 
-test("offline, the notice says what will send, counts what waits and lists it", async () => {
+test("offline, the inline notice counts and lists waiting actions and offers Retry", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
   expect((await screen.findByText(offline)).textContent).not.toContain("waiting");

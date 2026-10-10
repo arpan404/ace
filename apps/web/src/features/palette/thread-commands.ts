@@ -3,7 +3,7 @@ import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { arrange, isSettled, isUnread, projectCounts, projectTint } from "@ace/ui-core";
+import { arrange, isSettled, threadRowFlags, projectCounts, projectTint } from "@ace/ui-core";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -11,7 +11,9 @@ import {
   useOrganizerState,
   useThreadActions,
   useThreadMover,
+  threadActions,
 } from "@/features/organize/index.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
@@ -37,6 +39,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
   const actions = useThreadActions();
   const mover = useThreadMover();
   const now = useNow();
+  const { screenActions } = useLayout();
   const current = useParams({ strict: false }).threadId;
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
@@ -128,68 +131,74 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     }
     const open = current ? byId.get(current) : undefined;
     if (open) {
-      const settled = isSettled(open);
-      const unread = isUnread(open, state.baseline);
-      const pinned = open.pinned === true;
+      const screen = screenActions?.scope === open.id ? screenActions : undefined;
+      const list = threadActions(
+        open,
+        threadRowFlags(open, { baseline: state.baseline, now, settled: isSettled(open) }),
+        actions,
+        {
+          onRename: () => screen?.rename(),
+          fork: { point: undefined, onFork: () => screen?.fork?.() },
+          onMove: () => mover.open({ entries: [open] }),
+          onLeave: () => void navigate({ to: "/" }),
+        },
+      );
       groups.push({
         value: "This thread",
         items: [
-          ...(settled || open.status.state === "done"
+          ...list
+            .filter((action) => !action.disabled && (action.id !== "rename" || screen))
+            .map((action): PaletteCommand => {
+              const command: PaletteCommand = {
+                id: `thread-${action.id}`,
+                label: action.label,
+                icon: action.icon,
+                run: run(action.run),
+              };
+              if (action.shortcut) command.keys = keymap[action.shortcut].keys;
+              if (action.danger) command.danger = true;
+              return command;
+            }),
+          ...(screen
             ? [
+                ...(screen.fork
+                  ? [
+                      {
+                        id: "thread-fork",
+                        label: "Fork from the last turn…",
+                        icon: "action" as const,
+                        run: run(screen.fork),
+                      },
+                    ]
+                  : []),
                 {
-                  id: "thread-settle",
-                  label: settled ? "Unsettle this thread" : "Settle this thread",
-                  icon: "settle" as const,
-                  run: run(() => (settled ? actions.unsettle(open) : actions.settle(open))),
+                  id: "thread-attachments",
+                  label: "Attachments",
+                  icon: "action" as const,
+                  run: run(screen.attachments),
+                },
+                {
+                  id: "thread-find",
+                  label: "Search this thread",
+                  keys: keymap.findInThread.keys,
+                  icon: "action" as const,
+                  run: run(screen.find),
+                },
+                {
+                  id: "thread-turns",
+                  label: "Turns",
+                  keys: keymap.turns.keys,
+                  icon: "action" as const,
+                  run: run(screen.turns),
                 },
               ]
             : []),
-          {
-            id: "thread-unread",
-            label: unread ? "Mark this thread read" : "Mark this thread unread",
-            icon: "action",
-            run: run(() => actions.setUnread(open, !unread)),
-          },
-          {
-            id: "thread-pin",
-            label: pinned ? "Unpin this thread" : "Pin this thread",
-            keys: keymap.pinThread.keys,
-            icon: "action",
-            run: run(() => actions.setPinned(open, !pinned)),
-          },
-          {
-            id: "thread-move",
-            label: "Move this thread to another project…",
-            icon: "action",
-            run: run(() => mover.open({ entries: [open] })),
-          },
-          {
-            id: "thread-new-on-main",
-            label: `New thread on main in ${projectName(open.workspaceId)}`,
-            icon: "action",
-            run: run(() => actions.newThreadOnMain(open)),
-          },
-          open.archivedAt === undefined
-            ? {
-                id: "thread-archive",
-                label: "Archive this thread",
-                icon: "action",
-                run: run(() => {
-                  actions.archive(open);
-                  void navigate({ to: "/" });
-                }),
-              }
-            : {
-                id: "thread-restore",
-                label: "Restore this thread from the archive",
-                icon: "action",
-                run: run(() => actions.restore(open)),
-              },
         ],
       });
     }
     return groups;
   }, [
+    screenActions,
     entries,
     state,
     now,

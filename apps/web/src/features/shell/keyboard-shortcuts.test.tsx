@@ -25,6 +25,8 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
 
   await userEvent.keyboard("{Control>}k{/Control}");
   await waitFor(() => expect(palette()).toBeTruthy());
+  const search = await screen.findByRole("combobox", { name: "Search commands" });
+  await userEvent.type(search, "Settings");
   const row = within(screen.getByRole("listbox")).getByRole("option", { name: /^Settings/ });
   expect(row.textContent).toMatch(/Shift\+Ctrl\+Y$/);
 });

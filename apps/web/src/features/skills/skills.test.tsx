@@ -65,6 +65,7 @@ test("searching matches the plugin a skill ships with, and a miss offers to clea
   await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
   expect(within(catalog()).getByText("Release Notes")).toBeTruthy();
 
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
   await userEvent.click(screen.getByRole("button", { name: "Plugin: All plugins" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "release" }));
   await waitFor(() => expect(within(catalog()).queryByText("Code Review")).toBeNull());
