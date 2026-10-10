@@ -123,8 +123,9 @@ test("while a step waits for approval nothing says Working: the line says it wai
   app.play(scenario("thread-retry-budget")).runUntilBlocked();
   await app.open("/t/thread-retry-budget");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const line = await screen.findByRole("status", { name: "Waiting for your approval" });
-  expect(line.textContent).not.toMatch(/\d+s/);
+  const approval = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(within(approval).getByRole("button", { name: "Allow once" })).toBeTruthy();
+  expect(within(feed).queryByText("Waiting for your approval", { exact: true })).toBeNull();
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
   // The waiting step says so on its own row (IR-2's wording).
   expect(

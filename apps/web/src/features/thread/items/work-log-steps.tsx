@@ -52,11 +52,7 @@ export function WorkLogSteps(props: {
 }) {
   const log = useAceLog(props.threadId, props.itemIds);
   return (
-    <ul
-      id={props.panel}
-      aria-label="Steps"
-      className="fx-rise-in mt-0.5 mb-2 flex flex-col border-l-2 py-1 pl-2.5"
-    >
+    <ul id={props.panel} aria-label="Steps" className="fx-rise-in mt-0.5 mb-2 flex flex-col py-1">
       {log.rows.map((row) =>
         row.kind === "group" ? (
           <StepGroup key={row.key} group={row}>
@@ -180,7 +176,9 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
             <span className="text-status-failed">−{step.removed ?? 0}</span>
           </span>
         )}
-        {step.note && <span className={cn(step.failed && "text-status-failed")}>{step.note}</span>}
+        {step.note && step.note !== "Waiting for your approval" && (
+          <span className={cn(step.failed && "text-status-failed")}>{step.note}</span>
+        )}
       </span>
     </button>
   );
