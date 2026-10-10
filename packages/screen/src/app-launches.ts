@@ -34,6 +34,9 @@ export class AppLaunches {
     this.pending.add(operation);
     return operation.finally(() => this.pending.delete(operation));
   }
+  get pendingCount(): number {
+    return this.pending.size;
+  }
   invalidate(): void {
     this.epoch++;
   }

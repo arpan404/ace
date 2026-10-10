@@ -64,7 +64,7 @@ it("the injected snapshot deadline rejects a missing frame and releases capture 
   });
   try {
     const session = await f.start();
-    const reading = f.manager.screenshotFresh(session.sessionId);
+    const reading = f.manager.captureScreenshot(session.sessionId);
     const rejection = expect(reading).rejects.toThrow("Screenshot timed out");
     await f.manager.targets();
     for (const run of deadlines) run();

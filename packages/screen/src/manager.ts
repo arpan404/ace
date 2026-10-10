@@ -31,7 +31,7 @@ import {
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
 import { type Helper } from "./helper.ts";
-import { ScreenPolicy, bundles } from "./policy.ts";
+import { ScreenPolicy, bundles, replaceableSession } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
@@ -56,6 +56,7 @@ export class ScreenManager {
   private readonly observations: SessionObservations;
   private agentPaused = false;
   private captureGeneration = 0;
+  private authorizationRevision = 0;
 
   constructor(options: ScreenOptions) {
     this.options = options;
@@ -68,7 +69,16 @@ export class ScreenManager {
         try {
           if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
             throw new Error("Invalid frame sequence or session");
-          this.authorize(session.state.target, session.approvalScope, session.humanView);
+          if (
+            session.frameAuthorization?.policy !== this.policy.epoch ||
+            session.frameAuthorization.revision !== this.authorizationRevision
+          ) {
+            this.authorize(session.state.target, session.approvalScope, session.humanView);
+            session.frameAuthorization = {
+              policy: this.policy.epoch,
+              revision: this.authorizationRevision,
+            };
+          }
           session.latest = frame;
           session.pixels.frame(frame);
           if (session.state.lifecycle === "live") {
@@ -87,6 +97,10 @@ export class ScreenManager {
             this.fail(session, new Error("Screen Recording permission revoked"));
         }
         options.onPermissionsChanged?.(permissions);
+      },
+      onSessionFailure: (id, error) => {
+        const session = this.sessions.get(id);
+        if (session) this.fail(session, error);
       },
       onFailure: (error) => {
         for (const session of this.sessions.values()) this.fail(session, error);
@@ -131,6 +145,7 @@ export class ScreenManager {
       launches: this.launches,
       stop: (id) => this.stop(id),
       revalidate: () => this.revalidate(),
+      hostClosed: () => this.lifecycle.hostClosed(),
       enabledChanged: (enabled) => this.emitEnabled(enabled),
       resumeAgents: () => {
         this.agentPaused = false;
@@ -157,6 +172,7 @@ export class ScreenManager {
     }
   }
   enable(enabled: boolean): Promise<void> {
+    this.authorizationRevision++;
     return this.accessPolicy.enable(enabled);
   }
   approve(
@@ -165,6 +181,7 @@ export class ScreenManager {
     scope: import("@ace/protocol").ScreenGrant["scope"] = "always",
     threadId?: string,
   ): Promise<void> {
+    this.authorizationRevision++;
     return this.accessPolicy.approve(bundleId, allowed, scope, threadId);
   }
   allow(bundleId: string): Promise<void> {
@@ -175,7 +192,13 @@ export class ScreenManager {
    * only to processes started after it, so an idle helper is replaced before asking.
    */
   async currentPermissions(): Promise<ScreenPermissions> {
-    if (this.sessions.size === 0 && !this.lifecycle.pendingCount && this.reservations === 0)
+    if (!this.policy.enabled) return { screenRecording: false, accessibility: false };
+    if (
+      this.sessions.size === 0 &&
+      !this.lifecycle.pendingCount &&
+      !this.launches.pendingCount &&
+      this.reservations === 0
+    )
       await this.host.close();
     return this.permissions();
   }
@@ -186,13 +209,21 @@ export class ScreenManager {
   async requestPermission(
     permission: "screenRecording" | "accessibility",
   ): Promise<ScreenPermissions> {
-    const helper = await this.host.open();
-    return ScreenPermissions.parse(await helper.request({ op: "permissions.request", permission }));
+    this.reservations++;
+    try {
+      const helper = await this.host.open();
+      return ScreenPermissions.parse(
+        await helper.request({ op: "permissions.request", permission }),
+      );
+    } finally {
+      this.reservations--;
+    }
   }
   requireApproval(bundleId: string, scope?: ScreenAgentScope): void {
     this.accessPolicy.requireApproval(bundleId, scope);
   }
   configureAccess(access: ScreenAccess): void {
+    this.authorizationRevision++;
     this.accessPolicy.configureAccess(access);
   }
   hasAppApproval(caller: ScreenAgentScope): boolean {
@@ -228,23 +259,47 @@ export class ScreenManager {
     signal: AbortSignal,
     windowId?: number,
   ) {
+    this.reservations++;
+    try {
+      return await this.acquireAgentApp(bundleId, caller, signal, windowId);
+    } finally {
+      this.reservations--;
+    }
+  }
+  private async acquireAgentApp(
+    bundleId: string,
+    caller: ScreenAgentScope,
+    signal: AbortSignal,
+    windowId?: number,
+  ) {
     if (this.agentPaused)
       throw new HelperCommandError("permission_denied", "Computer use stopped by human");
-    const existing = [...this.sessions.values()].find((session) =>
+    let existing = [...this.sessions.values()].find((session) =>
       bundles(session.state.target).includes(bundleId),
     );
     if (existing) {
       this.authorize(existing.state.target, caller);
+      if (replaceableSession(existing)) {
+        await this.stop(existing.state.sessionId);
+        existing = undefined;
+      }
+    }
+    if (existing) {
       if (existing.owner !== agentOwner(caller))
         throw new TargetBusyError(
           bundleId,
           existing.state.sessionId,
           existing.owner ?? existing.state.controller,
         );
-      if (windowId !== undefined)
-        await this.selectWindow(existing.state.sessionId, windowId, agentOwner(caller), () =>
-          signal.throwIfAborted(),
+      if (windowId !== undefined) {
+        const state = await this.selectWindow(
+          existing.state.sessionId,
+          windowId,
+          agentOwner(caller),
+          () => signal.throwIfAborted(),
         );
+        return { ...state, ...(await this.windows.list(bundleId, caller)) };
+      }
       return {
         ...this.state(existing.state.sessionId),
         ...(await this.windows.list(bundleId, caller)),
@@ -265,10 +320,49 @@ export class ScreenManager {
     this.delegateAgent(state.sessionId, caller);
     return { ...this.state(state.sessionId), ...windows };
   }
-  listAppWindows(bundleId: string, caller?: ScreenAgentScope) {
-    return this.windows.list(bundleId, caller);
+  async listAppWindows(bundleId: string, caller?: ScreenAgentScope) {
+    this.reservations++;
+    try {
+      return await this.windows.list(bundleId, caller);
+    } finally {
+      this.reservations--;
+    }
   }
   async selectWindow(id: string, windowId: number, owner: string, beforeDispatch: () => void) {
+    const current = this.live(id);
+    if (!current.helper.capabilities?.windowSelection) {
+      const caller = agentScope(owner),
+        target = current.state.target;
+      if (!caller || this.agentSession(caller, id) !== id || target.kind === "display")
+        throw new Error("Agent app session required");
+      const epoch = current.epoch;
+      const validate = () => {
+        beforeDispatch();
+        this.agentSession(caller, id);
+        if (current.epoch !== epoch) throw new Error("Controller changed");
+      };
+      const windows = await this.windows.list(target.bundleId, caller);
+      if (
+        !windows.windows.some((window) => window.windowId === windowId && window.usable !== false)
+      )
+        throw new HelperCommandError("target_gone", "Selected app window is unavailable");
+      validate();
+      await this.stop(id);
+      beforeDispatch();
+      const state = await this.start(
+        { kind: "window", bundleId: target.bundleId, windowId },
+        10,
+        caller,
+      );
+      try {
+        beforeDispatch();
+        this.delegateAgent(state.sessionId, caller);
+      } catch (error) {
+        await this.stop(state.sessionId);
+        throw error;
+      }
+      return this.state(state.sessionId);
+    }
     await this.execute(
       id,
       "agent",
@@ -295,11 +389,17 @@ export class ScreenManager {
     return this.lifecycle.startHumanView(target, fps);
   }
   async revalidate() {
+    this.authorizationRevision++;
+    for (const session of this.sessions.values()) this.expireForeground(session);
     await Promise.all(
       [...this.sessions.values()]
         .filter((session) => {
           try {
             this.authorize(session.state.target, session.approvalScope, session.humanView);
+            session.frameAuthorization = {
+              policy: this.policy.epoch,
+              revision: this.authorizationRevision,
+            };
             return false;
           } catch {
             return true;
@@ -316,6 +416,9 @@ export class ScreenManager {
   ) {
     const session = this.live(id),
       epoch = session.epoch;
+    const turn =
+      session.approvalScope &&
+      this.accessPolicy.access?.currentTurn?.(session.approvalScope.threadId);
     if (mode === "foreground") {
       if (!this.accessPolicy.access) throw new Error("Host approval unavailable");
       const cancelled = new AbortController();
@@ -338,6 +441,14 @@ export class ScreenManager {
       throw new Error("Controller changed");
     this.authorize(session.state.target, session.approvalScope, session.humanView);
     session.epoch++;
+    if (
+      mode === "foreground" &&
+      this.accessPolicy.access?.currentTurn &&
+      (!turn ||
+        turn !== this.accessPolicy.access.currentTurn(session.approvalScope?.threadId ?? ""))
+    )
+      throw new Error("Foreground approval turn ended");
+    session.foregroundTurn = mode === "foreground" ? turn : undefined;
     session.state = { ...session.state, mode };
     this.emit(session);
     return this.state(id);
@@ -359,15 +470,22 @@ export class ScreenManager {
     this.launches.invalidate();
     this.agentPaused = true;
     this.policy.epoch++;
-    for (const session of this.sessions.values())
-      if (session.state.lifecycle === "live") this.controller(session.state.sessionId, "none");
+    const releaseErrors: unknown[] = [];
+    for (const session of this.sessions.values()) {
+      try {
+        if (session.state.lifecycle === "live") this.controller(session.state.sessionId, "none");
+      } catch (error) {
+        releaseErrors.push(error);
+      }
+    }
     const results = await Promise.allSettled([...this.sessions.keys()].map((id) => this.stop(id)));
     const errors = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
     );
     await this.lifecycle.drain();
     await this.launches.drain();
-    if (errors.length) throw shutdownFailure(errors, results.length);
+    if (errors.length || releaseErrors.length)
+      throw shutdownFailure([...releaseErrors, ...errors], results.length);
   }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");
@@ -528,32 +646,11 @@ export class ScreenManager {
       );
     });
   }
-  async namedKey(
-    id: string,
-    input: {
-      key: string;
-      modifiers: ("control" | "shift" | "alt" | "meta" | "super" | "command" | "option")[];
-    },
-    owner: string,
-  ): Promise<void> {
-    await this.input(id, "agent", { kind: "key.press", ...input }, owner);
-  }
-  screenshotFresh(id: string): Promise<Frame> {
-    return this.captureScreenshot(id);
-  }
   delegateAgent(id: string, input: ScreenAgentScope): void {
     this.controllers.delegateAgent(id, input);
   }
   agentSession(input: ScreenAgentScope, requestedId?: string): string {
     return this.controllers.agentSession(input, requestedId);
-  }
-  async keyPress(
-    id: string,
-    key: string,
-    modifiers: ("control" | "shift" | "alt" | "meta")[],
-    owner: string,
-  ): Promise<void> {
-    await this.input(id, "agent", { kind: "key.press", key, modifiers }, owner);
   }
   controller(
     id: string,
@@ -642,6 +739,7 @@ export class ScreenManager {
     const sessions = [...this.sessions.values()].filter((session) => {
       if (
         session.state.lifecycle !== "live" ||
+        (session.owner !== undefined && session.owner !== agentOwner(caller)) ||
         (requestedId !== undefined && session.state.sessionId !== requestedId)
       )
         return false;
@@ -666,6 +764,8 @@ export class ScreenManager {
       signal.throwIfAborted();
       this.authorize(session.state.target, scope);
       if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
+      if (!options.action && session.owner !== undefined && session.owner !== owner)
+        throw new Error("Session belongs to another controller");
     };
     if (options.action)
       return this.execute(
@@ -703,12 +803,14 @@ export class ScreenManager {
     return executeSessionAction(
       {
         host: this.host,
-        authorize: (session) =>
+        authorize: (session) => {
+          this.expireForeground(session);
           this.authorize(
             session.state.target,
             session.approvalScope,
             actor === "human" && session.humanView,
-          ),
+          );
+        },
         emit: (session) => this.emit(session),
         fail: (session, error) => this.fail(session, error),
         audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),
@@ -721,6 +823,34 @@ export class ScreenManager {
     );
   }
 
+  turnEnded(threadId: string, turnId: string): void {
+    this.authorizationRevision++;
+    for (const session of this.sessions.values()) {
+      if (session.approvalScope?.threadId !== threadId) continue;
+      if (
+        session.foregroundTurn === turnId ||
+        this.accessPolicy.access?.currentTurn?.(threadId) === turnId
+      )
+        this.resetForeground(session);
+    }
+  }
+  private resetForeground(session: Session): void {
+    session.epoch++;
+    session.foregroundTurn = undefined;
+    session.state = { ...session.state, mode: "background", secureInputAllowed: false };
+    this.emit(session);
+  }
+  private expireForeground(session: Session): void {
+    if (session.state.mode !== "foreground" || !this.accessPolicy.access?.currentTurn) return;
+    if (
+      session.foregroundTurn &&
+      session.approvalScope &&
+      session.foregroundTurn ===
+        this.accessPolicy.access.currentTurn(session.approvalScope.threadId)
+    )
+      return;
+    this.resetForeground(session);
+  }
   releaseController(owner: string): void {
     this.controllers.releaseController(owner);
   }
@@ -740,6 +870,7 @@ export class ScreenManager {
     } finally {
       try {
         await this.host.close();
+        await this.lifecycle.hostClosed();
       } finally {
         this.listeners.clear();
         this.enabledListeners.clear();

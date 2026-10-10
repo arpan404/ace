@@ -1,3 +1,4 @@
+import { framePacket } from "../frames.ts";
 import { appendFileSync } from "node:fs";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
@@ -70,6 +71,15 @@ async function dispatch(request: ScreenHelperRequest) {
       control.resume();
     });
   }
+  if (request.op === process.env.GATE_OP) {
+    await new Promise<void>((resolve, reject) => {
+      const control = connect(Number(process.env.GATE_PORT), "127.0.0.1");
+      control.on("error", reject);
+      control.once("connect", () => control.write("request started\n"));
+      control.once("end", resolve);
+      control.resume();
+    });
+  }
   let data: unknown;
   const id = request.sessionId ?? "";
   const reply = (error?: unknown) =>
@@ -132,14 +142,52 @@ async function dispatch(request: ScreenHelperRequest) {
     case "start":
       targets.set(id, request.target.kind === "window" ? request.target.windowId : 0);
       break;
+    case "capture":
+      data = { afterSeq: 0 };
+      break;
     case "stop":
+      if (process.env.STOP_ERROR === "1")
+        return reply({ code: "busy", message: "native stop rejected" });
       targets.delete(id);
+      break;
+    case "ui.find":
+      data = snapshot(id);
       break;
     case "ui.tree":
       log("traversal");
       data = { ...snapshot(id), metrics: { permissionQueries }, target: targets.get(id), lastOp };
       break;
     case "input":
+      if (request.input.kind === "text.type" && request.input.text === "frames") {
+        for (let sequence = 0; sequence < 16; sequence++) {
+          const payload = Buffer.from(`frame-${sequence}`);
+          socket.write(
+            framePacket(
+              {
+                version: 1,
+                sessionId: id,
+                sequence,
+                timestamp: 1000,
+                width: 100,
+                height: 100,
+                codec: "jpeg",
+                bytes: payload.length,
+              },
+              payload,
+            ),
+          );
+        }
+      }
+      if (request.input.kind === "text.type" && request.input.text === "fail-session") {
+        console.log(
+          JSON.stringify({
+            event: "session.failed",
+            sessionId: id,
+            error: { code: "target_gone", message: "Fixture capture disappeared" },
+          }),
+        );
+        break;
+      }
       if (request.input.kind === "text.type" && request.input.text === "revoke") {
         permissions = { screenRecording: true, accessibility: false };
         console.log(JSON.stringify({ version: 2, event: "permissions.changed", permissions }));

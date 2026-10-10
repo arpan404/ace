@@ -23,7 +23,7 @@ export async function startSessionRecording(
       },
     );
     if (session.state.lifecycle !== "live" || session.recording) {
-      await recording.stop();
+      await recording.discard();
       throw new Error("Recording start cancelled");
     }
     if (session.completedRecording) await session.completedRecording.stop();

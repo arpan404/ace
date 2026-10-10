@@ -62,6 +62,16 @@ export class HelperHost {
         error.code === "target_gone"
       )
         return;
+      if (helper.capabilities.background) {
+        // A slow stop cannot prove the process dead. Probe on the inspection lane.
+        try {
+          await helper.request({ op: "hello" });
+        } catch {
+          await this.close();
+          throw new ScreenStopError([error], true);
+        }
+        throw new ScreenStopError([error], false);
+      }
       try {
         await this.close();
       } catch (terminationError) {

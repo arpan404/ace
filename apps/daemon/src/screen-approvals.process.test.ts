@@ -10,7 +10,7 @@ import { Store } from "./store.ts";
 import { createDevThread } from "./commands.ts";
 import { ScreenGrants } from "./screen-grants.ts";
 import { ScreenApprovals } from "./screen-approvals.ts";
-import { harness, scriptFrames, start } from "./engine/test-support.ts";
+import { harness, scriptFrames, start, end, task } from "./engine/test-support.ts";
 
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), "ace-screen-grants-"));
@@ -345,6 +345,32 @@ test("secure-field audit steps omit text and a takeover cancels pending foregrou
     mode: "background",
     secureInputAllowed: false,
   });
+  screen.delegateAgent(state.sessionId, { threadId, agentId });
+  const approved = screen.mode(state.sessionId, "foreground");
+  const approval = Object.values(h.store.snapshotThread(threadId).interactions).find(
+    (value) => value.state === "pending",
+  );
+  if (!approval) throw new Error("Missing foreground approval");
+  expect(
+    h.command({
+      type: "interaction.resolve",
+      interactionId: approval.id,
+      resolution: { kind: "approval", optionId: "allow_once" },
+    }).ok,
+  ).toBe(true);
+  await approved;
+  const turn = h.engine.screenTurn(threadId);
+  expect(screen.state(state.sessionId).mode).toBe("foreground");
+  const returnedToBackground = Promise.withResolvers<void>();
+  const unwatch = screen.watch((value) => {
+    if (value.sessionId === state.sessionId && value.mode === "background")
+      returnedToBackground.resolve();
+  });
+  h.contexts[0]?.onFrame(frames.frame(task, end));
+  await returnedToBackground.promise;
+  unwatch();
+  expect(h.engine.screenTurn(threadId)).toBe(turn);
+  expect(screen.state(state.sessionId).mode).toBe("background");
   await screen.stopAll();
   const persisted = new ScreenGrants(h.store, h.clock.now, () => undefined);
   expect(persisted.enabled()).toBe(false);
