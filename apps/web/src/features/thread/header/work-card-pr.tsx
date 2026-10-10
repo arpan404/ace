@@ -23,7 +23,7 @@ import {
   XCircleIcon,
   DotsThreeIcon,
 } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { openExternal } from "@/boot/open-external.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -114,6 +114,8 @@ export function PullRequestsSection(props: { git: GitFlow }) {
 
 function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnlinkAll(): void }) {
   const { git, pr } = props;
+  const id = useId();
+  const primary = !git.linkedPrs?.length || git.linkedPrs[0] === pr;
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [openNow, setOpen] = useState(false);
@@ -138,10 +140,10 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
         <RowButton
           className="flex-1"
           aria-expanded={openNow}
-          aria-controls={`pr-${pr.number}`}
+          aria-controls={id}
           onClick={() => {
             setOpen(!openNow);
-            if (!openNow && pr.number === git.checkout?.pr?.number) refresh();
+            if (!openNow && primary) refresh();
           }}
           aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
         >
@@ -187,24 +189,25 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
         </span>
       </div>
       {openNow && (
-        <section id={`pr-${pr.number}`} aria-label={`Pull request #${pr.number}`}>
+        <section id={id} aria-label={`Pull request #${pr.number}`}>
           <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
             <Tip label={pr.title ?? `Pull request #${pr.number}`}>
               <h3 className="min-w-0 flex-1 truncate text-ui">
                 <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
               </h3>
             </Tip>
-            {refreshing ? (
-              <Spinner label="Reading the pull request" className="mx-1.5" />
-            ) : (
-              <IconButton
-                icon={ArrowClockwiseIcon}
-                label="Refresh"
-                size="sm"
-                className="size-7"
-                onClick={refresh}
-              />
-            )}
+            {primary &&
+              (refreshing ? (
+                <Spinner label="Reading the pull request" className="mx-1.5" />
+              ) : (
+                <IconButton
+                  icon={ArrowClockwiseIcon}
+                  label="Refresh"
+                  size="sm"
+                  className="size-7"
+                  onClick={refresh}
+                />
+              ))}
           </div>
           {error !== undefined ? (
             <>
@@ -212,7 +215,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
                 {failure(error)}
               </p>
             </>
-          ) : git.status && git.status.ref.number === pr.number ? (
+          ) : primary && git.status && git.status.ref.number === pr.number ? (
             <PrDetails
               git={git}
               status={git.status}
