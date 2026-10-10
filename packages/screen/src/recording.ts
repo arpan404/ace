@@ -11,6 +11,7 @@ export type RecordingArtifact = {
 };
 export class Recording {
   private bytes = 0;
+  private discarded = false;
   private failure: Error | undefined;
   private closing: Promise<RecordingArtifact> | undefined;
   private pending: Frame | undefined;
@@ -90,6 +91,11 @@ export class Recording {
       else this.drained?.();
     });
   }
+  async discard(): Promise<void> {
+    this.discarded = true;
+    await this.stop();
+    await unlink(this.path);
+  }
   stop(): Promise<RecordingArtifact> {
     this.closing ??= (async () => {
       this.captureDone();
@@ -108,7 +114,7 @@ export class Recording {
         bytes: this.bytes,
         mimeType: "application/vnd.ace.screen",
       };
-      await this.publish(artifact);
+      if (!this.discarded) await this.publish(artifact);
       return artifact;
     })();
     return this.closing;

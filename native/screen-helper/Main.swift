@@ -13,8 +13,7 @@ import Darwin
         let path = arguments[1] == "--socket" ? argument : String(argument.dropFirst(5))
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
-        // A busy app (a Simulator mid-rotation on a loaded machine) must not hold a command for
-        // the six-second default: Accessibility messaging gives up after 50 ms.
+        // Input checks stay short. Tree/find inspections install a scoped larger budget.
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.05)
         do {
             let runtime = NativeRuntime(nanos: { DispatchTime.now().uptimeNanoseconds }, milliseconds: { Date().timeIntervalSince1970 * 1000 }, uptime: { ProcessInfo.processInfo.systemUptime }, inputAllowed: { AXIsProcessTrusted() && CGPreflightScreenCaptureAccess() })
@@ -61,12 +60,20 @@ import Darwin
     let runtime: NativeRuntime
     let inventory: Capture
     var sessions: [String: (Capture, Accessibility)] = [:]
+    private var lastPermissions: [String: Bool]?
+    private func publishPermissionChanges() {
+        let value = permissions()
+        defer { lastPermissions = value }
+        guard let previous = lastPermissions, previous != value else { return }
+        if let data = try? JSONSerialization.data(withJSONObject: ["event": "permissions.changed", "permissions": value]) { FileHandle.standardOutput.write(data + Data([10])) }
+    }
     private var startingSessions = Set<String>()
     private var startingBundles = Set<String>()
     init(writer: FrameWriter, runtime: NativeRuntime) {
         self.writer = writer; self.runtime = runtime; inventory = Capture(writer: writer, runtime: runtime)
     }
     func lane(_ request: Request) -> String {
+        if ["hello", "permissions", "targets", "windows.list"].contains(request.op) { return "inspection:" + request.op }
         if let id = request.sessionId { return id }
         if let bundle = request.bundleId,
            let entry = sessions.first(where: { $0.value.0.target?.bundleId == bundle }) { return entry.key }
@@ -78,6 +85,8 @@ import Darwin
     }
     func handle(_ original: Request) async {
         var request = original
+        publishPermissionChanges()
+        defer { publishPermissionChanges() }
         for (_, accessibility) in sessions.values { accessibility.serviceNotifications() }
         do {
 
@@ -106,6 +115,10 @@ import Darwin
                         startingSessions.insert(id); startingBundles.formUnion(ids)
                         defer { startingSessions.remove(id); startingBundles.subtract(ids) }
                         let capture = Capture(writer: writer, runtime: runtime)
+                        capture.onFailure = { error in
+                            let data: [String: Any] = ["event": "session.failed", "sessionId": id, "error": ["code": "target_gone", "message": String(describing: error)]]
+                            if let line = try? JSONSerialization.data(withJSONObject: data) { FileHandle.standardOutput.write(line + Data([10])) }
+                        }
                         try await capture.start(request)
                         sessions[id] = (capture, Accessibility(clock: runtime.nanos, resolver: capture.resolver))
                         reply(request); return
@@ -130,8 +143,12 @@ import Darwin
                         guard let enabled = request.enabled else { throw HelperError("Missing capture lease", code: "bounds") }
                         reply(request, data: ["afterSeq": try await capture.setCapturing(enabled)]); return
                     }
-                    if request.op == "ui.tree" { try reply(request, encoded: accessibility.tree(request)); return }
-                    if request.op == "ui.find" { try reply(request, encoded: accessibility.find(request)); return }
+                    if request.op == "ui.tree" {
+                        try withInspectionTimeout(install: { AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), $0) }) { try reply(request, encoded: accessibility.tree(request)) }; return
+                    }
+                    if request.op == "ui.find" {
+                        try withInspectionTimeout(install: { AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), $0) }) { try reply(request, encoded: accessibility.find(request)) }; return
+                    }
                     // Human device events acknowledge injection, not a settled AX tree. A drag
                     // changes the cursor and the iOS app is not in Simulator's macOS AX tree.
                     // Keep process-targeted posting and every target/permission check.
@@ -156,7 +173,7 @@ import Darwin
                     let guardState = capture.mode == "background" ? FocusGuard(targetPID: window?.owningApplication?.processID, targetWindow: window.flatMap { try? capture.resolver.resolve($0) }) : nil
                     capture.synthesizedInput = false; capture.dispatched = false; capture.deliveryConfirmed = false; capture.deliveryProbe = nil
                     accessibility.dispatched = false
-                    defer { capture.deliveryProbe = nil }
+                    defer { capture.deliveryProbe = nil; _ = guardState?.warning() }
                     var fallback = false
                     var actionError: Error?
                     do {

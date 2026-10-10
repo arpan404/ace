@@ -14,6 +14,7 @@ type AccessPorts = {
   launches: AppLaunches;
   stop(id: string): Promise<void>;
   revalidate(): Promise<void>;
+  hostClosed(): Promise<void>;
   resumeAgents(): void;
   enabledChanged(enabled: boolean): void;
 };
@@ -25,6 +26,7 @@ export class ScreenAccessPolicy {
   private readonly host: HelperHost;
   private readonly launches: AppLaunches;
   private readonly stop: AccessPorts["stop"];
+  private readonly hostClosed: AccessPorts["hostClosed"];
   private readonly revalidate: AccessPorts["revalidate"];
   private readonly resumeAgents: () => void;
   private readonly enabledChanged: (enabled: boolean) => void;
@@ -35,6 +37,7 @@ export class ScreenAccessPolicy {
     this.launches = ports.launches;
     this.stop = ports.stop;
     this.revalidate = ports.revalidate;
+    this.hostClosed = ports.hostClosed;
     this.resumeAgents = ports.resumeAgents;
     this.enabledChanged = ports.enabledChanged;
   }
@@ -47,12 +50,20 @@ export class ScreenAccessPolicy {
     if (changed) this.enabledChanged(enabled);
     if (!enabled) {
       const sessions = [...this.sessions.values()];
-      const results = Promise.allSettled(
-        sessions.map((session) => this.stop(session.state.sessionId)),
+      const stops = sessions.map((session) => ({
+        session,
+        result: this.stop(session.state.sessionId),
+      }));
+      const results = Promise.allSettled(stops.map((stop) => stop.result));
+      // Publication can outlive capture; a rejected stop can never confirm capture.
+      await Promise.all(
+        stops.map(({ session, result }) =>
+          Promise.race([session.captureStopped.promise, result.catch(() => {})]),
+        ),
       );
-      await Promise.all(sessions.map((session) => session.captureStopped.promise));
       await this.launches.drain();
       await this.host.close();
+      await this.hostClosed();
       const errors = (await results).flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],
       );

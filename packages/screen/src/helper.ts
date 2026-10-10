@@ -34,6 +34,7 @@ export type HelperOptions = {
   nextId: () => string;
   onFrame: (frame: Frame) => void;
   onFailure: (error: Error) => void;
+  onSessionFailure?: (sessionId: string, error: Error) => void;
   onPermissionsChanged?: (permissions: ScreenPermissions) => void;
   timeoutMs?: number;
   scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
@@ -77,6 +78,17 @@ export class Helper {
         if (event.success) {
           this.permissionFacts.changed(event.data.permissions);
           this.options.onPermissionsChanged?.(event.data.permissions);
+          return;
+        }
+        const failedSession = z
+          .object({ event: z.literal("session.failed"), sessionId: z.string(), error: ScreenError })
+          .safeParse(raw);
+        if (failedSession.success) {
+          const { sessionId, error } = failedSession.data;
+          this.options.onSessionFailure?.(
+            sessionId,
+            new HelperCommandError(error.code, error.message),
+          );
           return;
         }
         const reply = ScreenHelperReply.parse(raw);
@@ -304,7 +316,13 @@ export class Helper {
     }
     if (this.queuedCommands >= 32) return Promise.reject(new Error("Helper request limit"));
     this.queuedCommands++;
-    const key = "sessionId" in command && command.sessionId ? command.sessionId : "control";
+    const key = ["permissions", "targets", "windows.list", "hello"].includes(command.op)
+      ? `inspection:${command.op}`
+      : "sessionId" in command && command.sessionId
+        ? command.sessionId
+        : "bundleId" in command
+          ? `app:${command.bundleId}`
+          : "control";
     const previous = this.commandTails.get(key) ?? Promise.resolve();
     const request = previous.then(send).finally(() => {
       this.queuedCommands--;
@@ -369,7 +387,16 @@ export class Helper {
             ? request.durationMs
             : undefined;
       const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
-        () => this.fail(new Error("Helper command timed out")),
+        () => {
+          const error = new HelperCommandError("timeout", "Helper command timed out", "dispatched");
+          if (request.op === "hello") {
+            this.fail(error);
+            return;
+          }
+          this.pending.delete(request.id);
+          cancel();
+          reject(error);
+        },
         this.options.timeoutMs ??
           (request.op === "measure_interaction"
             ? request.observeMs + 15_000

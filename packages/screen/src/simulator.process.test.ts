@@ -45,3 +45,26 @@ it("unsupported hosts list no simulators and failed simctl commands surface erro
     new Simulators("darwin", async () => ({ code: 1, stderr: "no Xcode", stdout: "" })).list(),
   ).rejects.toThrow("discovery failed");
 });
+
+it("a cold simulator boot has enough probe time to finish before its window opens", async () => {
+  let booted = false,
+    visible = false;
+  const simulator = new Simulators("darwin", async (command, args, options) => {
+    if (args[1] === "list")
+      return {
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify({
+          devices: { ios: [{ udid, name: "Cold phone", state: "Shutdown", isAvailable: true }] },
+        }),
+      };
+    if (args[1] === "boot") {
+      if ((options?.timeoutMs ?? 30_000) < 60_000) throw new Error("Probe timed out");
+      booted = true;
+    }
+    if (command === "open") visible = booted;
+    return { code: 0, stderr: "", stdout: "" };
+  });
+  await simulator.boot(udid);
+  expect(visible).toBe(true);
+});

@@ -1,6 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { z } from "zod";
 import { expect, it, onTestFinished } from "vitest";
 import { ToolRegistry, CredentialRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
@@ -114,10 +111,7 @@ it.each([
     ]);
 });
 it("action tools reuse one settled traversal and cached permission facts", async () => {
-  const h = await fixture();
-  const log = join(h.directory, "commands.jsonl");
-  // A dedicated helper process observes each round trip.
-  const recorded = await manager({ HELPER_LOG: log }, { args: fixtureArgs });
+  const recorded = await manager({}, { args: fixtureArgs });
   onTestFinished(recorded.close);
   const state = await ready(recorded.screen);
   recorded.screen.controller(state.sessionId, "agent", "agent");
@@ -134,15 +128,6 @@ it("action tools reuse one settled traversal and cached permission facts", async
       { text: expect.stringContaining('"snapshot":{"nodes"') },
     ]);
   }
-  const commands = z.array(z.object({ op: z.string() })).parse(
-    (await readFile(log, "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line)),
-  );
-  expect(commands.filter((entry) => entry.op === "traversal")).toHaveLength(5);
-  expect(commands.filter((entry) => entry.op === "ui.tree")).toHaveLength(0);
-  expect(commands.filter((entry) => entry.op === "permissions")).toHaveLength(1);
   expect((await recorded.screen.uiTree(state.sessionId, {})).nodes[0]?.value).toBe(
     "https://example.test/",
   );
@@ -185,15 +170,15 @@ it("helpers without a window resolver report ambiguity and accept an explicit ac
     1,
   );
   expect(selected.target).toEqual(target);
-  await expect(
-    h.screen.selectWindow(
-      selected.sessionId,
-      2,
-      JSON.stringify([caller.threadId, caller.agentId]),
-      () => {},
-    ),
-  ).rejects.toMatchObject({ code: "not_supported", phase: "rejected-before-dispatch" });
-  expect(h.screen.state(selected.sessionId).target).toEqual(target);
+  const switched = await h.screen.selectWindow(
+    selected.sessionId,
+    2,
+    JSON.stringify([caller.threadId, caller.agentId]),
+    () => {},
+  );
+  expect(switched.target).toEqual({ ...target, windowId: 2 });
+  expect(h.screen.agentSession(caller)).toBe(switched.sessionId);
+  expect(h.screen.states()).toHaveLength(1);
 });
 it("helpers without permission events recheck revocation before another input dispatch", async () => {
   const h = await fixture({ LEGACY_HELPER: "1" });

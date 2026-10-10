@@ -7,7 +7,7 @@ import {
 } from "@ace/protocol";
 import { HelperCommandError, type Helper } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
-import { bundles, ScreenPolicy, stopping, terminated } from "./policy.ts";
+import { bundles, ScreenPolicy, stopping, terminated, replaceableSession } from "./policy.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { agentOwner } from "./agent-binding.ts";
 import { createSession, type Session } from "./session.ts";
@@ -60,9 +60,6 @@ export class TargetSessions {
     if (!session) throw new Error("Unknown screen session");
     return session;
   }
-  private stopRecording(id: string) {
-    return stopSessionRecording(this.get(id));
-  }
   start(input: ScreenTarget, fps = 10, scope?: ScreenAgentScope): Promise<ScreenState> {
     const task = this.startTarget(input, fps, scope);
     this.starts.add(task);
@@ -87,9 +84,15 @@ export class TargetSessions {
     if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     const selectedBundles = bundles(target);
     for (const bundle of selectedBundles) {
-      const holder = [...this.sessions.values()].find((session) =>
+      let holder = [...this.sessions.values()].find((session) =>
         bundles(session.state.target).includes(bundle),
       );
+      if (holder && replaceableSession(holder)) {
+        await this.stop(holder.state.sessionId);
+        holder = [...this.sessions.values()].find((session) =>
+          bundles(session.state.target).includes(bundle),
+        );
+      }
       const pending = this.pendingTargets.get(bundle);
       if (holder || pending)
         throw new TargetBusyError(
@@ -251,18 +254,40 @@ export class TargetSessions {
       this.emit(session);
       throw new ScreenStopError(errors, false);
     }
+    try {
+      await this.retire(session);
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length) throw new ScreenStopError(errors, captureTerminated);
+  }
+  /** Only called after the shared process has been confirmed closed. */
+  async hostClosed(): Promise<void> {
+    const results = await Promise.allSettled(
+      [...this.sessions.values()].map(async (session) => {
+        session.epoch++;
+        session.latest = undefined;
+        session.hub.clear();
+        session.pixels.stop();
+        const error = releaseControllerBinding(session);
+        await this.retire(session);
+        if (error) throw error;
+      }),
+    );
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length) throw new ScreenStopError(errors, true);
+  }
+  private async retire(session: Session): Promise<void> {
     session.captureStopped.resolve();
     session.state = terminated(session.state);
     this.emit(session);
     try {
-      if (session.recording || session.completedRecording)
-        await this.stopRecording(session.state.sessionId);
-    } catch (error) {
-      errors.push(error);
+      if (session.recording || session.completedRecording) await stopSessionRecording(session);
     } finally {
       this.sessions.delete(session.state.sessionId);
     }
-    if (errors.length) throw new ScreenStopError(errors, captureTerminated);
   }
   fail(session: Session, error: Error): void {
     if (
@@ -301,6 +326,7 @@ export class TargetSessions {
         session.captureStopped.resolve();
         session.state = terminated(session.state);
         this.emit(session);
+        this.sessions.delete(session.state.sessionId);
       });
     void session.failureCleanup.catch(() => {});
   }

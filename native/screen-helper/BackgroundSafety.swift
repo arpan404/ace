@@ -24,20 +24,30 @@ struct FocusDecision {
     let read: () -> FocusState
     let uptime: () -> Double
     let humanInput: (Double) -> Bool
+    var restore: (FocusState, FocusDecision) -> Void = { _, _ in }
     static let live = FocusRuntime(read: {
         let pid = keyboardApplicationPID()
         func focused(_ attribute: String) -> AXUIElement? {
             guard let pid, let value = axAttribute(AXUIElementCreateApplication(pid), attribute), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
             return (value as! AXUIElement)
         }
-        return FocusState(pid: pid, cursor: .zero, window: focused(kAXFocusedWindowAttribute))
+        return FocusState(pid: pid, cursor: CGEvent(source: nil)?.location ?? .zero, window: focused(kAXFocusedWindowAttribute), element: focused(kAXFocusedUIElementAttribute))
     }, uptime: { ProcessInfo.processInfo.systemUptime }, humanInput: { elapsed in
         [CGEventType.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown, .scrollWheel, .flagsChanged, .leftMouseDragged, .rightMouseDragged].contains {
             CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) <= elapsed
         }
+    }, restore: { before, decision in
+        if decision.restoreFocus, let pid = before.pid {
+            NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+        }
+        if decision.restoreAXFocus {
+            if let window = before.window { AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue) }
+            if let element = before.element { AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) }
+        }
     })
 }
-@MainActor struct FocusGuard {
+@MainActor final class FocusGuard {
+    private var checked = false
     let before: FocusState; let started: Double; let runtime: FocusRuntime
     let targetPID: pid_t?; let targetWindow: AXUIElement?
     init(targetPID: pid_t? = nil, targetWindow: AXUIElement? = nil, runtime: FocusRuntime? = nil) {
@@ -47,11 +57,13 @@ struct FocusDecision {
     }
     /// Success stays success. Human activity and unrelated focus changes are not ace violations.
     func warning(targetPID completedPID: pid_t? = nil) -> String? {
+        guard !checked else { return nil }; checked = true
         let after = runtime.read()
         guard !runtime.humanInput(runtime.uptime() - started) else { return nil }
         let decision = FocusDecision(before: before, after: after, targetPID: completedPID ?? targetPID, targetWindow: targetWindow)
         guard decision.changed else { return nil }
-        return "Background action changed target focus; delivery succeeded. Do not retry."
+        runtime.restore(before, decision)
+        return "Background action changed target focus; restoration attempted. Do not retry."
     }
 }
 @MainActor func openBackgroundApp(_ request: Request) async throws -> [String: Any] {
@@ -61,6 +73,7 @@ struct FocusDecision {
         return ["bundleId": bundle, "pid": app.processIdentifier, "mode": "background"]
     }
     let guardState = FocusGuard()
+    defer { _ = guardState.warning(targetPID: NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first?.processIdentifier) }
     let app = try await backgroundLaunch(at: url, guardState: guardState, wait: {},
         open: { url, configuration in try await NSWorkspace.shared.openApplication(at: url, configuration: configuration) })
     guard app.bundleIdentifier == bundle else { throw HelperError("Launched app identity differs", code: "target_gone", phase: "dispatched") }
@@ -70,8 +83,16 @@ struct FocusDecision {
 }
 @MainActor func backgroundLaunch<T>(at url: URL, guardState: FocusGuard, wait: () async throws -> Void, open: (URL, NSWorkspace.OpenConfiguration) async throws -> T) async throws -> T {
     let configuration = NSWorkspace.OpenConfiguration()
-    configuration.activates = false; configuration.hides = true
+    configuration.activates = false; configuration.hides = false
     let result = try await open(url, configuration)
     try await wait()
     return result
+}
+
+/// Tracking menus may take keyboard and pointer focus even through Accessibility.
+func requireMenuConsent(mode: String?, action: String, role: String = "", secondary: String? = nil) throws {
+    guard mode != "foreground" else { return }
+    if action == "menu.press" || action == "press" && ["AXPopUpButton", "AXMenuButton", "AXMenuBarItem", "AXMenuItem"].contains(role) || action == "performSecondaryAction" && secondary == "AXShowMenu" {
+        throw HelperError("Menu and popup actions require foreground consent", code: "foreground_required")
+    }
 }

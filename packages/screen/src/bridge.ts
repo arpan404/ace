@@ -125,8 +125,8 @@ export function screenConnection(
             await manager.stop(operation.sessionId);
             break;
           case "controller":
-            if (operation.controller === "agent" && !operation.agentId)
-              throw new Error("Agent id required for delegation");
+            if (operation.controller === "agent" && (!operation.agentId || !operation.threadId))
+              throw new Error("Agent and thread required for delegation");
             if (operation.controller === "agent" && operation.agentId && operation.threadId)
               manager.delegateAgent(operation.sessionId, {
                 agentId: operation.agentId,

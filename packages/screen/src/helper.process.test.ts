@@ -9,6 +9,7 @@ it("the supervised helper correlates concurrent commands and receives fragmented
   const helper = await Helper.open({
     ...fakeCommand,
     env: { REVERSE_REPLIES: "1" },
+    scheduler: { schedule: () => () => {} },
     nextId: ids(),
     onFrame: (value) => received.resolve(value),
     onFailure: (error) => errors.push(error),
@@ -58,7 +59,7 @@ it("spawn failure rejects pending helper work", async () => {
   if (!socketPath) throw new Error("Missing socket path");
   await expect(access(socketPath)).rejects.toMatchObject({ code: "ENOENT" });
 });
-it("an injected command deadline terminates a silent helper and rejects outstanding work", async () => {
+it("a liveness deadline terminates a silent helper and rejects outstanding work", async () => {
   const callbacks = new Set<() => void>();
   const failed = deferred<Error>();
   const helper = await Helper.open({
@@ -77,7 +78,7 @@ it("an injected command deadline terminates a silent helper and rejects outstand
     onFailure: (error) => failed.resolve(error),
   });
   try {
-    const request = helper.request({ op: "permissions" });
+    const request = helper.request({ op: "hello" });
     const rejected = expect(request).rejects.toThrow("timed out");
     for (const callback of callbacks) callback();
     await rejected;
