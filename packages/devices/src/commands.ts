@@ -194,7 +194,7 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
   return mapped;
 }
 
-export function simulatorIdentity(input: Device, inventory: readonly Simulator[]): Device {
+export function simulatorDevice(input: Device, inventory: readonly Simulator[]): Device {
   const device = DeviceSchema.parse(input);
   const selected = inventory.find((candidate) => candidate.udid === nativeId(device));
   if (!selected || selected.state !== "Booted")
@@ -202,19 +202,6 @@ export function simulatorIdentity(input: Device, inventory: readonly Simulator[]
       "not_booted",
       "Selected Simulator is not booted",
       "Boot this Simulator before starting capture.",
-    );
-  if (
-    inventory.some(
-      (candidate) =>
-        candidate.udid !== selected.udid &&
-        candidate.state === "Booted" &&
-        candidate.name === selected.name,
-    )
-  )
-    throw new DeviceError(
-      "busy",
-      "Booted Simulators have ambiguous display names",
-      "Rename one Simulator or shut down the duplicate before starting capture.",
     );
   return DeviceSchema.parse({
     ...device,
@@ -228,4 +215,23 @@ export function simulatorIdentity(input: Device, inventory: readonly Simulator[]
 export function simulatorRuntime(identifier: string): string {
   const match = /SimRuntime\.([A-Za-z]+)-(\d+(?:-\d+)*)$/.exec(identifier);
   return match?.[1] && match[2] ? `${match[1]} ${match[2].replaceAll("-", ".")}` : identifier;
+}
+
+export function simulatorIdentity(input: Device, inventory: readonly Simulator[]): Device {
+  const device = simulatorDevice(input, inventory);
+  const selected = { udid: nativeId(device), name: device.name };
+  if (
+    inventory.some(
+      (candidate) =>
+        candidate.udid !== selected.udid &&
+        candidate.state === "Booted" &&
+        candidate.name === selected.name,
+    )
+  )
+    throw new DeviceError(
+      "busy",
+      "Booted Simulators have ambiguous display names",
+      "Rename one Simulator or shut down the duplicate before starting capture.",
+    );
+  return device;
 }

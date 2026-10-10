@@ -149,6 +149,10 @@ export class SharedStreams {
       close();
     };
   }
+  /** A replacement native capture needs a subscription even if its view stayed mounted. */
+  refresh(target: string, open: () => void): void {
+    if (this.views.has(target)) open();
+  }
   reset(): void {
     this.generation++;
     this.views.clear();

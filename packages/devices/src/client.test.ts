@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { framePacket } from "@ace/screen";
-import { devicePoint } from "./view-stream.ts";
+import { devicePoint } from "@ace/ui-core";
 import { ScreenFrameReader } from "@ace/screen/frames-client";
 import { DeviceClient, type DeviceTransport, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceClientMessage, DeviceState } from "@ace/protocol/devices";
@@ -358,4 +358,33 @@ describe("portable device clients", () => {
     reader.end();
     expect(payloads).toEqual([6]);
   });
+});
+
+it("the inventory stays loading until a successful reply and resets on reconnect", async () => {
+  const host = setup();
+  expect(host.client.getSnapshot().inventoryLoaded).toBe(false);
+  const reading = host.client.request({ op: "list" });
+  expect(host.client.getSnapshot().inventoryLoaded).toBe(false);
+  host.result(0, { devices: [device] });
+  await reading;
+  expect(host.client.getSnapshot()).toMatchObject({ inventoryLoaded: true, devices: [device] });
+  host.client.disconnect();
+  expect(host.client.getSnapshot().inventoryLoaded).toBe(false);
+});
+
+it("a mounted viewer subscribes to replacement capture after an approval handoff", () => {
+  const host = setup();
+  host.receive({ type: "devices.state", state: state() });
+  const release = host.client.retainStream(deviceId);
+  host.receive({ type: "devices.state", state: { ...state(), lifecycle: "stopping" } });
+  host.receive({
+    type: "devices.state",
+    state: { ...state("stream_2"), approved: true, threadId: "thread-1" },
+  });
+  expect(host.sent.map((message) => message.operation)).toEqual([
+    { op: "subscribe", deviceId },
+    { op: "subscribe", deviceId },
+  ]);
+  release();
+  host.client.disconnect();
 });

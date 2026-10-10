@@ -36,7 +36,9 @@ export function deviceRows(
         id: device.id,
         name: device.name,
         platform: device.platform,
-        detail: [device.runtime, stateWords[device.state]].filter(Boolean).join(" · "),
+        detail: [device.runtime, state?.booting ? "Booting…" : stateWords[device.state]]
+          .filter(Boolean)
+          .join(" · "),
         running: device.state === "booted",
         live: state?.lifecycle === "live",
       };
@@ -58,6 +60,7 @@ export interface DeviceControls {
   running: boolean;
   live: boolean;
   busy: boolean;
+  cleanupRequired: boolean;
   /** Who drives input now. */
   controller: DeviceState["controller"];
   /** You hold an unexpired control lease. */
@@ -111,10 +114,11 @@ export function deviceControls(
   const inControl = leaseLeftMs > 0;
   const lifecycle = state?.lifecycle ?? "idle";
   const live = lifecycle === "live";
-  const busy = lifecycle === "starting" || lifecycle === "stopping";
+  const busy = state?.booting === true || lifecycle === "starting" || lifecycle === "stopping";
   const running = device.state === "booted";
-  const where =
-    lifecycle === "starting"
+  const where = state?.booting
+    ? "Booting…"
+    : lifecycle === "starting"
       ? "Starting"
       : lifecycle === "stopping"
         ? "Stopping"
@@ -138,6 +142,7 @@ export function deviceControls(
     running,
     live,
     busy,
+    cleanupRequired: state?.cleanupRequired === true,
     controller,
     inControl,
     leaseLeftMs,
