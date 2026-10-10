@@ -1,86 +1,73 @@
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { AccountKeyMark } from "@/features/account-management/index.ts";
-import { ArrowRightIcon, PlayIcon } from "@phosphor-icons/react";
-import { StatusLine } from "@/components/provider-tile.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
+import { accountLimit } from "@ace/ui-core";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
-import { accountLimit, accountStatus } from "@ace/ui-core";
-import { describeMove, useMoveThreads } from "./account-threads-source.ts";
 import type { Account } from "./accounts-source.ts";
-import { WindowBar } from "./window-bar.tsx";
-import { QuotaReading } from "./quota-reading.tsx";
-import { formatClock } from "./format.ts";
+import { CompactWindow } from "./window-bar.tsx";
+import { AccountIdentity } from "./account-identity.tsx";
+import { formatResets } from "./format.ts";
 
-const threads = (n: number) => `${n} running ${n === 1 ? "thread" : "threads"}`;
-
-/**
- * An account: its quota rings, running threads, and for one with threads stopped at its limit,
- * the way out. `accounts` are its siblings, to pick where the threads go.
- */
-export function AccountCard(props: { account: Account; accounts: readonly Account[] }) {
+/** Usage is read-only; every row reserves the same meter, reset and status columns. */
+export function AccountCard(props: { account: Account }) {
   const { account } = props;
   const now = useNow();
-  const move = useMoveThreads();
-  const toast = useToast();
   const limit = accountLimit(account, now);
-  const state = accountStatus(account, now);
-  const resetsAt = limit.resetsAt;
-  const limited = account.threads?.limitedIds ?? [];
-  const waiting = limited.length;
+  const reset = limit.level === "reached" ? limit.resetsAt : limit.window?.resetsAt;
+  const threads = account.threads;
+  const tip = [
+    `${account.providerLabel} · ${account.label}`,
+    `${threads?.running ?? 0} running threads`,
+    `${threads?.limited ?? 0} threads at a limit`,
+    account.quota.observedAt
+      ? `Last reported ${new Date(account.quota.observedAt).toLocaleString()}`
+      : "Not reported yet",
+  ].join(" · ");
+  const status =
+    limit.level === "reached"
+      ? "Limit reached"
+      : account.windows.length
+        ? undefined
+        : account.quota.auth === "logged_in" &&
+            account.quota.observedAt > 0 &&
+            ["opencode", "pi"].includes(account.provider)
+          ? "No limits"
+          : "Not reported yet";
+  // Weekly stays in the second slot even without a short window. Daily uses the first.
+  const windows = [
+    { id: "short", rows: account.windows.filter((window) => !window.label.startsWith("Weekly")) },
+    { id: "weekly", rows: account.windows.filter((window) => window.label.startsWith("Weekly")) },
+  ];
   return (
-    <article aria-label={`${account.providerLabel} ${account.label}`} className="border-b py-1">
-      <div className="flex min-h-8 items-center gap-2 text-ui">
-        <ProviderAccountIcon provider={account.provider} account={account} size={16} />
-        <span className="min-w-0 flex-1 truncate font-medium">{account.label}</span>
-        <AccountKeyMark method={account.authMethod} />
-        <StatusLine tone={state.tone} text={state.text} />
+    <article
+      aria-label={`${account.providerLabel} ${account.label}`}
+      className="usage-limit-row grid min-h-9 items-center gap-2 py-1 text-sm"
+    >
+      <div className="col-span-2 min-w-0 xl:col-span-1">
+        <AccountIdentity account={account} tooltip={tip} />
       </div>
-      {account.windows.length > 0 && <QuotaReading observedAt={account.quota.observedAt} />}
-      {account.windows.length > 0 ? (
-        <div className="grid gap-x-6 gap-y-2 py-2 text-sm sm:grid-cols-2">
-          {account.windows.map((window) => (
-            <WindowBar key={window.id} window={window} now={now} />
+      {windows.map((slot) => (
+        <div key={slot.id} className={account.windows.length ? "grid gap-1" : "hidden xl:block"}>
+          {slot.rows.map((window) => (
+            <CompactWindow key={window.id} window={window} now={now} />
           ))}
         </div>
-      ) : (
-        account.signedIn && (
-          <p className="mt-2 text-sm text-subtle-foreground">No limits reported yet</p>
-        )
-      )}
-      {waiting > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 py-2 text-sm leading-[1.45] text-muted-foreground">
-          <span className="min-w-0 flex-1">
-            {waiting} {waiting === 1 ? "thread is" : "threads are"} paused until the window resets
-            {resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
-          </span>
-          <Button
-            size="sm"
-            disabled={move.isPending}
-            onClick={() =>
-              move.mutate(
-                { accounts: props.accounts, from: account.id, threadIds: limited },
-                {
-                  onSuccess: (result) => toast.add({ title: describeMove(result) }),
-                  onError: (error) => toast.add({ title: error.message }),
-                },
-              )
-            }
-          >
-            <Icon icon={ArrowRightIcon} size={14} />
-            Move running threads
-          </Button>
-        </div>
-      ) : (
-        account.threads !== undefined &&
-        account.threads.running > 0 && (
-          <div className="mt-3.5 flex items-center gap-2 text-sm text-muted-foreground">
-            <Icon icon={PlayIcon} size={14} />
-            {threads(account.threads.running)}
-          </div>
-        )
-      )}
+      ))}
+      <div className={reset != null ? "text-xs text-subtle-foreground" : "hidden xl:block"}>
+        {reset != null && (
+          <Tip label={formatResets(reset, now)}>
+            <span tabIndex={0} className="rounded-xs focus-ring">
+              {formatResets(reset, now)}
+            </span>
+          </Tip>
+        )}
+      </div>
+      <div
+        className={account.windows.length ? "text-right" : "col-span-2 text-right xl:col-span-1"}
+      >
+        {status && (
+          <StatusLabel tone={limit.level === "reached" ? "failed" : "idle"} label={status} />
+        )}
+      </div>
     </article>
   );
 }

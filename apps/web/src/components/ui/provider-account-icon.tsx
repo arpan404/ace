@@ -1,11 +1,11 @@
-import type { CSSProperties } from "react";
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
-import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
+import { Tip } from "./tooltip.tsx";
+import { accountBadge } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -36,6 +36,15 @@ export function ProviderAccountIcon(
   const siblings = own?.filter(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
+  if (account && !props.accountLabel)
+    return (
+      <AccountBadge
+        account={account}
+        className={props.className}
+        decorative={props.decorative}
+        tooltip={props.tooltip}
+      />
+    );
   const multiple = siblings !== undefined && siblings.length > 1;
   const size = props.size ?? 16;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
@@ -54,17 +63,11 @@ export function ProviderAccountIcon(
         decorative
       />
       {multiple && account && (
-        <span
-          role="img"
-          title={hoverTitle(props.tooltip, `${account.label} account`)}
-          aria-label={`${account.label} account`}
-          style={
-            { "--account-color": accountColors[account.badgeColor ?? "neutral"] } as CSSProperties
-          }
-          className={accountBadgeOverlayStyle}
-        >
-          {accountBadge(account.label, account.shortLabel)}
-        </span>
+        <AccountBadge
+          account={account}
+          tooltip={props.tooltip}
+          className="absolute right-0 bottom-0 size-3 ring-1 ring-background"
+        />
       )}
     </span>
   );
@@ -77,4 +80,39 @@ function hoverTitle(
 ): string | undefined {
   if (enabled === false) return undefined;
   return shortLabel ? `${name} · ${shortLabel}` : name;
+}
+
+/** Readable account identity shared by settings, usage and model sources. */
+export function AccountBadge(props: {
+  account: Pick<AccountView, "label" | "shortLabel" | "badgeColor">;
+  className?: string | undefined;
+  decorative?: boolean | undefined;
+  tooltip?: boolean | undefined;
+  focusable?: boolean | undefined;
+}) {
+  const { account } = props;
+  const mark = (
+    <span
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+        props.focusable && "focus-ring",
+        props.className,
+      )}
+      tabIndex={props.focusable ? 0 : undefined}
+      style={{
+        background: accountColors[account.badgeColor ?? "neutral"],
+        color: "var(--background)",
+      }}
+      {...(props.decorative
+        ? { "aria-hidden": true }
+        : { role: "img", "aria-label": `${account.label} account` })}
+    >
+      {accountBadge(account.label, account.shortLabel)}
+    </span>
+  );
+  return props.tooltip === false || props.decorative ? (
+    mark
+  ) : (
+    <Tip label={account.label}>{mark}</Tip>
+  );
 }

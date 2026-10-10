@@ -1,4 +1,4 @@
-import { accountShortLabel } from "./labels.ts";
+import { accountShortLabel, defaultAccountBadgeColor } from "./labels.ts";
 import { cursorInstanceId, cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
@@ -26,7 +26,7 @@ const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanc
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
-  const parsed = ProviderInstance.parse({ ...input, shortLabel: accountShortLabel(input) });
+  const parsed = ProviderInstance.parse(input);
   instanceEnv(parsed, {});
   if (parsed.implicit) return parsed;
   // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
@@ -48,10 +48,12 @@ function summarize(
   return {
     id: instance.id,
     implicit: instance.implicit ?? false,
+    ...(instance.implicit ? { cliHome: instance.homeDir } : {}),
     provider: instance.provider,
     label: instance.label,
     shortLabel: accountShortLabel(instance),
-    badgeColor: instance.badgeColor,
+    badgeUsesInitial: instance.shortLabel === undefined,
+    badgeColor: instance.badgeColor ?? defaultAccountBadgeColor(instance.id),
     authMethod: instance.authMethod ?? "unknown",
     ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
@@ -123,6 +125,30 @@ export class AccountRegistry {
     // Retire metadata before home canonicalization. Never inspect the old CLI home.
     db.exec(`DELETE FROM account_selection WHERE instance_id='cursor-cli-default';
       DELETE FROM accounts WHERE id='cursor-cli-default' AND json_extract(instance,'$.implicit')=1;`);
+    // Earlier builds assigned neutral to every CLI login. Retire that automatic metadata once;
+    // later explicit choices, including neutral, survive reopening and rediscovery.
+    db.exec("CREATE TABLE IF NOT EXISTS account_metadata_migrations (name TEXT PRIMARY KEY)");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (
+        !db.prepare("SELECT name FROM account_metadata_migrations WHERE name='badge-palette'").get()
+      ) {
+        const update = db.prepare("UPDATE accounts SET instance=? WHERE id=?");
+        for (const value of db.prepare("SELECT instance, quota FROM accounts LIMIT 257").all()) {
+          const instance = ProviderInstance.parse(JSON.parse(row.parse(value).instance));
+          if (instance.implicit && instance.badgeColor === "neutral")
+            update.run(
+              JSON.stringify({ ...instance, badgeColor: defaultAccountBadgeColor(instance.id) }),
+              instance.id,
+            );
+        }
+        db.exec("INSERT INTO account_metadata_migrations VALUES ('badge-palette')");
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
@@ -131,6 +157,8 @@ export class AccountRegistry {
     );
   }
   async validateHome(instance: ProviderInstance): Promise<void> {
+    const problem = this.readAccount(instance.id)?.quota.blockers.homeUnavailable;
+    if (problem) throw new Error(problem);
     if (!instance.managed) return;
     if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
     await assertManagedHome(this.managedDataDir, instance);
@@ -261,6 +289,13 @@ export class AccountRegistry {
         instance.id,
         JSON.stringify({
           ...instance,
+          ...(instance.implicit && current
+            ? {
+                label: current.instance.label,
+                shortLabel: current.instance.shortLabel,
+                badgeColor: current.instance.badgeColor,
+              }
+            : {}),
           loginRevision: current?.instance.loginRevision ?? instance.loginRevision ?? "0",
         }),
         JSON.stringify(current?.quota ?? initialQuota()),
@@ -284,34 +319,54 @@ export class AccountRegistry {
   private async normalizeHomes(signal?: AbortSignal): Promise<void> {
     const accounts = this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
     const normalized = [];
+    const roots = new Map<string, Set<string>>();
     for (const account of accounts) {
       signal?.throwIfAborted();
-      const migrated =
-        this.managedDataDir && this.homeMigration
+      const quota = { ...account.quota, blockers: { ...account.quota.blockers } };
+      delete quota.blockers.homeUnavailable;
+      try {
+        const migrated = this.managedDataDir
           ? await migrateInstanceHome(
               account.instance,
               this.managedDataDir,
-              this.homeMigration.notice,
+              this.homeMigration?.notice,
             )
           : account.instance;
-      const instance = await canonicalInstance(migrated);
-      await this.validateHome(instance);
-      normalized.push({ ...account, instance });
+        const instance = await canonicalInstance(migrated);
+        // Startup revalidates repaired homes rather than trusting last startup's blocker.
+        if (instance.managed) {
+          if (!this.managedDataDir) throw new Error("Managed account needs its data root");
+          await assertManagedHome(this.managedDataDir, instance);
+        } else if (!instance.implicit && instance.provider !== "acp") {
+          const stat = await lstat(instance.homeDir);
+          if (!stat.isDirectory()) throw new Error("home_missing");
+        }
+        if (instance.provider !== "acp" && !instance.implicit) {
+          const used = roots.get(instance.provider) ?? new Set<string>();
+          const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
+          for (const path of selectors) if (used.has(path)) throw new Error("home_conflict");
+          for (const path of selectors) used.add(path);
+          roots.set(instance.provider, used);
+        }
+        normalized.push({ instance, quota });
+      } catch (error) {
+        signal?.throwIfAborted();
+        const code = error instanceof Error && "code" in error ? error.code : undefined;
+        quota.blockers.homeUnavailable =
+          error instanceof Error && error.message === "foreign_home"
+            ? "foreign_home"
+            : error instanceof Error && error.message === "home_conflict"
+              ? "home_conflict"
+              : code === "ENOENT" || code === "ENOTDIR"
+                ? "home_missing"
+                : "home_unreadable";
+        normalized.push({ instance: account.instance, quota });
+      }
     }
     signal?.throwIfAborted();
-    const roots = new Map<string, Set<string>>();
-    for (const { instance } of normalized) {
-      if (instance.provider === "acp" || instance.implicit) continue;
-      const used = roots.get(instance.provider) ?? new Set<string>();
-      const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
-      for (const path of selectors)
-        if (used.has(path)) throw new Error("Instance homes must be distinct");
-      for (const path of selectors) used.add(path);
-      roots.set(instance.provider, used);
-    }
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      for (const { instance } of normalized) {
+      for (const { instance, quota } of normalized) {
         const current = this.readAccount(instance.id);
         if (!current) throw new Error("Instance changed during canonicalization");
         this.upsert.run(
@@ -322,7 +377,7 @@ export class AccountRegistry {
             shortLabel: current.instance.shortLabel,
             badgeColor: current.instance.badgeColor,
           }),
-          JSON.stringify(current.quota),
+          JSON.stringify({ ...current.quota, blockers: quota.blockers }),
         );
       }
       this.db.exec("COMMIT");
@@ -439,11 +494,12 @@ export class AccountRegistry {
     label: string,
     badge: {
       shortLabel?: string | undefined;
+      badgeUsesInitial?: boolean | undefined;
       badgeColor?: ProviderInstance["badgeColor"] | null | undefined;
     } = {},
   ): void {
     const account = this.get(id);
-    if (!account || account.instance.implicit) throw new Error("Account is immutable");
+    if (!account) throw new Error("Unknown account");
     if (badge.shortLabel !== undefined) AccountBadgeInput.parse(badge.shortLabel);
     this.upsert.run(
       id,
@@ -451,8 +507,9 @@ export class AccountRegistry {
         ProviderInstance.parse({
           ...account.instance,
           label,
-          shortLabel:
-            badge.shortLabel ?? account.instance.shortLabel ?? accountShortLabel({ label }),
+          shortLabel: badge.badgeUsesInitial
+            ? undefined
+            : (badge.shortLabel ?? account.instance.shortLabel),
           badgeColor:
             badge.badgeColor === null
               ? undefined

@@ -19,6 +19,9 @@
     "badgeColor": {
       "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
     },
+    "badgeUsesInitial": {
+      "type": "boolean"
+    },
     "blockedUntil": {
       "anyOf": [
         {
@@ -29,6 +32,10 @@
           "type": "null"
         }
       ]
+    },
+    "cliHome": {
+      "maxLength": 4096,
+      "type": "string"
     },
     "homeStrategy": {
       "const": "default_cli",

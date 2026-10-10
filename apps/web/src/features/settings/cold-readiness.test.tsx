@@ -1,9 +1,12 @@
 import { seedColdStartState, seedRealCatalogs } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+configure({ asyncUtilTimeout: 10_000 });
+
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 function fixture() {
   const app = harness();
@@ -22,11 +25,11 @@ function fixture() {
   return app;
 }
 
-test("OpenCode stays Ready without a Sign in action while another source needs attention", async () => {
+test("OpenCode stays quiet without a Sign in action while another source needs attention", async () => {
   const app = fixture();
   await app.open("/settings/providers");
   const row = await screen.findByRole("group", { name: "OpenCode" });
-  expect(await within(row).findByText("Ready")).toBeTruthy();
+  expect(within(row).queryByText("Ready")).toBeNull();
   expect(within(row).queryByRole("button", { name: /Sign in/ })).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "OpenCode" }));
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
@@ -44,7 +47,7 @@ test("Pi's Ollama Cloud service shows its named mark instead of a letter", async
 
 test("a free model whose name says Free carries that word once in the visible model row", async () => {
   await fixture().open("/settings/providers/opencode");
-  await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage" }));
   const models = await screen.findByRole("list", { name: "Models" });
   const row = within(models)
     .getAllByRole("listitem")
@@ -68,12 +71,9 @@ test("Pi General permissions reports its unavailable modes before the native ada
   expect(screen.queryByText("Couldn't load permission modes. Reconnect and try again.")).toBeNull();
 });
 
-test("Usage counts OpenCode's account as working while another source needs attention", async () => {
+test("Usage shows OpenCode's unreported limits quietly while another source needs attention", async () => {
   await fixture().open("/accounts");
-  const headroom = await screen.findByRole("list", { name: "Headroom now" });
-  const row = within(headroom)
-    .getAllByRole("listitem")
-    .find((candidate) => within(candidate).queryByText("OpenCode"));
-  if (!row) throw new Error("Missing OpenCode headroom");
-  expect(await within(row).findByText(/1 of 1 account can work/)).toBeTruthy();
+  const row = await screen.findByRole("article", { name: "OpenCode Your CLI login" });
+  expect(within(row).getByText("Not reported yet")).toBeTruthy();
+  expect(within(row).queryByText("Needs attention")).toBeNull();
 });

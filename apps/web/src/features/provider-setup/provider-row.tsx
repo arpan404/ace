@@ -1,7 +1,7 @@
 import type { ProviderKind, ProviderInstallProgress } from "@ace/protocol";
 import type { ReadinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon, InfoIcon, TrashIcon, XIcon } from "@phosphor-icons/react";
-import { useState, type ReactNode } from "react";
+import { ArrowClockwiseIcon, DotsThreeIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
+import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -9,6 +9,8 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SignInButton } from "@/features/sign-in/index.ts";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { useInstall } from "./use-install.ts";
 
 const progressNames: Record<ProviderInstallProgress["state"], string> = {
@@ -21,8 +23,16 @@ const progressNames: Record<ProviderInstallProgress["state"], string> = {
   needs_admin: "Approval needed",
 };
 
+export interface ProviderSetupActions {
+  requestRemoval(): void;
+}
+
 /** All provider surfaces share the same action, installation recovery and login flow. */
-export function ProviderSetupRow(props: {
+export function ProviderSetupRow({
+  ref: actionsRef,
+  ...props
+}: {
+  ref?: Ref<ProviderSetupActions>;
   provider: ProviderKind;
   acpAgentId?: string | undefined;
   instance?: string | undefined;
@@ -31,14 +41,26 @@ export function ProviderSetupRow(props: {
   view?: ReadinessView | undefined;
   updateAvailable?: boolean | undefined;
   title?: ReactNode;
+  heading?: boolean;
+  menuItems?: React.ReactNode;
   secondary?: ReactNode;
   manage?: boolean;
 }) {
   const { provider, name, missing } = props;
   const { controller, view } = useInstall(provider, props.acpAgentId);
+  const preferences = useProviderConfiguration(provider);
   const [details, setDetails] = useState(false);
+  const requestRemoval = () => {
+    setDetails(true);
+    void controller.plan("uninstall");
+  };
+  useImperativeHandle(actionsRef, () => ({ requestRemoval }));
   const progress = view.kind === "progress" ? view.progress : undefined;
+  const confirmation = useRef<HTMLButtonElement>(null);
   const plan = view.kind === "plan" ? view.plan : progress?.plan;
+  useEffect(() => {
+    if (details && plan?.action === "uninstall") confirmation.current?.focus();
+  }, [details, plan]);
   const busy =
     view.kind === "loading" ||
     (!!progress && ["planning", "running", "verifying"].includes(progress.state));
@@ -52,10 +74,7 @@ export function ProviderSetupRow(props: {
   const needsSignIn =
     (provider === "cursor" && missing) ||
     plan?.status === "sign_in" ||
-    (!missing &&
-      (props.view?.primary ||
-        props.view?.state === "unconfirmed" ||
-        (provider === "acp" && !props.view?.ready)));
+    (!missing && props.view?.primary);
   const updateAvailable = props.updateAvailable && !needsSignIn;
   const status = busy
     ? progress?.state === "running"
@@ -77,8 +96,12 @@ export function ProviderSetupRow(props: {
   return (
     <div className="flex min-w-0 flex-col">
       <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
-        <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} decorative />
-        <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>
+        {!props.heading && (
+          <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />
+        )}
+        {!props.heading && (
+          <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>
+        )}
         {status ? (
           <span role={failed ? "alert" : "status"}>
             <StatusLabel
@@ -94,18 +117,14 @@ export function ProviderSetupRow(props: {
               label={status}
             />
           </span>
-        ) : missing ? (
-          <StatusLabel tone="idle" label="Not installed" />
-        ) : updateAvailable && (!props.view || props.view.ready) ? (
-          <StatusLabel tone="needs-you" label="Update available" />
-        ) : props.view ? (
+        ) : missing ? null : updateAvailable && (!props.view || props.view.ready) ? (
+          !props.heading && <StatusLabel tone="needs-you" label="Update available" />
+        ) : props.view && !props.view.ready ? (
           <StatusLine
-            tone={props.view.ready ? "ready" : props.view.tone}
-            text={props.view.ready ? "Ready" : props.view.summary}
+            tone={props.view.tone}
+            text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
           />
-        ) : (
-          <StatusLabel tone="needs-you" label="Sign in" />
-        )}
+        ) : null}
         {busy ? (
           <IconButton
             size="sm"
@@ -171,16 +190,25 @@ export function ProviderSetupRow(props: {
             onClick={() => void controller.install(action)}
           />
         )}
-        {props.manage && !missing && provider !== "cursor" && provider !== "acp" && !busy && (
-          <IconButton
-            size="sm"
-            icon={TrashIcon}
-            label={`Remove ${name}${name.endsWith("CLI") ? "" : " CLI"}`}
-            onClick={() => {
-              setDetails(true);
-              void controller.plan("uninstall");
-            }}
-          />
+        {props.manage && !missing && !busy && (
+          <Menu>
+            <MenuTrigger
+              render={<IconButton size="sm" icon={DotsThreeIcon} label={`Manage ${name}`} />}
+            />
+            <MenuContent align="end">
+              <MenuItem
+                onClick={() =>
+                  void preferences.update((row) => ({ ...row, enabled: row.enabled === false }))
+                }
+              >
+                {preferences.value?.enabled === false ? "Turn on" : "Turn off"}
+              </MenuItem>
+              {provider !== "cursor" && provider !== "acp" && (
+                <MenuItem onClick={requestRemoval}>Remove…</MenuItem>
+              )}
+              {props.menuItems}
+            </MenuContent>
+          </Menu>
         )}
         {props.secondary}
       </div>
@@ -214,6 +242,7 @@ export function ProviderSetupRow(props: {
                 </p>
                 <Button
                   size="sm"
+                  ref={confirmation}
                   variant="danger"
                   className="self-start"
                   onClick={() => {

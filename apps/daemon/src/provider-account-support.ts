@@ -4,7 +4,6 @@ import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
-import { ProviderPayload } from "@ace/provider-kit/payload";
 import { apiKeySupport } from "./provider-api-key.ts";
 
 export function reportedAuthMethod(detail?: string): "browser" | "api_key" | "unknown" {
@@ -43,6 +42,7 @@ export async function inspectAccountSupport(
     rows.find((row) => row.instance.provider === provider && row.instance.implicit)?.instance ??
     rows.find((row) => row.instance.provider === provider)?.instance;
   if (!instance) return apiKeySupport(provider);
+  await options.registry.validateHome(instance);
   const status = await loginStatus(instance, {
     ...options.discovery,
     ...(configuration?.binaryPath && provider !== "pi"
@@ -52,19 +52,6 @@ export async function inspectAccountSupport(
     ...(options.signal ? { signal: options.signal } : {}),
   });
   if (!status.path) return apiKeySupport(provider);
-  options.registry.ingest(instance.id, {
-    provider,
-    payload: new ProviderPayload(JSON.stringify({ auth: status.auth })),
-    observedAt: options.now(),
-    timeZone: "UTC",
-  });
-  const method = reportedAuthMethod(status.authDetail);
-  if (status.auth === "logged_out" || method !== "unknown" || status.accountLabel)
-    options.registry.recordAuth(
-      instance.id,
-      status.auth === "logged_out" ? "unknown" : method,
-      status.accountLabel,
-    );
   if (provider !== "codex" && provider !== "opencode") return apiKeySupport(provider);
   try {
     const env = instanceEnv(instance, options.env);

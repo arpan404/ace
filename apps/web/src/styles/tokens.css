@@ -13,7 +13,6 @@
   /* Motion tokens live in motion.css. */
 
   /* Layout. */
-  --sidebar-w: 280px;
   /* A view's own list beside its column (Automations, Skills, Activity). */
   --header-h: 50px;
   --column: 760px;
@@ -44,7 +43,6 @@
   --ring: var(--accent-theme, var(--accent-blue));
   --ring-foreground: #fff;
   --ring-text: var(--ring);
-  --sidebar-ring: var(--ring);
 }
 
 @media (prefers-reduced-transparency: reduce) {

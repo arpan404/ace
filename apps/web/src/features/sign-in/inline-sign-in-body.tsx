@@ -1,3 +1,4 @@
+import type { ProviderLoginProgress } from "@ace/protocol";
 import { signInSuccess } from "./success-copy.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -9,21 +10,28 @@ import type { LoginController } from "./login-controller.ts";
 import { LoginBody } from "./login-steps.tsx";
 import { useCloseCancelled } from "./login-outcome.tsx";
 
-export function InlineSignIn(props: { login: LoginController; onClose(): void; onRetry(): void }) {
+export function InlineSignIn(props: {
+  login: LoginController;
+  onClose(): void;
+  onRetry(): void;
+  onSuccess?: ((progress: ProviderLoginProgress) => Promise<void>) | undefined;
+}) {
   const view = useSyncExternalStore(props.login.subscribe, props.login.getView);
   const queries = useQueryClient();
   const toast = useToast();
   const accounts = useAccountViews();
-  const close = useEffectEvent(() => {
-    if (props.login.claimCompletion())
-      toast.add({
-        kind: "provider-auth",
-        eventId: view.kind === "progress" ? view.progress.session : undefined,
-        title: signInSuccess(
-          props.login.target,
-          accounts.data?.find((account) => account.id === props.login.target.instance)?.label,
-        ),
-      });
+  const close = useEffectEvent(async () => {
+    if (!props.login.claimCompletion()) return;
+    if (view.kind === "progress") await props.onSuccess?.(view.progress);
+
+    toast.add({
+      kind: "provider-auth",
+      eventId: view.kind === "progress" ? view.progress.session : undefined,
+      title: signInSuccess(
+        props.login.target,
+        accounts.data?.find((account) => account.id === props.login.target.instance)?.label,
+      ),
+    });
     props.onClose();
   });
   const succeeded = view.kind === "progress" && view.progress.state === "succeeded";
@@ -31,7 +39,7 @@ export function InlineSignIn(props: { login: LoginController; onClose(): void; o
     if (succeeded) {
       refreshProviders(queries);
       void queries.invalidateQueries({ queryKey: ["accounts"] });
-      close();
+      void close();
     }
   }, [succeeded, queries]);
   useCloseCancelled(view, props.onClose);

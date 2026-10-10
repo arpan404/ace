@@ -1648,13 +1648,15 @@ Example:
 | instanceId | yes | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 | label | yes | string | {"minLength":1,"maxLength":128,"pattern":"\\S"} |
 | shortLabel | no | [AccountBadgeInput.json](schema/AccountBadgeInput.json) |  |
+| badgeUsesInitial | no | boolean |  |
 | badgeColor | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AccountBadgeColor.json"},{"type":"null"}]} |
 
 Example:
 
 ```json
 {
-  "badgeColor": null,
+  "badgeColor": "neutral",
+  "badgeUsesInitial": false,
   "instanceId": "example",
   "label": "c",
   "requestId": "example",
@@ -1675,7 +1677,6 @@ Example:
 
 ```json
 {
-  "deleteHome": true,
   "instanceId": "example",
   "requestId": "example",
   "type": "accounts.remove"
@@ -1696,7 +1697,7 @@ Example:
 ```json
 {
   "instanceId": "example",
-  "provider": "codex",
+  "provider": "opencode",
   "requestId": "example",
   "type": "accounts.setDefault"
 }
@@ -1789,7 +1790,7 @@ Example:
 {
   "from": "example",
   "nativeSessionId": "example",
-  "provider": "acp",
+  "provider": "codex",
   "requestId": "example",
   "to": "example",
   "type": "accounts.migrate"
@@ -1808,7 +1809,7 @@ Example:
 
 ```json
 {
-  "provider": "opencode",
+  "provider": "claude",
   "requestId": "example",
   "type": "provider.accounts.list"
 }
@@ -1830,11 +1831,12 @@ Example:
 
 ```json
 {
-  "label": "T",
-  "method": "login",
-  "provider": "codex",
+  "method": "api_key",
+  "provider": "opencode",
   "requestId": "example",
-  "type": "provider.accounts.add"
+  "shortLabel": "👩‍💻",
+  "type": "provider.accounts.add",
+  "upstream": "openrouter"
 }
 ```
 
@@ -1848,16 +1850,18 @@ Example:
 | instanceId | yes | [AccountId.json](schema/AccountId.json) |  |
 | label | yes | string | {"minLength":1,"maxLength":128,"pattern":"\\S"} |
 | shortLabel | no | [AccountBadgeInput.json](schema/AccountBadgeInput.json) |  |
+| badgeUsesInitial | no | boolean |  |
 | badgeColor | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AccountBadgeColor.json"},{"type":"null"}]} |
 
 Example:
 
 ```json
 {
-  "instanceId": "sinNe-SjsTPWdk7w6TWtvBSzA73Zt_jcjo1AwLmNEnSOW9YTG15DM8MiZTlRYMzmfx0Qg_9xklNrt0Fi1mzq",
+  "instanceId": "ne-SjsTPWdk7w6TWtvBSzA73Zt_jcjo1AwLmNEnSOW9YTG15DM8MiZTlRYMzmfx0Qg_9xklNrt0Fi1m",
   "label": "E",
-  "provider": "pi",
+  "provider": "codex",
   "requestId": "example",
+  "shortLabel": "AB",
   "type": "provider.accounts.rename"
 }
 ```

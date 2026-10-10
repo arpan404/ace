@@ -16,7 +16,7 @@ const AccountMenuContent = lazy(() =>
  * (a silhouette until they give a name in Settings › General) and their name. The disc's dot is
  * the daemon connection, said in words under the name while it isn't connected. The connection is
  * part of the button's name rather than a live region, so a flapping connection isn't read out
- * each time. Its menu is the only way to Usage & accounts.
+ * each time. Its menu is the only way to Usage.
  */
 export function AccountMenu() {
   const state = useConnectionState();

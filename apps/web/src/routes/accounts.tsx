@@ -8,7 +8,7 @@ import { ViewFrame } from "@/features/shell/index.ts";
  */
 export const Route = createFileRoute("/accounts")({
   component: () => (
-    <ViewFrame label="Usage & accounts" place="threads">
+    <ViewFrame label="Usage" place="threads">
       <AccountsPage />
     </ViewFrame>
   ),

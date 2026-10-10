@@ -84,7 +84,7 @@ function ListSkeleton(props: {
             <Skeleton className="h-2.5 w-28" style={style} />
           </span>
         ) : (
-          <span key={index} className="flex items-center gap-3 border-t py-3.5 first:border-t-0">
+          <span key={index} className="flex h-9 items-center gap-2">
             <Skeleton className="h-3" style={{ ...style, width }} />
             <Skeleton className="ml-auto h-3 w-14 shrink-0" style={style} />
           </span>

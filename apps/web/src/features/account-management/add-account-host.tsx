@@ -1,5 +1,4 @@
 import type { ProviderKind } from "@ace/protocol";
-import { providerNames } from "@ace/ui-core";
 import { createContext, Suspense, useContext, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -28,7 +27,7 @@ export function AddAccountHost(props: { children: ReactNode }) {
   );
 }
 
-export const useAddAccount = () => useContext(AddContext);
+const useAddAccount = () => useContext(AddContext);
 
 export function AddAccountButton(props: {
   provider: ProviderKind;
@@ -48,30 +47,6 @@ export function AddAccountButton(props: {
       }}
     >
       {props.label ?? "Add account"}
-    </Button>
-  );
-}
-
-/** Provider and usage pages keep the same form beside their accounts, including key entry. */
-export function AddAccountInline(props: { provider: ProviderKind }) {
-  const [open, setOpen] = useState(false);
-  if (!canAddAccounts(props.provider)) return null;
-  return open ? (
-    <Suspense fallback={null}>
-      <Form.Component
-        provider={props.provider}
-        name={providerNames[props.provider]}
-        onClose={() => setOpen(false)}
-      />
-    </Suspense>
-  ) : (
-    <Button
-      size="sm"
-      variant="ghost"
-      onPointerEnter={() => void Form.preload()}
-      onClick={() => setOpen(true)}
-    >
-      Add account
     </Button>
   );
 }

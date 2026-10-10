@@ -1,4 +1,4 @@
-import { accountShortLabel } from "@ace/accounts/labels";
+import { accountShortLabel, defaultAccountBadgeColor } from "@ace/accounts/labels";
 import { liveWindow } from "@ace/accounts/availability";
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
@@ -27,11 +27,13 @@ export interface AccountView {
   version: string | undefined;
   label: string;
   shortLabel?: string | undefined;
+  badgeUsesInitial?: boolean | undefined;
   badgeColor?: Summary["badgeColor"] | undefined;
   authMethod?: Summary["authMethod"] | undefined;
   signedInAs?: string | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
   implicit?: boolean | undefined;
+  cliHome?: string | undefined;
   /** New threads on this provider start on it. */
   isDefault?: boolean | undefined;
   /** What the daemon said when it was read; `accountLimit` says what holds at a later moment. */
@@ -89,7 +91,7 @@ export function quotaWindowLabel(name: string): string {
   return classify(name).label;
 }
 
-/** Account names stay exactly as entered. Normal-profile logins use a consistent provider label. */
+/** Account names stay exactly as entered, including renamed normal-profile logins. */
 export function accountDisplayName(
   account:
     | string
@@ -101,11 +103,7 @@ export function accountDisplayName(
       },
 ): string {
   if (typeof account === "string") return account;
-  return account.implicit
-    ? account.provider === "cursor"
-      ? "Your Cursor login"
-      : "Your CLI login"
-    : account.label;
+  return account.label;
 }
 
 /** What the accounts screen and pickers show for one `accounts.list` entry. */
@@ -126,11 +124,15 @@ export function accountView(summary: Summary): AccountView {
     providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: accountDisplayName(summary),
-    shortLabel: accountShortLabel(summary),
-    badgeColor: summary.badgeColor,
+    shortLabel: accountShortLabel({
+      ...summary,
+      shortLabel: summary.badgeUsesInitial ? undefined : summary.shortLabel,
+    }),
+    badgeUsesInitial: summary.badgeUsesInitial ?? summary.shortLabel === undefined,
+    badgeColor: summary.badgeColor ?? defaultAccountBadgeColor(summary.id),
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
-    ...(summary.implicit ? { implicit: true } : {}),
+    ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),
     ...(summary.isDefault ? { isDefault: true } : {}),
     availability: summary.availability,
     signedIn: summary.quota.auth === "logged_in" && summary.availability !== "logged_out",

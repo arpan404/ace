@@ -1,0 +1,867 @@
+# Provider account alignment follow-up 3
+
+Fresh fake-browser captures for PR #322, in light, dark, midnight, graphite, paper, slate and contrast, at 1440 × 900 and 390 × 900. The full set contains 770 PNGs in `/tmp/ace-orch/shots/ui-providers-clean/followup3/`. This folder attaches 106 key originals, comparisons, before/after views and review sheets. All 26 review sheets were visually inspected, with full-resolution checks of account controls and Usage. No live ace home or provider process was used for captures.
+
+Account status or meter, one action, then the hover menu form a right-aligned group. The right edge matches the model select, page menu and Manage control, at x=1208 on desktop and x=374 on mobile. Desktop account rows are 36px; mobile puts the trailing group below the name and CLI home. Opacity reveals the hover controls without removing their layout space. Signed-out accounts keep Make default in their menu so Sign in or Reconnect is their single row action.
+
+The screenshot tour asserts the right edge against page controls for every rendered provider account, the 8px gaps and status/action/menu order, one row action, 36px desktop density and identical before/after-hover geometry. It runs in every theme and width. Providers without account rows still get captures. The separate Usage browser check passes in light/dark at both widths, including fixed meter slots, weekly-only and daily-only readings, reset alignment, real brand marks and the thread sidebar.
+
+CSS shrank to 20.68 KB. Initial JS is 268.22 KB, thread is 134.07 KB and provider settings is 87.50 KB. The 12 account behaviour tests, 4 Usage browser tests, root typecheck, formatting, lint, source-size, UI-value and dependency checks pass. Full suite execution remains with the orchestrator; full performance checks were skipped because shared-host load exceeded 15. No protocol or persistence changes.
+
+The separate read-only real-data check reported only allowlisted Claude/Codex envelope keys and nesting, plus OpenCode and ace log-directory existence. No credentials or log contents were read, no contents copied, and no provider processes started. Synthetic fixtures retain missing readings, unknown auth, nested provider facts and signed-out accounts with old quota windows.
+
+## Provider and Usage captures
+
+### Provider
+
+| Theme    | 1440                               | 390                              | 1440 comparison                                     | 390 comparison                                     |
+| -------- | ---------------------------------- | -------------------------------- | --------------------------------------------------- | -------------------------------------------------- |
+| light    | [1440](provider-light-1440.png)    | [390](provider-light-390.png)    | [Comparison](provider-light-1440-comparison.png)    | [Comparison](provider-light-390-comparison.png)    |
+| dark     | [1440](provider-dark-1440.png)     | [390](provider-dark-390.png)     | [Comparison](provider-dark-1440-comparison.png)     | [Comparison](provider-dark-390-comparison.png)     |
+| midnight | [1440](provider-midnight-1440.png) | [390](provider-midnight-390.png) | [Comparison](provider-midnight-1440-comparison.png) | [Comparison](provider-midnight-390-comparison.png) |
+| graphite | [1440](provider-graphite-1440.png) | [390](provider-graphite-390.png) | [Comparison](provider-graphite-1440-comparison.png) | [Comparison](provider-graphite-390-comparison.png) |
+| paper    | [1440](provider-paper-1440.png)    | [390](provider-paper-390.png)    | [Comparison](provider-paper-1440-comparison.png)    | [Comparison](provider-paper-390-comparison.png)    |
+| slate    | [1440](provider-slate-1440.png)    | [390](provider-slate-390.png)    | [Comparison](provider-slate-1440-comparison.png)    | [Comparison](provider-slate-390-comparison.png)    |
+| contrast | [1440](provider-contrast-1440.png) | [390](provider-contrast-390.png) | [Comparison](provider-contrast-1440-comparison.png) | [Comparison](provider-contrast-390-comparison.png) |
+
+### Usage
+
+| Theme    | 1440                            | 390                           | 1440 comparison                                  | 390 comparison                                  |
+| -------- | ------------------------------- | ----------------------------- | ------------------------------------------------ | ----------------------------------------------- |
+| light    | [1440](usage-light-1440.png)    | [390](usage-light-390.png)    | [Comparison](usage-light-1440-comparison.png)    | [Comparison](usage-light-390-comparison.png)    |
+| dark     | [1440](usage-dark-1440.png)     | [390](usage-dark-390.png)     | [Comparison](usage-dark-1440-comparison.png)     | [Comparison](usage-dark-390-comparison.png)     |
+| midnight | [1440](usage-midnight-1440.png) | [390](usage-midnight-390.png) | [Comparison](usage-midnight-1440-comparison.png) | [Comparison](usage-midnight-390-comparison.png) |
+| graphite | [1440](usage-graphite-1440.png) | [390](usage-graphite-390.png) | [Comparison](usage-graphite-1440-comparison.png) | [Comparison](usage-graphite-390-comparison.png) |
+| paper    | [1440](usage-paper-1440.png)    | [390](usage-paper-390.png)    | [Comparison](usage-paper-1440-comparison.png)    | [Comparison](usage-paper-390-comparison.png)    |
+| slate    | [1440](usage-slate-1440.png)    | [390](usage-slate-390.png)    | [Comparison](usage-slate-1440-comparison.png)    | [Comparison](usage-slate-390-comparison.png)    |
+| contrast | [1440](usage-contrast-1440.png) | [390](usage-contrast-390.png) | [Comparison](usage-contrast-1440-comparison.png) | [Comparison](usage-contrast-390-comparison.png) |
+
+## Hover controls
+
+- [light 1440](account-hover-light-1440.png) and [comparison](account-hover-light-1440-comparison.png)
+- [light 390](account-hover-light-390.png) and [comparison](account-hover-light-390-comparison.png)
+- [dark 1440](account-hover-dark-1440.png) and [comparison](account-hover-dark-1440-comparison.png)
+- [dark 390](account-hover-dark-390.png) and [comparison](account-hover-dark-390-comparison.png)
+
+## All-theme review sheets
+
+- [account-hover](account-hover-review.png)
+- [account-menu](account-menu-review.png)
+- [account-remove](account-remove-review.png)
+- [add-account](add-account-review.png)
+- [add-failure](add-failure-review.png)
+- [add-success](add-success-review.png)
+- [add-waiting](add-waiting-review.png)
+- [advanced](advanced-review.png)
+- [cli-badge](cli-badge-review.png)
+- [cli-edit-failure](cli-edit-failure-review.png)
+- [cli-edit](cli-edit-review.png)
+- [cli-initial](cli-initial-review.png)
+- [models](models-review.png)
+- [provider-acp](provider-acp-review.png)
+- [provider-antigravity](provider-antigravity-review.png)
+- [provider-claude](provider-claude-review.png)
+- [provider-cursor](provider-cursor-review.png)
+- [provider-opencode](provider-opencode-review.png)
+- [provider-pi](provider-pi-review.png)
+- [provider](provider-review.png)
+- [providers-badge](providers-badge-review.png)
+- [providers](providers-review.png)
+- [usage-badge](usage-badge-review.png)
+- [usage-by-account](usage-by-account-review.png)
+- [usage-detail](usage-detail-review.png)
+- [usage](usage-review.png)
+
+## Before and after follow-up 2
+
+- [add-account-dark-1440](before-after-add-account-dark-1440.png)
+- [add-account-dark-390](before-after-add-account-dark-390.png)
+- [add-account-light-1440](before-after-add-account-light-1440.png)
+- [add-account-light-390](before-after-add-account-light-390.png)
+- [provider-dark-1440](before-after-provider-dark-1440.png)
+- [provider-dark-390](before-after-provider-dark-390.png)
+- [provider-light-1440](before-after-provider-light-1440.png)
+- [provider-light-390](before-after-provider-light-390.png)
+- [providers-dark-1440](before-after-providers-dark-1440.png)
+- [providers-dark-390](before-after-providers-dark-390.png)
+- [providers-light-1440](before-after-providers-light-1440.png)
+- [providers-light-390](before-after-providers-light-390.png)
+- [usage-dark-1440](before-after-usage-dark-1440.png)
+- [usage-dark-390](before-after-usage-dark-390.png)
+- [usage-light-1440](before-after-usage-light-1440.png)
+- [usage-light-390](before-after-usage-light-390.png)
+
+## Complete capture list
+
+Files with links are attached here; the others remain at the stated local path and appear in their review sheet.
+
+- account-hover-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-contrast-1440-comparison.png`
+- account-hover-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-contrast-1440.png`
+- account-hover-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-contrast-390-comparison.png`
+- account-hover-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-contrast-390.png`
+- [account-hover-dark-1440-comparison.png](account-hover-dark-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-dark-1440-comparison.png`
+- [account-hover-dark-1440.png](account-hover-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-dark-1440.png`
+- [account-hover-dark-390-comparison.png](account-hover-dark-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-dark-390-comparison.png`
+- [account-hover-dark-390.png](account-hover-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-dark-390.png`
+- account-hover-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-graphite-1440-comparison.png`
+- account-hover-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-graphite-1440.png`
+- account-hover-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-graphite-390-comparison.png`
+- account-hover-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-graphite-390.png`
+- [account-hover-light-1440-comparison.png](account-hover-light-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-light-1440-comparison.png`
+- [account-hover-light-1440.png](account-hover-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-light-1440.png`
+- [account-hover-light-390-comparison.png](account-hover-light-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-light-390-comparison.png`
+- [account-hover-light-390.png](account-hover-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-light-390.png`
+- account-hover-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-midnight-1440-comparison.png`
+- account-hover-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-midnight-1440.png`
+- account-hover-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-midnight-390-comparison.png`
+- account-hover-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-midnight-390.png`
+- account-hover-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-paper-1440-comparison.png`
+- account-hover-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-paper-1440.png`
+- account-hover-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-paper-390-comparison.png`
+- account-hover-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-paper-390.png`
+- [account-hover-review.png](account-hover-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-review.png`
+- account-hover-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-slate-1440-comparison.png`
+- account-hover-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-slate-1440.png`
+- account-hover-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-slate-390-comparison.png`
+- account-hover-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-hover-slate-390.png`
+- account-menu-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-contrast-1440-comparison.png`
+- account-menu-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-contrast-1440.png`
+- account-menu-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-contrast-390-comparison.png`
+- account-menu-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-contrast-390.png`
+- account-menu-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-dark-1440-comparison.png`
+- account-menu-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-dark-1440.png`
+- account-menu-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-dark-390-comparison.png`
+- account-menu-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-dark-390.png`
+- account-menu-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-graphite-1440-comparison.png`
+- account-menu-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-graphite-1440.png`
+- account-menu-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-graphite-390-comparison.png`
+- account-menu-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-graphite-390.png`
+- account-menu-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-light-1440-comparison.png`
+- account-menu-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-light-1440.png`
+- account-menu-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-light-390-comparison.png`
+- account-menu-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-light-390.png`
+- account-menu-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-midnight-1440-comparison.png`
+- account-menu-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-midnight-1440.png`
+- account-menu-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-midnight-390-comparison.png`
+- account-menu-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-midnight-390.png`
+- account-menu-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-paper-1440-comparison.png`
+- account-menu-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-paper-1440.png`
+- account-menu-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-paper-390-comparison.png`
+- account-menu-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-paper-390.png`
+- [account-menu-review.png](account-menu-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-review.png`
+- account-menu-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-slate-1440-comparison.png`
+- account-menu-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-slate-1440.png`
+- account-menu-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-slate-390-comparison.png`
+- account-menu-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-menu-slate-390.png`
+- account-remove-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-contrast-1440-comparison.png`
+- account-remove-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-contrast-1440.png`
+- account-remove-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-contrast-390-comparison.png`
+- account-remove-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-contrast-390.png`
+- account-remove-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-dark-1440-comparison.png`
+- account-remove-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-dark-1440.png`
+- account-remove-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-dark-390-comparison.png`
+- account-remove-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-dark-390.png`
+- account-remove-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-graphite-1440-comparison.png`
+- account-remove-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-graphite-1440.png`
+- account-remove-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-graphite-390-comparison.png`
+- account-remove-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-graphite-390.png`
+- account-remove-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-light-1440-comparison.png`
+- account-remove-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-light-1440.png`
+- account-remove-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-light-390-comparison.png`
+- account-remove-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-light-390.png`
+- account-remove-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-midnight-1440-comparison.png`
+- account-remove-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-midnight-1440.png`
+- account-remove-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-midnight-390-comparison.png`
+- account-remove-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-midnight-390.png`
+- account-remove-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-paper-1440-comparison.png`
+- account-remove-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-paper-1440.png`
+- account-remove-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-paper-390-comparison.png`
+- account-remove-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-paper-390.png`
+- [account-remove-review.png](account-remove-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-review.png`
+- account-remove-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-slate-1440-comparison.png`
+- account-remove-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-slate-1440.png`
+- account-remove-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-slate-390-comparison.png`
+- account-remove-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/account-remove-slate-390.png`
+- add-account-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-contrast-1440-comparison.png`
+- add-account-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-contrast-1440.png`
+- add-account-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-contrast-390-comparison.png`
+- add-account-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-contrast-390.png`
+- add-account-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-dark-1440-comparison.png`
+- add-account-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-dark-1440.png`
+- add-account-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-dark-390-comparison.png`
+- add-account-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-dark-390.png`
+- add-account-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-graphite-1440-comparison.png`
+- add-account-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-graphite-1440.png`
+- add-account-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-graphite-390-comparison.png`
+- add-account-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-graphite-390.png`
+- add-account-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-light-1440-comparison.png`
+- add-account-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-light-1440.png`
+- add-account-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-light-390-comparison.png`
+- add-account-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-light-390.png`
+- add-account-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-midnight-1440-comparison.png`
+- add-account-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-midnight-1440.png`
+- add-account-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-midnight-390-comparison.png`
+- add-account-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-midnight-390.png`
+- add-account-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-paper-1440-comparison.png`
+- add-account-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-paper-1440.png`
+- add-account-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-paper-390-comparison.png`
+- add-account-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-paper-390.png`
+- [add-account-review.png](add-account-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-review.png`
+- add-account-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-slate-1440-comparison.png`
+- add-account-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-slate-1440.png`
+- add-account-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-slate-390-comparison.png`
+- add-account-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-account-slate-390.png`
+- add-failure-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-contrast-1440-comparison.png`
+- add-failure-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-contrast-1440.png`
+- add-failure-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-contrast-390-comparison.png`
+- add-failure-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-contrast-390.png`
+- add-failure-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-dark-1440-comparison.png`
+- add-failure-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-dark-1440.png`
+- add-failure-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-dark-390-comparison.png`
+- add-failure-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-dark-390.png`
+- add-failure-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-graphite-1440-comparison.png`
+- add-failure-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-graphite-1440.png`
+- add-failure-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-graphite-390-comparison.png`
+- add-failure-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-graphite-390.png`
+- add-failure-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-light-1440-comparison.png`
+- add-failure-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-light-1440.png`
+- add-failure-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-light-390-comparison.png`
+- add-failure-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-light-390.png`
+- add-failure-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-midnight-1440-comparison.png`
+- add-failure-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-midnight-1440.png`
+- add-failure-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-midnight-390-comparison.png`
+- add-failure-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-midnight-390.png`
+- add-failure-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-paper-1440-comparison.png`
+- add-failure-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-paper-1440.png`
+- add-failure-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-paper-390-comparison.png`
+- add-failure-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-paper-390.png`
+- [add-failure-review.png](add-failure-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-review.png`
+- add-failure-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-slate-1440-comparison.png`
+- add-failure-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-slate-1440.png`
+- add-failure-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-slate-390-comparison.png`
+- add-failure-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-failure-slate-390.png`
+- add-success-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-contrast-1440-comparison.png`
+- add-success-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-contrast-1440.png`
+- add-success-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-contrast-390-comparison.png`
+- add-success-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-contrast-390.png`
+- add-success-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-dark-1440-comparison.png`
+- add-success-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-dark-1440.png`
+- add-success-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-dark-390-comparison.png`
+- add-success-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-dark-390.png`
+- add-success-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-graphite-1440-comparison.png`
+- add-success-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-graphite-1440.png`
+- add-success-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-graphite-390-comparison.png`
+- add-success-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-graphite-390.png`
+- add-success-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-light-1440-comparison.png`
+- add-success-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-light-1440.png`
+- add-success-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-light-390-comparison.png`
+- add-success-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-light-390.png`
+- add-success-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-midnight-1440-comparison.png`
+- add-success-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-midnight-1440.png`
+- add-success-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-midnight-390-comparison.png`
+- add-success-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-midnight-390.png`
+- add-success-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-paper-1440-comparison.png`
+- add-success-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-paper-1440.png`
+- add-success-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-paper-390-comparison.png`
+- add-success-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-paper-390.png`
+- [add-success-review.png](add-success-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-review.png`
+- add-success-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-slate-1440-comparison.png`
+- add-success-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-slate-1440.png`
+- add-success-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-slate-390-comparison.png`
+- add-success-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-success-slate-390.png`
+- add-waiting-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-contrast-1440-comparison.png`
+- add-waiting-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-contrast-1440.png`
+- add-waiting-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-contrast-390-comparison.png`
+- add-waiting-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-contrast-390.png`
+- add-waiting-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-dark-1440-comparison.png`
+- add-waiting-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-dark-1440.png`
+- add-waiting-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-dark-390-comparison.png`
+- add-waiting-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-dark-390.png`
+- add-waiting-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-graphite-1440-comparison.png`
+- add-waiting-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-graphite-1440.png`
+- add-waiting-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-graphite-390-comparison.png`
+- add-waiting-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-graphite-390.png`
+- add-waiting-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-light-1440-comparison.png`
+- add-waiting-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-light-1440.png`
+- add-waiting-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-light-390-comparison.png`
+- add-waiting-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-light-390.png`
+- add-waiting-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-midnight-1440-comparison.png`
+- add-waiting-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-midnight-1440.png`
+- add-waiting-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-midnight-390-comparison.png`
+- add-waiting-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-midnight-390.png`
+- add-waiting-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-paper-1440-comparison.png`
+- add-waiting-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-paper-1440.png`
+- add-waiting-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-paper-390-comparison.png`
+- add-waiting-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-paper-390.png`
+- [add-waiting-review.png](add-waiting-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-review.png`
+- add-waiting-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-slate-1440-comparison.png`
+- add-waiting-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-slate-1440.png`
+- add-waiting-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-slate-390-comparison.png`
+- add-waiting-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/add-waiting-slate-390.png`
+- advanced-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-contrast-1440-comparison.png`
+- advanced-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-contrast-1440.png`
+- advanced-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-contrast-390-comparison.png`
+- advanced-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-contrast-390.png`
+- advanced-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-dark-1440-comparison.png`
+- advanced-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-dark-1440.png`
+- advanced-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-dark-390-comparison.png`
+- advanced-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-dark-390.png`
+- advanced-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-graphite-1440-comparison.png`
+- advanced-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-graphite-1440.png`
+- advanced-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-graphite-390-comparison.png`
+- advanced-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-graphite-390.png`
+- advanced-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-light-1440-comparison.png`
+- advanced-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-light-1440.png`
+- advanced-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-light-390-comparison.png`
+- advanced-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-light-390.png`
+- advanced-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-midnight-1440-comparison.png`
+- advanced-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-midnight-1440.png`
+- advanced-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-midnight-390-comparison.png`
+- advanced-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-midnight-390.png`
+- advanced-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-paper-1440-comparison.png`
+- advanced-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-paper-1440.png`
+- advanced-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-paper-390-comparison.png`
+- advanced-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-paper-390.png`
+- [advanced-review.png](advanced-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-review.png`
+- advanced-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-slate-1440-comparison.png`
+- advanced-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-slate-1440.png`
+- advanced-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-slate-390-comparison.png`
+- advanced-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/advanced-slate-390.png`
+- [before-after-add-account-dark-1440.png](before-after-add-account-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-add-account-dark-1440.png`
+- [before-after-add-account-dark-390.png](before-after-add-account-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-add-account-dark-390.png`
+- [before-after-add-account-light-1440.png](before-after-add-account-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-add-account-light-1440.png`
+- [before-after-add-account-light-390.png](before-after-add-account-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-add-account-light-390.png`
+- [before-after-provider-dark-1440.png](before-after-provider-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-provider-dark-1440.png`
+- [before-after-provider-dark-390.png](before-after-provider-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-provider-dark-390.png`
+- [before-after-provider-light-1440.png](before-after-provider-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-provider-light-1440.png`
+- [before-after-provider-light-390.png](before-after-provider-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-provider-light-390.png`
+- [before-after-providers-dark-1440.png](before-after-providers-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-providers-dark-1440.png`
+- [before-after-providers-dark-390.png](before-after-providers-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-providers-dark-390.png`
+- [before-after-providers-light-1440.png](before-after-providers-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-providers-light-1440.png`
+- [before-after-providers-light-390.png](before-after-providers-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-providers-light-390.png`
+- [before-after-usage-dark-1440.png](before-after-usage-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-usage-dark-1440.png`
+- [before-after-usage-dark-390.png](before-after-usage-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-usage-dark-390.png`
+- [before-after-usage-light-1440.png](before-after-usage-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-usage-light-1440.png`
+- [before-after-usage-light-390.png](before-after-usage-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/before-after-usage-light-390.png`
+- cli-badge-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-contrast-1440-comparison.png`
+- cli-badge-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-contrast-1440.png`
+- cli-badge-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-contrast-390-comparison.png`
+- cli-badge-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-contrast-390.png`
+- cli-badge-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-dark-1440-comparison.png`
+- cli-badge-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-dark-1440.png`
+- cli-badge-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-dark-390-comparison.png`
+- cli-badge-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-dark-390.png`
+- cli-badge-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-graphite-1440-comparison.png`
+- cli-badge-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-graphite-1440.png`
+- cli-badge-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-graphite-390-comparison.png`
+- cli-badge-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-graphite-390.png`
+- cli-badge-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-light-1440-comparison.png`
+- cli-badge-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-light-1440.png`
+- cli-badge-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-light-390-comparison.png`
+- cli-badge-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-light-390.png`
+- cli-badge-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-midnight-1440-comparison.png`
+- cli-badge-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-midnight-1440.png`
+- cli-badge-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-midnight-390-comparison.png`
+- cli-badge-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-midnight-390.png`
+- cli-badge-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-paper-1440-comparison.png`
+- cli-badge-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-paper-1440.png`
+- cli-badge-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-paper-390-comparison.png`
+- cli-badge-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-paper-390.png`
+- [cli-badge-review.png](cli-badge-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-review.png`
+- cli-badge-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-slate-1440-comparison.png`
+- cli-badge-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-slate-1440.png`
+- cli-badge-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-slate-390-comparison.png`
+- cli-badge-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-badge-slate-390.png`
+- cli-edit-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-contrast-1440-comparison.png`
+- cli-edit-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-contrast-1440.png`
+- cli-edit-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-contrast-390-comparison.png`
+- cli-edit-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-contrast-390.png`
+- cli-edit-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-dark-1440-comparison.png`
+- cli-edit-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-dark-1440.png`
+- cli-edit-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-dark-390-comparison.png`
+- cli-edit-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-dark-390.png`
+- cli-edit-failure-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-contrast-1440-comparison.png`
+- cli-edit-failure-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-contrast-1440.png`
+- cli-edit-failure-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-contrast-390-comparison.png`
+- cli-edit-failure-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-contrast-390.png`
+- cli-edit-failure-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-dark-1440-comparison.png`
+- cli-edit-failure-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-dark-1440.png`
+- cli-edit-failure-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-dark-390-comparison.png`
+- cli-edit-failure-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-dark-390.png`
+- cli-edit-failure-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-graphite-1440-comparison.png`
+- cli-edit-failure-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-graphite-1440.png`
+- cli-edit-failure-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-graphite-390-comparison.png`
+- cli-edit-failure-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-graphite-390.png`
+- cli-edit-failure-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-light-1440-comparison.png`
+- cli-edit-failure-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-light-1440.png`
+- cli-edit-failure-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-light-390-comparison.png`
+- cli-edit-failure-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-light-390.png`
+- cli-edit-failure-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-midnight-1440-comparison.png`
+- cli-edit-failure-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-midnight-1440.png`
+- cli-edit-failure-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-midnight-390-comparison.png`
+- cli-edit-failure-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-midnight-390.png`
+- cli-edit-failure-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-paper-1440-comparison.png`
+- cli-edit-failure-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-paper-1440.png`
+- cli-edit-failure-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-paper-390-comparison.png`
+- cli-edit-failure-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-paper-390.png`
+- [cli-edit-failure-review.png](cli-edit-failure-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-review.png`
+- cli-edit-failure-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-slate-1440-comparison.png`
+- cli-edit-failure-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-slate-1440.png`
+- cli-edit-failure-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-slate-390-comparison.png`
+- cli-edit-failure-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-failure-slate-390.png`
+- cli-edit-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-graphite-1440-comparison.png`
+- cli-edit-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-graphite-1440.png`
+- cli-edit-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-graphite-390-comparison.png`
+- cli-edit-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-graphite-390.png`
+- cli-edit-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-light-1440-comparison.png`
+- cli-edit-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-light-1440.png`
+- cli-edit-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-light-390-comparison.png`
+- cli-edit-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-light-390.png`
+- cli-edit-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-midnight-1440-comparison.png`
+- cli-edit-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-midnight-1440.png`
+- cli-edit-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-midnight-390-comparison.png`
+- cli-edit-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-midnight-390.png`
+- cli-edit-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-paper-1440-comparison.png`
+- cli-edit-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-paper-1440.png`
+- cli-edit-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-paper-390-comparison.png`
+- cli-edit-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-paper-390.png`
+- [cli-edit-review.png](cli-edit-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-review.png`
+- cli-edit-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-slate-1440-comparison.png`
+- cli-edit-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-slate-1440.png`
+- cli-edit-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-slate-390-comparison.png`
+- cli-edit-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-edit-slate-390.png`
+- cli-initial-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-contrast-1440-comparison.png`
+- cli-initial-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-contrast-1440.png`
+- cli-initial-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-contrast-390-comparison.png`
+- cli-initial-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-contrast-390.png`
+- cli-initial-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-dark-1440-comparison.png`
+- cli-initial-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-dark-1440.png`
+- cli-initial-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-dark-390-comparison.png`
+- cli-initial-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-dark-390.png`
+- cli-initial-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-graphite-1440-comparison.png`
+- cli-initial-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-graphite-1440.png`
+- cli-initial-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-graphite-390-comparison.png`
+- cli-initial-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-graphite-390.png`
+- cli-initial-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-light-1440-comparison.png`
+- cli-initial-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-light-1440.png`
+- cli-initial-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-light-390-comparison.png`
+- cli-initial-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-light-390.png`
+- cli-initial-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-midnight-1440-comparison.png`
+- cli-initial-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-midnight-1440.png`
+- cli-initial-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-midnight-390-comparison.png`
+- cli-initial-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-midnight-390.png`
+- cli-initial-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-paper-1440-comparison.png`
+- cli-initial-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-paper-1440.png`
+- cli-initial-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-paper-390-comparison.png`
+- cli-initial-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-paper-390.png`
+- [cli-initial-review.png](cli-initial-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-review.png`
+- cli-initial-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-slate-1440-comparison.png`
+- cli-initial-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-slate-1440.png`
+- cli-initial-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-slate-390-comparison.png`
+- cli-initial-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/cli-initial-slate-390.png`
+- models-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-contrast-1440-comparison.png`
+- models-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-contrast-1440.png`
+- models-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-contrast-390-comparison.png`
+- models-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-contrast-390.png`
+- models-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-dark-1440-comparison.png`
+- models-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-dark-1440.png`
+- models-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-dark-390-comparison.png`
+- models-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-dark-390.png`
+- models-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-graphite-1440-comparison.png`
+- models-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-graphite-1440.png`
+- models-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-graphite-390-comparison.png`
+- models-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-graphite-390.png`
+- models-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-light-1440-comparison.png`
+- models-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-light-1440.png`
+- models-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-light-390-comparison.png`
+- models-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-light-390.png`
+- models-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-midnight-1440-comparison.png`
+- models-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-midnight-1440.png`
+- models-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-midnight-390-comparison.png`
+- models-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-midnight-390.png`
+- models-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-paper-1440-comparison.png`
+- models-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-paper-1440.png`
+- models-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-paper-390-comparison.png`
+- models-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-paper-390.png`
+- [models-review.png](models-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-review.png`
+- models-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-slate-1440-comparison.png`
+- models-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-slate-1440.png`
+- models-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-slate-390-comparison.png`
+- models-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/models-slate-390.png`
+- provider-acp-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-contrast-1440-comparison.png`
+- provider-acp-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-contrast-1440.png`
+- provider-acp-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-contrast-390-comparison.png`
+- provider-acp-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-contrast-390.png`
+- provider-acp-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-dark-1440-comparison.png`
+- provider-acp-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-dark-1440.png`
+- provider-acp-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-dark-390-comparison.png`
+- provider-acp-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-dark-390.png`
+- provider-acp-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-graphite-1440-comparison.png`
+- provider-acp-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-graphite-1440.png`
+- provider-acp-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-graphite-390-comparison.png`
+- provider-acp-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-graphite-390.png`
+- provider-acp-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-light-1440-comparison.png`
+- provider-acp-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-light-1440.png`
+- provider-acp-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-light-390-comparison.png`
+- provider-acp-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-light-390.png`
+- provider-acp-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-midnight-1440-comparison.png`
+- provider-acp-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-midnight-1440.png`
+- provider-acp-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-midnight-390-comparison.png`
+- provider-acp-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-midnight-390.png`
+- provider-acp-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-paper-1440-comparison.png`
+- provider-acp-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-paper-1440.png`
+- provider-acp-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-paper-390-comparison.png`
+- provider-acp-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-paper-390.png`
+- [provider-acp-review.png](provider-acp-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-review.png`
+- provider-acp-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-slate-1440-comparison.png`
+- provider-acp-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-slate-1440.png`
+- provider-acp-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-slate-390-comparison.png`
+- provider-acp-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-acp-slate-390.png`
+- provider-antigravity-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-contrast-1440-comparison.png`
+- provider-antigravity-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-contrast-1440.png`
+- provider-antigravity-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-contrast-390-comparison.png`
+- provider-antigravity-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-contrast-390.png`
+- provider-antigravity-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-dark-1440-comparison.png`
+- provider-antigravity-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-dark-1440.png`
+- provider-antigravity-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-dark-390-comparison.png`
+- provider-antigravity-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-dark-390.png`
+- provider-antigravity-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-graphite-1440-comparison.png`
+- provider-antigravity-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-graphite-1440.png`
+- provider-antigravity-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-graphite-390-comparison.png`
+- provider-antigravity-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-graphite-390.png`
+- provider-antigravity-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-light-1440-comparison.png`
+- provider-antigravity-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-light-1440.png`
+- provider-antigravity-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-light-390-comparison.png`
+- provider-antigravity-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-light-390.png`
+- provider-antigravity-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-midnight-1440-comparison.png`
+- provider-antigravity-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-midnight-1440.png`
+- provider-antigravity-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-midnight-390-comparison.png`
+- provider-antigravity-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-midnight-390.png`
+- provider-antigravity-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-paper-1440-comparison.png`
+- provider-antigravity-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-paper-1440.png`
+- provider-antigravity-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-paper-390-comparison.png`
+- provider-antigravity-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-paper-390.png`
+- [provider-antigravity-review.png](provider-antigravity-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-review.png`
+- provider-antigravity-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-slate-1440-comparison.png`
+- provider-antigravity-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-slate-1440.png`
+- provider-antigravity-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-slate-390-comparison.png`
+- provider-antigravity-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-antigravity-slate-390.png`
+- provider-claude-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-contrast-1440-comparison.png`
+- provider-claude-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-contrast-1440.png`
+- provider-claude-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-contrast-390-comparison.png`
+- provider-claude-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-contrast-390.png`
+- provider-claude-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-dark-1440-comparison.png`
+- provider-claude-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-dark-1440.png`
+- provider-claude-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-dark-390-comparison.png`
+- provider-claude-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-dark-390.png`
+- provider-claude-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-graphite-1440-comparison.png`
+- provider-claude-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-graphite-1440.png`
+- provider-claude-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-graphite-390-comparison.png`
+- provider-claude-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-graphite-390.png`
+- provider-claude-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-light-1440-comparison.png`
+- provider-claude-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-light-1440.png`
+- provider-claude-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-light-390-comparison.png`
+- provider-claude-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-light-390.png`
+- provider-claude-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-midnight-1440-comparison.png`
+- provider-claude-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-midnight-1440.png`
+- provider-claude-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-midnight-390-comparison.png`
+- provider-claude-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-midnight-390.png`
+- provider-claude-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-paper-1440-comparison.png`
+- provider-claude-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-paper-1440.png`
+- provider-claude-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-paper-390-comparison.png`
+- provider-claude-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-paper-390.png`
+- [provider-claude-review.png](provider-claude-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-review.png`
+- provider-claude-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-slate-1440-comparison.png`
+- provider-claude-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-slate-1440.png`
+- provider-claude-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-slate-390-comparison.png`
+- provider-claude-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-claude-slate-390.png`
+- [provider-contrast-1440-comparison.png](provider-contrast-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-contrast-1440-comparison.png`
+- [provider-contrast-1440.png](provider-contrast-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-contrast-1440.png`
+- [provider-contrast-390-comparison.png](provider-contrast-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-contrast-390-comparison.png`
+- [provider-contrast-390.png](provider-contrast-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-contrast-390.png`
+- provider-cursor-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-contrast-1440-comparison.png`
+- provider-cursor-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-contrast-1440.png`
+- provider-cursor-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-contrast-390-comparison.png`
+- provider-cursor-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-contrast-390.png`
+- provider-cursor-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-dark-1440-comparison.png`
+- provider-cursor-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-dark-1440.png`
+- provider-cursor-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-dark-390-comparison.png`
+- provider-cursor-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-dark-390.png`
+- provider-cursor-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-graphite-1440-comparison.png`
+- provider-cursor-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-graphite-1440.png`
+- provider-cursor-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-graphite-390-comparison.png`
+- provider-cursor-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-graphite-390.png`
+- provider-cursor-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-light-1440-comparison.png`
+- provider-cursor-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-light-1440.png`
+- provider-cursor-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-light-390-comparison.png`
+- provider-cursor-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-light-390.png`
+- provider-cursor-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-midnight-1440-comparison.png`
+- provider-cursor-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-midnight-1440.png`
+- provider-cursor-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-midnight-390-comparison.png`
+- provider-cursor-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-midnight-390.png`
+- provider-cursor-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-paper-1440-comparison.png`
+- provider-cursor-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-paper-1440.png`
+- provider-cursor-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-paper-390-comparison.png`
+- provider-cursor-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-paper-390.png`
+- [provider-cursor-review.png](provider-cursor-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-review.png`
+- provider-cursor-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-slate-1440-comparison.png`
+- provider-cursor-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-slate-1440.png`
+- provider-cursor-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-slate-390-comparison.png`
+- provider-cursor-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-cursor-slate-390.png`
+- [provider-dark-1440-comparison.png](provider-dark-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-dark-1440-comparison.png`
+- [provider-dark-1440.png](provider-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-dark-1440.png`
+- [provider-dark-390-comparison.png](provider-dark-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-dark-390-comparison.png`
+- [provider-dark-390.png](provider-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-dark-390.png`
+- [provider-graphite-1440-comparison.png](provider-graphite-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-graphite-1440-comparison.png`
+- [provider-graphite-1440.png](provider-graphite-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-graphite-1440.png`
+- [provider-graphite-390-comparison.png](provider-graphite-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-graphite-390-comparison.png`
+- [provider-graphite-390.png](provider-graphite-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-graphite-390.png`
+- [provider-light-1440-comparison.png](provider-light-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-light-1440-comparison.png`
+- [provider-light-1440.png](provider-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-light-1440.png`
+- [provider-light-390-comparison.png](provider-light-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-light-390-comparison.png`
+- [provider-light-390.png](provider-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-light-390.png`
+- [provider-midnight-1440-comparison.png](provider-midnight-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-midnight-1440-comparison.png`
+- [provider-midnight-1440.png](provider-midnight-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-midnight-1440.png`
+- [provider-midnight-390-comparison.png](provider-midnight-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-midnight-390-comparison.png`
+- [provider-midnight-390.png](provider-midnight-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-midnight-390.png`
+- provider-opencode-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-contrast-1440-comparison.png`
+- provider-opencode-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-contrast-1440.png`
+- provider-opencode-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-contrast-390-comparison.png`
+- provider-opencode-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-contrast-390.png`
+- provider-opencode-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-dark-1440-comparison.png`
+- provider-opencode-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-dark-1440.png`
+- provider-opencode-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-dark-390-comparison.png`
+- provider-opencode-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-dark-390.png`
+- provider-opencode-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-graphite-1440-comparison.png`
+- provider-opencode-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-graphite-1440.png`
+- provider-opencode-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-graphite-390-comparison.png`
+- provider-opencode-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-graphite-390.png`
+- provider-opencode-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-light-1440-comparison.png`
+- provider-opencode-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-light-1440.png`
+- provider-opencode-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-light-390-comparison.png`
+- provider-opencode-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-light-390.png`
+- provider-opencode-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-midnight-1440-comparison.png`
+- provider-opencode-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-midnight-1440.png`
+- provider-opencode-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-midnight-390-comparison.png`
+- provider-opencode-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-midnight-390.png`
+- provider-opencode-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-paper-1440-comparison.png`
+- provider-opencode-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-paper-1440.png`
+- provider-opencode-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-paper-390-comparison.png`
+- provider-opencode-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-paper-390.png`
+- [provider-opencode-review.png](provider-opencode-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-review.png`
+- provider-opencode-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-slate-1440-comparison.png`
+- provider-opencode-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-slate-1440.png`
+- provider-opencode-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-slate-390-comparison.png`
+- provider-opencode-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-opencode-slate-390.png`
+- [provider-paper-1440-comparison.png](provider-paper-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-paper-1440-comparison.png`
+- [provider-paper-1440.png](provider-paper-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-paper-1440.png`
+- [provider-paper-390-comparison.png](provider-paper-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-paper-390-comparison.png`
+- [provider-paper-390.png](provider-paper-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-paper-390.png`
+- provider-pi-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-contrast-1440-comparison.png`
+- provider-pi-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-contrast-1440.png`
+- provider-pi-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-contrast-390-comparison.png`
+- provider-pi-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-contrast-390.png`
+- provider-pi-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-dark-1440-comparison.png`
+- provider-pi-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-dark-1440.png`
+- provider-pi-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-dark-390-comparison.png`
+- provider-pi-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-dark-390.png`
+- provider-pi-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-graphite-1440-comparison.png`
+- provider-pi-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-graphite-1440.png`
+- provider-pi-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-graphite-390-comparison.png`
+- provider-pi-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-graphite-390.png`
+- provider-pi-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-light-1440-comparison.png`
+- provider-pi-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-light-1440.png`
+- provider-pi-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-light-390-comparison.png`
+- provider-pi-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-light-390.png`
+- provider-pi-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-midnight-1440-comparison.png`
+- provider-pi-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-midnight-1440.png`
+- provider-pi-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-midnight-390-comparison.png`
+- provider-pi-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-midnight-390.png`
+- provider-pi-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-paper-1440-comparison.png`
+- provider-pi-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-paper-1440.png`
+- provider-pi-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-paper-390-comparison.png`
+- provider-pi-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-paper-390.png`
+- [provider-pi-review.png](provider-pi-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-review.png`
+- provider-pi-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-slate-1440-comparison.png`
+- provider-pi-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-slate-1440.png`
+- provider-pi-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-slate-390-comparison.png`
+- provider-pi-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-pi-slate-390.png`
+- [provider-review.png](provider-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-review.png`
+- [provider-slate-1440-comparison.png](provider-slate-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-slate-1440-comparison.png`
+- [provider-slate-1440.png](provider-slate-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-slate-1440.png`
+- [provider-slate-390-comparison.png](provider-slate-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-slate-390-comparison.png`
+- [provider-slate-390.png](provider-slate-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/provider-slate-390.png`
+- providers-badge-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-contrast-1440-comparison.png`
+- providers-badge-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-contrast-1440.png`
+- providers-badge-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-contrast-390-comparison.png`
+- providers-badge-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-contrast-390.png`
+- providers-badge-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-dark-1440-comparison.png`
+- providers-badge-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-dark-1440.png`
+- providers-badge-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-dark-390-comparison.png`
+- providers-badge-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-dark-390.png`
+- providers-badge-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-graphite-1440-comparison.png`
+- providers-badge-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-graphite-1440.png`
+- providers-badge-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-graphite-390-comparison.png`
+- providers-badge-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-graphite-390.png`
+- providers-badge-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-light-1440-comparison.png`
+- providers-badge-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-light-1440.png`
+- providers-badge-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-light-390-comparison.png`
+- providers-badge-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-light-390.png`
+- providers-badge-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-midnight-1440-comparison.png`
+- providers-badge-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-midnight-1440.png`
+- providers-badge-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-midnight-390-comparison.png`
+- providers-badge-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-midnight-390.png`
+- providers-badge-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-paper-1440-comparison.png`
+- providers-badge-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-paper-1440.png`
+- providers-badge-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-paper-390-comparison.png`
+- providers-badge-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-paper-390.png`
+- [providers-badge-review.png](providers-badge-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-review.png`
+- providers-badge-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-slate-1440-comparison.png`
+- providers-badge-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-slate-1440.png`
+- providers-badge-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-slate-390-comparison.png`
+- providers-badge-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-badge-slate-390.png`
+- providers-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-contrast-1440-comparison.png`
+- providers-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-contrast-1440.png`
+- providers-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-contrast-390-comparison.png`
+- providers-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-contrast-390.png`
+- providers-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-dark-1440-comparison.png`
+- providers-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-dark-1440.png`
+- providers-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-dark-390-comparison.png`
+- providers-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-dark-390.png`
+- providers-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-graphite-1440-comparison.png`
+- providers-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-graphite-1440.png`
+- providers-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-graphite-390-comparison.png`
+- providers-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-graphite-390.png`
+- providers-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-light-1440-comparison.png`
+- providers-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-light-1440.png`
+- providers-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-light-390-comparison.png`
+- providers-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-light-390.png`
+- providers-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-midnight-1440-comparison.png`
+- providers-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-midnight-1440.png`
+- providers-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-midnight-390-comparison.png`
+- providers-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-midnight-390.png`
+- providers-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-paper-1440-comparison.png`
+- providers-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-paper-1440.png`
+- providers-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-paper-390-comparison.png`
+- providers-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-paper-390.png`
+- [providers-review.png](providers-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-review.png`
+- providers-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-slate-1440-comparison.png`
+- providers-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-slate-1440.png`
+- providers-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-slate-390-comparison.png`
+- providers-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/providers-slate-390.png`
+- usage-badge-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-contrast-1440-comparison.png`
+- usage-badge-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-contrast-1440.png`
+- usage-badge-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-contrast-390-comparison.png`
+- usage-badge-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-contrast-390.png`
+- usage-badge-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-dark-1440-comparison.png`
+- usage-badge-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-dark-1440.png`
+- usage-badge-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-dark-390-comparison.png`
+- usage-badge-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-dark-390.png`
+- usage-badge-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-graphite-1440-comparison.png`
+- usage-badge-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-graphite-1440.png`
+- usage-badge-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-graphite-390-comparison.png`
+- usage-badge-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-graphite-390.png`
+- usage-badge-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-light-1440-comparison.png`
+- usage-badge-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-light-1440.png`
+- usage-badge-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-light-390-comparison.png`
+- usage-badge-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-light-390.png`
+- usage-badge-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-midnight-1440-comparison.png`
+- usage-badge-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-midnight-1440.png`
+- usage-badge-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-midnight-390-comparison.png`
+- usage-badge-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-midnight-390.png`
+- usage-badge-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-paper-1440-comparison.png`
+- usage-badge-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-paper-1440.png`
+- usage-badge-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-paper-390-comparison.png`
+- usage-badge-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-paper-390.png`
+- [usage-badge-review.png](usage-badge-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-review.png`
+- usage-badge-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-slate-1440-comparison.png`
+- usage-badge-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-slate-1440.png`
+- usage-badge-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-slate-390-comparison.png`
+- usage-badge-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-badge-slate-390.png`
+- usage-by-account-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-contrast-1440-comparison.png`
+- usage-by-account-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-contrast-1440.png`
+- usage-by-account-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-contrast-390-comparison.png`
+- usage-by-account-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-contrast-390.png`
+- usage-by-account-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-dark-1440-comparison.png`
+- usage-by-account-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-dark-1440.png`
+- usage-by-account-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-dark-390-comparison.png`
+- usage-by-account-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-dark-390.png`
+- usage-by-account-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-graphite-1440-comparison.png`
+- usage-by-account-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-graphite-1440.png`
+- usage-by-account-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-graphite-390-comparison.png`
+- usage-by-account-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-graphite-390.png`
+- usage-by-account-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-light-1440-comparison.png`
+- usage-by-account-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-light-1440.png`
+- usage-by-account-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-light-390-comparison.png`
+- usage-by-account-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-light-390.png`
+- usage-by-account-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-midnight-1440-comparison.png`
+- usage-by-account-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-midnight-1440.png`
+- usage-by-account-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-midnight-390-comparison.png`
+- usage-by-account-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-midnight-390.png`
+- usage-by-account-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-paper-1440-comparison.png`
+- usage-by-account-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-paper-1440.png`
+- usage-by-account-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-paper-390-comparison.png`
+- usage-by-account-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-paper-390.png`
+- [usage-by-account-review.png](usage-by-account-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-review.png`
+- usage-by-account-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-slate-1440-comparison.png`
+- usage-by-account-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-slate-1440.png`
+- usage-by-account-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-slate-390-comparison.png`
+- usage-by-account-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-by-account-slate-390.png`
+- [usage-contrast-1440-comparison.png](usage-contrast-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-contrast-1440-comparison.png`
+- [usage-contrast-1440.png](usage-contrast-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-contrast-1440.png`
+- [usage-contrast-390-comparison.png](usage-contrast-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-contrast-390-comparison.png`
+- [usage-contrast-390.png](usage-contrast-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-contrast-390.png`
+- [usage-dark-1440-comparison.png](usage-dark-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-dark-1440-comparison.png`
+- [usage-dark-1440.png](usage-dark-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-dark-1440.png`
+- [usage-dark-390-comparison.png](usage-dark-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-dark-390-comparison.png`
+- [usage-dark-390.png](usage-dark-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-dark-390.png`
+- usage-detail-contrast-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-contrast-1440-comparison.png`
+- usage-detail-contrast-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-contrast-1440.png`
+- usage-detail-contrast-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-contrast-390-comparison.png`
+- usage-detail-contrast-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-contrast-390.png`
+- usage-detail-dark-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-dark-1440-comparison.png`
+- usage-detail-dark-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-dark-1440.png`
+- usage-detail-dark-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-dark-390-comparison.png`
+- usage-detail-dark-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-dark-390.png`
+- usage-detail-graphite-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-graphite-1440-comparison.png`
+- usage-detail-graphite-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-graphite-1440.png`
+- usage-detail-graphite-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-graphite-390-comparison.png`
+- usage-detail-graphite-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-graphite-390.png`
+- usage-detail-light-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-light-1440-comparison.png`
+- usage-detail-light-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-light-1440.png`
+- usage-detail-light-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-light-390-comparison.png`
+- usage-detail-light-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-light-390.png`
+- usage-detail-midnight-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-midnight-1440-comparison.png`
+- usage-detail-midnight-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-midnight-1440.png`
+- usage-detail-midnight-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-midnight-390-comparison.png`
+- usage-detail-midnight-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-midnight-390.png`
+- usage-detail-paper-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-paper-1440-comparison.png`
+- usage-detail-paper-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-paper-1440.png`
+- usage-detail-paper-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-paper-390-comparison.png`
+- usage-detail-paper-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-paper-390.png`
+- [usage-detail-review.png](usage-detail-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-review.png`
+- usage-detail-slate-1440-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-slate-1440-comparison.png`
+- usage-detail-slate-1440.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-slate-1440.png`
+- usage-detail-slate-390-comparison.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-slate-390-comparison.png`
+- usage-detail-slate-390.png: `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-detail-slate-390.png`
+- [usage-graphite-1440-comparison.png](usage-graphite-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-graphite-1440-comparison.png`
+- [usage-graphite-1440.png](usage-graphite-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-graphite-1440.png`
+- [usage-graphite-390-comparison.png](usage-graphite-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-graphite-390-comparison.png`
+- [usage-graphite-390.png](usage-graphite-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-graphite-390.png`
+- [usage-light-1440-comparison.png](usage-light-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-light-1440-comparison.png`
+- [usage-light-1440.png](usage-light-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-light-1440.png`
+- [usage-light-390-comparison.png](usage-light-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-light-390-comparison.png`
+- [usage-light-390.png](usage-light-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-light-390.png`
+- [usage-midnight-1440-comparison.png](usage-midnight-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-midnight-1440-comparison.png`
+- [usage-midnight-1440.png](usage-midnight-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-midnight-1440.png`
+- [usage-midnight-390-comparison.png](usage-midnight-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-midnight-390-comparison.png`
+- [usage-midnight-390.png](usage-midnight-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-midnight-390.png`
+- [usage-paper-1440-comparison.png](usage-paper-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-paper-1440-comparison.png`
+- [usage-paper-1440.png](usage-paper-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-paper-1440.png`
+- [usage-paper-390-comparison.png](usage-paper-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-paper-390-comparison.png`
+- [usage-paper-390.png](usage-paper-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-paper-390.png`
+- [usage-review.png](usage-review.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-review.png`
+- [usage-slate-1440-comparison.png](usage-slate-1440-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-slate-1440-comparison.png`
+- [usage-slate-1440.png](usage-slate-1440.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-slate-1440.png`
+- [usage-slate-390-comparison.png](usage-slate-390-comparison.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-slate-390-comparison.png`
+- [usage-slate-390.png](usage-slate-390.png): `/tmp/ace-orch/shots/ui-providers-clean/followup3/usage-slate-390.png`

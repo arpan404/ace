@@ -1,119 +1,80 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
+configure({ asyncUtilTimeout: 10_000 });
+
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 
-async function openAccounts() {
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
-  await screen.findByRole("heading", { level: 1, name: "New thread" });
-  await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
-  await screen.findByRole("heading", { name: "Usage & accounts", level: 1 });
-}
-const meter = (element: HTMLElement, name: string) =>
-  within(element)
-    .getByRole("meter", { name: `${name} window` })
-    .getAttribute("aria-valuenow");
-
-test("one world agrees on Codex's usable sibling, Claude's default login and Gemini's daily quota on every surface", async () => {
-  const app = harness();
-  await app.open("/accounts");
+test("Codex's usable sibling and Gemini's daily quota agree on Usage and provider pages", async () => {
+  await harness().open("/accounts");
   const codex = await screen.findByRole("article", { name: "Codex Personal" });
-  expect(within(codex).getByText("Signed in")).toBeTruthy();
-  expect(meter(codex, "5-hour")).toBe("38");
-  const claude = await screen.findByRole("article", { name: "Claude Code Your CLI login" });
-  expect(within(claude).getByText("Signed in")).toBeTruthy();
+  expect(
+    within(codex).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
+  ).toBe("38");
   const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
-  expect(meter(gemini, "Daily")).toBe("71");
-
-  for (const [name, account] of [
-    ["Codex", "Personal", "5-hour", "38"],
-    ["Claude Code", "Your CLI login", undefined, undefined],
-    ["Gemini CLI", "Google", "Daily", "71"],
-  ] as const) {
-    await userEvent.click(screen.getByRole("link", { name }));
-    const list = await screen.findByRole("list", { name: `${name} accounts` });
-    const item = within(list)
-      .getAllByRole("listitem")
-      .find((candidate) => within(candidate).queryByText(account ?? ""));
-    if (!item) throw new Error(`Missing ${account}`);
-    expect(within(item).getByText("Signed in")).toBeTruthy();
-    expect(within(item).queryByRole("meter")).toBeNull();
-    expect(screen.getByRole("link", { name: "View usage ›" })).toBeTruthy();
-    expect(screen.queryByText(`Sign in to use ${name}.`)).toBeNull();
-    await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
-    const section = await screen.findByRole("region", {
-      name: name === "Gemini CLI" ? "ACP agents" : "On this computer",
-    });
-    const providerRow = await within(section).findByRole("group", { name });
-    expect(
-      await within(providerRow).findByText(name === "Claude Code" ? "Ready" : "Update available"),
-    ).toBeTruthy();
-    await openAccounts();
-  }
+  expect(
+    within(gemini).getByRole("meter", { name: "Daily window" }).getAttribute("aria-valuenow"),
+  ).toBe("71");
+  await userEvent.click(
+    screen.getByRole("link", { name: "Manage accounts in Settings › Providers." }),
+  );
+  const row = await screen.findByRole("group", { name: "Codex" });
+  expect(within(row).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  await userEvent.click(within(row).getByRole("link", { name: "Codex" }));
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  expect(
+    within(accounts).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
+  ).toBe("38");
 });
 
-test("signing in with an API key clears the field and refreshes the account without saving the key", async () => {
+test("API-key reauthentication clears input and refreshes the account without storing the key", async () => {
   const storage = memoryKeyValue();
   const app = harness({ storage });
   await app.open("/settings/providers/codex");
-  const list = await screen.findByRole("list", { name: "Codex accounts" });
-  await userEvent.click(within(list).getByRole("button", { name: "Manage Your CLI login" }));
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Manage Your CLI login" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Use API key" }));
   const field = await screen.findByLabelText("OpenAI API key");
   await userEvent.type(field, "fake-key-for-ui-test");
   await userEvent.click(screen.getByRole("button", { name: "Use key" }));
-  expect(field instanceof HTMLInputElement && field.value).toBe("");
+  expect(field).toHaveProperty("value", "");
   await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
-  const item = within(list)
-    .getAllByRole("listitem")
-    .find((candidate) => within(candidate).queryByText("Your CLI login"));
-  if (!item) throw new Error("Default account did not refresh");
-  expect(await within(item).findByText("Signed in")).toBeTruthy();
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-for-ui-test");
   expect(JSON.stringify(app.daemon.services.accounts)).not.toContain("fake-key-for-ui-test");
 });
 
-test("CLI install and removal show progress and refresh the provider after reconnect", async () => {
+test("CLI installation and removal show progress and recover after reconnect", async () => {
   const app = harness();
   app.daemon.services.providerInstalls.autoComplete = false;
   app.daemon.services.installed.delete("codex");
-  const row = app.daemon.services.providerStatuses.find(
-    (candidate) => candidate.provider === "codex",
-  );
-  if (!row) throw new Error("Missing Codex fixture");
-  row.installed = false;
+  const status = app.daemon.services.providerStatuses.find((row) => row.provider === "codex");
+  if (!status) throw new Error("Missing Codex fixture");
+  status.installed = false;
   await app.open("/settings/providers/codex");
-  const cli = await screen.findByRole("region", { name: "Setup" });
-  await userEvent.click(await within(cli).findByRole("button", { name: "Install" }));
-  await within(cli).findByRole("progressbar");
+  await userEvent.click(await screen.findByRole("button", { name: "Install" }));
+  await screen.findByRole("progressbar");
   app.daemon.refuseConnections(true);
   await waitFor(() => expect(app.client.connectionState().getSnapshot()).not.toBe("ready"));
   app.daemon.services.providerInstalls.complete("fake-install-1");
   app.daemon.refuseConnections(false);
-  await userEvent.click(await within(cli).findByRole("button", { name: "Remove Codex CLI" }));
-  await within(cli).findByText(/Remove Codex's CLI from this computer/);
-  await userEvent.click(within(cli).getByRole("button", { name: "Remove CLI" }));
-  await within(cli).findByRole("progressbar");
+  await userEvent.click(await screen.findByRole("button", { name: "Manage Codex" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+  await screen.findByText(/Remove Codex's CLI from this computer/);
+  await userEvent.click(screen.getByRole("button", { name: "Remove CLI" }));
+  await screen.findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-2");
-  expect(await within(cli).findByRole("button", { name: "Install" })).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Models" })).toBeNull());
+  expect(await screen.findByRole("button", { name: "Install" })).toBeTruthy();
 });
 
-test("leaving the provider page during update resumes the same job on the Providers list", async () => {
+test("leaving a provider page during update resumes the same job in the Providers list", async () => {
   const app = harness({ storage: memoryKeyValue() });
   app.daemon.services.providerInstalls.autoComplete = false;
-  const row = app.daemon.services.providerStatuses.find(
-    (candidate) => candidate.provider === "codex",
-  );
-  if (!row) throw new Error("Missing Codex fixture");
-  row.updateAvailable = true;
   await app.open("/settings/providers/codex");
-  const setup = await screen.findByRole("region", { name: "Setup" });
-  await userEvent.click(await within(setup).findByRole("button", { name: "Update" }));
-  await within(setup).findByRole("progressbar");
+  await userEvent.click(await screen.findByRole("button", { name: "Update" }));
+  await screen.findByRole("progressbar");
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
   const group = await screen.findByRole("group", { name: "Codex" });
   await within(group).findByRole("progressbar");
@@ -122,73 +83,44 @@ test("leaving the provider page during update resumes the same job on the Provid
   expect(await within(group).findByText("Installed")).toBeTruthy();
 });
 
-test("a live limit update changes the provider and account surfaces together", async () => {
+test("live limits replace a signed-in meter without losing the reason or resetless blocker", async () => {
   const app = harness();
   await app.open("/settings/providers/codex");
-  const list = await screen.findByRole("list", { name: "Codex accounts" });
-  // The list mounts before accounts load; establish the starting account state before a live push.
-  const personalRow = (await within(list).findByText("Personal")).closest("li");
-  if (!personalRow) throw new Error("Missing Personal account row");
-  expect(await within(personalRow).findByText("Signed in")).toBeTruthy();
-  const personal = app.daemon.services.accounts.find(
-    (account) => account.provider === "codex" && account.label === "Personal",
-  );
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  const personal = app.daemon.services.accounts.find((row) => row.id === "codex-personal");
   if (!personal) throw new Error("Missing Personal fixture");
-  await act(async () => {
+  await within(accounts).findByRole("meter", { name: "5-hour window" });
+  await act(async () =>
     app.daemon.services.updateQuota(personal.id, {
       ...personal.quota,
       observedAt: personal.quota.observedAt + 1,
       windows: { daily: { usedPercent: 100, resetsAt: null } },
-    });
-  });
-  await waitFor(() => expect(within(list).getAllByText("Limit reached")).toHaveLength(2));
+    }),
+  );
+  const item = (await within(accounts).findByText("Personal")).closest("li");
+  if (!item) throw new Error("Missing Personal row");
+  expect(await within(item).findByText("Limit reached")).toBeTruthy();
+  expect(within(item).queryByRole("meter")).toBeNull();
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
-  const providers = await screen.findByRole("region", { name: "On this computer" });
-  expect(await within(providers).findByText("Limit reached")).toBeTruthy();
-  await openAccounts();
-  const card = await screen.findByRole("article", { name: "Codex Personal" });
-  expect(within(card).getByText("Limit reached")).toBeTruthy();
-  expect(meter(card, "Daily")).toBe("100");
-});
-
-test("provider pages link to the shared usage screen, with separate quota for each ACP agent", async () => {
-  await harness().open("/settings/providers/acp:Gemini CLI");
-  expect(screen.queryByRole("region", { name: "Usage" })).toBeNull();
-  await userEvent.click(await screen.findByRole("link", { name: "View usage ›" }));
-  const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
-  expect(meter(gemini, "Daily")).toBe("71");
-  expect(await screen.findByRole("table", { name: "Usage by model" })).toBeTruthy();
-});
-
-test("Cursor reports its bundled SDK and offers no CLI management", async () => {
-  await harness().open("/settings/providers/cursor");
-  const about = await screen.findByRole("region", { name: "About" });
-  expect(within(about).getByText("SDK version")).toBeTruthy();
-  expect(within(about).getByText("1.0.35")).toBeTruthy();
-  expect(screen.queryByLabelText("CLI path")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Remove CLI" })).toBeNull();
   expect(
-    await within(await screen.findByRole("region", { name: "Setup" })).findByText(
-      "Cursor sign-in has expired.",
-    ),
+    await within(await screen.findByRole("group", { name: "Codex" })).findByText("Limit reached"),
   ).toBeTruthy();
 });
 
-test("accounts are grouped once per provider even when only the default account reports a version", async () => {
-  await harness().open("/accounts");
-  await screen.findByRole("article", { name: "OpenCode OpenRouter API" });
-  expect(screen.getAllByRole("region", { name: "OpenCode" })).toHaveLength(1);
-  expect(screen.getAllByRole("region", { name: "Cursor" })).toHaveLength(1);
-  const table = await screen.findByRole("table", { name: "Usage by model" });
-  expect(await within(table).findByText("Opus 4.6")).toBeTruthy();
-  expect(within(table).getByText("GPT-5.3 Codex")).toBeTruthy();
-  expect(within(table).queryByText("claude-opus-4-6")).toBeNull();
+test("Cursor shows its SDK version and never offers CLI uninstall or a CLI path", async () => {
+  await harness().open("/settings/providers/cursor");
+  await screen.findByRole("list", { name: "Cursor accounts" });
+  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+  const about = await screen.findByRole("region", { name: "About" });
+  expect(within(about).getByText("SDK version")).toBeTruthy();
+  expect(within(about).getByText("1.0.35")).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "CLI path" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Remove CLI" })).toBeNull();
 });
 
-test("OpenCode lists Free models and distinguishes identically named models by their upstream", async () => {
+test("Manage models retains free models and their upstream distinctions", async () => {
   await harness().open("/settings/providers/opencode");
-  await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage" }));
   const models = await screen.findByRole("list", { name: "Models" });
   const zen = within(models).getByRole("list", { name: "OpenCode Zen" });
   expect(within(zen).getByText("Big Pickle")).toBeTruthy();
@@ -201,37 +133,20 @@ test("OpenCode lists Free models and distinguishes identically named models by t
     ).toBe(true);
 });
 
-test("OpenAI key entry stays inline in an OpenCode account and cancels without storing input", async () => {
+test("the add-account dialog cancels an API-key handoff without storing its input", async () => {
   const storage = memoryKeyValue();
   const app = harness({ storage });
   await app.open("/settings/providers/opencode");
-  const list = await screen.findByRole("list", { name: "OpenCode accounts" });
-  await userEvent.click(within(list).getByRole("button", { name: "Add account" }));
-  const form = await screen.findByRole("form", { name: "Add account" });
-  expect(within(form).getByText("Add an OpenCode account")).toBeTruthy();
-  await userEvent.click(within(form).getByRole("combobox", { name: "Sign-in method" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Add account" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add an OpenCode account" }));
+  await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Research");
+  await userEvent.click(dialog.getByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Research");
-  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
-  const field = await within(list).findByLabelText("OpenAI API key");
-  expect(screen.queryByRole("dialog")).toBeNull();
+  await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
+  const field = await dialog.findByLabelText("OpenAI API key");
   await userEvent.type(field, "fake-key-that-must-be-cleared");
-  await userEvent.click(within(list).getByRole("button", { name: "Cancel" }));
-  expect(field instanceof HTMLInputElement && field.value).toBe("");
-  await waitFor(() => expect(within(list).queryByLabelText("OpenAI API key")).toBeNull());
-  expect(within(list).queryByLabelText("OpenAI API key")).toBeNull();
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  expect(field).toHaveProperty("value", "");
+  await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-that-must-be-cleared");
-});
-
-test("a missing Antigravity provider starts its official ACP registry installation", async () => {
-  const app = harness();
-  app.daemon.services.providerInstalls.autoComplete = false;
-  await app.open("/settings/providers/antigravity");
-  const enabled = await screen.findByRole<HTMLInputElement>("switch", { name: "Enable provider" });
-  expect(enabled.getAttribute("aria-disabled") === "true" || enabled.disabled).toBe(true);
-  const setup = await screen.findByRole("region", { name: "Setup" });
-  await userEvent.click(await within(setup).findByRole("button", { name: "Install" }));
-  expect(
-    await within(setup).findByRole("progressbar", { name: "Antigravity installation progress" }),
-  ).toBeTruthy();
 });

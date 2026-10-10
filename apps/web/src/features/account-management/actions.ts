@@ -40,7 +40,8 @@ export function useAccountActions() {
       instanceId: string,
       label: string,
       badge: {
-        shortLabel: string;
+        shortLabel?: string | undefined;
+        badgeUsesInitial?: boolean | undefined;
         badgeColor: import("@ace/protocol/accounts").AccountBadgeColor | null;
       },
     ) => settle(client.request({ type: "accounts.rename", instanceId, label, ...badge })),

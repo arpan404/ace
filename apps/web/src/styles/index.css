@@ -217,43 +217,53 @@
 }
 
 @layer components {
+  /* Make default replaces a reading without taking its place in the row's layout. */
+  .group:hover .account-reading,
+  .account-reading:has(+ button:focus) {
+    opacity: 0;
+  }
+  @media (pointer: coarse) {
+    .account-reading {
+      opacity: 0;
+    }
+  }
+  .usage-limit-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 1280px) {
+    .usage-limit-row {
+      grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
+    }
+  }
   /* One fixed blur avoids Tailwind's full backdrop-filter property set for sheet scrims. */
   .sheet-scrim {
     -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
   }
+  /* Floating surfaces and the sidebar share the same blur. */
+  .glass,
+  .vibrancy,
+  .search-glass {
+    -webkit-backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
+      saturate(var(--material-saturation, 120%));
+    backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
+      saturate(var(--material-saturation, 120%));
+  }
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
     background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
     border: 1px solid var(--glass-border);
     box-shadow:
       var(--glass-highlight),
       0 0 0 0.5px var(--glass-edge),
       var(--glass-shadow);
   }
-  /* A card attached behind the composer's top edge: one step back from the composer's glass. */
-  .glass-behind {
-    background: color-mix(in oklab, var(--glass-bg) 80%, var(--background));
-    box-shadow:
-      var(--glass-highlight),
-      0 0 0 0.5px var(--glass-edge),
-      0 -12px 32px -20px rgb(0 0 0 / 0.5);
-  }
   /* Search keeps the screen's colours behind it, without a heavy modal dimmer. The same
      Appearance intensity and OS preference still make the surface fully opaque when needed. */
   .search-glass {
     background: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * 1.16 * var(--glass-k)));
-    -webkit-backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
-      saturate(calc(100% + 50% * var(--glass-k)));
-    backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
-      saturate(calc(100% + 50% * var(--glass-k)));
-  }
-  /* The sidebar and reading column blur the wallpaper behind them. */
-  .vibrancy {
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    --material-blur: calc(var(--glass-blur) * var(--glass-k));
+    --material-saturation: calc(100% + 50% * var(--glass-k));
   }
   @media (prefers-reduced-transparency: reduce) {
     .glass,
@@ -276,11 +286,8 @@
   }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
-    display: inline-block;
-    flex: none;
     width: 11px;
     height: 11px;
-    border-radius: 9999px;
     border: 1.5px solid color-mix(in oklab, currentColor 25%, transparent);
     border-top-color: currentColor;
     animation: ace-spin 1s linear infinite;
@@ -458,12 +465,6 @@ body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] 
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .step-slider-convergence::before,
-  .step-slider-convergence > span {
-    animation: none;
-    transform: none;
-    filter: none;
-  }
   .step-slider-convergence::before {
     opacity: 0.45;
   }
@@ -481,12 +482,6 @@ body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] 
     opacity: 0.68;
   }
   to {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .step-slider-ace {
-    animation: none;
     opacity: 1;
   }
 }

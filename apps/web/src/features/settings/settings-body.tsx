@@ -9,6 +9,7 @@ export function SettingsBody(props: {
   page: string;
   lede?: ReactNode;
   actions?: ReactNode;
+  titleActions?: ReactNode;
   /** A quiet link above the title, e.g. "‹ Appearance" on the Theme editor. */
   back?: ReactNode;
   /** A mark beside the title (a provider's page). */
@@ -30,6 +31,9 @@ export function SettingsBody(props: {
                 </div>
               )}
             </div>
+            {props.titleActions && (
+              <div className="shrink-0 self-start pt-1">{props.titleActions}</div>
+            )}
           </div>
           {props.children}
         </div>

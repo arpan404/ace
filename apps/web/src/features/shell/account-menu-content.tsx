@@ -53,7 +53,7 @@ export function AccountMenuContent() {
         icon={<ChartBarIcon aria-hidden />}
         onClick={() => void navigate({ to: "/accounts" })}
       >
-        Usage & accounts
+        Usage
       </MenuItem>
       <MenuItem
         icon={<ArchiveIcon aria-hidden />}

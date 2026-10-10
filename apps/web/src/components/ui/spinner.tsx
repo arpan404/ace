@@ -6,7 +6,7 @@ function Spinner({ className, label }: { className?: string; label?: string }) {
     <span
       data-slot="spinner"
       {...(label ? { role: "status", "aria-label": label } : { "aria-hidden": true })}
-      className={cn("spin-ring text-status-working", className)}
+      className={cn("spin-ring inline-block shrink-0 rounded-full text-status-working", className)}
     />
   );
 }

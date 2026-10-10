@@ -1,21 +1,16 @@
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { Suspense } from "react";
-import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
+import { Suspense, useRef, useState } from "react";
+import { ProviderTile } from "@/components/provider-tile.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
-import {
-  entryStatus,
-  isMissing,
-  useProviderEntries,
-  type ProviderEntry,
-} from "./provider-entries.ts";
+import { ProviderSetupRow, type ProviderSetupActions } from "@/features/provider-setup/index.ts";
+import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -25,6 +20,10 @@ const DeferredProviderModels = deferredComponent(() =>
 
 const DeferredProviderTail = deferredComponent(() =>
   import("./provider-about.tsx").then((module) => module.ProviderTail),
+);
+
+const DeferredRemoveAgentMenuItem = deferredComponent(() =>
+  import("./provider-about.tsx").then((module) => module.RemoveAgentMenuItem),
 );
 
 const DeferredProviderServices = deferredComponent(() =>
@@ -52,7 +51,7 @@ const back = (
 
 /**
  * One provider's own page: who it's signed in as, the services it reaches (OpenCode, Pi), its
- * models, and the technical facts and Sign out tucked at the end. A problem or a missing sign-in
+ * models, and technical facts tucked into Advanced. A problem or a missing sign-in
  * is the first thing on it, with the one button that fixes it.
  */
 export function ProviderDetail(props: { id: string }) {
@@ -68,9 +67,16 @@ export function ProviderDetail(props: { id: string }) {
           <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
-            {query.isError
-              ? "Couldn't list providers. Reconnect and check again."
-              : "This provider isn't on this computer."}
+            {query.isError ? (
+              <>
+                Couldn't check providers.{" "}
+                <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
+                  Retry
+                </Button>
+              </>
+            ) : (
+              "This provider isn't on this computer."
+            )}
           </p>
         )}
       </SettingsBody>
@@ -80,10 +86,36 @@ export function ProviderDetail(props: { id: string }) {
 
 function ProviderPage(props: { entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
+  const [advanced, setAdvanced] = useState(false);
+  const setupActions = useRef<ProviderSetupActions>(null);
   const missing = isMissing(props.entry);
   const upstreams = install.kind === "opencode" || install.kind === "pi";
-  const { tone, text } = entryStatus(props.entry);
-  const status = <StatusLine tone={tone} text={text} className="text-ui" />;
+  const version = row?.version ?? install.version;
+  const updateAvailable =
+    row?.updateAvailable ??
+    (!!install.registry?.agent &&
+      compareVersions(install.registry.agent.version, install.registry.version) > 0);
+  const setup = (
+    <ProviderSetupRow
+      ref={setupActions}
+      provider={install.kind}
+      acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
+      instance={install.instance}
+      name={install.name}
+      manage
+      menuItems={
+        install.added ? (
+          <Suspense fallback={null}>
+            <DeferredRemoveAgentMenuItem.Component name={install.name} />
+          </Suspense>
+        ) : undefined
+      }
+      heading
+      missing={missing}
+      view={missing ? view : undefined}
+      updateAvailable={updateAvailable}
+    />
+  );
   return (
     <SettingsBody
       page={install.name}
@@ -96,47 +128,44 @@ function ProviderPage(props: { entry: ProviderEntry }) {
           muted={missing}
         />
       }
-      lede={status}
+      lede={
+        <span className="text-sm">
+          {version}
+          {updateAvailable && (
+            <span className="text-status-needs-you">
+              {" "}
+              ·{" "}
+              {(row?.latestVersion ?? install.registry?.agent?.version)
+                ? `${row?.latestVersion ?? install.registry?.agent?.version} available`
+                : "Update available"}
+            </span>
+          )}
+        </span>
+      }
+      titleActions={setup}
     >
       <div className="fx-view-in">
-        <SettingSection label="Setup">
-          <ProviderSetupRow
-            provider={install.kind}
-            acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
-            instance={install.instance}
-            name={install.name}
-            manage
-            missing={missing}
-            view={view}
-            updateAvailable={
-              row?.updateAvailable ??
-              (!!install.registry?.agent &&
-                compareVersions(install.registry.agent.version, install.registry.version) > 0)
-            }
-          />
-          {view?.detail && !view.ready && !missing && (
-            <p className="py-1 text-sm text-muted-foreground">{view.detail}</p>
-          )}
-        </SettingSection>
+        {view?.detail && !view.ready && !missing && (
+          <p className="mt-3 text-sm text-muted-foreground">{view.detail}</p>
+        )}
         {!missing && (
           <>
-            <Suspense fallback={null}>
+            <Suspense
+              fallback={
+                <SettingSection label="Accounts">
+                  <ListSkeleton label="accounts" shape="row" rows={3} />
+                </SettingSection>
+              }
+            >
               <DeferredProviderAccounts.Component
                 provider={install.kind}
                 acpAgentId={install.acpAgentId}
                 name={install.name}
               />
             </Suspense>
-            <Link
-              to="/accounts"
-              className="mt-3 inline-block text-sm text-muted-foreground hover:text-foreground"
-            >
-              View usage ›
-            </Link>
           </>
         )}
 
-        <ProviderPreferences provider={install.kind} missing={missing} />
         {!missing && (
           <>
             {upstreams && row && (
@@ -144,7 +173,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
                 <DeferredProviderServices.Component provider={install.kind} name={install.name} />
               </Suspense>
             )}
-            <SettingSection label="Models">
+            <SettingSection label="Behaviour">
               <Suspense
                 fallback={
                   <div className="grid h-16 place-items-center">
@@ -155,16 +184,36 @@ function ProviderPage(props: { entry: ProviderEntry }) {
                 <DeferredProviderModels.Component provider={install.kind} />
               </Suspense>
             </SettingSection>
-            {row && (
-              <Suspense fallback={null}>
-                <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />
-              </Suspense>
-            )}
           </>
         )}
-        <Suspense fallback={null}>
-          <DeferredProviderTail.Component entry={props.entry} missing={missing} />
-        </Suspense>
+        <details
+          className="mt-7 text-sm"
+          onToggle={(event) => setAdvanced(event.currentTarget.open)}
+        >
+          <summary className="cursor-pointer rounded-xs text-muted-foreground focus-ring hover:text-foreground">
+            Advanced
+          </summary>
+          {advanced && row && (
+            <Suspense fallback={null}>
+              <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />
+            </Suspense>
+          )}
+          {advanced && <ProviderPreferences provider={install.kind} missing={missing} />}
+          {advanced && !missing && install.kind !== "cursor" && install.kind !== "acp" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setupActions.current?.requestRemoval()}
+            >
+              Remove provider…
+            </Button>
+          )}
+          {advanced && (
+            <Suspense fallback={null}>
+              <DeferredProviderTail.Component entry={props.entry} missing={missing} />
+            </Suspense>
+          )}
+        </details>
       </div>
     </SettingsBody>
   );

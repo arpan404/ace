@@ -13,7 +13,7 @@ import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from "@ace/protocol";
 import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
-import { accountSummaries } from "./accounts.ts";
+import { accountSummaries, renameAccount } from "./accounts.ts";
 import { availability, blockedUntil } from "@ace/accounts/availability";
 import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
@@ -519,12 +519,13 @@ export class FakeServices {
         };
         this.accounts.push(account);
       } else {
-        if (!account || (account.implicit && request.type !== "accounts.setDefault")) return fail();
+        if (
+          !account ||
+          (account.implicit && !["accounts.setDefault", "accounts.rename"].includes(request.type))
+        )
+          return fail();
         if (request.type === "accounts.rename") {
-          account.label = request.label;
-          account.shortLabel = request.shortLabel ?? account.shortLabel;
-          account.badgeColor =
-            request.badgeColor === null ? undefined : (request.badgeColor ?? account.badgeColor);
+          renameAccount(account, request);
           this.host.broadcast?.({ type: "usage.limits_changed", account });
         }
         if (request.type === "accounts.setDefault") {

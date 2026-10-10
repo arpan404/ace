@@ -1,3 +1,4 @@
+import type { ProviderLoginProgress } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { Suspense, useEffect, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -7,7 +8,9 @@ const InlineSignIn = deferredComponent(() =>
 );
 
 /** Own an ephemeral key hand-off beside the account that requested it. */
-export function useInlineSignIn(options: { onClose?(): void } = {}) {
+export function useInlineSignIn(
+  options: { onClose?(): void; onSuccess?(progress: ProviderLoginProgress): Promise<void> } = {},
+) {
   const client = useClient();
   const [login, setLogin] = useState<LoginController>();
   useEffect(() => () => login?.dispose(), [login]);
@@ -24,7 +27,12 @@ export function useInlineSignIn(options: { onClose?(): void } = {}) {
     active: !!login,
     content: login && (
       <Suspense fallback={null}>
-        <InlineSignIn.Component login={login} onClose={close} onRetry={() => start(login.target)} />
+        <InlineSignIn.Component
+          login={login}
+          onClose={close}
+          onSuccess={options.onSuccess}
+          onRetry={() => start(login.target)}
+        />
       </Suspense>
     ),
   };

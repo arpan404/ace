@@ -4,7 +4,7 @@ import { legacyPath } from "@/lib/legacy-paths.ts";
 import { useLayout } from "@/lib/layout.tsx";
 
 /**
- * More's old pages: Usage & accounts is in the profile menu (`/accounts`), Files is a tab of each
+ * More's old pages: Usage is in the profile menu (`/accounts`), Files is a tab of each
  * thread's side panel, and search is a dialog. An old search address opens the dialog with its
  * words over Home.
  */

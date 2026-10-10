@@ -141,6 +141,9 @@ export function waitingNote(waiting: { online: boolean; slow: boolean }): string
 }
 
 const loadFailures: Record<string, string> = {
+  accounts_unavailable: "Couldn't load accounts. Check again in a moment.",
+  accounts_busy: "Accounts are busy. Try again in a moment.",
+  accounts_failed: "Couldn't read that account. Check its folder and try again.",
   unavailable: "ace didn't answer. This loads again once it does.",
   timeout: "ace took too long to answer. Try again in a moment.",
   offline: "This device lost the connection to ace. This loads again once it's back.",
