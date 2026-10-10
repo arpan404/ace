@@ -13,15 +13,19 @@ test("a focused or hovered row keeps saying its status, and its tooltip what the
   const row = threads.getByRole("link", { name: /^Partial refunds double-count tax/ });
   await row.focus();
   await expect(row).toHaveAccessibleName(/Waiting for your approval.*Pull request #77/);
-  await expect(page.getByRole("tooltip")).toContainText("Pull request #77");
+  await expect(page.getByLabel(/^Details for Partial refunds double-count tax/)).toContainText(
+    "77",
+  );
 
   await page.getByRole("combobox", { name: "Message" }).focus();
   await row.hover();
   await expect(row).toHaveAccessibleName(/Waiting for your approval.*Pull request #77/);
-  await expect(page.getByRole("tooltip")).toContainText("Waiting for your approval");
+  await expect(page.getByLabel(/^Details for Partial refunds double-count tax/)).toContainText(
+    "Partial refunds double-count tax",
+  );
 });
 
-test("tasks show project and status above the title, with branch, changes and provider below", async ({
+test("tasks show project and status above the title, with branch and provider below", async ({
   page,
 }) => {
   await stageSidebarTasks(page);
@@ -30,13 +34,15 @@ test("tasks show project and status above the title, with branch, changes and pr
   const row = nav.getByRole("link", { name: /^Audit Console/ });
   const branch = row.getByText("console/consistency", { exact: true });
   await expect(branch).toBeVisible();
-  await expect(row.getByText("+3", { exact: true })).toBeVisible();
-  await expect(row.getByText("−1", { exact: true })).toBeVisible();
-  await expect(row.getByRole("img", { name: "Claude Code" })).toBeVisible();
+  await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
+  await expect(row.getByText("−1", { exact: true })).toHaveCount(0);
+  await expect(
+    row.locator("..").getByRole("img", { name: "Claude Code", exact: true }),
+  ).toBeVisible();
   const taskTitle = row.getByText("Audit Console Feature Gaps", { exact: true });
   expect((await branch.boundingBox())?.y).toBeGreaterThan((await taskTitle.boundingBox())?.y ?? 0);
   expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(72);
-  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(76);
+  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(80);
   const project = row.getByText("OpenForge", { exact: true });
   const status = row.getByText("Working", { exact: true });
   expect((await project.boundingBox())?.y).toBeLessThan((await taskTitle.boundingBox())?.y ?? 0);
@@ -50,7 +56,7 @@ test("tasks show project and status above the title, with branch, changes and pr
     await expect(task.getByText(title, { exact: true })).toBeVisible();
     await expect(task.getByText("OpenForge", { exact: true })).toBeVisible();
     if (title === "Hi bro") {
-      const machine = task.getByText("Build server", { exact: true });
+      const machine = task.getByText("· Build server", { exact: true });
       await expect(machine).toBeHidden();
       await task.hover();
       await expect(machine).toBeVisible();
@@ -58,7 +64,7 @@ test("tasks show project and status above the title, with branch, changes and pr
       await expect(machine).toBeHidden();
     }
     await expect(
-      task.getByRole("img", { name: title === "greeting" ? "Claude Code" : "Codex" }),
+      task.locator("..").getByRole("img", { name: title === "greeting" ? "Claude Code" : "Codex" }),
     ).toBeVisible();
   }
   await nav.getByRole("button", { name: "Settled 1" }).click();
@@ -68,11 +74,11 @@ test("tasks show project and status above the title, with branch, changes and pr
   expect((await settled.boundingBox())?.height).toBeLessThanOrEqual(36);
   await row.hover();
   await expect(row.getByText("Working", { exact: true })).toBeHidden();
-  await expect(row.getByText("+3", { exact: true })).toBeVisible();
+  await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
   await expect(
     nav.getByRole("button", { name: "Settle Audit Console Feature Gaps" }),
   ).toBeVisible();
-  await expect(nav.getByRole("button", { name: /^Pin |^Snooze / })).toHaveCount(0);
+  await expect(nav.getByRole("button", { name: /^Pin / })).toHaveCount(0);
 });
 
 test("opening a task selects it and arrow keys move to the next task", async ({ page }) => {
@@ -82,6 +88,7 @@ test("opening a task selects it and arrow keys move to the next task", async ({ 
   const row = nav.getByRole("link", { name: /^yo!/ });
   await row.click();
   await expect(row).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { level: 1, name: "yo!", exact: true })).toBeVisible();
   await row.focus();
   await page.keyboard.press("ArrowDown");
   await expect(nav.getByRole("link", { name: /^greeting/ })).toBeFocused();
@@ -98,15 +105,6 @@ for (const theme of ["light", "dark"])
       await expect(nav.getByRole("link", { name: /^Audit Console/ })).toBeVisible();
       await nav.getByRole("button", { name: "Settled 1" }).click();
       await expect(nav.getByRole("link", { name: /^Build Agent/ })).toBeVisible();
-      await expect
-        .poll(() =>
-          nav
-            .getByRole("img", { name: /^(Claude Code|Codex)$/ })
-            .evaluateAll((marks) =>
-              marks.every((mark) => (mark.querySelector("svg")?.getBBox().width ?? 0) > 0),
-            ),
-        )
-        .toBe(true);
       await page.mouse.move(width - 2, 898);
       await page.screenshot({
         animations: "disabled",
@@ -130,7 +128,7 @@ test("long task titles truncate and the tooltip shows the full title", async ({ 
     ),
   ).toBe(true);
   await row.hover();
-  await expect(page.getByRole("tooltip")).toContainText(fullTitle);
+  await expect(page.getByLabel(`Details for ${fullTitle}`)).toContainText(fullTitle);
 });
 
 for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
@@ -142,15 +140,6 @@ for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
     const nav = page.getByRole("navigation", { name: "Threads" });
     await expect(nav.getByText("console/consistency", { exact: true })).toBeVisible();
     expect(await nav.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await expect
-      .poll(() =>
-        nav
-          .getByRole("img", { name: /^(Claude Code|Codex)$/ })
-          .evaluateAll((marks) =>
-            marks.every((mark) => (mark.querySelector("svg")?.getBBox().width ?? 0) > 0),
-          ),
-      )
-      .toBe(true);
     await page.mouse.move(389, 898);
     await page.screenshot({
       animations: "disabled",

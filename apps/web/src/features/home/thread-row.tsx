@@ -1,6 +1,7 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useState } from "react";
+import { modelLabel } from "@ace/ui-core";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { Dot } from "@/components/ui/dot.tsx";
@@ -51,6 +52,7 @@ export function ThreadRow(props: {
   const card =
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
   const handle = card.flags.pinned && !renaming;
+  const model = entry.live?.model ?? entry.execution?.model;
   const details = threadDetails(card);
   const quiet = quietCard(card);
   const instance =
@@ -144,10 +146,14 @@ export function ThreadRow(props: {
                     <span aria-hidden className="contents">
                       <RowMeta card={card} />
                     </span>
-                    <RowIdentitySpace card={card} machinePrimary={data.machinePrimary} />
+                    <RowIdentitySpace card={card} />
                   </>
                 ) : (
-                  <RowDetail card={card} machinePrimary={data.machinePrimary} />
+                  <RowDetail
+                    card={card}
+                    machinePrimary={data.machinePrimary}
+                    model={model ? modelLabel(model) : undefined}
+                  />
                 )}
               </span>
             </Link>
@@ -156,7 +162,6 @@ export function ThreadRow(props: {
             <RowIdentity
               card={card}
               instance={instance}
-              machinePrimary={data.machinePrimary}
               className={cn(
                 "absolute right-2",
                 settled ? "top-1/2 -translate-y-1/2" : "bottom-[11px] compact:bottom-[9px]",
