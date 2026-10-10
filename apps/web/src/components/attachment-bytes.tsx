@@ -1,8 +1,13 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { LruCache } from "@ace/ui-core";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import type { ImageSource } from "./attachment-format.ts";
+import {
+  AttachmentLoads,
+  originalLimit,
+  type AttachmentSource,
+  type ImageVariant,
+} from "./attachment-loads.ts";
 
 /*
  * Image bytes for the transcript. Attachments come only through the owning connection
@@ -11,64 +16,24 @@ import type { ImageSource } from "./attachment-format.ts";
  * back shows at once; each mounted image holds its own object URL and revokes it on unmount.
  */
 
-/** The client refuses originals above 32 MiB. */
-const originalLimit = 32 * 1024 * 1024;
-
-interface Cache {
-  blobs: LruCache<string, Blob>;
-  pending: Map<string, Promise<Blob>>;
-}
-const caches = new WeakMap<ClientApi, Cache>();
-function cacheOf(client: ClientApi): Cache {
+const caches = new WeakMap<ClientApi, AttachmentLoads>();
+function cacheOf(client: ClientApi): AttachmentLoads {
   let cache = caches.get(client);
   if (!cache) {
-    cache = {
-      blobs: new LruCache({ maxEntries: 96, maxWeight: 48 * 1024 * 1024, weigh: (b) => b.size }),
-      pending: new Map(),
-    };
+    cache = new AttachmentLoads(client, (delay, callback) => {
+      const timer = setTimeout(callback, delay);
+      return () => clearTimeout(timer);
+    });
     caches.set(client, cache);
   }
   return cache;
 }
 
-type Variant = "thumbnail" | "original";
-type AttachmentSource = Extract<ImageSource, { kind: "attachment" }>;
-
 /** A preview uses the daemon's bounded thumbnail when it has one; a full view the original. */
-function variantOf(source: AttachmentSource, full: boolean): Variant | undefined {
+function variantOf(source: AttachmentSource, full: boolean): ImageVariant | undefined {
   if (full) return source.bytes <= originalLimit ? "original" : "thumbnail";
   if (source.thumbnail) return "thumbnail";
   return source.bytes <= originalLimit ? "original" : undefined;
-}
-
-const keyOf = (source: AttachmentSource, variant: Variant) =>
-  `${source.threadId}\u0000${source.sha256}\u0000${variant}`;
-
-function cached(client: ClientApi, source: AttachmentSource, variant: Variant): Blob | undefined {
-  return cacheOf(client).blobs.get(keyOf(source, variant));
-}
-
-function load(client: ClientApi, source: AttachmentSource, variant: Variant): Promise<Blob> {
-  const cache = cacheOf(client);
-  const key = keyOf(source, variant);
-  let pending = cache.pending.get(key);
-  if (!pending) {
-    pending = client
-      .attachmentBytes({
-        threadId: source.threadId,
-        sha256: source.sha256,
-        variant,
-        ...(variant === "original" ? { maxBytes: Math.max(1, source.bytes) } : {}),
-      })
-      .then(({ bytes, mimeType }) => {
-        const blob = new Blob([bytes.slice()], { type: mimeType });
-        cache.blobs.set(key, blob);
-        return blob;
-      })
-      .finally(() => cache.pending.delete(key));
-    cache.pending.set(key, pending);
-  }
-  return pending;
 }
 
 export type ImageState =
@@ -108,7 +73,7 @@ function AttachmentUrl(props: {
 function useAttachmentUrl(source: AttachmentSource, full: boolean): ImageState {
   const client = useClient();
   // The attachment's state, tagged with the key it belongs to so a new source starts loading.
-  const [loaded, setLoaded] = useState<{ key: string; state: ImageState }>();
+  const [loaded, setLoaded] = useState<{ client: ClientApi; key: string; state: ImageState }>();
   const { threadId, sha256, bytes, thumbnail } = source;
   const key = `${threadId}\u0000${sha256}\u0000${full}`;
   const variant = variantOf(source, full);
@@ -120,24 +85,27 @@ function useAttachmentUrl(source: AttachmentSource, full: boolean): ImageState {
     let objectUrl: string | undefined;
     const show = (blob: Blob) => {
       objectUrl = URL.createObjectURL(blob);
-      setLoaded({ key, state: { state: "ready", url: objectUrl } });
+      setLoaded({ client, key, state: { state: "ready", url: objectUrl } });
     };
-    const hit = cached(client, target, variant);
+    const cache = cacheOf(client);
+    const hit = cache.cached(target, variant);
+    const lease = hit ? undefined : cache.acquire(target, variant);
     if (hit) show(hit);
     else
-      load(client, target, variant).then(
+      lease?.promise.then(
         (blob) => {
           if (live) show(blob);
         },
         () => {
-          if (live) setLoaded({ key, state: { state: "unavailable" } });
+          if (live) setLoaded({ client, key, state: { state: "unavailable" } });
         },
       );
     return () => {
       live = false;
+      lease?.release();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [client, key, threadId, sha256, bytes, thumbnail, variant]);
   if (!variant) return unavailable;
-  return loaded?.key === key ? loaded.state : loading;
+  return loaded?.client === client && loaded.key === key ? loaded.state : loading;
 }
