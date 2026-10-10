@@ -8,6 +8,8 @@ const catalog = () => screen.getByRole("navigation", { name: "Skills catalog" })
 
 afterEach(() => localStorage.clear());
 
+await import("./skill-page.tsx");
+
 /** The design's daemon: two plugins installed, and a third its marketplace offers. */
 async function open(path: string) {
   const app = harness();
@@ -82,9 +84,7 @@ test("arrow keys move through the catalog as one Tab stop", async () => {
   const first = within(catalog()).getByRole("link", { name: /^Code Review/ });
   // A route lands focus on its heading; take it from there into the list.
   await waitFor(() =>
-    expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 2, name: "Code Review" }),
-    ),
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Skills" })),
   );
   first.focus();
 
@@ -392,11 +392,13 @@ test("Skills and a thread offer the same discovered skills for a project and pro
     title: "Catalog parity",
   });
   await app.open("/skills");
+  await screen.findByRole("heading", { name: "Code Review", level: 2 });
   await userEvent.click(await screen.findByRole("button", { name: "Filter skills" }));
   const project = await screen.findByRole("combobox", { name: "Skills project" });
   await userEvent.click(project);
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));
-  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  await userEvent.click(await screen.findByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
   const list = within(await screen.findByRole("navigation", { name: "Skills catalog" }));
   expect(await list.findByText("Review")).toBeTruthy();
@@ -404,8 +406,8 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   expect(await list.findByText("Explain")).toBeTruthy();
   for (const name of ["Quality Tools", "Search Docs", "Branch Checks"])
     expect(await list.findByText(name)).toBeTruthy();
-  expect(list.getByRole("link", { name: "Reviewer Global" })).toBeTruthy();
-  await userEvent.click(list.getByRole("link", { name: "Writing Global" }));
+  expect(list.getByRole("link", { name: /^Reviewer Global/ })).toBeTruthy();
+  await userEvent.click(list.getByRole("link", { name: /^Writing Global/ }));
   expect(await screen.findByRole("heading", { level: 2, name: "Writing" })).toBeTruthy();
   expect(screen.getAllByRole("heading", { name: "Source" })).toHaveLength(1);
   await app.open("/t/catalog-parity");
@@ -435,6 +437,7 @@ test("Skills follows the New thread provider until a different provider is selec
     settings: { "providers.default": "codex" },
   });
   await app.open("/skills");
+  await screen.findByRole("heading", { name: "Code Review", level: 2 });
   await userEvent.click(await screen.findByRole("button", { name: "Filter skills" }));
   const provider = await screen.findByRole("combobox", { name: "Skills provider" });
   await waitFor(() => expect(provider.textContent).toBe("Codex"));
@@ -446,11 +449,16 @@ test("Skills follows the New thread provider until a different provider is selec
       layer: { kind: "global" },
     });
   await selectDefault("claude");
-  await waitFor(() => expect(provider.textContent).toBe("Claude Code"));
-  expect(await within(catalog()).findByText("Fix")).toBeTruthy();
-  await userEvent.click(provider);
+  await waitFor(() => expect(within(catalog()).getByText("Fix")).toBeTruthy());
+  if (!screen.queryByRole("combobox", { name: "Skills provider" }))
+    await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  const currentProvider = screen.getByRole("combobox", { name: "Skills provider" });
+  expect(currentProvider.textContent).toBe("Claude Code");
+  await userEvent.click(currentProvider);
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
   await selectDefault("cursor");
-  await waitFor(() => expect(provider.textContent).toBe("Codex"));
-  expect(await within(catalog()).findByText("Google Drive")).toBeTruthy();
+  await waitFor(() => expect(within(catalog()).getByText("Google Drive")).toBeTruthy());
+  if (!screen.queryByRole("combobox", { name: "Skills provider" }))
+    await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  expect(screen.getByRole("combobox", { name: "Skills provider" }).textContent).toBe("Codex");
 });

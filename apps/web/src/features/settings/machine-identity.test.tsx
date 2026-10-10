@@ -112,7 +112,7 @@ test("empty threads stay out of tasks until a user message is sent, even after a
   expect(await screen.findByRole("link", { name: /^New thread\./ })).toBeTruthy();
 });
 
-test("Activity keeps device names out of compact rows while the thread identifies its machine", async () => {
+test("Activity keeps device names in thread hover details instead of compact rows", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   const scenario = flakyCheckout();
   app
@@ -131,8 +131,12 @@ test("Activity keeps device names out of compact rows while the thread identifie
   expect(feed.textContent).not.toContain("Stale server");
   expect(feed.textContent).not.toContain("Build server");
   await app.open("/t/thread-checkout");
-  await screen.findByRole("feed", { name: "Transcript" });
-  expect((await screen.findAllByText("Build server")).length).toBeGreaterThan(0);
+  const row = await screen.findByRole("link", {
+    name: /Fix flaky checkout test.*Running on Build server/,
+  });
+  await userEvent.hover(row);
+  const detail = await screen.findByLabelText(/^Details for /);
+  expect(detail.textContent).toContain("Build server");
 });
 
 test("a chosen emoji survives leaving Settings and appears in the new thread environment", async () => {

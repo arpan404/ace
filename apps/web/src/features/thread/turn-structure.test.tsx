@@ -13,6 +13,9 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
+await import("./items/work-log-steps.tsx");
+await import("@/components/markdown/markdown.tsx");
+
 function scenario(id: string) {
   const found = workbench().find((candidate) => candidate.thread.id === id);
   if (!found) throw new Error(`workbench lost ${id}`);

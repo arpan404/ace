@@ -58,7 +58,7 @@ function PermissionDefault(props: { provider: ProviderKind; workspaceId?: string
           : inherited
             ? `Global default: ${inherited}`
             : !loading && automatic === null
-              ? "No supported permission mode is available."
+              ? "Modes unavailable."
               : undefined
       }
     >

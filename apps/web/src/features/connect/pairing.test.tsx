@@ -12,7 +12,7 @@ import { pairingLinkFromUrl } from "@/boot/fragment-handoff.ts";
 afterEach(() => vi.unstubAllGlobals());
 
 async function setup(linkRoute: boolean | "bare", rejectedConnection = false) {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const daemon = new FakeDaemon({ clock: () => 1000, token: "a".repeat(64) });
   // Native browser fetch rejects a receiver other than the browser global.
   vi.stubGlobal("fetch", function (this: unknown, input: string, init?: RequestInit) {
     if (this !== undefined && this !== globalThis) throw new TypeError("Invalid fetch receiver");

@@ -126,11 +126,7 @@ function DefaultProvider() {
 function ProfileNameRow() {
   const [name, setName] = useProfileName();
   return (
-    <SettingRow
-      {...settingRow("profile.name")}
-      description="Its initials mark your account button."
-      htmlFor="profile-name"
-    >
+    <SettingRow {...settingRow("profile.name")} description={undefined} htmlFor="profile-name">
       <Input
         id="profile-name"
         className="@[30rem]:w-52"

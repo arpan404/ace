@@ -39,7 +39,7 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
 
   await waitFor(() => expect(app.daemon.screen.access.enabled).toBe(false));
   expect(await world.sessions()).toEqual([]);
-  expect(await screen.findByText("No app is being used.")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Live sessions" })).toBeNull();
   expect(
     (screen.getByRole("switch", { name: "Let agents use apps" }) as HTMLElement).getAttribute(
       "aria-checked",
@@ -320,9 +320,8 @@ test("a person grants Safari's native UI for one thread from Computer use, then 
       ]),
     ),
   );
-  await userEvent.click(
-    await within(panel).findByRole("button", { name: "Revoke Safari (This thread)" }),
-  );
+  await userEvent.click(await within(panel).findByRole("button", { name: "Actions for Safari" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
   await waitFor(() => expect(app.daemon.screen.access.list("thread-checkout")).toEqual([]));
 });
 

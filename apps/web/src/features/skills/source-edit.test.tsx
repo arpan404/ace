@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 await import("./skill-page.tsx");
+await import("@/components/markdown/markdown.tsx");
 
 const path = "skills/code-review/SKILL.md";
 async function setup(text: string) {

@@ -298,9 +298,14 @@ function OpenRequest(props: {
         </p>
       )}
       {request.kind !== "question" || request.questions.length !== 1 ? (
-        <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
-          {copy ? <ApprovalHeading copy={copy} /> : title}
-        </h3>
+        <div className="mt-2 mb-2.5 flex items-start justify-between gap-3">
+          <h3 className="min-w-0 text-md leading-[1.35] font-medium tracking-[-0.005em]">
+            {copy ? <ApprovalHeading copy={copy} /> : title}
+          </h3>
+          {request.kind === "approval" && props.aside && (
+            <div className="shrink-0">{props.aside}</div>
+          )}
+        </div>
       ) : null}
       {request.kind === "approval" && copy && (
         <>

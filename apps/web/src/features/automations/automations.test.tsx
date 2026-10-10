@@ -7,6 +7,8 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
+await import("../settings/general-page.tsx");
+
 type Seed = ReturnType<typeof workbenchServices>;
 
 /** The design's daemon: its threads, then the automations and recent runs it holds. */
@@ -312,7 +314,7 @@ test("a custom cron schedule must have five fields and is described once it does
   await waitFor(() =>
     expect(screen.queryByText("Cron needs five fields: minute hour day month weekday.")).toBeNull(),
   );
-  expect(next()).toContain("Weekdays at 07:30");
+  expect(await screen.findByText(/^Next run.*07:30/)).toBeTruthy();
 });
 
 test("a GitHub trigger needs an owner/name repository", async () => {

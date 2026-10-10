@@ -80,6 +80,7 @@ function FeedTabs(props: { id: string }) {
           id={tabId(props.id, entry.id)}
           type="button"
           role="tab"
+          aria-label={entry.id === "needs" && count > 0 ? `${entry.label} ${count}` : entry.label}
           aria-selected={tab === entry.id}
           aria-controls={`${props.id}-panel`}
           tabIndex={tab === entry.id ? 0 : -1}

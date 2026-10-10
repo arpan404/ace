@@ -105,3 +105,19 @@ test("thread hover details stay in the sidebar gutter", async ({ page }) => {
   if (!r || !d) throw new Error("Missing hover detail");
   expect(d.x + d.width).toBeLessThanOrEqual(r.x + r.width + 8);
 });
+
+test("compact setting hints and row actions are available from the keyboard", async ({ page }) => {
+  await page.goto("/settings/remote");
+  const remote = page.getByRole("switch", { name: "Remote access" });
+  await expect(remote).toBeVisible();
+  await remote.focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("tooltip")).toContainText("This machine");
+  const actions = page.getByRole("button", { name: "Actions for This Mac" });
+  await actions.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(actions).toBeFocused();
+});
