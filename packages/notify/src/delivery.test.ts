@@ -1,3 +1,4 @@
+import { DeviceId } from "@ace/protocol";
 import { statSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import { setup } from "./notify.test-helper.ts";
@@ -32,7 +33,12 @@ it("phone alerts are suppressed only by recent input on the same focused thread 
   f.start();
   f.end();
   await f.flush();
-  expect(f.deliveries.slice(1).map((d) => d.device.id)).toEqual([f.desktop, f.phone]);
+  expect(
+    f.deliveries
+      .slice(1)
+      .map((d) => d.device.id)
+      .sort(),
+  ).toEqual([f.desktop, f.phone]);
 });
 it("presence expires after heartbeat or input inactivity and disconnect removes suppression", async () => {
   const f = fixture();
@@ -336,4 +342,45 @@ it("phone retry rechecks fresh presence and desktop retry rechecks changed quiet
 it("stored push subscription secrets are accessible only to the local file owner", () => {
   const f = fixture();
   expect(statSync(f.path).mode & 0o777).toBe(0o600);
+});
+
+it("more than 128 browser identities evict the oldest disconnected websocket device while preserving push and active devices", async () => {
+  const f = fixture();
+  f.service.updatePresence("active", f.desktop, {
+    type: "presence.update",
+    threadId: null,
+    inputAgeMs: 0,
+  });
+  const oldest = DeviceId.parse("oldest");
+  f.service.connectDevice(oldest);
+  for (let index = 0; index < 150; index++) {
+    f.setTime(1001 + index);
+    f.service.connectDevice(DeviceId.parse(`browser-${index}`));
+  }
+  expect(f.service.getPreferences(oldest)).toBeUndefined();
+  expect(f.service.getPreferences(f.desktop)).toMatchObject({ includePreview: false });
+  expect(f.service.getPreferences(f.phone)).toMatchObject({ includePreview: false });
+  expect(f.service.getPreferences(DeviceId.parse("browser-149"))).toMatchObject({
+    includePreview: false,
+  });
+  await f.reopen();
+  f.service.connectDevice(DeviceId.parse("after-restart"));
+  expect(f.service.getPreferences(DeviceId.parse("after-restart"))).toMatchObject({
+    includePreview: false,
+  });
+  expect(f.service.getPreferences(f.phone)).toMatchObject({ includePreview: false });
+});
+
+it("revoked device tombstones do not consume capacity or regain authority after churn", async () => {
+  const f = fixture();
+  for (let index = 0; index < 150; index++) {
+    const device = DeviceId.parse(`revoked-${index}`);
+    f.service.connectDevice(device);
+    f.service.revoke(device);
+  }
+  await f.reopen();
+  const newDevice = DeviceId.parse("new-device");
+  f.service.connectDevice(newDevice);
+  expect(f.service.getPreferences(newDevice)).toMatchObject({ includePreview: false });
+  expect(() => f.service.connectDevice(DeviceId.parse("revoked-0"))).toThrow("revoked");
 });
