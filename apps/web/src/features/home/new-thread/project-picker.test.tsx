@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { WorkspaceId } from "@ace/protocol";
@@ -13,7 +13,8 @@ test("project search keeps draft text, supports keyboard selection, no matches a
   await userEvent.type(message, "Keep my draft");
   await userEvent.click(await screen.findByRole("button", { name: "Project: ace" }));
   const popup = await screen.findByRole("dialog", { name: "Choose project" });
-  const search = within(popup).getByRole("combobox", { name: "Search projects" });
+  const search = await within(popup).findByRole("combobox", { name: "Search projects" });
+  await waitFor(() => expect(document.activeElement).toBe(search));
   await userEvent.type(search, "RELAY");
   expect(within(popup).getAllByRole("option")).toHaveLength(1);
   await userEvent.keyboard("{ArrowDown}{Enter}");
@@ -44,7 +45,7 @@ test("the picker uses configured artwork and the shared initials fallback", asyn
   });
   await userEvent.click(await screen.findByRole("button", { name: "Project: Application" }));
   const popup = await screen.findByRole("dialog", { name: "Choose project" });
-  const ace = within(popup).getByRole("option", { name: "Application" });
+  const ace = await within(popup).findByRole("option", { name: "Application" });
   const image = ace.querySelector("img");
   expect(image?.getAttribute("src")).toBe("https://example.com/ace.png");
   const path = app.daemon.projects.list().workspaces.find((project) => project.id === "ace")?.path;

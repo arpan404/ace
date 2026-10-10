@@ -4,7 +4,12 @@ export { useDraftScope } from "./composer/draft-scope.ts";
 /** A thread New thread just started reads this title until the daemon titles it. */
 export { rememberAttachments, rememberTitle, startedTitle } from "./composer/send-store.ts";
 /** The composer's pieces New thread reuses: the approvals icon, the chip and tab styles. */
-export { PermissionPicker } from "./composer/permission-picker.tsx";
+export {
+  ControlsPending,
+  DeferredPermissionPicker,
+  preloadComposerParts,
+} from "./composer/deferred-parts.tsx";
+export { MenuPending } from "./composer/deferred-menus.tsx";
 export { usePermissionCapabilities, usePermissionModes } from "./composer/permission-hooks.ts";
 export {
   chipControl as composerChip,
@@ -15,7 +20,6 @@ export {
 } from "./composer/composer-styles.ts";
 /** The tab attached to the composer's top edge. */
 export { AttachedCard } from "./composer/attached-card.tsx";
-export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */

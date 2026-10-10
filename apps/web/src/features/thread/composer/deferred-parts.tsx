@@ -14,6 +14,10 @@ export const DeferredPermissionControl = deferredComponent(() =>
 export const DeferredModelControl = deferredComponent(() =>
   import("./thread-controls.tsx").then((module) => module.ThreadModelControl),
 );
+/** The approvals chip on its own, for New thread, which has no thread to read the mode from. */
+export const DeferredPermissionPicker = deferredComponent(() =>
+  import("./permission-picker.tsx").then((module) => module.PermissionPicker),
+);
 export const DeferredQueueArea = deferredComponent(() =>
   import("./queue-area.tsx").then((module) => module.QueueArea),
 );
@@ -39,6 +43,7 @@ export function preloadComposerParts(): Promise<unknown> {
     // The model chip's popover, through the controls' own chunk so the route never holds it.
     import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
     DeferredPermissionControl.preload(),
+    DeferredPermissionPicker.preload(),
     DeferredModelControl.preload(),
     DeferredQueueArea.preload(),
     DeferredQueuedMessages.preload(),

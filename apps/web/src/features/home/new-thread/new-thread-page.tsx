@@ -1,10 +1,11 @@
-import { ProjectPicker } from "./project-picker.tsx";
+import { DeferredProjectChoices, ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
-  PermissionPicker,
+  ControlsPending,
+  DeferredPermissionPicker,
   preloadComposerParts,
   rememberAttachments,
   useDraftScope,
@@ -93,7 +94,11 @@ export function NewThreadPage(props: {
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
   const { create, error } = useCreateThread();
-  useEffect(() => whenIdle(() => void preloadComposerParts()), []);
+  useEffect(
+    () =>
+      whenIdle(() => void Promise.all([preloadComposerParts(), DeferredProjectChoices.preload()])),
+    [],
+  );
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
   const start = useStartingProvider();
@@ -314,28 +319,30 @@ export function NewThreadPage(props: {
                 />
               }
               controls={
-                <PermissionPicker
-                  current={composerPermissionOption(
-                    provider,
-                    admitted.mode ?? null,
-                    permissions.capabilities,
-                  )}
-                  detail={
-                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                  }
-                  inherited={!chosen}
-                  menu={{
-                    options: composerPermissionOptions(provider, permissions.capabilities),
-                    value: admitted.mode,
-                    loading: !!provider && (permissions.loading || defaultMode === undefined),
-                    unavailable: permissions.failed
-                      ? "Couldn't load permission modes. Reconnect and try again."
-                      : undefined,
+                <Suspense fallback={<ControlsPending />}>
+                  <DeferredPermissionPicker.Component
+                    current={composerPermissionOption(
+                      provider,
+                      admitted.mode ?? null,
+                      permissions.capabilities,
+                    )}
+                    detail={
+                      admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                    }
+                    inherited={!chosen}
+                    menu={{
+                      options: composerPermissionOptions(provider, permissions.capabilities),
+                      value: admitted.mode,
+                      loading: !!provider && (permissions.loading || defaultMode === undefined),
+                      unavailable: permissions.failed
+                        ? "Couldn't load permission modes. Reconnect and try again."
+                        : undefined,
 
-                    fallback: admitted.fallback,
-                  }}
-                  onChange={permissions.setCurrentId}
-                />
+                      fallback: admitted.fallback,
+                    }}
+                    onChange={permissions.setCurrentId}
+                  />
+                </Suspense>
               }
             />
             {admissionProblem && (
