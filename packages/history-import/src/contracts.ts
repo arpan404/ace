@@ -37,6 +37,10 @@ export const ImportInit = z.object({
 export type ImportInit = z.infer<typeof ImportInit>;
 export const ScanResult = HistoryScanStats.extend({
   unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
+  retry: z
+    .array(z.object({ instanceId: z.string(), path: z.string().refine(isAbsolute) }))
+    .max(4096)
+    .default([]),
 });
 export const Packet = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), thread: Thread }),

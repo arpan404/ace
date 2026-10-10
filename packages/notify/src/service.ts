@@ -79,11 +79,22 @@ export class NotificationService {
     this.database.ingest(events, this.options.now(), coverage);
   }
   register(id: DeviceId, address: unknown): void {
-    this.database.register(id, address);
+    this.database.register(
+      id,
+      address,
+      this.options.now(),
+      this.presence.activeDevices(this.options.now()),
+    );
   }
   connectDevice(id: DeviceId): void {
     if (!this.database.device(id))
-      this.database.register(id, { channel: "websocket", platform: "web" });
+      this.database.register(
+        id,
+        { channel: "websocket", platform: "web" },
+        this.options.now(),
+        this.presence.activeDevices(this.options.now()),
+      );
+    this.database.touch(id, this.options.now());
   }
   getPreferences(id: DeviceId) {
     return this.database.device(id)?.preferences;
@@ -100,6 +111,7 @@ export class NotificationService {
   updatePresence(session: string, device: DeviceId, update: PresenceUpdate): void {
     if (!this.database.device(device)) throw new Error("Device unavailable");
     this.presence.update(session, device, update, this.options.now());
+    this.database.touch(device, this.options.now());
   }
   disconnect(session: string): void {
     this.presence.remove(session);

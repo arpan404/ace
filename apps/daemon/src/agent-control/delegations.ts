@@ -398,7 +398,7 @@ export class DelegationService {
     if (!thread) throw new Error("Unknown thread");
     const outcome = ["done", "failed"].includes(thread.status.state)
       ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
-      : await this.waiters.wait(threadId, signal);
+      : await this.waiters.wait(threadId, signal, caller.threadId);
     const edge = this.journal.get(threadId);
     if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
       this.deps.store.atomic(() => {

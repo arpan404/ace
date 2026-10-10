@@ -1,3 +1,4 @@
+import { ignoreStream } from "./ignore-stream.ts";
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { command } from "./process.ts";
@@ -6,6 +7,9 @@ import type { SafeRoot } from "./safety.ts";
 
 export class GitIgnore {
   private readonly safe: SafeRoot;
+  private probe: Promise<boolean> | undefined;
+  private foundRepository = false;
+  private stream: ReturnType<typeof ignoreStream> | undefined;
   private constructor(safe: SafeRoot) {
     this.safe = safe;
   }
@@ -41,9 +45,14 @@ export class GitIgnore {
     await this.safe.resolve("");
     return paths;
   }
-  async ignored(paths: string[], signal?: AbortSignal): Promise<Set<string>> {
-    if (!paths.length) return new Set();
-    await this.safe.resolve("");
+  private repository(signal?: AbortSignal): Promise<boolean> {
+    this.probe ??= this.probeRepository(signal).catch((error: unknown) => {
+      this.probe = undefined;
+      throw error;
+    });
+    return this.probe;
+  }
+  private async probeRepository(signal?: AbortSignal): Promise<boolean> {
     const probe = await command(
       "git",
       ["rev-parse", "--is-inside-work-tree"],
@@ -56,7 +65,31 @@ export class GitIgnore {
       if (errorCode(error) === "ENOENT") return { code: 1, stdout: Buffer.alloc(0), stderr: "" };
       throw error;
     });
-    if (probe.code !== 0 || probe.stdout.toString().trim() !== "true") return new Set();
+    this.foundRepository = probe.code === 0 && probe.stdout.toString().trim() === "true";
+    return this.foundRepository;
+  }
+  async scan<T>(signal: AbortSignal, run: (ignore: GitIgnore) => Promise<T>): Promise<T> {
+    if (!this.foundRepository && !this.stream) this.probe = undefined;
+    if (this.stream || !(await this.repository(signal))) return run(this);
+    const scoped = new GitIgnore(this.safe);
+    scoped.probe = this.probe;
+    const stream = ignoreStream(this.safe, signal);
+    scoped.stream = stream;
+    try {
+      return await run(scoped);
+    } catch (error) {
+      this.probe = undefined;
+      this.foundRepository = false;
+      throw error;
+    } finally {
+      await stream.close();
+    }
+  }
+  async ignored(paths: string[], signal?: AbortSignal): Promise<Set<string>> {
+    if (!paths.length) return new Set();
+    await this.safe.resolve("");
+    if (!(await this.repository(signal))) return new Set();
+    if (this.stream) return this.stream.ignored(paths);
     // NUL framing supports newlines in filenames. Git keeps tracked files visible.
     const result = await command(
       "git",

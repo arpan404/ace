@@ -7,6 +7,7 @@ import { observe } from "./observation.ts";
 export class ExecutionOwner {
   private monitors = new Map<string, AbortController>();
   private pending = new Set<Promise<void>>();
+  private deadlines = new Map<string, number>();
   private store: AutomationStore;
   private deps: Dependencies;
   private publish: (run: AutomationRun) => void;
@@ -41,9 +42,22 @@ export class ExecutionOwner {
       return recovered ?? this.deps.executor.execute(input, signal);
     });
   }
+  nextDeadline(): number | undefined {
+    return this.deadlines.size ? Math.min(...this.deadlines.values()) : undefined;
+  }
+  expire(): void {
+    for (const [id, deadline] of this.deadlines) {
+      if (this.deps.now() < deadline) continue;
+      this.deadlines.delete(id);
+      this.monitors.get(id)?.abort();
+      this.monitors.delete(id);
+      this.complete(id, { status: "failed", result: "Automation exceeded its maximum runtime" });
+    }
+  }
   stop(): void {
     const monitors = [...this.monitors.values()];
     this.monitors.clear();
+    this.deadlines.clear();
     this.pending.clear();
     for (const controller of monitors) controller.abort();
   }
@@ -69,6 +83,7 @@ export class ExecutionOwner {
     if (this.monitors.size >= 256) throw new Error("Execution monitor limit reached");
     const controller = new AbortController();
     this.monitors.set(run.id, controller);
+    this.deadlines.set(run.id, run.startedAt + (this.deps.maxRunMs ?? 3_600_000));
     let request: Promise<ExecutionResult | undefined>;
     try {
       request = Promise.resolve(execute(controller.signal));
@@ -76,6 +91,7 @@ export class ExecutionOwner {
       request = Promise.reject(error);
     }
     const release = () => {
+      this.deadlines.delete(run.id);
       if (this.monitors.get(run.id) === controller) this.monitors.delete(run.id);
       this.pending.delete(tracked);
     };

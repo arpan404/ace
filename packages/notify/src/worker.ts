@@ -12,9 +12,18 @@ import type { NotificationTransport } from "./service.ts";
 import { FromWorker, WorkerConfig, ToWorker, type WorkerCall } from "./worker-wire.ts";
 import { metadata, type MetadataEvent } from "./metadata.ts";
 
+type WorkerOptionsInput = {
+  path: string;
+  windowMs?: number;
+  transport: NotificationTransport;
+  signal?: AbortSignal;
+  spawn?: (entry: URL, options: WorkerOptions) => Worker;
+  schedule?: (delayMs: number, restart: () => void) => () => void;
+};
+
 export class NotificationWorker {
   private worker: Worker;
-  private readonly ready: Promise<void>;
+  private ready: Promise<void> = Promise.resolve();
   private readyResolve: () => void = () => {};
   private readyReject: (error: Error) => void = () => {};
   private sequence = 0;
@@ -34,36 +43,19 @@ export class NotificationWorker {
   private stopOnAbort: (() => void) | undefined;
   private pendingBytes = 0;
   private pendingDisconnects = 0;
-  constructor(options: {
-    path: string;
-    windowMs?: number;
-    transport: NotificationTransport;
-    signal?: AbortSignal;
-    spawn?: (entry: URL, options: WorkerOptions) => Worker;
-  }) {
+  private options: WorkerOptionsInput;
+  private cancelRestart: (() => void) | undefined;
+  private retry = 0;
+  private opened = false;
+  constructor(options: WorkerOptionsInput) {
+    this.options = options;
     this.transport = options.transport;
-    this.ready = new Promise((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-    });
-    // Worker failure can precede the first RPC. Retain it without an unhandled rejection.
-    void this.ready.catch(() => {});
-    const spawn =
-      options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
-    this.worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
-      workerData: WorkerConfig.parse(options),
-    });
-    this.worker.on("error", (error: unknown) =>
-      this.fail(error instanceof Error ? error : new Error("Notification worker failed")),
-    );
-    this.worker.on("exit", () => this.fail(new Error("Notification worker exited")));
-    let opened = false;
+    this.worker = this.start();
     if (options.signal) {
       const signal = options.signal;
       const abort = () => {
-        if (opened) {
-          // Quiesce transport delivery while keeping presence/database RPCs
-          // available until the daemon's ordered cleanup reaches close.
+        this.cancelRestart?.();
+        if (this.opened) {
           for (const flight of this.flights.values()) flight.abort();
           return;
         }
@@ -74,7 +66,31 @@ export class NotificationWorker {
       this.stopOnAbort = () => signal.removeEventListener("abort", abort);
       if (signal.aborted) abort();
     }
-    this.worker.on("message", (input: unknown) => {
+  }
+  private start(): Worker {
+    const options = this.options;
+    this.failed = undefined;
+    this.opened = false;
+    this.ready = new Promise((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    // Worker failure can precede the first RPC. Retain it without an unhandled rejection.
+    void this.ready.catch(() => {});
+    const spawn =
+      options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
+    const worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
+      workerData: WorkerConfig.parse(options),
+    });
+    worker.on("error", (error: unknown) => {
+      if (this.worker === worker)
+        this.fail(error instanceof Error ? error : new Error("Notification worker failed"));
+    });
+    worker.on("exit", () => {
+      if (this.worker === worker) this.fail(new Error("Notification worker exited"));
+    });
+    worker.on("message", (input: unknown) => {
+      if (this.worker !== worker || this.failed) return;
       const parsed = FromWorker.safeParse(input);
       if (!parsed.success) {
         this.fail(new Error("Invalid notification worker reply"));
@@ -82,15 +98,17 @@ export class NotificationWorker {
       }
       const message = parsed.data;
       if (message.type === "ready") {
-        opened = true;
+        this.opened = true;
         this.readyResolve();
       } else if (message.type === "result") {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
         this.pendingBytes -= waiter?.bytes ?? 0;
         if (waiter?.disconnect) this.pendingDisconnects--;
-        if (message.ok) waiter?.resolve(message.value);
-        else waiter?.reject(new Error("Notification operation rejected"));
+        if (message.ok) {
+          this.retry = 0;
+          waiter?.resolve(message.value);
+        } else waiter?.reject(new Error("Notification operation rejected"));
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
@@ -103,14 +121,16 @@ export class NotificationWorker {
           .send(message.device, message.notification, controller.signal)
           .catch(() => "retry" as const)
           .then((result) => {
-            this.flights.delete(message.id);
-            if (!this.failed)
-              this.worker.postMessage({ type: "deliveryResult", id: message.id, result }, []);
+            if (this.flights.get(message.id) === controller) this.flights.delete(message.id);
+            if (!this.failed && this.worker === worker)
+              worker.postMessage({ type: "deliveryResult", id: message.id, result }, []);
           });
       }
     });
+    return worker;
   }
   private fail(error: Error): void {
+    if (this.failed) return;
     this.failed = error;
     this.readyReject(error);
     for (const waiter of this.pending.values()) waiter.reject(error);
@@ -119,6 +139,33 @@ export class NotificationWorker {
     this.pendingDisconnects = 0;
     for (const flight of this.flights.values()) flight.abort();
     this.flights.clear();
+    if (this.closing || this.options.signal?.aborted) return;
+    const failedWorker = this.worker;
+    const stopped = failedWorker.terminate();
+    const schedule =
+      this.options.schedule ??
+      ((delay, restart) => {
+        const timer = setTimeout(restart, delay);
+        timer.unref();
+        return () => clearTimeout(timer);
+      });
+    this.cancelRestart = schedule(Math.min(30_000, 250 * 2 ** Math.min(this.retry++, 7)), () => {
+      this.cancelRestart = undefined;
+      void stopped.then(() => {
+        if (!this.closing && !this.options.signal?.aborted) {
+          try {
+            this.worker = this.start();
+          } catch (restartError) {
+            this.failed = undefined;
+            this.fail(
+              restartError instanceof Error
+                ? restartError
+                : new Error("Notification worker failed"),
+            );
+          }
+        }
+      });
+    });
   }
   private call(
     call: WorkerCall,
@@ -259,6 +306,7 @@ export class NotificationWorker {
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
+      this.cancelRestart?.();
       try {
         if (!this.failed) await this.call({ method: "close" });
       } finally {

@@ -161,9 +161,12 @@ const mcpTypes = new Set<string>(
 const isMcp = (message: { type: string }): message is McpProviderRequest =>
   mcpTypes.has(message.type);
 export function createMcpSession(context: SocketContext): SocketService {
-  const { options, authorize, connected, send, fail, canReadThread } = context;
+  const { options, authorize, connected, send, fail, canReadThread, tasks } = context;
+  const lifetime = new AbortController();
+  let pending = 0;
+  const nativeTasks = new Set<Promise<unknown>>();
   return {
-    async handle(message) {
+    handle(message) {
       if (!isMcp(message)) return false;
       const reading = ["mcp.status", "mcp.sources", "mcp.provider.sources"].includes(message.type);
       if (
@@ -173,79 +176,113 @@ export function createMcpSession(context: SocketContext): SocketService {
         fail("forbidden", "Thread MCP scope required", false, { requestId: message.requestId });
         return true;
       }
-      // A provider-wide request (Settings) reaches the provider's latest live session it may read.
-      const scope =
-        "threadId" in message ? { threadId: message.threadId } : { provider: message.provider };
-      const live = () =>
-        "threadId" in message
-          ? options.mcp?.providers.require(message.threadId)
-          : options.mcp?.providers.latest(message.provider, canReadThread);
-      const reply = (result: unknown) => {
-        if (connected())
-          send({ type: "mcp.result", ...scope, requestId: message.requestId, result });
-      };
-      try {
-        if (message.type === "mcp.sources" || message.type === "mcp.provider.sources") {
-          let controls;
-          try {
-            controls = live();
-          } catch {
-            /* An idle provider has no live catalog. */
-          }
-          const result: McpSources = {
-            // Older clients still read this field; ace's own tools live in the side panel.
-            groups: [],
-            servers: controls ? providerMcpSources(await controls.status()) : [],
-            live: Boolean(controls),
-            canAdd: Boolean(controls?.add),
-            appliesNextTurn: controls?.appliesNextTurn ?? false,
-          };
-          reply(result);
-          return true;
-        }
-        if ("name" in message && message.name === "ace")
-          throw new Error("ace owns this MCP connection");
-        const controls = live();
-        if (!controls) throw new Error("Provider MCP session unavailable");
-        let result: unknown;
-        switch (message.type) {
-          case "mcp.add":
-          case "mcp.provider.add":
-            if (!controls.add)
-              throw new Error("Adding MCP servers is unavailable for this provider");
-            if (
-              providerMcpSources(await controls.status()).some(
-                (server) => server.name === message.name,
-              )
-            )
-              throw new Error("An MCP server already uses that name");
-            await controls.add(message.name, message.server);
-            result = null;
-            break;
-          case "mcp.status":
-            result = await controls.status();
-            break;
-          case "mcp.replace":
-            result = await controls.replace(message.servers);
-            break;
-          case "mcp.reconnect":
-          case "mcp.provider.reconnect":
-            result = await controls.reconnect(message.name);
-            break;
-          case "mcp.enable":
-          case "mcp.provider.enable":
-            result = await controls.enable(message.name);
-            break;
-          case "mcp.disable":
-          case "mcp.provider.disable":
-            result = await controls.disable(message.name);
-            break;
-        }
-        reply(result ?? null);
-      } catch {
-        fail("mcp_failed", "Provider MCP control failed", false, { requestId: message.requestId });
+      if (pending >= 8 || nativeTasks.size >= 8) {
+        fail("mcp_busy", "Provider MCP controls are busy", false, { requestId: message.requestId });
+        return true;
       }
+      pending++;
+      const deadline = AbortSignal.any([lifetime.signal, AbortSignal.timeout(120_000)]);
+      const control = async <T>(operation: Promise<T>): Promise<T> => {
+        nativeTasks.add(operation);
+        void operation.finally(() => nativeTasks.delete(operation)).catch(() => {});
+        deadline.throwIfAborted();
+        let abort: (() => void) | undefined;
+        try {
+          return await Promise.race([
+            operation,
+            new Promise<never>((_, reject) => {
+              abort = () => reject(new Error("Provider MCP controls cancelled"));
+              deadline.addEventListener("abort", abort, { once: true });
+            }),
+          ]);
+        } finally {
+          if (abort) deadline.removeEventListener("abort", abort);
+        }
+      };
+      const task = (async () => {
+        // A provider-wide request (Settings) reaches the provider's latest live session it may read.
+        const scope =
+          "threadId" in message ? { threadId: message.threadId } : { provider: message.provider };
+        const live = () =>
+          "threadId" in message
+            ? options.mcp?.providers.require(message.threadId)
+            : options.mcp?.providers.latest(message.provider, canReadThread);
+        const reply = (result: unknown) => {
+          if (connected())
+            send({ type: "mcp.result", ...scope, requestId: message.requestId, result });
+        };
+        try {
+          if (message.type === "mcp.sources" || message.type === "mcp.provider.sources") {
+            let controls;
+            try {
+              controls = live();
+            } catch {
+              /* An idle provider has no live catalog. */
+            }
+            const result: McpSources = {
+              // Older clients still read this field; ace's own tools live in the side panel.
+              groups: [],
+              servers: controls ? providerMcpSources(await control(controls.status())) : [],
+              live: Boolean(controls),
+              canAdd: Boolean(controls?.add),
+              appliesNextTurn: controls?.appliesNextTurn ?? false,
+            };
+            reply(result);
+            return;
+          }
+          if ("name" in message && message.name === "ace")
+            throw new Error("ace owns this MCP connection");
+          const controls = live();
+          if (!controls) throw new Error("Provider MCP session unavailable");
+          let result: unknown;
+          switch (message.type) {
+            case "mcp.add":
+            case "mcp.provider.add":
+              if (!controls.add)
+                throw new Error("Adding MCP servers is unavailable for this provider");
+              if (
+                providerMcpSources(await control(controls.status())).some(
+                  (server) => server.name === message.name,
+                )
+              )
+                throw new Error("An MCP server already uses that name");
+              await control(controls.add(message.name, message.server));
+              result = null;
+              break;
+            case "mcp.status":
+              result = await control(controls.status());
+              break;
+            case "mcp.replace":
+              result = await control(controls.replace(message.servers));
+              break;
+            case "mcp.reconnect":
+            case "mcp.provider.reconnect":
+              result = await control(controls.reconnect(message.name));
+              break;
+            case "mcp.enable":
+            case "mcp.provider.enable":
+              result = await control(controls.enable(message.name));
+              break;
+            case "mcp.disable":
+            case "mcp.provider.disable":
+              result = await control(controls.disable(message.name));
+              break;
+          }
+          reply(result ?? null);
+        } catch {
+          fail("mcp_failed", "Provider MCP control failed", false, {
+            requestId: message.requestId,
+          });
+        }
+      })().finally(() => {
+        pending--;
+      });
+      tasks.add(task);
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
+    },
+    close() {
+      lifetime.abort();
     },
   };
 }

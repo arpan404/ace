@@ -44,7 +44,6 @@ export async function publishHistory(
         if (!replied) reject(new Error("History publication worker exited"));
       });
     });
-    store.setHistoryWriting(false);
     await store.notifyHistory(after);
   } finally {
     signal.removeEventListener("abort", abort);

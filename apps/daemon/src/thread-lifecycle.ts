@@ -161,14 +161,21 @@ export class ThreadLifecycle {
   /** Deletions a crash interrupted finish before new commands can observe them half-done. */
   private async resume(): Promise<void> {
     await this.options.store.writable();
-    const pending = this.options.store
-      .statement("SELECT thread_id FROM thread_cleanup LIMIT 16")
-      .all();
-    for (const row of pending) {
-      if (this.stopped) return;
-      await this.finish(ThreadId.parse(row.thread_id)).catch((error: unknown) =>
-        this.options.log?.(error),
-      );
+    let after = "";
+    while (!this.stopped) {
+      const pending = this.options.store
+        .statement(
+          "SELECT thread_id FROM thread_cleanup WHERE thread_id>? ORDER BY thread_id LIMIT 16",
+        )
+        .all(after);
+      if (!pending.length) return;
+      for (const row of pending) {
+        if (this.stopped) return;
+        after = ThreadId.parse(row.thread_id);
+        await this.finish(ThreadId.parse(row.thread_id)).catch((error: unknown) =>
+          this.options.log?.(error),
+        );
+      }
     }
   }
   /**

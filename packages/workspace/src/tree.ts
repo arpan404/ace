@@ -2,7 +2,7 @@ import { relative, sep } from "node:path";
 import type { SafeRoot } from "./safety.ts";
 import { internal, transient, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
-import { aborted, TREE_CAP, WorkspaceError, type Entry } from "./types.ts";
+import { aborted, integer, TREE_CAP, WorkspaceError, type Entry } from "./types.ts";
 
 /** Deterministic preorder; directories are not followed through symlinks. */
 export async function* tree(
@@ -13,9 +13,12 @@ export async function* tree(
     depth: number;
     includeIgnored: boolean;
     signal?: AbortSignal;
+    /** Streaming owners can raise the visit cap when they supply a deadline. */
+    entryLimit?: number;
     exclude?: (path: string) => boolean;
   },
 ): AsyncGenerator<Entry> {
+  const entryLimit = integer(options.entryLimit ?? TREE_CAP, "entryLimit", 1, 1_000_000);
   let visited = 0;
   const excluded = options.exclude ?? internal;
   async function* descend(dir: string, depth: number): AsyncGenerator<Entry> {
@@ -43,8 +46,8 @@ export async function* tree(
       );
       for (const path of paths) {
         aborted(options.signal);
-        if (++visited > TREE_CAP)
-          throw new WorkspaceError("LIMIT_EXCEEDED", "Workspace traversal exceeds 100,000 entries");
+        if (++visited > entryLimit)
+          throw new WorkspaceError("LIMIT_EXCEEDED", "Workspace traversal exceeds entry budget");
         const hidden = ignored.has(actualPath(path));
         if (hidden && !options.includeIgnored) continue;
         try {

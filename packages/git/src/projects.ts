@@ -33,7 +33,7 @@ export async function cloneRepository(
   let pending = "";
   let previous = "";
   await cli.call(
-    input.parent,
+    input.path,
     [
       "-c",
       "protocol.allow=never",
@@ -42,7 +42,7 @@ export async function cloneRepository(
       "--progress",
       "--",
       input.url,
-      input.directoryFd === undefined ? input.path : ".",
+      ".",
     ],
     {
       write: true,

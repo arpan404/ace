@@ -1,3 +1,4 @@
+import { setImmediate as yieldImmediate } from "node:timers/promises";
 import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -26,7 +27,7 @@ export class ProviderRecovery {
       (db) =>
         [
           db.prepare(
-            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 64",
+            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
           ),
           db.prepare("SELECT offset FROM engine_provider_cursors WHERE thread_id=?"),
           db.prepare(
@@ -36,17 +37,13 @@ export class ProviderRecovery {
     );
   }
   /** Hydrate pure translation only; canonical facts already committed are never reapplied. */
-  restore(threadId: ThreadId, translator: Translator): void {
+  async restore(threadId: ThreadId, translator: Translator): Promise<void> {
     let rowid = 0;
-    let bytes = 0;
     do {
       const rows = this.store.atomic(() => this.readFrames.all(threadId, rowid));
       if (!rows.length) return;
       for (const row of rows) {
         const encoded = z.string().max(1048576).parse(row.frame);
-        bytes += Buffer.byteLength(encoded);
-        if (bytes > 16777216)
-          throw new Error("SDK provenance exceeds recovery budget; use explicit context handoff");
         const parsed = CapturedFrame.parse(JSON.parse(encoded));
         const payload = new ProviderPayload(JSON.stringify(parsed.data));
         const frame: Frame = { ...parsed, data: payload.data, payload };
@@ -57,7 +54,18 @@ export class ProviderRecovery {
           );
         rowid = z.number().int().positive().parse(row.rowid);
       }
+      await yieldImmediate();
     } while (rowid > 0);
+  }
+  /** Settled turns have no live identities to hydrate. Keep the latest session open. */
+  beginTurn(threadId: ThreadId): void {
+    this.store.atomic(() =>
+      this.store
+        .statement(`DELETE FROM engine_provider_frames
+      WHERE thread_id=? AND rowid<>COALESCE((SELECT MAX(rowid) FROM engine_provider_frames
+        WHERE thread_id=? AND json_extract(frame,'$.data.kind')='open'),0)`)
+        .run(threadId, threadId),
+    );
   }
   offset(threadId: ThreadId): number {
     return this.store.atomic(() =>

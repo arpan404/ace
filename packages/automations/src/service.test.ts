@@ -83,7 +83,7 @@ it("skip discards all downtime occurrences and waits for the next future run", a
   h.service.put(scheduled("skip"));
   h.now = start + 3 * 86_400_000 + 3_600_000;
   h.restart();
-  expect(h.timer.delay).toBe(23 * 3_600_000);
+  expect(h.timer.delay).toBe(60_000);
   expect(h.inputs).toHaveLength(0);
   h.now = start + 4 * 86_400_000;
   await h.timer.fire();
@@ -100,14 +100,14 @@ it("run_once coalesces downtime into one run and advances beyond now", async () 
   await h.timer.fire();
   expect(h.inputs).toHaveLength(1);
   expect(h.inputs[0]?.prompt).toBe("Triage 2024-01-01T09:00:00.000Z");
-  expect(h.timer.delay).toBe(23 * 3_600_000);
+  expect(h.timer.delay).toBe(60_000);
   await h.finish();
 });
 it("jitter survives restart and never runs before its persisted deadline", async () => {
   const h = harness();
   h.random = 0.5;
   h.service.put(scheduled("skip", 10_000));
-  expect(h.timer.delay).toBe(65_000);
+  expect(h.timer.delay).toBe(60_000);
   h.now = start + 1000;
   h.random = 0.9;
   h.restart();
@@ -135,12 +135,12 @@ it("arms one timer for the earliest job and cancels it when schedules are remove
   expect(h.timer.active.size).toBe(1);
   expect(h.timer.delay).toBe(60_000);
   h.service.remove("triage");
-  expect(h.timer.delay).toBe(3_660_000);
+  expect(h.timer.delay).toBe(60_000);
   h.service.remove("later");
   expect(h.timer.active.size).toBe(0);
   await h.service.settled();
 });
-it("rearms platform-sized long delays and ignores early timer wakes", async () => {
+it("rechecks long delays against the wall clock and ignores early timer wakes", async () => {
   const h = harness();
   h.service.put({
     ...scheduled(),
@@ -154,7 +154,7 @@ it("rearms platform-sized long delays and ignores early timer wakes", async () =
       },
     },
   });
-  expect(h.timer.delay).toBe(2_147_483_647);
+  expect(h.timer.delay).toBe(60_000);
   await h.timer.fire();
   expect(h.inputs).toHaveLength(0);
   expect(h.timer.active.size).toBe(1);
@@ -295,12 +295,12 @@ it("retrying an unchanged put preserves jitter and counted progress", async () =
   h.service.put(auto);
   h.random = 0.9;
   h.service.put(auto);
-  expect(h.timer.delay).toBe(65_000);
+  expect(h.timer.delay).toBe(60_000);
   h.now = start + 5000;
   await h.timer.fire();
   await h.finish();
   h.service.put(auto);
-  expect(h.timer.delay).toBe(86_404_000);
+  expect(h.timer.delay).toBe(60_000);
 });
 it("repeated event delivery does not republish run notifications", async () => {
   const h = harness();

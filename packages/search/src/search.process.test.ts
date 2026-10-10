@@ -218,7 +218,10 @@ test("pagination keeps tied ranks ordered, binds filters and rejects changed gen
     log.query("pageneedle", { cursor: firstCursor, filters: { workspaceId: thread.workspaceId } }),
   ).toThrow("search_invalid_query");
   expect(() => log.query("pageneedle", { cursor: "broken" })).toThrow("search_invalid_query");
-  log.append([{ type: "item.created", item: message("pageneedle") }]);
+  const inserted = message("pageneedle");
+  log.append([{ type: "item.created", item: inserted }]);
+  expect(log.query("pageneedle", { cursor: firstCursor }).hits.length).toBeGreaterThan(0);
+  log.append([{ type: "item.deleted", itemId: inserted.id }]);
   expect(() => log.query("pageneedle", { cursor: firstCursor })).toThrow("search_cursor_stale");
 });
 

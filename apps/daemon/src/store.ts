@@ -103,6 +103,8 @@ export class Store {
   private listeners = new Set<Listener>();
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private publications: Event[][] = [];
+  private deferredAfter: number | undefined;
+  private notifyingHistory = false;
   private publishing = false;
   constructor(
     path: string,
@@ -117,7 +119,7 @@ export class Store {
     this.status = new StatusStore(this.db, (sql) => this.statement(sql));
     try {
       this.db.exec(
-        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;",
+        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
       );
       migrate(this.db);
       migrateProjects(this.db);
@@ -167,7 +169,7 @@ export class Store {
         () => {
           if (this.historyWriting) return;
           try {
-            this.search.flush();
+            this.search.flushCompleted();
           } catch (error) {
             try {
               this.onError(error);
@@ -273,7 +275,7 @@ export class Store {
         this.depth--;
       }
     }
-    this.db.exec(this.historyWriting ? "BEGIN" : "BEGIN IMMEDIATE");
+    this.db.exec("BEGIN IMMEDIATE");
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -312,18 +314,36 @@ export class Store {
   }
   private publish(events: Event[]): void {
     if (!events.length) return;
+    if (this.historyWriting && !this.notifyingHistory) {
+      const after = (events[0]?.seq ?? this.headSeq() + 1) - 1;
+      this.deferredAfter = Math.min(this.deferredAfter ?? after, after);
+      return;
+    }
     this.publications.push(events);
+    this.notifyingHistory = false;
     if (this.publishing) return;
     this.publishing = true;
     try {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
-        for (const { view } of this.caches.values()) {
+        for (const [id, { view }] of this.caches) {
           const changes = batch.filter(
-            (event) => event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
+            (event) =>
+              event.seq > view.seq &&
+              event.threadId === view.thread.id &&
+              !event.payload.type.startsWith("item."),
           );
-          if (changes.length) this.status.updateCache(view, changes);
-          view.seq = batch.at(-1)?.seq ?? view.seq;
+          try {
+            if (changes.length) this.status.updateCache(view, changes);
+            view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
+          } catch (error) {
+            this.caches.delete(id);
+            try {
+              this.onError(error);
+            } catch {
+              /* committed delivery must continue */
+            }
+          }
         }
         const listeners = [...this.listeners];
         for (const listener of listeners) {
@@ -352,10 +372,32 @@ export class Store {
   }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
-    this.historyWriting = active;
-    // Main-thread writes fail immediately while the worker holds the import transaction.
-    this.db.exec(active ? "PRAGMA busy_timeout=0" : "PRAGMA busy_timeout=5000");
-    if (!active) {
+    // Metadata writers wait for the worker lock rather than failing at the first contention.
+    this.db.exec("PRAGMA busy_timeout=5000");
+    if (active) {
+      this.historyWriting = true;
+      return;
+    }
+    const after = this.deferredAfter;
+    try {
+      if (after !== undefined) {
+        let cursor = after;
+        // Keep the fence through all pages, including listener-created tail events.
+        while (cursor < this.headSeq()) {
+          const events = this.readEvents({ afterSeq: cursor, limit: 64 });
+          if (!events.length) throw new Error("Missing deferred history events");
+          this.notifyingHistory = true;
+          try {
+            this.publish(events);
+          } finally {
+            this.notifyingHistory = false;
+          }
+          cursor = events.at(-1)?.seq ?? this.headSeq();
+        }
+      }
+    } finally {
+      this.historyWriting = false;
+      this.deferredAfter = undefined;
       if (this.search.hasPendingWrites()) this.searchMaintenance.wake();
       for (const resolve of this.historyWaiters) resolve();
       this.historyWaiters.clear();
@@ -385,12 +427,22 @@ export class Store {
   async notifyHistory(after: number): Promise<void> {
     const through = this.headSeq();
     while (after < through) {
-      const events = this.readEvents({ afterSeq: after, limit: 16 });
+      const events = this.readEvents({ afterSeq: after, limit: 16 }).filter(
+        (event) => event.seq <= through,
+      );
       if (!events.length) throw new Error("Missing committed history events");
-      this.publish(events);
+      this.notifyingHistory = true;
+      try {
+        this.publish(events);
+      } finally {
+        this.notifyingHistory = false;
+      }
       after = events.at(-1)?.seq ?? through;
       await setImmediate();
     }
+    if (this.deferredAfter !== undefined)
+      this.deferredAfter = Math.max(this.deferredAfter, through);
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
   getWorkspace(
     id: WorkspaceId,

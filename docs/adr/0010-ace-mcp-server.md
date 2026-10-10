@@ -155,3 +155,16 @@ Codex persist through their own config mechanisms; OpenCode's current API regist
 session. Environment variables and authentication headers must be configured in the provider.
 ace neither reads that config nor stores it. The service-owned ace connection cannot be replaced
 or disabled by these controls. Codex reload changes apply on its next turn.
+
+## Amendment: session lifetime and admission fairness (2026-10-10)
+
+The default local bearer lease lasts until its provider session ends or the daemon
+shuts down. It has no independent one-hour expiry that could abort an active turn.
+Authority remains in memory, bounded by the credential cap and the session's
+AbortSignal. Explicit expiring registries remain available for shorter independent
+leases. The stdio bridge allows the registry's five-minute tool deadline and returns
+a request error on its own deadline without closing the connection.
+
+Tool admission includes a per-thread cap of sixteen alongside the global cap.
+Legacy notification transports release their slots when their stream closes, and
+reinitialization retains at most four transports per principal.

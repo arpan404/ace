@@ -49,7 +49,7 @@ export class AutomationService {
       deps,
       () => this.live,
       (id, event) => {
-        this.trigger(id, event, "file");
+        if (!this.store.running(id)) this.trigger(id, event, "file");
       },
       (error) => this.report(error),
     );
@@ -140,6 +140,7 @@ export class AutomationService {
   private publish(run: AutomationRun): void {
     try {
       this.deps.onRun?.(run);
+      this.arm();
     } catch (error) {
       this.report(error);
     }
@@ -195,6 +196,7 @@ export class AutomationService {
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input && this.live && generation === this.generation)
       this.executions.launch(admission.run, admission.input);
+    this.arm();
     return admission.run;
   }
   private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
@@ -230,8 +232,11 @@ export class AutomationService {
     this.cancelTimer = undefined;
     if (!this.live || this.ticking) return;
     const job = this.nextJob();
-    if (job?.due === null || job?.due === undefined) return;
-    const delay = Math.min(2_147_483_647, Math.max(0, job.due - this.deps.now()));
+    const deadlines = [job?.due, this.executions.nextDeadline()].filter(
+      (value): value is number => value !== undefined && value !== null,
+    );
+    if (!deadlines.length) return;
+    const delay = Math.min(60_000, Math.max(0, Math.min(...deadlines) - this.deps.now()));
     this.cancelTimer = this.deps.timer.arm(delay, () => {
       this.cancelTimer = undefined;
       const operation = this.tick().catch((error) => this.report(error));
@@ -245,6 +250,7 @@ export class AutomationService {
   private async tick(): Promise<void> {
     this.ticking = true;
     try {
+      this.executions.expire();
       // A bounded batch yields to I/O if a large number of jobs share a deadline.
       for (let i = 0; i < 100 && this.live; i++) {
         const job = this.nextJob();

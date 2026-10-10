@@ -9,9 +9,10 @@ import {
 } from "./projects.ts";
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
-import { changedFiles } from "./changed-files.ts";
+import { changedFiles, changeSummary } from "./changed-files.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
+import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
@@ -69,8 +70,9 @@ export class GitService {
     return this.repository.cli.recoverCleanup(worktree);
   }
 
-  clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
-    return this.repository.serial(input.parent, () =>
+  async clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
+    if (input.directoryFd === undefined) await mkdir(input.path);
+    return this.repository.serial(input.path, () =>
       cloneRepository(this.repository.cli, input, policy),
     );
   }
@@ -79,8 +81,8 @@ export class GitService {
       initRepository(this.repository.cli, path, branch, directoryFd, this.repository.now),
     );
   }
-  initialBranch(path: string): Promise<string> {
-    return initialBranch(this.repository.cli, path);
+  initialBranch(path: string, directoryFd?: number, signal?: AbortSignal): Promise<string> {
+    return initialBranch(this.repository.cli, path, directoryFd, signal);
   }
   defaultBranch(path: string, directoryFd?: number, signal?: AbortSignal): Promise<string> {
     return defaultBranch(this.repository.cli, path, directoryFd, signal);
@@ -115,6 +117,9 @@ export class GitService {
     limit = 500,
   ): Promise<{ files: ChangedFile[]; truncated: boolean }> {
     return changedFiles(this.repository, worktree, limit);
+  }
+  changeSummary(worktree: string) {
+    return changeSummary(this.repository, worktree);
   }
   push(options: { worktree: string; remote: string }): Promise<void> {
     return pushBranch(this.repository, options);
@@ -160,6 +165,7 @@ export class GitService {
     worktree: string;
     command: string;
     stderr?: (chunk: Buffer) => void;
+    signal?: AbortSignal;
   }) {
     const root = await this.repository.root(options.worktree);
     await this.repository.serial(root, () =>
@@ -168,6 +174,8 @@ export class GitService {
         ["-c", `alias.ace-worktree-setup=!${options.command}`, "ace-worktree-setup"],
         {
           write: true,
+          timeoutMs: 600_000,
+          ...(options.signal ? { signal: options.signal } : {}),
           ...(options.stderr ? { stderr: options.stderr, consume: options.stderr } : {}),
         },
       ),

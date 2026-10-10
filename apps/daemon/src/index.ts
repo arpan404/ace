@@ -1,3 +1,4 @@
+import { shutdownDeadline } from "./shutdown.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
@@ -105,6 +106,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
   resources.own(() => options.signal?.removeEventListener("abort", abort));
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
+  let endpointRetired = false;
+  const retireEndpoint = () => {
+    if (endpointRetired) return;
+    endpointRetired = true;
+    if (endpointPath) unlinkSync(endpointPath);
+  };
   let closing: Promise<void> | undefined;
   const closeResources = () => {
     closing ??= disposeResources();
@@ -112,18 +119,43 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   const disposeResources = async () => {
     resources.beginShutdown();
-    try {
-      await server?.close();
-    } finally {
+    const runtime = { ...systemStartup, ...options.startup };
+    const disposing = (async () => {
+      // Service aborts and cleanup start before socket task drain. Shared store/log
+      // disposal follows both, so in-flight work can still record its termination.
+      const socketClose = server?.close();
+      const results = await Promise.allSettled([socketClose, resources.closeIndependent()]);
       try {
         await resources.close();
-      } finally {
-        try {
-          if (endpointPath) unlinkSync(endpointPath);
-        } finally {
-          unlock();
-        }
+      } catch (error) {
+        results.push({ status: "rejected", reason: error });
       }
+      const errors = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [
+              new Error(`${index === 0 ? "Server" : "Resources"} shutdown failed`, {
+                cause: result.reason,
+              }),
+            ]
+          : [],
+      );
+      if (errors.length) throw new AggregateError(errors, "Daemon shutdown failed");
+    })().finally(() => {
+      try {
+        retireEndpoint();
+      } finally {
+        unlock();
+      }
+    });
+    try {
+      await shutdownDeadline(
+        "Daemon",
+        disposing,
+        (expire, milliseconds) => runtime.schedule("shutdown", expire, milliseconds),
+        7_000,
+      );
+    } finally {
+      retireEndpoint();
     }
   };
   try {

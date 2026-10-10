@@ -565,3 +565,27 @@ test("denying a requested device leaves devices disabled and gives the agent no 
   expect(devices.isEnabled()).toBe(false);
   expect(devices.states()).toEqual([]);
 });
+
+test("provider-closed screen approvals retire their durable pending row immediately", async () => {
+  const h = await fixture();
+  h.grants.enable(true);
+  const requested = h.approvals.request(
+    "dev.example.closed",
+    "Use fixture",
+    h.caller,
+    new AbortController().signal,
+  );
+  const denied = expect(requested).rejects.toThrow("denied");
+  const pending = Object.values(h.store.snapshotThread(h.thread.id).interactions).find(
+    (value) => value.state === "pending",
+  );
+  if (!pending) throw new Error("Missing approval");
+  h.store.appendEvents(
+    h.thread.id,
+    [{ type: "interaction.closed", interactionId: pending.id, state: "cancelled", closedAt: 1000 }],
+    1000,
+  );
+  await denied;
+  expect(h.store.statement("SELECT COUNT(*) AS n FROM screen_pending").get()?.n).toBe(0);
+  expect(h.grants.allowlist(h.caller)).toEqual([]);
+});

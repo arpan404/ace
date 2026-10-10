@@ -163,5 +163,5 @@ it("leaves later schedule cursors unchanged when a subscription stops startup", 
     nominal: Date.parse("2024-01-05T09:00:00Z"),
     due: Date.parse("2024-01-05T09:00:00Z"),
   });
-  expect(h.timer.delay).toBe(86_400_000);
+  expect(h.timer.delay).toBe(60_000);
 });

@@ -58,7 +58,7 @@ export function createPluginsSession(context: SocketContext): SocketService {
             });
             return true;
           }
-          if (pluginPending || tasks.size >= 8) {
+          if (pluginPending) {
             fail("plugins_busy", "Plugin operation already pending", false, {
               requestId: message.requestId,
             });

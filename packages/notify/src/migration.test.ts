@@ -1,3 +1,4 @@
+import { DeviceId } from "@ace/protocol";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import { setup } from "./notify.test-helper.ts";
@@ -52,6 +53,29 @@ it("upgrading an old projection rebuilds eligible links and preserves device pol
       f.deliveries.map((d) => ({ device: d.device.id, interaction: d.notification.interactionId })),
     ).toEqual([{ device: f.desktop, interaction: expected.payload.interaction.id }]);
     expect(f.service.cursor()).toBe(f.history.at(-1)?.seq);
+  } finally {
+    await f.close();
+  }
+});
+
+it("an older device table can accept new browser identities after migration without losing push preferences", async () => {
+  const f = setup();
+  try {
+    f.service.preferences(f.phone, { includePreview: true });
+    await f.service.close();
+    const legacy = new DatabaseSync(f.path);
+    legacy.exec(`DROP INDEX devices_seen; ALTER TABLE devices DROP COLUMN last_seen;`);
+    legacy.close();
+    await f.reopen();
+    expect(f.service.getPreferences(f.phone)).toMatchObject({ includePreview: true });
+    f.service.connectDevice(DeviceId.parse("new-browser"));
+    f.start();
+    f.end();
+    await f.flush();
+    expect(f.deliveries.some(({ device }) => device.id === "new-browser")).toBe(true);
+    expect(f.deliveries.find(({ device }) => device.id === f.phone)?.notification.preview).toBe(
+      "sensitive preview",
+    );
   } finally {
     await f.close();
   }

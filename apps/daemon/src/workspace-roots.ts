@@ -216,14 +216,7 @@ export class WorkspaceRoots {
     for (let attempt = 0; attempt < 2; attempt++) {
       const root = this.root(id);
       const info = await this.git.repositoryInfo(root);
-      const diff = info.head
-        ? await this.git.diff({
-            worktree: root,
-            from: { kind: "commit", ref: info.head },
-            to: { kind: "working-tree" },
-            maxPatchBytes: 1,
-          })
-        : undefined;
+      const changed = await this.git.changeSummary(root);
       const thread = this.store.getThread(id);
       if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
       const project = this.store.getWorkspace(thread.workspaceId);
@@ -245,15 +238,7 @@ export class WorkspaceRoots {
         behind: info.behind,
         ...(repository ? { repository } : {}),
         machine: this.machine,
-        ...(diff
-          ? {
-              diff: {
-                files: diff.entries.length,
-                additions: diff.entries.reduce((n, file) => n + file.additions, 0),
-                deletions: diff.entries.reduce((n, file) => n + file.deletions, 0),
-              },
-            }
-          : {}),
+        diff: changed,
       };
       if (JSON.stringify(current.details) !== JSON.stringify(details))
         this.store.appendEvents(

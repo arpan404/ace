@@ -227,9 +227,11 @@ export class StatusStore {
     for (const event of events) {
       const address = target(event.payload);
       if (address) changed.set(`${address.collection}:${address.id}`, address);
-      if (event.payload.type.startsWith("thread.") || event.payload.type === "queue.updated")
-        applyEvent(view, event);
-      else updateThread(view.thread, event);
+      updateThread(view.thread, event);
+      if (event.payload.type === "queue.updated") {
+        const { type: _type, ...queue } = event.payload;
+        view.queue = queue;
+      }
     }
     const restore = (collection: EntityCollection, id: string): void => {
       const row = this.window?.record(view.thread.id, collection, id);

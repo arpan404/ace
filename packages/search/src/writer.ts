@@ -265,11 +265,7 @@ export class SearchWriter {
       }
       this.sql.run("UPDATE search_stage SET dirty=0 WHERE id=?", row.id);
     }
-    if (rows.length)
-      this.sql.run(
-        "UPDATE search_meta SET writes=writes+?,generation=generation+1 WHERE id=1",
-        rows.length,
-      );
+    if (rows.length) this.sql.run("UPDATE search_meta SET writes=writes+? WHERE id=1", rows.length);
     return rows.length;
   }
   deleteItem(thread: string, item: string): void {

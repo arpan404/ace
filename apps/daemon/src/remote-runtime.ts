@@ -89,7 +89,7 @@ export function remoteRuntime(
     try {
       if (remote) {
         listener = createServer({ ...remote.identity, minVersion: "TLSv1.2" }, http);
-        listener.requestTimeout = 10_000;
+        listener.requestTimeout = 0;
         listener.headersTimeout = 10_000;
         attach(listener);
         const port = await bindListener(listener, remote.host, remote.port);
