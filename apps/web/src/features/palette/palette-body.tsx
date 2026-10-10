@@ -112,7 +112,7 @@ function arrange(
         q,
         {
           label: item.label,
-          extra: [item.detail, item.more, item.id].filter(Boolean).join(" "),
+          extra: [item.detail, item.more].filter(Boolean).join(" "),
           command: !isThread(item) && item.icon !== "project",
           openedAt: opened.get(item.id),
         },
@@ -155,12 +155,12 @@ function Highlighted(props: { text: string; query: string }) {
 
 /** Mounted only while open, so its list subscriptions end when the palette closes. */
 export default function PaletteBody(props: { close(): void }) {
-  const groups = usePaletteGroups(props.close);
   const keymap = useResolvedKeymap();
   const phone = usePhone();
   const current = useParams({ strict: false }).threadId;
   const { storage, openSearch } = useLayout();
   const [query, setQuery] = useState("");
+  const groups = usePaletteGroups(props.close, query);
   const [allThreads, setAllThreads] = useState(false);
   const [recent] = useState(() => readRecentThreads(storage));
   const rows = useMemo(

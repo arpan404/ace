@@ -54,6 +54,7 @@ export function useProviderStatuses() {
   const loaded = catalogState !== "loading" && reconciled?.every((entry) => entry.model.loaded);
   return {
     ...query,
+    isError: query.isError || (query.isFetched && query.data === undefined),
     data: loaded
       ? reconciled?.map((entry) =>
           Object.assign({}, entry.status, {

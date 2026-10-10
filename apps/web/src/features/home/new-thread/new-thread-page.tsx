@@ -36,7 +36,7 @@ import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
-/** Where the thread runs, above the composer. */
+/** Where the thread runs, below the composer. */
 const DeferredEnvironment = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.NewThreadEnvironment),
 );
@@ -56,6 +56,7 @@ function useDraftThreadRef(
   project: string | undefined,
   provider: ProviderKind | undefined,
   accountId: string | undefined,
+  retryDraftScope: () => void,
 ) {
   return useMemo(
     () => ({
@@ -65,8 +66,9 @@ function useDraftThreadRef(
       draft: true,
       provider,
       instanceId: accountId,
+      retryDraftScope,
     }),
-    [draftId, project, provider, accountId],
+    [draftId, project, provider, accountId, retryDraftScope],
   );
 }
 
@@ -163,7 +165,7 @@ export function NewThreadPage(props: {
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project);
   const accountId = resolved.account?.id;
-  const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId);
+  const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission = defaultMode === undefined || permissions.loading;
   const admissionProblem = waitingForAdmission
     ? "Checking provider settings…"
@@ -250,6 +252,7 @@ export function NewThreadPage(props: {
           </div>
           <div className="shrink-0">
             <Composer
+              key={project}
               onPlan={() => {
                 if (provider) setPermissionChoice({ provider, id: "plan" });
               }}
@@ -266,7 +269,7 @@ export function NewThreadPage(props: {
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
               shortPlaceholder="Describe a change or a bug"
-              attached={
+              environment={
                 <Suspense fallback={null}>
                   <DeferredEnvironment.Component
                     projectControl={

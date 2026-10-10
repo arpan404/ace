@@ -37,7 +37,7 @@ test("a retained failure names its message and current model availability on the
   expect(within(queue).getByText("Which file needs fixing?")).toBeTruthy();
   expect(await screen.findByRole("region", { name: "Message not sent" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Model:.*Unavailable/ })).toBeNull();
-  expect(screen.queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
 });
 
 test("a retained failed input appears in Activity Needs you", async () => {
@@ -45,7 +45,7 @@ test("a retained failed input appears in Activity Needs you", async () => {
   seedColdStartState(app.daemon);
   await app.open("/activity");
   expect(
-    await screen.findAllByRole("link", { name: "Fix the reconnect: Message not sent" }),
+    await screen.findAllByRole("link", { name: "Fix the reconnect: Not sent" }),
   ).not.toHaveLength(0);
 });
 
@@ -54,7 +54,7 @@ test("a thread with no prior turn offers the first message without restart recov
   seedColdStartState(app.daemon);
   await app.open("/t/cold-untouched");
   await screen.findByRole("combobox", { name: "Message" });
-  expect(screen.queryByText("Stopped by a restart")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Stopped by a restart")).toBeNull();
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
 });
 

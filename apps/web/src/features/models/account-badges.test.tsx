@@ -43,7 +43,7 @@ test("a single account has no dot in its composer, row or picker", async () => {
     }),
   ).toBeNull();
   expect(
-    within(screen.getByRole("link", { name: /Replay cursor resets/ })).queryByTitle(
+    within(await screen.findByRole("link", { name: /Replay cursor resets/ })).queryByTitle(
       "Personal account",
     ),
   ).toBeNull();

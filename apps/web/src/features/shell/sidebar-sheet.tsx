@@ -21,7 +21,13 @@ export function SidebarSheet(props: {
         // Following any link in it is a choice of where to go, even the page already open.
         onClickCapture={(event) => {
           const link = (event.target as Element).closest("a[href]");
-          if (link && !event.defaultPrevented && !event.metaKey && !event.ctrlKey)
+          if (
+            link &&
+            !event.defaultPrevented &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey
+          )
             props.onOpenChange(false);
         }}
       >

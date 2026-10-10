@@ -42,3 +42,32 @@ export function search(query: SearchQuery, now: number): SearchResults {
     generation: 1,
   };
 }
+
+/** The title index sees every actual fixture thread, independently of a sidebar window. */
+export function searchTitles(
+  query: SearchQuery,
+  threads: readonly import("@ace/protocol").Thread[],
+): SearchResults {
+  const words = query.text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = threads
+    .filter((thread) => words.every((word) => thread.title.toLowerCase().includes(word)))
+    .filter(
+      (thread) => !query.filters.workspaceId || thread.workspaceId === query.filters.workspaceId,
+    )
+    .toSorted((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, query.limit)
+    .map((thread): SearchResults["hits"][number] => ({
+      threadId: thread.id,
+      threadTitle: thread.title,
+      workspaceId: thread.workspaceId,
+      provider: thread.provider,
+      status: thread.status.state === "limited" ? "waiting" : thread.status.state,
+      statusSeq: 0,
+      kind: "thread" as const,
+      createdAt: thread.createdAt,
+      title: { text: thread.title, highlights: [] },
+      snippet: { text: "", highlights: [] },
+      score: 0,
+    }));
+  return { hits, cursor: null, generation: 1 };
+}

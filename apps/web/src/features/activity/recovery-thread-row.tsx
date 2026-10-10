@@ -17,14 +17,14 @@ export function RecoveryThreadRow(props: { threadId: string }) {
     <Link
       to="/t/$threadId"
       params={{ threadId: props.threadId }}
-      aria-label={`${thread.title}: ${attention}`}
+      aria-label={`${thread.title}: ${attention.label}`}
       className={compactViewRowClass}
       data-view-row=""
     >
       <CompactViewRowBody
         icon={WarningCircleIcon}
         title={thread.title}
-        status={<StatusLabel tone="needs-you" label={attention} />}
+        status={<StatusLabel tone={attention.tone} label={attention.label} />}
       />
     </Link>
   );

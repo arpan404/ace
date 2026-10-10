@@ -56,6 +56,7 @@ export function providerAccountModel(input: {
   acpAgentId?: string | undefined;
   accounts: readonly AccountView[] | undefined;
   row?: ProviderStatus | undefined;
+  readinessFailed?: boolean | undefined;
   catalog?: CatalogSignal | undefined;
   catalogForAccount?: ((id: string) => CatalogSignal | undefined) | undefined;
   now: number;
@@ -119,7 +120,8 @@ export function providerAccountModel(input: {
   }
   accounts.sort((a, b) => Number(Boolean(b.implicit)) - Number(Boolean(a.implicit)));
   const loaded =
-    input.accounts !== undefined && (input.provider === "acp" || input.row !== undefined);
+    input.accounts !== undefined &&
+    (input.provider === "acp" || input.row !== undefined || input.readinessFailed === true);
   if (!loaded) return { accounts, loaded, view: undefined };
   // Missing or disabled runtimes cannot run any of their accounts.
   if (base?.state === "not_installed" || base?.state === "off")

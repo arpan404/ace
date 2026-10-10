@@ -229,11 +229,11 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
   try {
     // The outbox shows it at once under the same key, so the held bubble carries on.
     const saved = client.enqueue(payload, commandId);
-    unstage(commandId, true);
     await saved;
+    unstage(commandId, true);
     return true;
   } catch {
-    // This device couldn't save it: it stays held, with the reason.
+    // Failed local writes are only held in outbox memory. Preserve the durable held copy.
     patch(commandId, { failed: "This device couldn't save the message" });
     return false;
   }

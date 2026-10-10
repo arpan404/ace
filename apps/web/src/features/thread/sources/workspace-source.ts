@@ -24,6 +24,7 @@ export interface ThreadRef {
   title: string;
   /** The New thread composer: nothing exists on the daemon yet. */
   draft?: boolean | undefined;
+  retryDraftScope?: (() => void) | undefined;
   /** A draft's chosen provider and account, which scope its slash commands. */
   provider?: ProviderKind | undefined;
   instanceId?: string | undefined;

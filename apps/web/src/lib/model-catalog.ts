@@ -46,7 +46,7 @@ async function readCatalog(
       { type: "models.list", options: { ...filter, offset: start, limit: 100 } },
       signal ? { signal } : {},
     );
-    if (!("models" in reply.result)) break;
+    if (!("models" in reply.result)) throw new Error("Model discovery is unavailable");
     models.push(...reply.result.models);
     for (const status of reply.result.instances) instances.set(scopeOf(status), status);
     offset = reply.result.nextOffset;
@@ -153,7 +153,7 @@ function watchCatalog(client: ClientApi, queryClient: QueryClient): () => void {
 }
 
 /** Every model discovery found across the signed-in accounts (`models.list`), kept current. */
-function useCatalogQuery() {
+export function useCatalogQuery() {
   const client = useClient();
   const queryClient = useQueryClient();
   useEffect(() => watchCatalog(client, queryClient), [client, queryClient]);
@@ -166,7 +166,7 @@ function useCatalogQuery() {
 /** Every model discovery found, or undefined until discovery is known. */
 export function useModelCatalog(): CatalogModel[] | undefined {
   const query = useCatalogQuery();
-  return query.data?.models;
+  return query.data?.models ?? (query.isError ? noModels : undefined);
 }
 
 /** Each account's freshness, last refresh and discovery errors; empty until known. */
@@ -187,4 +187,5 @@ export function useModelCatalogState(): CatalogState {
   return query.isFetching || discovering ? "refreshing" : "ready";
 }
 
+const noModels: CatalogModel[] = [];
 const noInstances: ModelInstanceStatus[] = [];

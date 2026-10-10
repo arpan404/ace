@@ -139,7 +139,7 @@ test("threads and projects read by the project's name, never its id", async () =
     expect(options()).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^QA Codex lifecyclescratch/),
-        expect.stringMatching(/^scratch1 threadProjects$/),
+        expect.stringMatching(/^scratchProjects$/),
       ]),
     ),
   );

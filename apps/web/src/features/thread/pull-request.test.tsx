@@ -281,7 +281,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
+  const environment = await screen.findByRole("region", { name: "Checkout details" });
   expect(within(environment).getByText("Local checkout")).toBeTruthy();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");

@@ -12,6 +12,7 @@ import { LayoutProvider } from "@/lib/layout.tsx";
 import { MachinePoolProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
+import { organizerFor } from "@/features/organize/index.ts";
 import { createAppRouter } from "./router.ts";
 
 export function createQueryClient(): QueryClient {
@@ -57,9 +58,11 @@ export function App(props: {
   machines?: MachinePool | undefined;
 }) {
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
-  const [router] = useState(() =>
-    createAppRouter({ client: props.client, queryClient }, props.history),
-  );
+  const [router] = useState(() => {
+    const project = organizerFor(props.storage).getState().project;
+    void props.client.threadsWindow(project ? { project } : {});
+    return createAppRouter({ client: props.client, queryClient }, props.history);
+  });
   return (
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>

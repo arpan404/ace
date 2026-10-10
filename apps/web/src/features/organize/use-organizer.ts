@@ -9,7 +9,7 @@ import { type KeyValueStorage, Organizer, type OrganizerState } from "@ace/ui-co
 const organizers = new WeakMap<KeyValueStorage, Organizer>();
 let unstored: Organizer | undefined;
 
-function organizerFor(storage: KeyValueStorage | undefined): Organizer {
+export function organizerFor(storage: KeyValueStorage | undefined): Organizer {
   if (!storage) return (unstored ??= new Organizer(undefined, Date.now()));
   let organizer = organizers.get(storage);
   if (!organizer) {

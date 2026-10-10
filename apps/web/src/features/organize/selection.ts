@@ -14,6 +14,7 @@ export type BulkConfirm = "archive" | "delete";
 
 interface State extends ListSelection {
   confirm: BulkConfirm | undefined;
+  rename: { id: string; title: string } | undefined;
 }
 
 /**
@@ -21,13 +22,19 @@ interface State extends ListSelection {
  * organize overlay), so the list, its selection bar and the palette share it.
  */
 export class HomeSelection {
-  private state: State = { ...noSelection, confirm: undefined };
+  private state: State = { ...noSelection, confirm: undefined, rename: undefined };
   private listeners = new Set<() => void>();
   getState = (): State => this.state;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+  rename(id: string, title: string): void {
+    this.set({ rename: { id, title } });
+  }
+  finishRename(): void {
+    this.set({ rename: undefined });
+  }
   toggle(id: string): void {
     this.set(toggleSelected(this.state, id));
   }
@@ -77,5 +84,12 @@ export function useHomeSelectionState(): State {
 export function useSelected(threadId: string): boolean {
   const selection = useHomeSelection();
   const read = () => selection.getState().ids.includes(threadId);
+  return useSyncExternalStore(selection.subscribe, read, read);
+}
+
+export function useRenameTitle(threadId: string): string | undefined {
+  const selection = useHomeSelection();
+  const read = () =>
+    selection.getState().rename?.id === threadId ? selection.getState().rename?.title : undefined;
   return useSyncExternalStore(selection.subscribe, read, read);
 }

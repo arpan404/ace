@@ -23,13 +23,13 @@ test("Needs you lists model selection, restart holds and failed sends and remove
     }),
   ).not.toHaveLength(0);
   expect(
-    within(main).getAllByRole("link", { name: "Check the saved message: Message not sent" }),
+    within(main).getAllByRole("link", { name: "Check the saved message: Not sent" }),
   ).not.toHaveLength(0);
   expect(within(main).queryByText("You're all caught up")).toBeNull();
   act(() => app.daemon.updateThread("legacy-send", { status: { state: "done" } }));
   // A completed old turn cannot hide its held message.
   expect(
-    within(main).getAllByRole("link", { name: "Check the saved message: Message not sent" }),
+    within(main).getAllByRole("link", { name: "Check the saved message: Not sent" }),
   ).not.toHaveLength(0);
   const queue = await app.client.request({
     type: "queue.get",
@@ -44,7 +44,7 @@ test("Needs you lists model selection, restart holds and failed sends and remove
   );
   await waitFor(() =>
     expect(
-      within(main).queryAllByRole("link", { name: "Check the saved message: Message not sent" }),
+      within(main).queryAllByRole("link", { name: "Check the saved message: Not sent" }),
     ).toHaveLength(0),
   );
 });
@@ -65,9 +65,7 @@ test("a narrow Activity inbox shows held sends and opens their original thread",
   await app.open("/activity");
   const user = (await import("@testing-library/user-event")).default;
   await user.click(await screen.findByRole("tab", { name: /^Needs you/ }));
-  await user.click(
-    await screen.findByRole("link", { name: "Check the saved message: Message not sent" }),
-  );
+  await user.click(await screen.findByRole("link", { name: "Check the saved message: Not sent" }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
   expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
 });
@@ -114,7 +112,7 @@ test("Needs you includes a locally failed send and an unavailable selection with
   });
   const main = await screen.findByRole("main");
   expect(
-    await within(main).findAllByRole("link", { name: "Save my next message: Message not sent" }),
+    await within(main).findAllByRole("link", { name: "Save my next message: Not sent" }),
   ).not.toHaveLength(0);
   expect(
     await within(main).findAllByRole("link", { name: "Choose an available model: Pick a model" }),

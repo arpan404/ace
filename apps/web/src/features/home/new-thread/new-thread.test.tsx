@@ -355,7 +355,7 @@ test("when the remote can't be reached, the thread starts from the last fetched 
   // Once its agent is stopped, the composer's tab shows where it runs, and raises the details.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
   await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("region", { name: "Where this thread runs" });
+  const card = await screen.findByRole("region", { name: "Checkout details" });
   expect(within(card).getByText(/^origin\/main at [0-9a-f]{7}$/)).toBeTruthy();
   expect(
     within(card).getByText("origin couldn't be reached, so it started from the last fetched copy."),
@@ -514,7 +514,11 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   expect(listed(made)).toHaveLength(workbench().length);
   // The sidebar has it at the top already, dimmed until the daemon accepts it.
   const starting = await screen.findByRole("list", { name: "Starting threads" });
-  expect(within(starting).getByRole("link", { name: /^Trace the reconnect storm/ })).toBeTruthy();
+  expect(
+    within(starting).getByRole("link", {
+      name: "Trace the reconnect storm. Sending, Claude Code, Project relay",
+    }),
+  ).toBeTruthy();
 
   // Once the daemon has it, the real thread opens on the same message, shown once.
   act(() => made.daemon.refuseConnections(false));
