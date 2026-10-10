@@ -5,7 +5,7 @@ import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { BackgroundTaskId, InteractionId, ThreadId, Timestamp } from "./ids.ts";
-import { ForgeRepository } from "./forge.ts";
+import { ForgeRepository, LinkedPullRequest } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
 
 export const TurnOptions = ExecutionOptions;
@@ -68,6 +68,7 @@ export const ThreadDetails = z.object({
   base: WorktreeBaseRecord.optional(),
   /** The forge repository behind the checkout's origin remote, for `forge.pr.create`. */
   repository: ForgeRepository.optional(),
+  linkedPrs: z.array(LinkedPullRequest).max(100).optional(),
   linkedPr: z
     .object({
       number: z.number().int().positive(),

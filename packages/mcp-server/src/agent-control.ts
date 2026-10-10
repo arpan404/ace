@@ -26,7 +26,18 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
           : op === "thread.read"
             ? "Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes."
             : controlActions[op].description,
-    input: z.strictObject(shape),
+    input:
+      op === "thread.link_pr" || op === "thread.unlink_pr"
+        ? z
+            .strictObject(shape)
+            .superRefine((input, context) => {
+              const parsed = schema.safeParse({ ...input, op });
+              if (!parsed.success)
+                for (const issue of parsed.error.issues)
+                  context.addIssue({ code: "custom", message: issue.message, path: issue.path });
+            })
+            .meta({ ...schema.meta() })
+        : z.strictObject(shape),
     output: AgentControlResult,
     capability:
       controlActions[op].riskClass === "read-only"

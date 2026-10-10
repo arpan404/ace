@@ -1,16 +1,16 @@
 import { ProjectImage } from "@/components/project-image.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
-import { GitPullRequestIcon, GitMergeIcon } from "@phosphor-icons/react";
+import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -29,7 +29,11 @@ export function threadDetails(card: ThreadCard): string[] {
     card.status.label,
     card.providerLabel,
     branch && `${branch.worktree ? "Worktree" : "Branch"} ${branch.name}`,
-    card.pr !== undefined && `Pull request #${card.pr}`,
+    ...(card.prs?.length
+      ? card.prs.map(
+          (pr) => `Pull request #${pr.number}, ${pr.state}${pr.title ? `: ${pr.title}` : ""}`,
+        )
+      : [card.pr !== undefined && `Pull request #${card.pr}`]),
     card.prState && `${card.prState} pull request`,
     card.diff && `${card.diff.added} lines added, ${card.diff.removed} removed`,
     `Project ${card.project}`,
@@ -101,24 +105,26 @@ export function StatusMark(props: { card: ThreadCard; muted?: boolean }) {
 export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
   if (pr === undefined) return null;
-  const tones = {
-    open: "text-status-done",
-    merged: "text-status-waiting",
-    closed: "text-status-failed",
-    draft: "text-subtle-foreground",
-  };
   return (
-    <span
-      role="img"
-      aria-label={`${prState ?? "Linked"} pull request #${pr}`}
-      className={cn(
-        "inline-flex items-center gap-0.5",
-        quietCard(props.card) ? "text-subtle-foreground" : prState && tones[prState],
-      )}
+    <Tip
+      label={
+        props.card.prs
+          ?.map(
+            (linked) =>
+              `#${linked.number} · ${linked.state}${linked.title ? ` · ${linked.title}` : ""}`,
+          )
+          .join("\n") ?? `#${pr} · ${prState ?? "linked"}`
+      }
     >
-      <Icon icon={prState === "merged" ? GitMergeIcon : GitPullRequestIcon} size={12} />
-      {pr}
-    </span>
+      <span
+        role="img"
+        aria-label={`${prState ?? "Linked"} pull request #${pr}${props.card.prs && props.card.prs.length > 1 ? `, ${props.card.prs.length - 1} more linked` : ""}`}
+        className={cn("inline-flex items-center gap-0.5", prState && pullRequestTone(prState))}
+      >
+        <PullRequestGlyph state={prState} size={12} />#{pr}
+        {(props.card.prs?.length ?? 0) > 1 && <span>+{(props.card.prs?.length ?? 1) - 1}</span>}
+      </span>
+    </Tip>
   );
 }
 
@@ -186,7 +192,6 @@ function ChangeMark(props: { card: ThreadCard }) {
   const { diff } = card;
   return (
     <>
-      <PullRequest card={props.card} />
       {diff && (
         <span className="inline-flex items-center gap-1 tabular-nums">
           {diff.added > 0 && (
@@ -281,6 +286,7 @@ export function RowDetail(props: { card: ThreadCard; machinePrimary: boolean }) 
         {card.branch && <span className="truncate">{card.branch.name}</span>}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
+        <PullRequest card={card} />
         <span className="hidden items-center gap-1.5 group-focus-within/row:inline-flex group-hover/row:inline-flex">
           <ChangeMark card={card} />
         </span>

@@ -27,6 +27,16 @@ const threadRead = spec("threads", ({ args }) =>
   say(verbs.read, " thread", named(args, ["title", "threadId"])),
 );
 
+function prLabel(args: Record<string, unknown>): string {
+  const number =
+    typeof args.number === "number"
+      ? args.number
+      : typeof args.url === "string"
+        ? /\/pull\/(\d+)/.exec(args.url)?.[1]
+        : undefined;
+  return number ? ` PR #${number}` : " a PR";
+}
+
 const aceSpecs: Record<string, AceToolSpec> = {
   delegate_task: spec("agents", ({ args }) => {
     const task = str(args, "task");
@@ -83,7 +93,13 @@ const aceSpecs: Record<string, AceToolSpec> = {
     "threads",
     say(["Retitled", "Retitling", "Retitle"], " the thread"),
   ),
-  ace_thread_link_pr: fixed("threads", say(["Linked", "Linking", "Link"], " a pull request")),
+  ace_thread_link_pr: spec("threads", ({ args }) =>
+    say(["Linked", "Linking", "Link"], prLabel(args)),
+  ),
+  ace_thread_unlink_pr: spec("threads", ({ args }) =>
+    say(["Unlinked", "Unlinking", "Unlink"], args.all === true ? " all PRs" : prLabel(args)),
+  ),
+  ace_thread_list_prs: fixed("threads", say(["Listed", "Listing", "List"], " linked PRs")),
   ace_thread_settle: fixed("threads", say(["Marked", "Marking", "Mark"], " a thread done")),
   ace_thread_snooze: fixed("threads", say(["Snoozed", "Snoozing", "Snooze"], " a thread")),
   ace_thread_handoff: fixed(

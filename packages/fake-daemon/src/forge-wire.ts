@@ -19,7 +19,7 @@ export class FakeForgeWire {
     this.context = context;
   }
   status(id: string): ForgePrStatus | null {
-    return this.links.get(id) ?? null;
+    return [...this.links].findLast(([key]) => key.startsWith(`${id}:`))?.[1] ?? null;
   }
   /** Link a pull request the forge already knows: its checks, comments and state. */
   seed(threadId: string, status: ForgePrStatus): void {
@@ -30,7 +30,7 @@ export class FakeForgeWire {
     this.publish(threadId, this.autoMerge.has(threadId) && ready(next) ? merged(next) : next);
   }
   private publish(id: string, status: ForgePrStatus): void {
-    this.links.set(id, status);
+    this.links.set(linkKey(id, status.ref), status);
     for (const [key, known] of this.publications)
       if (
         known.ref.number === status.ref.number &&
@@ -54,6 +54,17 @@ export class FakeForgeWire {
         changes: {
           details: {
             ...thread.details,
+            linkedPrs: [...this.links]
+              .filter(([key]) => key.startsWith(`${id}:`))
+              .map(([, pr]) => ({
+                number: pr.ref.number,
+                repo: pr.ref.repository,
+                url: pr.url,
+                state: pr.state === "unknown" ? "open" : pr.state,
+                title: pr.title,
+                updatedAt: this.context.now(),
+              }))
+              .toReversed(),
             linkedPr: {
               number: status.ref.number,
               state: status.state === "draft" ? "open" : status.state,
@@ -86,16 +97,37 @@ export class FakeForgeWire {
     const id = "threadId" in p ? p.threadId : p.link.threadId;
     if (!this.context.thread(id)) return { ok: false, error: "thread_not_found" };
     if (p.type === "forge.pr.unlink") {
-      this.links.delete(id);
+      for (const [key, status] of this.links)
+        if (
+          key.startsWith(`${id}:`) &&
+          (p.all ||
+            (status.ref.number === p.number &&
+              (!p.repo || JSON.stringify(p.repo) === JSON.stringify(status.ref.repository))))
+        )
+          this.links.delete(key);
       this.autoMerge.delete(id);
       const thread = this.context.thread(id)?.thread;
       this.context.update(id, {
         type: "thread.client.updated",
-        changes: { details: { ...thread?.details, linkedPr: null } },
+        changes: {
+          details: {
+            ...thread?.details,
+            linkedPrs:
+              thread?.details?.linkedPrs?.filter(
+                (pr) =>
+                  !p.all &&
+                  (pr.number !== p.number ||
+                    (p.repo && JSON.stringify(pr.repo) !== JSON.stringify(p.repo))),
+              ) ?? [],
+            linkedPr: this.status(id)
+              ? { number: this.status(id)?.ref.number ?? 0, state: "open" }
+              : null,
+          },
+        },
       });
       return { ok: true };
     }
-    if (!this.links.has(id) && this.links.size >= 64) return { ok: false, error: "forge_limit" };
+    if (this.links.size >= 64) return { ok: false, error: "forge_limit" };
     const repository = "repository" in p ? p.repository : p.link.pr.repository;
     if (repository.forge !== "github") return { ok: false, error: "forge_unsupported" };
     if (p.type === "forge.pr.create") {
@@ -114,7 +146,7 @@ export class FakeForgeWire {
       const status = this.open(id, pr, p.input.title, p.input.draft);
       this.publications.set(key, status);
       this.publish(id, status);
-      return { ok: true, pr, prStatus: this.links.get(id) };
+      return { ok: true, pr, prStatus: this.status(id) ?? undefined };
     }
     if (p.type === "forge.pr.link") {
       const status =
@@ -126,7 +158,7 @@ export class FakeForgeWire {
       this.publish(id, status);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
-    const status = this.links.get(id);
+    const status = this.links.get(linkKey(id, p.link.pr));
     if (
       !status ||
       status.ref.number !== p.link.pr.number ||
@@ -159,10 +191,12 @@ export class FakeForgeWire {
         ],
       });
     }
-    return { ok: true, pr: status.ref, prStatus: this.links.get(id) };
+    return { ok: true, pr: status.ref, prStatus: this.status(id) ?? undefined };
   }
 }
 
 const ready = (status: ForgePrStatus) =>
   status.state === "open" && status.ci === "success" && status.mergeability === "mergeable";
 const merged = (status: ForgePrStatus): ForgePrStatus => ({ ...status, state: "merged" });
+
+const linkKey = (id: string, ref: ForgePrRef) => `${id}:${JSON.stringify(ref)}`;

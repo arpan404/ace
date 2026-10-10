@@ -3,6 +3,9 @@ import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protoco
 /** A thread's pull request: the linked one from details, refined by the forge's live status. */
 export interface CheckoutPr {
   number: number;
+  repo?: ForgeRepository | undefined;
+  unverified?: boolean | undefined;
+  deleted?: boolean | undefined;
   state: "open" | "draft" | "merged" | "closed";
   url?: string | undefined;
   title?: string | undefined;
@@ -50,7 +53,12 @@ export function checkoutOf(
     ahead: details.ahead ?? 0,
     behind: details.behind ?? 0,
     repository: details.repository,
-    pr: pullRequest(details.linkedPr, status, details.repository),
+    pr: details.linkedPrs?.[0]
+      ? {
+          ...details.linkedPrs[0],
+          ...(status?.ref.number === details.linkedPrs[0].number ? { ci: status.ci } : {}),
+        }
+      : pullRequest(details.linkedPr, status, details.repository),
   };
 }
 
@@ -70,6 +78,7 @@ function pullRequest(
   if (status && status.state !== "unknown")
     return {
       number: status.ref.number,
+      repo: status.ref.repository,
       state: status.state,
       url: status.url,
       title: status.title,

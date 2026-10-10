@@ -12,6 +12,7 @@ import { GhApi } from "./http.ts";
 import { GitHubPr } from "./github-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import type { CommandRunner } from "./command.ts";
+import { githubStates } from "./github-states.ts";
 
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
@@ -39,6 +40,9 @@ export class GitHubForge implements Forge {
   }
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatus> {
     return this.#status.read(this.#api, this.#root, this.repository, number, signal);
+  }
+  async states(numbers: readonly number[], signal: AbortSignal) {
+    return githubStates(this.#api, this.repository, numbers, signal);
   }
   async findPr(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null> {
     z.string().min(1).max(256).parse(branch);

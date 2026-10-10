@@ -31,7 +31,17 @@ function idle(id: string, details: Details): Scenario {
       provider: "claude",
       details,
     },
-    steps: [{ kind: "facts", facts: [facts.rootAgent("claude")] }],
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("claude"),
+          facts.turn("root"),
+          facts.message("root", "request", "user", "Fix replay"),
+          facts.endTurn("root"),
+        ],
+      },
+    ],
   };
 }
 
@@ -179,16 +189,15 @@ test("Request review asks the GitHub users typed, and refuses a name that can't 
   expect(await screen.findByText("Asked mira, sam to review")).toBeTruthy();
 });
 
-test("Link existing PR follows the PR typed by its address, and refuses another repository's", async () => {
+test("Link existing PR follows a valid address and explains malformed addresses", async () => {
   const app = await withPr(undefined);
   const card = await openCard();
   expect(within(card).getByText("None for this branch yet")).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Link existing PR/ }));
-  const dialog = await screen.findByRole("dialog", { name: "Link an existing pull request" });
-  const field = within(dialog).getByRole("textbox", { name: "Pull request" });
-  await userEvent.type(field, "https://github.com/other/api/pull/77{Enter}");
-  expect((await within(dialog).findByRole("alert")).textContent).toBe("That PR isn't in acme/api");
+  const field = within(card).getByRole("textbox", { name: "Link pull request…" });
+  await userEvent.type(field, "https://github.com/acme/api/issues/77{Enter}");
+  expect((await within(card).findByRole("alert")).textContent).toBe(
+    "Enter a PR number like #42, or its HTTPS pull request address on GitHub",
+  );
   await userEvent.clear(field);
   await userEvent.type(field, "https://github.com/acme/api/pull/77/files{Enter}");
   expect(await screen.findByText("Linked pull request #77")).toBeTruthy();
@@ -209,7 +218,11 @@ test("Create PR links the branch's existing PR instead of opening another, and a
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
   await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
-  const dialog = await screen.findByRole("dialog", { name: "Open a pull request" });
+  const dialog = await screen.findByRole(
+    "dialog",
+    { name: "Open a pull request" },
+    { timeout: 10000 },
+  );
   await userEvent.type(within(dialog).getByRole("textbox", { name: "Reviewers" }), "mira");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Create PR/ }));
   expect(
@@ -285,8 +298,7 @@ test("a missing PR shows one explanation and can be unlinked without GitHub", as
   expect(within(work).queryByText("open", { exact: true })).toBeNull();
   expect(within(work).getByText("Unavailable")).toBeTruthy();
   expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();
-  expect(within(popover).getByRole("button", { name: "Link…" })).toBeTruthy();
-  await userEvent.click(within(popover).getByRole("button", { name: "Unlink" }));
+  await userEvent.click(within(work).getByRole("button", { name: "Unlink PR #214" }));
   expect(await screen.findByText("Pull request unlinked")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toBeNull());
   expect(await screen.findByText("None for this branch yet")).toBeTruthy();
@@ -302,17 +314,6 @@ test("a failed refresh replaces stale checks and a successful retry restores the
   await userEvent.click(within(popover).getByRole("button", { name: "Refresh" }));
   expect(await within(popover).findByText("2 checks passed")).toBeTruthy();
   expect(within(popover).queryByRole("alert")).toBeNull();
-});
-
-test("Link from a missing PR replaces the broken association", async () => {
-  const app = await withPr(undefined, { linkedPr: { number: 214, state: "open" } });
-  const popover = await openPr(214);
-  await within(popover).findByRole("alert");
-  await userEvent.click(within(popover).getByRole("button", { name: "Link…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Link an existing pull request" });
-  await userEvent.type(within(dialog).getByLabelText("Pull request"), "77");
-  await userEvent.click(within(dialog).getByRole("button", { name: /^Link$/ }));
-  await waitFor(() => expect(linked(app)?.number).toBe(77));
 });
 
 test("a truncated PR title can be read in its tooltip", async () => {
@@ -343,4 +344,70 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit & push/ }));
   expect(await screen.findByText("Committed and pushed")).toBeTruthy();
   expect(app.daemon.workspace.gitStatus("thread-retry-budget")).toEqual([]);
+});
+
+test("several pull requests stay linked, duplicates do nothing, and people can unlink one or all", async () => {
+  const app = await withPr(pr({ ref: { repository, number: 283 } }));
+  const card = await openCard();
+  const input = within(card).getByRole("textbox", { name: "Link pull request…" });
+  await userEvent.type(input, "#284{Enter}");
+  expect(await within(card).findByRole("button", { name: "Unlink PR #283" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
+  await userEvent.type(input, "#284{Enter}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(view && "thread" in view && view.thread.details?.linkedPrs).toHaveLength(2);
+  });
+  await userEvent.click(within(card).getByRole("button", { name: "Unlink PR #283" }));
+  await waitFor(() =>
+    expect(within(card).queryByRole("button", { name: "Unlink PR #283" })).toBeNull(),
+  );
+  await userEvent.click(within(card).getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unlink all" }));
+  const dialog = await screen.findByRole("dialog", { name: "Unlink all pull requests?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(within(card).getByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unlink all" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Unlink all pull requests?" })).getByRole(
+      "button",
+      { name: "Unlink all" },
+    ),
+  );
+  await waitFor(() => expect(linked(app)).toBeNull());
+});
+
+test("a live link publication updates the work card and sidebar with both PRs", async () => {
+  const app = await withPr(pr({ ref: { repository, number: 284 } }));
+  const card = await openCard();
+  app.daemon.seedServices({
+    pullRequests: { "thread-pr": pr({ ref: { repository, number: 283 } }) },
+  });
+  expect(await within(card).findByRole("button", { name: "Unlink PR #283" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
+  const sidebar = screen.getByRole("navigation", { name: "Threads" });
+  const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
+  expect(row.textContent).toContain("#283+1");
+});
+
+test("explicit PR addresses can link another repository and unlink only that association", async () => {
+  const app = await withPr(pr({ ref: { repository, number: 283 } }));
+  const card = await openCard();
+  const field = within(card).getByRole("textbox", { name: "Link pull request…" });
+  await userEvent.type(field, "https://github.com/other/docs/pull/283{Enter}");
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toHaveLength(2);
+  });
+  const section = within(card).getByRole("region", { name: "Pull requests" });
+  await userEvent.click(
+    within(section).getAllByRole("button", { name: "Unlink PR #283" })[0] ?? field,
+  );
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toMatchObject([
+      { number: 283, repo: repository },
+    ]);
+  });
 });

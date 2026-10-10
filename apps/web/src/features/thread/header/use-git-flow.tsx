@@ -38,7 +38,7 @@ function confirmation(change: GitChange, status: ForgePrStatus | undefined): str
         : done;
     }
     case "unlink-pr":
-      return "Pull request unlinked";
+      return change.all ? "All pull requests unlinked" : "Pull request unlinked";
     case "link-pr":
       return `Linked pull request #${number}`;
     case "request-review":
@@ -71,6 +71,8 @@ const failed: Record<GitChange["kind"], string> = {
 export function useGitFlow(thread: ThreadRef): {
   checkout: ReturnType<typeof useCheckoutState>["checkout"];
   status: ForgePrStatus | undefined;
+  linkedPrs: ReturnType<typeof useCheckoutState>["linkedPrs"];
+  submit(change: GitChange): Promise<void>;
   state: ReturnType<typeof useCheckoutState>["state"];
   pending: boolean;
   push(): void;
@@ -88,7 +90,7 @@ export function useGitFlow(thread: ThreadRef): {
   /** The open form, if any: render it once. */
   dialog: ReactNode;
 } {
-  const { checkout, status, state } = useCheckoutState(thread);
+  const { checkout, status, state, linkedPrs } = useCheckoutState(thread);
   const { change, pending, refreshPr } = useGitActions(thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const toast = useToast();
@@ -109,9 +111,7 @@ export function useGitFlow(thread: ThreadRef): {
     : checkout.repository?.forge === "gitlab"
       ? prBlocker(checkout)
       : checkout.repository
-        ? live
-          ? `PR #${pr.number} is already linked`
-          : undefined
+        ? undefined
         : prBlocker(checkout);
   const close = () => setDialog(undefined);
   const form = (at: Checkout) =>
@@ -136,6 +136,8 @@ export function useGitFlow(thread: ThreadRef): {
   return {
     checkout,
     status,
+    linkedPrs,
+    submit,
     state,
     pending,
     push: () => run({ kind: "push" }),

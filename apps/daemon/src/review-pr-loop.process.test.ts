@@ -208,10 +208,20 @@ test("forge failures retain their categories over sockets and GitLab is refused 
           f.client,
           (message) => message.type === "workspace.result" && message.requestId === requestId,
         ),
-      ).toMatchObject({ result: { kind: "error", code: `forge_${code}` } });
+      ).toMatchObject(
+        http === 404
+          ? { result: { kind: "pr", status: { state: "closed" } } }
+          : { result: { kind: "error", code: `forge_${code}` } },
+      );
+      if (http === 404)
+        expect(f.daemon.store.getThread(threadId)?.details?.linkedPrs).toMatchObject([
+          { number: 42, state: "closed", deleted: true },
+        ]);
     }
     // Removing a broken link is local and still works when the forge refuses reads.
-    expect(await f.send({ type: "forge.pr.unlink", threadId })).toMatchObject({ ok: true });
+    expect(await f.send({ type: "forge.pr.unlink", threadId, all: true })).toMatchObject({
+      ok: true,
+    });
     expect(f.daemon.store.getThread(threadId)?.details?.linkedPr).toBeNull();
     f.client.send({
       type: "workspace.request",

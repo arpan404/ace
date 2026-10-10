@@ -75,8 +75,18 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   "thread.link_pr": {
     description:
-      "Save a GitHub pull request link on an owned thread without changing the pull request.",
+      "Link a pull request to your calling thread using its URL or number. The repo defaults to the thread workspace's origin remote; repo may be owner/name or host/owner/name. Existing links are unchanged. If the forge is offline or signed out, save an unverified link and refresh it later.",
     riskClass: "thread-write",
+  },
+  "thread.unlink_pr": {
+    description:
+      "Unlink a pull request from your calling thread using its URL or number, or all: true to remove every link. This only changes the thread's links; it does not change or close the pull requests.",
+    riskClass: "thread-write",
+  },
+  "thread.list_prs": {
+    description:
+      "List your calling thread's linked pull requests, newest first, with their number, repository, URL, state and title.",
+    riskClass: "read-only",
   },
   "thread.settle": {
     description: "Archive an owned thread only after its work has settled.",

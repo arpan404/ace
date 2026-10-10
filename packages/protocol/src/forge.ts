@@ -27,6 +27,18 @@ export const ForgePrRef = z.object({
   number: z.number().int().positive(),
 });
 export type ForgePrRef = z.infer<typeof ForgePrRef>;
+/** Local association, including a last known state when GitHub is unreachable. */
+export const LinkedPullRequest = z.object({
+  number: z.number().int().positive(),
+  repo: ForgeRepository,
+  url: z.url().max(4096),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  title: z.string().max(65_536).optional(),
+  updatedAt: z.number().int().nonnegative(),
+  unverified: z.boolean().optional(),
+  deleted: z.boolean().optional(),
+});
+export type LinkedPullRequest = z.infer<typeof LinkedPullRequest>;
 export const ForgeCheck = z.object({
   id: z.string().max(256),
   name: text,
@@ -114,7 +126,21 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     input: ForgeCreatePrInput,
   }),
   z.object({ type: z.literal("forge.pr.link"), link: ForgeThreadLink }),
-  z.object({ type: z.literal("forge.pr.unlink"), threadId: z.string() }),
+  z
+    .object({
+      type: z.literal("forge.pr.unlink"),
+      threadId: z.string(),
+      number: z.number().int().positive().optional(),
+      repo: ForgeRepository.optional(),
+      all: z.literal(true).optional(),
+    })
+    .refine((value) => (value.number !== undefined) !== (value.all === true), {
+      message: "Choose a pull request number or all",
+    })
+    .meta({
+      "x-ace-constraint": "Exactly one of number or all is required",
+      oneOf: [{ required: ["number"] }, { required: ["all"] }],
+    }),
   z.object({
     type: z.literal("forge.comment.reply"),
     link: ForgeThreadLink,
