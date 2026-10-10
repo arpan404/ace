@@ -20,6 +20,7 @@ import { arbitrary } from "./arbitraries.test-support.ts";
 const catalog = protocolCatalog();
 const snapshot = convertSchemas(catalog.entries);
 const validator = jsonValidator(snapshot);
+const reference = renderReference(catalog.entries, catalog.tools, snapshot);
 describe("exported protocol", () => {
   for (const entry of catalog.entries) {
     it(`${entry.name} random wire values validate against its exported schema`, () => {
@@ -55,7 +56,7 @@ describe("exported protocol", () => {
   }
 });
 it("documents every source union alternative with a validated example", () => {
-  const files = renderReference(catalog.entries, catalog.tools, snapshot);
+  const files = reference;
   const examples = new Map<string, unknown[]>();
   for (const [file, markdown] of files) {
     if (!file.endsWith(".md") || file === "README.md") continue;
