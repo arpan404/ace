@@ -119,7 +119,7 @@ export class AndroidPlatform {
         "Boot the emulator and authorize adb before retrying.",
       );
     const { adb } = await this.resolve();
-    const name = (await this.emulatorName(adb, current.serial)) ?? current.serial;
+    const name = await this.emulatorName(adb, current.serial);
     if (name !== nativeId(device))
       throw new DeviceError(
         "not_found",
@@ -185,22 +185,26 @@ export class AndroidPlatform {
     );
   }
   private async emulatorName(adb: string, serial: string): Promise<string | undefined> {
-    const boot = avdNameOrUndefined(
-      (await this.run(adb, ["-s", serial, "shell", "getprop", "ro.boot.qemu.avd_name"], 4096))
-        .stdout,
-    );
-    if (boot) return boot;
-    const kernel = avdNameOrUndefined(
-      (await this.run(adb, ["-s", serial, "shell", "getprop", "ro.kernel.qemu.avd_name"], 4096))
-        .stdout,
-    );
-    if (kernel) return kernel;
-    return avdNameOrUndefined(
-      (await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout,
-    );
+    for (const args of [
+      ["shell", "getprop", "ro.boot.qemu.avd_name"],
+      ["shell", "getprop", "ro.kernel.qemu.avd_name"],
+      ["emu", "avd", "name"],
+    ]) {
+      try {
+        const name = avdNameOrUndefined(
+          (await this.run(adb, ["-s", serial, ...args], 4096)).stdout,
+        );
+        if (name) return name;
+      } catch {
+        // A transport can fail a property probe while the next naming source still works.
+        // Inventory retains an unnamed serial if all sources fail; identity checks decide
+        // whether it is safe to perform an operation on that device.
+      }
+    }
+    return undefined;
   }
   private async verifyTransport(adb: string, device: Device, serial: string) {
-    const name = (await this.emulatorName(adb, serial)) ?? serial;
+    const name = await this.emulatorName(adb, serial);
     if (name !== nativeId(device)) throw this.identityError();
   }
   async captureTransport(device: Device, expectedSerial?: string) {

@@ -677,7 +677,56 @@ it("an emulator whose name cannot be read is still listed and does not hide othe
     state: "booted",
     serial: "emulator-5554",
   });
+  // A serial is a display fallback, not an AVD identity that can authorize capture or input.
+  await expect(
+    manager.captureTransport({
+      id: "android:emulator-5554",
+      platform: "android",
+      name: "emulator-5554",
+      state: "booted",
+      serial: "emulator-5554",
+    }),
+  ).rejects.toMatchObject({ code: "not_found" });
 });
+
+for (const source of ["kernel", "console"] as const)
+  it(`rejected emulator property probes fall back to the ${source} name without hiding devices`, async () => {
+    const f = await fixture();
+    const manager = new DevicePlatform({
+      platform: "linux",
+      home: f.home,
+      env: f.env,
+      probe: async (_command, args) => {
+        if (args.includes("-list-avds")) return { stdout: "Pixel\nTablet", stderr: "", code: 0 };
+        if (args[0] === "devices")
+          return {
+            stdout: "List of devices attached\nemulator-5554 device product:sdk model:pixel",
+            stderr: "",
+            code: 0,
+          };
+        if (
+          args.includes("ro.boot.qemu.avd_name") ||
+          (source === "console" && args.includes("ro.kernel.qemu.avd_name"))
+        )
+          return { stdout: "", stderr: "Property lookup failed", code: 1 };
+        if (args.includes("ro.kernel.qemu.avd_name") || args.includes("avd"))
+          return { stdout: "Pixel\n", stderr: "", code: 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      },
+    });
+    onTestFinished(() => manager.close());
+    expect(await manager.list()).toEqual([
+      {
+        id: "android:Pixel",
+        platform: "android",
+        name: "Pixel",
+        state: "booted",
+        serial: "emulator-5554",
+      },
+      { id: "android:Tablet", platform: "android", name: "Tablet", state: "shutdown" },
+    ]);
+  });
+
 it("shutting down an emulator waits until adb no longer lists it", async () => {
   const f = await fixture();
   let disconnected = false;
