@@ -1,4 +1,8 @@
-import { createHighlighterCore, type HighlighterCore } from "shiki/core";
+import {
+  codeToTokensWithThemes,
+  createShikiPrimitiveAsync,
+  type ShikiPrimitive,
+} from "@shikijs/primitive";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import type { CodeToken } from "./highlight.ts";
 
@@ -30,11 +34,12 @@ const languages = {
   cpp: () => import("shiki/langs/cpp.mjs"),
   cs: () => import("shiki/langs/csharp.mjs"),
 } as const;
-let highlighter: Promise<HighlighterCore> | undefined;
+// The primitive tokenizes without shiki's HTML renderer, which the worker never uses.
+let highlighter: Promise<ShikiPrimitive> | undefined;
 const grammars = new Map<string, Promise<string>>();
 
 function engine() {
-  highlighter ??= createHighlighterCore({
+  highlighter ??= createShikiPrimitiveAsync({
     engine: createJavaScriptRegexEngine(),
     themes: [import("shiki/themes/github-light.mjs"), import("shiki/themes/github-dark.mjs")],
     langs: [],
@@ -84,17 +89,15 @@ export async function sourceHighlight(
     grammars.set(lang, grammar);
   }
   const name = await grammar;
-  return instance
-    .codeToTokensWithThemes(code, {
-      lang: name,
-      themes: { light: "github-light", dark: "github-dark" },
-    })
-    .map((line) =>
-      line.map((token) => ({
-        kind: "plain",
-        text: token.content,
-        light: token.variants.light?.color,
-        dark: token.variants.dark?.color,
-      })),
-    );
+  return codeToTokensWithThemes(instance, code, {
+    lang: name,
+    themes: { light: "github-light", dark: "github-dark" },
+  }).map((line) =>
+    line.map((token) => ({
+      kind: "plain",
+      text: token.content,
+      light: token.variants.light?.color,
+      dark: token.variants.dark?.color,
+    })),
+  );
 }
