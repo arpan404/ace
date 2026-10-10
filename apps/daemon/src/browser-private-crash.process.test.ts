@@ -60,9 +60,12 @@ async function launch(home: string) {
       exited,
       client,
       close: async () => {
+        const pids = await ownedBrowserPids(home);
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         await exited;
         await client.close();
+        // The detached guardian outlives daemon exit while it stops profile writers.
+        await waitForBrowserExit(pids, cancellation);
       },
     };
   } catch (error) {
@@ -117,21 +120,7 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
       // A detached private-profile helper deterministically survives its browser's
       // pipe EOF, just like Chromium's network helper did under load. The profile
       // owner must terminate it on both graceful and abrupt daemon shutdown.
-      const profiles = join(home, "browser", "profiles");
-      const [profile] = await readdir(profiles);
-      if (!profile) throw new Error("Missing private browser profile");
-      helper = spawn(
-        process.execPath,
-        [
-          "-e",
-          "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'));",
-          "--",
-          `--user-data-dir=${join(profiles, profile)}`,
-        ],
-        { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] },
-      );
-      expect((await once(helper, "message", { signal: cancellation }))[0]).toBe("ready");
-      helper.disconnect();
+      helper = await launchProfileHelper(home);
       const pids = await ownedBrowserPids(home);
       expect(pids).toContain(helper.pid);
       // The socket stays connected until process exit: no disconnect callback persists the gate.
@@ -172,6 +161,10 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
         ok: true,
         result: { controller: "agent", takeoverMode: "shared", status: "ready" },
       });
+      // A surviving helper also exercises the restarted browser's final profile cleanup.
+      helper = await launchProfileHelper(home);
+      await restarted.close();
+      expect(await ownedBrowserPids(home)).toEqual([]);
     } finally {
       await stopHelper(helper);
       await restarted?.close();
@@ -181,6 +174,30 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
   },
   120_000,
 );
+
+async function launchProfileHelper(home: string) {
+  const profiles = join(home, "browser", "profiles");
+  const [profile] = await readdir(profiles);
+  if (!profile) throw new Error("Missing private browser profile");
+  const helper = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'));",
+      "--",
+      `--user-data-dir=${join(profiles, profile)}`,
+    ],
+    { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] },
+  );
+  try {
+    expect((await once(helper, "message", { signal: cancellation }))[0]).toBe("ready");
+    helper.disconnect();
+    return helper;
+  } catch (error) {
+    await stopHelper(helper);
+    throw error;
+  }
+}
 
 async function stopHelper(helper: ReturnType<typeof spawn> | undefined) {
   if (!helper?.pid || helper.exitCode !== null || helper.signalCode !== null) return;
