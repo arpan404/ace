@@ -124,6 +124,10 @@
         "channel": {
           "type": "number"
         },
+        "mimeType": {
+          "maxLength": 128,
+          "type": "string"
+        },
         "offset": {
           "maximum": 9007199254740991,
           "minimum": 0,

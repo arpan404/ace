@@ -5,6 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+// These interactions exercise the form, after its first-use lazy import has finished.
+await import("./header/pr-field-dialog.tsx");
+
 beforeEach(() => localStorage.clear());
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;

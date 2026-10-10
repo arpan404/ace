@@ -27,9 +27,12 @@ export function sidebarSubscription(
   let limit = options.limit;
   const deliver = (events: Event[]) => {
     if (stopped || !events.some(isSidebarEvent)) return;
-    const current = store.sidebarPage({ ...options, limit });
-    const present = new Set<string>(current.threads.map((entry) => entry.id));
     const changed = new Set(events.filter(isSidebarEvent).map((event) => event.threadId));
+    const current = store.sidebarPage({ ...options, limit }, undefined, {
+      entries: selected,
+      changed,
+    });
+    const present = new Set<string>(current.threads.map((entry) => entry.id));
     const threads: Record<string, ThreadListEntry> = {};
     const removed: import("@ace/protocol").ThreadId[] = [];
     for (const threadId of selected.keys())
@@ -38,7 +41,7 @@ export function sidebarSubscription(
         removed.push(ThreadId.parse(threadId));
       }
     for (const entry of current.threads) {
-      if (changed.has(entry.id) || !selected.has(entry.id))
+      if (changed.has(entry.id) || selected.get(entry.id) !== entry)
         Object.defineProperty(threads, entry.id, {
           value: entry,
           enumerable: true,

@@ -7,14 +7,14 @@ export interface Selection<T> {
 /** Every change a store announces: its keys, or "all" after a snapshot replaced everything. */
 export type ChangeTap = (keys: ReadonlySet<string> | "all") => void;
 export class Notifications {
-  private keys = new Map<string, Set<() => void>>();
-  private taps = new Set<ChangeTap>();
-  private count = 0;
+  #keys = new Map<string, Set<() => void>>();
+  #taps = new Set<ChangeTap>();
+  #count = 0;
   /** Bumped by every emit; an unsubscribed selection reads again only after one. */
-  private version = 0;
-  private limit: number;
+  #version = 0;
+  #limit: number;
   constructor(limit: number) {
-    this.limit = limit;
+    this.#limit = limit;
   }
   select<T>(
     keys: readonly string[],
@@ -22,14 +22,14 @@ export class Notifications {
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
     let value = read();
-    let readAt = this.version;
+    let readAt = this.#version;
     let subscribers = 0;
     // React reads a snapshot on every render. A subscribed selection is brought up to date by
     // its keys as they change, so a render with nothing new costs nothing; an unsubscribed one
     // reads again only if the store changed since.
     const current = () => {
-      if (subscribers > 0 || readAt === this.version) return value;
-      readAt = this.version;
+      if (subscribers > 0 || readAt === this.#version) return value;
+      readAt = this.#version;
       const next = read();
       if (!equal(value, next)) value = next;
       return value;
@@ -37,7 +37,7 @@ export class Notifications {
     return {
       getSnapshot: current,
       subscribe: (listener) => {
-        if (this.count + keys.length > this.limit) throw new ClientError("limit");
+        if (this.#count + keys.length > this.#limit) throw new ClientError("limit");
         let previous = current();
         subscribers++;
         const update = () => {
@@ -49,13 +49,13 @@ export class Notifications {
           }
         };
         for (const key of keys) {
-          let set = this.keys.get(key);
+          let set = this.#keys.get(key);
           if (!set) {
             set = new Set();
-            this.keys.set(key, set);
+            this.#keys.set(key, set);
           }
           set.add(update);
-          this.count++;
+          this.#count++;
         }
         let stopped = false;
         return () => {
@@ -63,12 +63,12 @@ export class Notifications {
           stopped = true;
           // Current as of now: the keys kept it so until this moment.
           subscribers--;
-          readAt = this.version;
+          readAt = this.#version;
           for (const key of keys) {
-            const set = this.keys.get(key);
+            const set = this.#keys.get(key);
             set?.delete(update);
-            if (!set?.size) this.keys.delete(key);
-            this.count--;
+            if (!set?.size) this.#keys.delete(key);
+            this.#count--;
           }
         };
       },
@@ -76,27 +76,27 @@ export class Notifications {
   }
   /** Observe every emitted key, listened to or not (a worker forwarding changes to tabs). */
   tap(listener: ChangeTap): () => void {
-    this.taps.add(listener);
-    return () => this.taps.delete(listener);
+    this.#taps.add(listener);
+    return () => this.#taps.delete(listener);
   }
   emit(keys: Iterable<string>): void {
-    this.version++;
+    this.#version++;
     const changed: ReadonlySet<string> = keys instanceof Set ? keys : new Set(keys);
-    if (this.taps.size) this.announce(changed);
+    if (this.#taps.size) this.#announce(changed);
     const updates = new Set<() => void>();
     for (const key of changed)
-      for (const listener of this.keys.get(key) ?? []) updates.add(listener);
+      for (const listener of this.#keys.get(key) ?? []) updates.add(listener);
     notifyObservers(updates, undefined);
   }
   emitAll(): void {
-    this.version++;
-    this.announce("all");
+    this.#version++;
+    this.#announce("all");
     const updates = new Set<() => void>();
-    for (const set of this.keys.values()) for (const listener of set) updates.add(listener);
+    for (const set of this.#keys.values()) for (const listener of set) updates.add(listener);
     notifyObservers(updates, undefined);
   }
-  private announce(keys: ReadonlySet<string> | "all"): void {
-    notifyObservers(this.taps, keys);
+  #announce(keys: ReadonlySet<string> | "all"): void {
+    notifyObservers(this.#taps, keys);
   }
 }
 /** Consumer exceptions cannot interrupt delivery of already committed facts. */

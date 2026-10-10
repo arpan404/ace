@@ -2,7 +2,7 @@ import { startSupportFiles } from "./support-files.ts";
 import { logError } from "@ace/diagnostics";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
-import { FilesService, attachFilesSocket, chunkFilesChannel } from "@ace/files";
+import { FilesService, attachFilesSocket, chunkFilesChannel, attachmentChannel } from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -97,6 +97,49 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
 export function createFilesSession(context: SocketContext): SocketService {
   let channel: ReturnType<typeof attachFilesSocket> | undefined;
   let chunks: ReturnType<typeof chunkFilesChannel> | undefined;
+  let attachments: ReturnType<typeof attachmentChannel> | undefined;
+  const getAttachments = () => {
+    const device = context.device();
+    const service = context.options.context;
+    if (!device || !service?.downloadAttachment) return undefined;
+    attachments ??= attachmentChannel({
+      async resolve(thread, hash, maxBytes) {
+        const authorized = () => {
+          return (
+            context.connected() &&
+            context.authorize("read") &&
+            context.canReadThread(thread) &&
+            context.options.store.hasLiveThread(thread)
+          );
+        };
+        if (!authorized() || !service.downloadAttachment)
+          throw new Error("Thread attachment unavailable");
+        const download = await service.downloadAttachment(
+          device,
+          thread,
+          hash,
+          maxBytes,
+          authorized,
+        );
+        return { download, authorized };
+      },
+      async send(message) {
+        context.send(message);
+      },
+      binary(bytes) {
+        return new Promise<void>((resolve, reject) => {
+          if (!context.connected() || context.socket.bufferedAmount > 256 * 1024) {
+            reject(new Error("Attachment channel disconnected or full"));
+            return;
+          }
+          context.socket.send(bytes, { binary: true }, (error) =>
+            error ? reject(error) : resolve(),
+          );
+        });
+      },
+    });
+    return attachments;
+  };
   const getChunks = () => {
     const device = context.device();
     const files = context.options.threadFiles;
@@ -104,7 +147,7 @@ export function createFilesSession(context: SocketContext): SocketService {
     chunks ??= chunkFilesChannel({
       device,
       send: context.send,
-      async resolve(threadId, scope) {
+      async resolve(threadId, scope, operation) {
         if (scope === "support") {
           const service = context.options.supportFiles;
           if (!service) throw new Error("Support export unavailable");
@@ -112,6 +155,20 @@ export function createFilesSession(context: SocketContext): SocketService {
         }
         if (!threadId || !files || !context.canReadThread(threadId))
           throw new Error("File thread unavailable");
+        if (operation?.op === "artifact.download" && operation.artifactId.startsWith("browser-")) {
+          const artifacts = files.browserArtifacts;
+          if (!artifacts.owns(threadId, operation.artifactId))
+            throw new Error("Artifact is not readable by this thread");
+          return {
+            service: await artifacts.get(),
+            allowed: (access) =>
+              access === "read" &&
+              context.connected() &&
+              context.authorize("read") &&
+              context.canReadThread(threadId) &&
+              artifacts.owns(threadId, operation.artifactId),
+          };
+        }
         const root = files.root(threadId);
         const service = await files.get(threadId);
         return {
@@ -141,6 +198,11 @@ export function createFilesSession(context: SocketContext): SocketService {
     close() {
       channel?.close();
       chunks?.close();
+      if (attachments) {
+        const closing = attachments.close().catch(() => {});
+        context.tasks.add(closing);
+        void closing.finally(() => context.tasks.delete(closing));
+      }
     },
     binary(frame) {
       const active = getChannel();
@@ -150,6 +212,20 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
+      const attachment =
+        message.type === "files.request" && message.operation.op === "attachment.download"
+          ? getAttachments()
+          : attachments;
+      if (attachment?.accept(message)) return true;
+      if (message.type === "files.request" && message.operation.op === "attachment.download") {
+        context.send({
+          type: "files.error",
+          requestId: message.requestId,
+          code: "NOT_FOUND",
+          message: "Attachment streaming unavailable",
+        });
+        return true;
+      }
       if (message.type === "files.request" && message.scope === "support") {
         const op = message.operation;
         // Global access exposes only the dedicated support registry, never workspace files.

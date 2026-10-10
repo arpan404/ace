@@ -36,14 +36,14 @@ export interface ChannelCall {
 }
 
 export class TabChannels {
-  private subscriber: string;
-  private wire: ServiceWire;
-  private browsers = new BrowserSubscriptions();
+  #subscriber: string;
+  #wire: ServiceWire;
+  #browsers = new BrowserSubscriptions();
   /** Open file channels, with the upload each one belongs to. */
-  private files = new Map<number, string | undefined>();
+  #files = new Map<number, string | undefined>();
   constructor(subscriber: string, wire: ServiceWire) {
-    this.subscriber = subscriber;
-    this.wire = wire;
+    this.#subscriber = subscriber;
+    this.#wire = wire;
   }
   /**
    * Whether a tab's one-way file or Preview control may reach the daemon. Lifetimes open and
@@ -55,33 +55,33 @@ export class TabChannels {
       case "files.pull":
       case "files.chunk":
       case "files.credit":
-        return this.files.has(control.channel);
+        return this.#files.has(control.channel);
       case "files.cancel":
-        return this.files.delete(control.channel);
+        return this.#files.delete(control.channel);
       default:
         return false;
     }
   }
   /** The connection left `ready`: every channel and subscription ended with it. */
   reset(): void {
-    this.files.clear();
-    this.browsers.close(() => {});
-    this.browsers = new BrowserSubscriptions();
+    this.#files.clear();
+    this.#browsers.close(() => {});
+    this.#browsers = new BrowserSubscriptions();
   }
   /** The tab is leaving: release its subscriptions and cancel its open channels. */
   detach(client: ClientCore | undefined): void {
-    this.browsers.close((threadId) => {
-      if (client?.state === "ready") this.unsubscribe(client, threadId);
+    this.#browsers.close((threadId) => {
+      if (client?.state === "ready") this.#unsubscribe(client, threadId);
     });
-    this.browsers = new BrowserSubscriptions();
-    for (const channel of this.files.keys()) {
+    this.#browsers = new BrowserSubscriptions();
+    for (const channel of this.#files.keys()) {
       try {
         client?.send({ type: "files.cancel", channel });
       } catch {
         /* Socket owns cleanup when offline. */
       }
     }
-    this.files.clear();
+    this.#files.clear();
   }
   /** Run a `files.*` or `browser.*` request, tracking the channel or subscription it opens. */
   async request(call: ChannelCall): Promise<unknown> {
@@ -90,7 +90,7 @@ export class TabChannels {
       if (!call.current() || client.state !== "ready") throw new ClientError("offline");
       call.signal.throwIfAborted();
     };
-    const parsed = this.wire.ClientMessage.safeParse({
+    const parsed = this.#wire.ClientMessage.safeParse({
       ...objectInput(args[0]),
       requestId: "worker",
     });
@@ -101,18 +101,18 @@ export class TabChannels {
       (parsed.data.type === "browser.subscribe" || parsed.data.type === "browser.unsubscribe")
     ) {
       browser = parsed.data;
-      forwarded = [{ ...parsed.data, subscriberId: this.subscriber }, ...args.slice(1)];
+      forwarded = [{ ...parsed.data, subscriberId: this.#subscriber }, ...args.slice(1)];
     }
     if (
       parsed.success &&
       (parsed.data.type === "files.pull" || parsed.data.type === "files.chunk")
     ) {
       assertCurrent();
-      if (!this.files.has(parsed.data.channel))
+      if (!this.#files.has(parsed.data.channel))
         throw new ClientError("offline", "File channel lifetime ended");
     }
     const value = browser
-      ? await this.browsers.run(
+      ? await this.#browsers.run(
           browser.threadId,
           browser.type,
           () => {
@@ -121,7 +121,7 @@ export class TabChannels {
           },
           () => {
             if (browser && call.current() && client.state === "ready")
-              this.unsubscribe(client, browser.threadId);
+              this.#unsubscribe(client, browser.threadId);
           },
         )
       : await call.forward(forwarded);
@@ -132,7 +132,7 @@ export class TabChannels {
     )
       throw new ClientError("offline");
     if (value.type === "files.data" && Number.isInteger(value.channel) && value.eof)
-      this.files.delete(value.channel);
+      this.#files.delete(value.channel);
     if (
       (value.type === "files.ready" || value.type === "files.upload") &&
       Number.isInteger(value.channel)
@@ -140,22 +140,22 @@ export class TabChannels {
       if (!call.current()) throw new ClientError("offline");
       if (!call.pending()) client.send({ type: "files.cancel", channel: value.channel });
       else
-        this.files.set(value.channel, value.type === "files.upload" ? value.uploadId : undefined);
+        this.#files.set(value.channel, value.type === "files.upload" ? value.uploadId : undefined);
     }
     if (value.type === "files.result" && parsed.success && parsed.data.type === "files.request") {
       const operation = parsed.data.operation;
       if (operation.op === "upload.commit" || operation.op === "upload.cancel")
-        for (const [channel, uploadId] of this.files)
-          if (uploadId === operation.uploadId) this.files.delete(channel);
+        for (const [channel, uploadId] of this.#files)
+          if (uploadId === operation.uploadId) this.#files.delete(channel);
     }
     return value;
   }
-  private unsubscribe(client: ClientCore, threadId: string): void {
+  #unsubscribe(client: ClientCore, threadId: string): void {
     void client
       .request({
         type: "browser.unsubscribe",
         threadId: ThreadId.parse(threadId),
-        subscriberId: this.subscriber,
+        subscriberId: this.#subscriber,
       })
       .catch(() => {});
   }

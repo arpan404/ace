@@ -8,7 +8,13 @@ import {
   type ServiceResponse,
   type ServiceWire,
 } from "@ace/client";
-import { CommandPayload, TextSource, ThreadMarkReadCommand } from "@ace/protocol";
+import {
+  BlobHash,
+  ThreadId,
+  CommandPayload,
+  TextSource,
+  ThreadMarkReadCommand,
+} from "@ace/protocol";
 import { z } from "zod";
 
 /*
@@ -229,6 +235,27 @@ export function iterateArgs(
   args: unknown[],
   signal: AbortSignal,
 ): AsyncGenerator<unknown> {
+  if (method === "attachment") {
+    return (async function* () {
+      const [input, parsed] = decode(
+        z.tuple([
+          z.object({
+            threadId: ThreadId,
+            sha256: BlobHash,
+            variant: z.literal("original"),
+            maxBytes: z
+              .number()
+              .int()
+              .positive()
+              .max(32 * 1024 * 1024),
+          }),
+          Options,
+        ]),
+        args,
+      );
+      yield* client.attachmentChunks(input, options(parsed, signal));
+    })();
+  }
   if (method === "text") {
     const [source, parsed] = decode(z.tuple([TextSource, Options]), args);
     return client.text(source, options(parsed, signal));

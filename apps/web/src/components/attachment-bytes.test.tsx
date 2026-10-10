@@ -55,7 +55,7 @@ async function workerBridge(client: Client) {
 
 // The public UI and real client's ranged attachment assembly. Only the daemon read boundary
 // is controlled: gates represent cold decoding and contention from other connections.
-function backend(capacity: number) {
+async function backend(capacity: number) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   let id = 0;
   const client = new Client({
@@ -125,6 +125,8 @@ function backend(capacity: number) {
       finish.push(() => settle(false));
     });
   });
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
   return {
     client,
     reads,
@@ -168,7 +170,7 @@ function images(client: ClientApi, names: string[], thread = "thread", bytes = 3
 }
 
 test("four cold images all become visible without overrunning the shared decoder", async () => {
-  const f = backend(2);
+  const f = await backend(2);
   render(images(f.client, ["a", "b", "c", "d"]));
   await waitFor(() => expect(f.active()).toBe(2));
   await act(async () => {
@@ -182,7 +184,7 @@ test("four cold images all become visible without overrunning the shared decoder
 });
 
 test("a gallery larger than the socket's eight-request queue loads every image", async () => {
-  const f = backend(8);
+  const f = await backend(8);
   render(
     images(
       f.client,
@@ -200,7 +202,7 @@ test("a gallery larger than the socket's eight-request queue loads every image",
 });
 
 test("temporary contention from another connection retries until the image is visible", async () => {
-  const f = backend(0);
+  const f = await backend(0);
   render(images(f.client, ["a"]));
   await waitFor(() => expect(f.busy()).toBe(1));
   f.admit();
@@ -212,7 +214,7 @@ test("temporary contention from another connection retries until the image is vi
 });
 
 test("temporary busy and last-consumer cancellation survive the real worker bridge", async () => {
-  const f = backend(0);
+  const f = await backend(0);
   const remote = await workerBridge(f.client);
   const view = render(images(remote, ["a"]));
   await waitFor(() => expect(f.busy()).toBe(1));
@@ -230,14 +232,14 @@ test("temporary busy and last-consumer cancellation survive the real worker brid
 });
 
 test("persistent contention stops retrying and reports an unavailable image", async () => {
-  const f = backend(0);
+  const f = await backend(0);
   render(images(f.client, ["a"]));
   await screen.findByText("a: unavailable");
   expect(f.busy()).toBe(4);
 });
 
 test("two copies share a read until their last mounted consumer leaves", async () => {
-  const f = backend(2);
+  const f = await backend(2);
   const first = render(images(f.client, ["a"]));
   const second = render(images(f.client, ["a"]));
   await waitFor(() => expect(f.reads).toHaveLength(1));
@@ -254,7 +256,7 @@ test("two copies share a read until their last mounted consumer leaves", async (
 });
 
 test("unmount cancels active reads and removes queued reads without fetching their bytes", async () => {
-  const f = backend(2);
+  const f = await backend(2);
   const view = render(images(f.client, ["a", "b", "c", "d"]));
   await waitFor(() => expect(f.reads).toHaveLength(2));
   await act(async () => view.unmount());
@@ -270,7 +272,7 @@ test("unmount cancels active reads and removes queued reads without fetching the
 });
 
 test("leaving an image during decoder contention cancels its delayed retry", async () => {
-  const f = backend(0);
+  const f = await backend(0);
   const view = render(images(f.client, ["a"]));
   await waitFor(() => expect(f.busy()).toBe(1));
   view.unmount();
@@ -286,8 +288,8 @@ test("leaving an image during decoder contention cancels its delayed retry", asy
 });
 
 test("image reads are deduplicated only within their owning thread and connection", async () => {
-  const first = backend(2),
-    second = backend(2);
+  const first = await backend(2),
+    second = await backend(2);
   render(images(first.client, ["a"], "thread-one"));
   render(images(first.client, ["a"], "thread-two"));
   render(images(second.client, ["a"], "thread-one"));
@@ -302,8 +304,8 @@ test("image reads are deduplicated only within their owning thread and connectio
 });
 
 test("switching the owning client clears its old ready URL while the same image loads", async () => {
-  const first = backend(2),
-    second = backend(2);
+  const first = await backend(2),
+    second = await backend(2);
   const view = render(images(first.client, ["a"]));
   await waitFor(() => expect(first.active()).toBe(1));
   await act(async () => {
@@ -321,7 +323,7 @@ test("switching the owning client clears its old ready URL while the same image 
 });
 
 test("large originals share a byte budget instead of allocating both full images at once", async () => {
-  const f = backend(2);
+  const f = await backend(2);
   render(images(f.client, ["a", "b"], "thread", 32 * 1024 * 1024, true));
   await waitFor(() => expect(f.reads).toHaveLength(1));
   await act(async () => {
@@ -335,7 +337,7 @@ test("large originals share a byte budget instead of allocating both full images
 });
 
 test("an oversized gallery has bounded admission and unmount releases its waiting reads", async () => {
-  const f = backend(2);
+  const f = await backend(2);
   const view = render(
     images(
       f.client,

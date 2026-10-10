@@ -1,3 +1,4 @@
+import { WireEncoder } from "./wire-encoder.ts";
 import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
 import { createThreadListView, isSidebarEvent } from "@ace/projection";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
@@ -32,12 +33,12 @@ export type SubscriptionStore = Pick<
  * frame limit. A single larger event still travels alone.
  */
 const replayFrameBytes = 1024 * 1024;
-function replayFrames(events: Event[]): Event[][] {
+function replayFrames(events: Event[], encoder: WireEncoder): Event[][] {
   const frames: Event[][] = [];
   let frame: Event[] = [];
   let bytes = 0;
   for (const event of events) {
-    const size = Buffer.byteLength(JSON.stringify(event));
+    const size = encoder.eventBytes(event);
     if (frame.length && bytes + size > replayFrameBytes) {
       frames.push(frame);
       frame = [];
@@ -61,6 +62,7 @@ export function subscribe(
   progressIntervalMs = 250,
   schedule: DeliveryRuntime["delay"] = systemDeliveryRuntime.delay,
   paced = false,
+  encoder = new WireEncoder(),
 ): () => void {
   if (scope.kind === "threads" && scope.window) {
     const window = sidebarSubscription(store, id, scope.window, send);
@@ -97,7 +99,7 @@ export function subscribe(
     progressHead = Math.max(progressHead, head);
     if (selected.length) {
       cancelProgress();
-      const frames = replayFrames(selected);
+      const frames = replayFrames(selected, encoder);
       for (const [index, frame] of frames.entries()) {
         if (stopped) return;
         // Frames stay contiguous: each covers up to its last event, the final one up to head.
@@ -160,13 +162,10 @@ export function subscribe(
             ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
           })
           .filter((event) => event.seq <= head);
-        const bytes = events.reduce(
-          (total, event) => total + Buffer.byteLength(JSON.stringify(event)),
-          0,
-        );
+        const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
         if (
           bytes > replayFrameBytes * 2 ||
-          events.some((event) => Buffer.byteLength(JSON.stringify(event)) > replayFrameBytes)
+          events.some((event) => encoder.eventBytes(event) > replayFrameBytes)
         ) {
           const view =
             scope.kind === "thread"

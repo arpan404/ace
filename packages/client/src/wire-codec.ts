@@ -28,16 +28,16 @@ const typeOf = (value: unknown): string | undefined =>
     : undefined;
 
 export class WireCodec {
-  private service: ServiceWire | undefined;
-  private loading: Promise<ServiceWire> | undefined;
+  #service: ServiceWire | undefined;
+  #loading: Promise<ServiceWire> | undefined;
   /** The service schemas, loading them the first time. */
   load(): Promise<ServiceWire> {
-    this.loading ??= loadServiceWire().then((module) => (this.service = module));
-    return this.loading;
+    this.#loading ??= loadServiceWire().then((module) => (this.#service = module));
+    return this.#loading;
   }
   /** The service schemas if they have loaded. */
   get loaded(): ServiceWire | undefined {
-    return this.service;
+    return this.#service;
   }
   /**
    * A server frame, parsed. Undefined only for a service message that arrived before the
@@ -46,12 +46,12 @@ export class WireCodec {
   decode(value: unknown): ServerMessage | undefined {
     const type = typeOf(value);
     if (type !== undefined && coreServerTypes.has(type)) return CoreServerMessage.parse(value);
-    return this.service?.ServerMessage.parse(value);
+    return this.#service?.ServerMessage.parse(value);
   }
   /** A client message, parsed; undefined for a service message before its schemas loaded. */
   encode(value: unknown): ClientMessage | undefined {
     const type = typeOf(value);
     if (type !== undefined && coreClientTypes.has(type)) return CoreClientMessage.parse(value);
-    return this.service?.ClientMessage.parse(value);
+    return this.#service?.ClientMessage.parse(value);
   }
 }

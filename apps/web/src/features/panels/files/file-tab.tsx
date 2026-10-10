@@ -1,7 +1,7 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { CaretDownIcon, CaretUpIcon, PencilSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -30,7 +30,7 @@ import {
 } from "./files-state.ts";
 import { openFile } from "./open-file.ts";
 import { quickOpen } from "./quick-open-store.ts";
-import { findHits } from "./source-view.tsx";
+import { useFindHits } from "./use-find-hits.ts";
 import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
@@ -219,10 +219,7 @@ export function FileTab(props: TabViewProps) {
   const readable =
     !data.draft && text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
   const findQuery = find?.query;
-  const hits = useMemo(
-    () => (findQuery !== undefined && text !== undefined ? findHits(text, findQuery) : []),
-    [findQuery, text],
-  );
+  const hits = useFindHits(text, findQuery);
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });

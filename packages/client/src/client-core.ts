@@ -1,3 +1,6 @@
+import { attachmentReadScope } from "./attachment-scope.ts";
+import { AttachmentStreams } from "./attachment-channel.ts";
+import { attachmentBudget, attachmentChunks } from "./attachment-reader.ts";
 import {
   pendingSend,
   matchesPendingThread,
@@ -19,7 +22,6 @@ import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
   type Item,
-  ThreadId,
   CommandId,
   ThreadMarkReadCommand,
   CoreClientMessage,
@@ -54,22 +56,73 @@ export type { RegistryQuery } from "./api.ts";
 
 /** Shared connection, stores and validated wire operations used by page and worker clients. */
 export class ClientCore implements ClientCoreApi, ConnectionControl {
+  async *attachmentChunks(
+    input: import("./attachment-types.ts").AttachmentInput,
+    options: RequestOptions = {},
+  ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame> {
+    const scope = attachmentReadScope(this, options.signal);
+    try {
+      const requestOptions = {
+        ...options,
+        timeoutMs: options.timeoutMs ?? this.options.limits?.requestMs ?? defaultLimits.requestMs,
+        signal: scope.signal,
+      };
+      const maxBytes = attachmentBudget(input);
+      if (input.variant !== "original") {
+        yield* attachmentChunks(this, input, requestOptions);
+        return;
+      }
+      let yielded = false;
+      try {
+        let source: AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
+        if (this.options.attachmentSource)
+          source = this.options.attachmentSource({ ...input, maxBytes }, requestOptions);
+        else if (this.connection.supportsBinary) {
+          await this.service();
+          const streams = (this.#attachmentStreams ??= new AttachmentStreams(
+            this,
+            this.options.scheduler,
+            this.options.limits?.requestMs ?? defaultLimits.requestMs,
+            () => this.options.id(),
+          ));
+          source = streams.chunks({ ...input, maxBytes }, requestOptions);
+        } else source = attachmentChunks(this, input, requestOptions);
+        for await (const frame of source) {
+          yielded = true;
+          yield frame;
+        }
+      } catch (error) {
+        if (
+          yielded ||
+          !(error instanceof ClientError) ||
+          error.code !== "daemon" ||
+          error.message !== "NOT_FOUND" ||
+          scope.signal.aborted
+        )
+          throw error;
+        yield* attachmentChunks(this, input, requestOptions);
+      }
+    } finally {
+      scope.close();
+    }
+  }
+  #attachmentStreams?: import("./attachment-channel.ts").AttachmentStreams;
   protected options: ClientOptions;
   protected connection: Connection;
   /** Core frames decode at once; the service schemas load with `start()`. */
-  private codec = new WireCodec();
+  #codec = new WireCodec();
   protected requests: Requests;
-  private subscriptions: Subscriptions;
-  private sidebar: Sidebar;
-  private intents: Intents;
+  #subscriptions: Subscriptions;
+  #sidebar: Sidebar;
+  #intents: Intents;
   protected notifications: Notifications;
   protected historyState: HistoryScanStatus | undefined;
   protected closed = false;
-  private readMarkers: ReadMarkers;
-  private serviceListeners = new Set<(message: ServerMessage) => void>();
-  private hostId: string | undefined;
-  private pendingSendEntries = new Map<string, PendingSend>();
-  private waitingHints = new Map<string, () => void>();
+  #readMarkers: ReadMarkers;
+  #serviceListeners = new Set<(message: ServerMessage) => void>();
+  #hostId: string | undefined;
+  #pendingSendEntries = new Map<string, PendingSend>();
+  #waitingHints = new Map<string, () => void>();
   constructor(options: ClientOptions) {
     this.options = options;
     const limits = { ...defaultLimits, ...options.limits };
@@ -82,18 +135,18 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       );
     this.notifications = new Notifications(limits.listeners);
     this.requests = new Requests(options.scheduler, limits.requests, limits.requestMs);
-    this.readMarkers = new ReadMarkers(
+    this.#readMarkers = new ReadMarkers(
       options.scheduler,
       limits.requests,
       limits.requestMs,
-      (input) => this.readMark(input),
+      (input) => this.#readMark(input),
     );
     this.connection = new Connection(
       options,
-      this.codec,
+      this.#codec,
       limits,
       (message) => {
-        for (const listener of this.serviceListeners) {
+        for (const listener of this.#serviceListeners) {
           try {
             listener(message);
           } catch {
@@ -109,19 +162,19 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           this.requests.resolve(message.requestId, message);
         switch (message.type) {
           case "welcome":
-            if (this.hostId && this.hostId !== message.hostId)
+            if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("protocol", "Transport changed daemon identity");
-            this.hostId = message.hostId;
+            this.#hostId = message.hostId;
             this.historyState = undefined;
             this.notifications.emit(["historyScan"]);
-            this.subscriptions.reconnect();
-            this.sidebar.reconnect();
-            this.intents.replay();
-            this.readMarkers.reconnect();
+            this.#subscriptions.reconnect();
+            this.#sidebar.reconnect();
+            this.#intents.replay();
+            this.#readMarkers.reconnect();
             break;
           case "commandResult":
             this.requests.resolve(message.commandId, message);
-            void this.intents
+            void this.#intents
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
             break;
@@ -151,67 +204,71 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
               this.requests.reject(message.requestId, new ClientError("daemon", message.code));
             else if (message.subscriptionId) {
               const error = new ClientError("daemon", message.code);
-              this.subscriptions.reject(message.subscriptionId, error);
-              this.sidebar.reject(message.subscriptionId, error);
+              this.#subscriptions.reject(message.subscriptionId, error);
+              this.#sidebar.reject(message.subscriptionId, error);
             } else if (message.commandId) {
               // A refused command settles its own intent; the connection stays usable.
               if (!message.retryable)
                 this.requests.reject(message.commandId, new ClientError("daemon", message.code));
-              void this.intents
+              void this.#intents
                 .refuse(message.commandId, message.code, message.retryable === true)
                 .catch(() => this.connection.fail(new ClientError("storage")));
             } else this.connection.fail(new ClientError("daemon", message.code));
             break;
           default:
-            this.subscriptions.receive(message);
-            this.sidebar.receive(message);
-            this.observeInputs(message);
+            this.#subscriptions.receive(message);
+            this.#sidebar.receive(message);
+            this.#observeInputs(message);
         }
       },
       () => this.notifications.emit(["connection"]),
       () => {
-        this.readMarkers.disconnect();
+        this.#readMarkers.disconnect();
         this.requests.disconnect();
-        this.subscriptions.disconnect();
-        this.intents.disconnect();
-        this.sidebar.disconnect();
+        this.#subscriptions.disconnect();
+        this.#intents.disconnect();
+        this.#sidebar.disconnect();
+      },
+      (bytes) => {
+        if (!this.#attachmentStreams) throw new ClientError("protocol");
+        this.#attachmentStreams.receive(bytes);
       },
     );
-    this.subscriptions = new Subscriptions(
+    this.#subscriptions = new Subscriptions(
       limits,
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
     );
-    this.sidebar = new Sidebar(
+    this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
     );
-    this.intents = new Intents({
+    this.#intents = new Intents({
       storage: options.storage,
       device: options.deviceId,
       limit: limits.intents,
       bytes: limits.outboxBytes,
       frameBytes: limits.sendBytes,
       changed: (id) => {
-        const intent = this.intents.get(id);
-        if (intent?.state === "pending" && !this.waitingHints.has(id))
-          this.waitingHints.set(
+        const intent = this.#intents.get(id);
+        if (intent?.state === "pending" && !this.#waitingHints.has(id))
+          this.#waitingHints.set(
             id,
-            options.scheduler.set(5_000, () => this.intents.waiting(id)),
+            options.scheduler.set(5_000, () => this.#intents.waiting(id)),
           );
         else if (intent?.state !== "pending") {
-          this.waitingHints.get(id)?.();
-          this.waitingHints.delete(id);
+          this.#waitingHints.get(id)?.();
+          this.#waitingHints.delete(id);
         }
         if (intent?.state === "failed" && !intent.localFailure)
           this.requests.resolve(id, { commandId: id, ok: false, error: intent.error });
-        const hadEntry = this.pendingSendEntries.has(id);
+        const hadEntry = this.#pendingSendEntries.has(id);
         const entry = intent && pendingSend(intent);
-        if (entry) this.pendingSendEntries.set(id, entry);
-        else this.pendingSendEntries.delete(id);
+        if (entry) this.#pendingSendEntries.set(id, entry);
+        else this.#pendingSendEntries.delete(id);
         this.notifications.emit([
           `intent:${id}`,
           ...(entry || hadEntry ? [`pendingSend:${id}`, "pendingSends"] : []),
@@ -227,7 +284,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         ),
     });
   }
-  private observeInputs(message: ServerMessage): void {
+  #observeInputs(message: ServerMessage): void {
     const acceptedRuns = new Set(
       message.type === "events"
         ? message.events.flatMap((event) =>
@@ -244,7 +301,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         item.level === "error" &&
         item.code !== "delivery_uncertain"
       ) {
-        void this.intents
+        void this.#intents
           .deliveryFailed(item.commandId, item.detail ?? item.text)
           .catch(() => this.connection.fail(new ClientError("storage")));
         return;
@@ -253,7 +310,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       const id =
         item.origin?.commandId ?? (item.id.startsWith("input:") ? item.id.slice(6) : undefined);
       if (id)
-        void this.intents
+        void this.#intents
           .observe(id, !!item.nativeId || (!!item.runId && acceptedRuns.has(item.runId)))
           .catch(() => this.connection.fail(new ClientError("storage")));
     };
@@ -264,7 +321,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     else if (message.type === "events")
       for (const event of message.events) {
         if (event.payload.type === "input.admitted" && event.payload.commandId)
-          void this.intents
+          void this.#intents
             .observe(event.payload.commandId, true)
             .catch(() => this.connection.fail(new ClientError("storage")));
         if (event.payload.type === "item.created" || event.payload.type === "item.updated")
@@ -295,7 +352,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     return CommandId.parse(this.options.id());
   }
   pendingSend(id: string): PendingSend | undefined {
-    return this.pendingSendEntries.get(id);
+    return this.#pendingSendEntries.get(id);
   }
   observePendingSends(listener: (id: string) => void): () => void {
     return this.notifications.tap((keys) => {
@@ -304,13 +361,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     });
   }
   intent(id: string): Selection<Intent | undefined> {
-    return this.notifications.select([`intent:${id}`], () => this.intents.get(id));
+    return this.notifications.select([`intent:${id}`], () => this.#intents.get(id));
   }
   pendingSends(threadId?: string): Selection<readonly PendingSend[]> {
     return this.notifications.select(
       ["pendingSends"],
       () =>
-        [...this.pendingSendEntries.values()].filter((entry) =>
+        [...this.#pendingSendEntries.values()].filter((entry) =>
           matchesPendingThread(entry, threadId),
         ),
       pendingSendsEqual,
@@ -319,9 +376,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
 
   async start(): Promise<void> {
     // Usually loaded before the socket's welcome; a service frame that beats it waits for it.
-    void this.codec.load().catch(() => {});
+    void this.#codec.load().catch(() => {});
     try {
-      await this.intents.initialize();
+      await this.#intents.initialize();
       if (!this.closed) this.connection.start();
     } catch {
       this.connection.fail(new ClientError("storage"));
@@ -331,31 +388,31 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   close(): Promise<void> {
     this.closed = true;
     this.requests.clear(new ClientError("offline"));
-    this.readMarkers.close();
-    for (const cancel of this.waitingHints.values()) cancel();
-    this.waitingHints.clear();
-    this.serviceListeners.clear();
+    this.#readMarkers.close();
+    for (const cancel of this.#waitingHints.values()) cancel();
+    this.#waitingHints.clear();
+    this.#serviceListeners.clear();
     this.connection.stop();
-    return this.intents.settled();
+    return this.#intents.settled();
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
   }
   thread(id: string): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
-    return this.subscriptions.acquire(id);
+    return this.#subscriptions.acquire(id);
   }
   threads(): { store: Sidebar; release(): void } {
     if (this.closed) throw new ClientError("offline");
-    return this.sidebar.acquire();
+    return this.#sidebar.acquire();
   }
   async enqueue(payload: CommandPayload, id = this.options.id()): Promise<string> {
     if (this.closed) throw new ClientError("offline");
-    await this.intents.enqueue(id, payload);
+    await this.#intents.enqueue(id, payload);
     return id;
   }
   /** Read cursors are last-write-wins hints, never durable outbox payloads. */
-  private readMark(input: ThreadMarkReadInput): Promise<CommandResult> {
+  #readMark(input: ThreadMarkReadInput): Promise<CommandResult> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     const id = this.options.id();
     return this.requests.wait(id, CommandResult.parse, {}, () => {
@@ -415,9 +472,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       "action" in input &&
       (input.action === "retry" || input.action === "local") &&
       "commandId" in input
-        ? this.intents.reopen(input.commandId)
+        ? this.#intents.reopen(input.commandId)
         : undefined;
-    const reply = this.service().then((wire) => this.sendRequest(wire, input, id, options));
+    const reply = this.service().then((wire) => this.#sendRequest(wire, input, id, options));
     if (!reopened) return reply;
     return reply.then(
       (response) => {
@@ -430,7 +487,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       },
     );
   }
-  private sendRequest<Q extends ServiceRequest>(
+  #sendRequest<Q extends ServiceRequest>(
     wire: ServiceWire,
     input: Q,
     id: string,
@@ -463,11 +520,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
     if (this.closed) throw new ClientError("offline");
-    if (this.serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
+    if (this.#serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
       throw new ClientError("limit");
-    this.serviceListeners.add(listener);
+    this.#serviceListeners.add(listener);
     return () => {
-      this.serviceListeners.delete(listener);
+      this.#serviceListeners.delete(listener);
     };
   }
   /** One-way service controls, such as browser frame ACKs or terminal credits. */
@@ -482,14 +539,14 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    * while the service schemas are still loading (it is then dropped, as offline).
    */
   decodeOneWay(value: unknown): OneWayMessage | null | undefined {
-    const wire = this.codec.loaded;
+    const wire = this.#codec.loaded;
     if (!wire) return undefined;
     const parsed = wire.ClientMessage.safeParse(value);
     return parsed.success && isOneWayMessage(parsed.data) ? parsed.data : null;
   }
   /** The service schemas, once they have loaded; offline if the client stopped meanwhile. */
   protected async service(): Promise<ServiceWire> {
-    const wire = await this.codec.load();
+    const wire = await this.#codec.load();
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     return wire;
   }
@@ -515,16 +572,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     project?: string | undefined;
     archived?: boolean | undefined;
   }): Promise<void> {
-    this.sidebar.configure(input);
+    this.#sidebar.configure(input);
   }
   async threadsMore(options: RequestOptions = {}): Promise<void> {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
-    const payload = this.sidebar.pageRequest();
+    const payload = this.#sidebar.pageRequest();
     if (!payload) return;
-    await this.readCore(payload, (value) => CoreServerMessage.parse(value), options);
+    await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
   }
   /** A read of the core stream (item pages, output): no service schemas to wait for. */
-  private async readCore<T>(
+  async #readCore<T>(
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
@@ -544,48 +601,36 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       if (!this.connection.send(parsed.data)) throw new ClientError("offline");
     });
   }
-  async turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
-    const response = await this.request(
-      { type: "turns.page", ...input, threadId: decodeThreadId(input.threadId) },
-      options,
-    );
-    if (response.threadId !== input.threadId)
-      throw new ClientError("protocol", "Unexpected thread reply");
-    return response;
+  turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
+    return this.#threadReply({ type: "turns.page", ...input }, options);
   }
-  async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
-    const response = await this.request(
-      { type: "items.window", ...input, threadId: decodeThreadId(input.threadId) },
-      options,
-    );
-    if (response.threadId !== input.threadId)
-      throw new ClientError("protocol", "Unexpected thread reply");
-    return response;
+  itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    return this.#threadReply({ type: "items.window", ...input }, options);
   }
-  async threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
-    const response = await this.request(
-      { type: "thread.search", ...input, threadId: decodeThreadId(input.threadId) },
-      options,
-    );
-    if (response.threadId !== input.threadId)
-      throw new ClientError("protocol", "Unexpected thread reply");
-    return response;
+  threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
+    return this.#threadReply({ type: "thread.search", ...input }, options);
   }
-  async threadCatchUp(input: ThreadCatchUpInput, options: RequestOptions = {}) {
-    const response = await this.request(
-      { type: "thread.catchUp", ...input, threadId: decodeThreadId(input.threadId) },
-      options,
-    );
-    if (response.threadId !== input.threadId)
-      throw new ClientError("protocol", "Unexpected thread reply");
-    return response;
+  threadCatchUp(input: ThreadCatchUpInput, options: RequestOptions = {}) {
+    return this.#threadReply({ type: "thread.catchUp", ...input }, options);
   }
-  async threadReadState(input: ThreadReadStateInput, options: RequestOptions = {}) {
-    const response = await this.request(
-      { type: "thread.readState", ...input, threadId: decodeThreadId(input.threadId) },
-      options,
-    );
-    if (response.threadId !== input.threadId)
+  threadReadState(input: ThreadReadStateInput, options: RequestOptions = {}) {
+    return this.#threadReply({ type: "thread.readState", ...input }, options);
+  }
+  async #threadReply<
+    Q extends Extract<
+      ServiceRequest,
+      {
+        type:
+          | "turns.page"
+          | "items.window"
+          | "thread.search"
+          | "thread.catchUp"
+          | "thread.readState";
+      }
+    >,
+  >(input: Q, options: RequestOptions): Promise<ServiceResponse<Q>> {
+    const response = await this.request(input, options);
+    if (!("threadId" in response) || response.threadId !== input.threadId)
       throw new ClientError("protocol", "Unexpected thread reply");
     return response;
   }
@@ -593,13 +638,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     const parsed = ThreadMarkReadCommand.safeParse({ type: "thread.markRead", ...input });
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid read mark"));
-    return this.readMarkers.mark(parsed.data, options);
+    return this.#readMarkers.mark(parsed.data, options);
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.readCore(
+    return this.#readCore(
       { type: "items.page", ...payload, before: payload.before ?? Number.MAX_SAFE_INTEGER },
       (value) => {
         const page = ItemsPage.parse(value);
@@ -610,7 +655,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     );
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
-    const store = this.subscriptions.held(threadId);
+    const store = this.#subscriptions.held(threadId);
     if (!store) throw new ClientError("offline", "Thread is not leased");
     const before = store.itemsBefore;
     if (before === null || before === undefined) return;
@@ -620,7 +665,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     payload: { streamId: string; offset: number; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.readCore(
+    return this.#readCore(
       { type: "output.read", ...payload },
       (value) => {
         const result = CoreServerMessage.parse(value);
@@ -677,12 +722,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       offset = result.nextOffset;
     }
   }
-}
-
-function decodeThreadId(id: string): ThreadId {
-  const result = ThreadId.safeParse(id);
-  if (!result.success) throw new ClientError("protocol", "Invalid thread id");
-  return result.data;
 }
 
 /** A `worktree.creation.result` turning an action down. */

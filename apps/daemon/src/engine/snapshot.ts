@@ -97,6 +97,7 @@ const snapshot = z.object({
     })
     .optional(),
   lastTransportSignalAt: Timestamp.optional(),
+  statusObservedAt: Timestamp.optional(),
   agents: records(record),
   runs: records(Run),
   items: records(Item),

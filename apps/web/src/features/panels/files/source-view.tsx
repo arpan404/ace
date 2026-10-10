@@ -5,27 +5,8 @@ import { useCodeLines } from "@/components/markdown/use-code-lines.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** One find-in-file hit: a line and where in it the text starts. */
-export interface FindHit {
-  line: number;
-  column: number;
-}
-
-/** Every place `query` occurs in `text` (case-insensitive), at most `limit`. */
-export function findHits(text: string, query: string, limit = 10_000): FindHit[] {
-  const needle = query.toLowerCase();
-  if (!needle) return [];
-  const hits: FindHit[] = [];
-  const lines = text.toLowerCase().split("\n");
-  for (let line = 0; line < lines.length && hits.length < limit; line++) {
-    const content = lines[line] ?? "";
-    for (let at = content.indexOf(needle); at >= 0 && hits.length < limit;) {
-      hits.push({ line, column: at });
-      at = content.indexOf(needle, at + needle.length);
-    }
-  }
-  return hits;
-}
+import type { FindHit } from "./find-hits.ts";
+export { findHits, type FindHit } from "./find-hits.ts";
 
 /** A line with each occurrence of `query` marked, the current one stronger. */
 function Marked(props: { text: string; query: string; current: number | undefined }) {

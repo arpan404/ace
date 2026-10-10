@@ -37,7 +37,7 @@ export const CallMethod = z.enum([
   "request",
 ]);
 export type CallMethod = z.infer<typeof CallMethod>;
-export const IterateMethod = z.enum(["text", "output"]);
+export const IterateMethod = z.enum(["text", "output", "attachment"]);
 export type IterateMethod = z.infer<typeof IterateMethod>;
 
 export const TabMessage = z.discriminatedUnion("t", [
@@ -118,6 +118,7 @@ export type WorkerMessage = z.infer<typeof WorkerMessage>;
 /** The part of MessagePort both ends use. Node's MessagePort and the DOM's both fit. */
 export interface PortLike {
   postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer: ArrayBuffer[]): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
   removeEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
   start?(): void;

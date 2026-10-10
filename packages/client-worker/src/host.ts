@@ -113,30 +113,30 @@ const errorShape = (error: unknown) =>
     : { code: "protocol", message: error instanceof Error ? error.message : "Request failed" };
 
 export class ClientHost {
-  private options: HostOptions;
-  private entries = new Map<string, Entry>();
-  private tabs = new Set<Tab>();
-  private sweep: (() => void) | undefined;
-  private subscriberSequence = 0;
+  #options: HostOptions;
+  #entries = new Map<string, Entry>();
+  #tabs = new Set<Tab>();
+  #sweep: (() => void) | undefined;
+  #subscriberSequence = 0;
   subscriberId(): string {
-    return `tab-${++this.subscriberSequence}`;
+    return `tab-${++this.#subscriberSequence}`;
   }
   constructor(options: HostOptions) {
-    this.options = options;
+    this.#options = options;
   }
   /** Serve one tab over its port until it says goodbye or falls silent. */
   attach(port: PortLike): void {
-    const tab = new Tab(this, port, this.options);
-    this.tabs.add(tab);
-    this.scheduleSweep();
+    const tab = new Tab(this, port, this.#options);
+    this.#tabs.add(tab);
+    this.#scheduleSweep();
   }
   get clients(): number {
-    return this.entries.size;
+    return this.#entries.size;
   }
   /** @internal */
   join(tab: Tab, config: unknown): Entry {
-    const target = this.options.target(config);
-    let entry = this.entries.get(target.key);
+    const target = this.#options.target(config);
+    let entry = this.#entries.get(target.key);
     if (!entry) {
       const client = target.create();
       const created: Entry = {
@@ -153,7 +153,7 @@ export class ClientHost {
         if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
-      this.entries.set(target.key, created);
+      this.#entries.set(target.key, created);
       entry = created;
     }
     entry.linger?.();
@@ -163,119 +163,119 @@ export class ClientHost {
   }
   /** @internal */
   forget(tab: Tab): void {
-    this.tabs.delete(tab);
+    this.#tabs.delete(tab);
   }
   /** @internal */
   part(tab: Tab, entry: Entry): void {
     entry.tabs.delete(tab);
     if (entry.tabs.size) return;
-    entry.linger = this.options.scheduler.set(this.options.lingerMs ?? 10_000, () => {
+    entry.linger = this.#options.scheduler.set(this.#options.lingerMs ?? 10_000, () => {
       if (entry.tabs.size) return;
-      this.entries.delete(entry.key);
+      this.#entries.delete(entry.key);
       entry.unwatch();
       void entry.client.close();
     });
   }
-  private scheduleSweep(): void {
-    if (this.sweep) return;
-    const silence = this.options.silenceMs ?? 30_000;
-    this.sweep = this.options.scheduler.set(silence / 2, () => {
-      this.sweep = undefined;
-      const now = this.options.now();
-      const hiddenSilence = this.options.hiddenSilenceMs ?? 10 * 60_000;
+  #scheduleSweep(): void {
+    if (this.#sweep) return;
+    const silence = this.#options.silenceMs ?? 30_000;
+    this.#sweep = this.#options.scheduler.set(silence / 2, () => {
+      this.#sweep = undefined;
+      const now = this.#options.now();
+      const hiddenSilence = this.#options.hiddenSilenceMs ?? 10 * 60_000;
       // Deleting the current entry while iterating a Set is safe.
-      for (const tab of this.tabs) if (tab.silentSince(now, silence, hiddenSilence)) tab.drop();
-      if (this.tabs.size) this.scheduleSweep();
+      for (const tab of this.#tabs) if (tab.silentSince(now, silence, hiddenSilence)) tab.drop();
+      if (this.#tabs.size) this.#scheduleSweep();
     });
   }
 }
 
 class Tab {
   lastSeen: number;
-  private host: ClientHost;
-  private subscriber: string;
+  #host: ClientHost;
+  #subscriber: string;
   /** File channels and Preview subscriptions, initialized with the first such request. */
-  private channels: TabChannels | undefined;
-  private loadingChannels: Promise<TabChannels> | undefined;
-  private port: PortLike;
-  private options: HostOptions;
-  private entry: Entry | undefined;
-  private leases = new Map<number, Held>();
-  private calls = new Map<number, AbortController>();
-  private iterators = new Map<number, AsyncGenerator<unknown>>();
-  private intents = new Map<string, () => void>();
-  private stopPending: (() => void) | undefined;
-  private pendingDirty = new Set<string>();
-  private pendingReset = false;
-  private wantsMessages = false;
-  private stopMessages: (() => void) | undefined;
-  private visible = true;
-  private dropped = false;
-  private stopLock: (() => void) | undefined;
-  private flushing: (() => void) | undefined;
-  private listener = (event: { data: unknown }) => this.receive(event.data);
+  #channels: TabChannels | undefined;
+  #loadingChannels: Promise<TabChannels> | undefined;
+  #port: PortLike;
+  #options: HostOptions;
+  #entry: Entry | undefined;
+  #leases = new Map<number, Held>();
+  #calls = new Map<number, AbortController>();
+  #iterators = new Map<number, AsyncGenerator<unknown>>();
+  #intents = new Map<string, () => void>();
+  #stopPending: (() => void) | undefined;
+  #pendingDirty = new Set<string>();
+  #pendingReset = false;
+  #wantsMessages = false;
+  #stopMessages: (() => void) | undefined;
+  #visible = true;
+  #dropped = false;
+  #stopLock: (() => void) | undefined;
+  #flushing: (() => void) | undefined;
+  #listener = (event: { data: unknown }) => this.#receive(event.data);
   constructor(host: ClientHost, port: PortLike, options: HostOptions) {
-    this.host = host;
-    this.subscriber = host.subscriberId();
-    this.port = port;
-    this.options = options;
+    this.#host = host;
+    this.#subscriber = host.subscriberId();
+    this.#port = port;
+    this.#options = options;
     this.lastSeen = options.now();
-    port.addEventListener("message", this.listener);
+    port.addEventListener("message", this.#listener);
     port.start?.();
   }
-  private post(message: unknown): void {
-    if (this.dropped) return;
+  #post(message: unknown, transfer?: ArrayBuffer[]): void {
+    if (this.#dropped) return;
     try {
       // A MessagePort has no target origin: it reaches exactly the other end.
       // oxlint-disable-next-line unicorn/require-post-message-target-origin
-      this.port.postMessage(message);
+      this.#port.postMessage(message, transfer ?? []);
     } catch {
       this.drop();
     }
   }
   /** Whether this tab has been silent too long to be alive; a tab with a lock never is. */
   silentSince(now: number, silence: number, hiddenSilence: number): boolean {
-    if (this.stopLock) return false;
-    return this.lastSeen < now - (this.visible ? silence : hiddenSilence);
+    if (this.#stopLock) return false;
+    return this.lastSeen < now - (this.#visible ? silence : hiddenSilence);
   }
   connection(): void {
-    const client = this.entry?.client;
+    const client = this.#entry?.client;
     if (!client) return;
-    if (client.state !== "ready") this.channels?.reset();
-    this.post({
+    if (client.state !== "ready") this.#channels?.reset();
+    this.#post({
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
     });
   }
-  private receive(data: unknown): void {
-    this.lastSeen = this.options.now();
+  #receive(data: unknown): void {
+    this.lastSeen = this.#options.now();
     const parsed = TabMessage.safeParse(data);
     if (!parsed.success) return;
     const message = parsed.data;
-    if (message.t === "connect") return this.connect(message.config);
+    if (message.t === "connect") return this.#connect(message.config);
     if (message.t === "ping") return;
-    if (message.t === "alive") return this.alive(message.lock);
+    if (message.t === "alive") return this.#alive(message.lock);
     if (message.t === "bye") return this.drop();
     if (message.t === "watchMessages") {
-      this.wantsMessages = true;
-      return this.watchMessages();
+      this.#wantsMessages = true;
+      return this.#watchMessages();
     }
     if (message.t === "unwatchMessages") {
-      this.wantsMessages = false;
-      this.stopMessages?.();
-      this.stopMessages = undefined;
+      this.#wantsMessages = false;
+      this.#stopMessages?.();
+      this.#stopMessages = undefined;
       return;
     }
     if (message.t === "visible") {
-      this.visible = message.visible;
-      if (message.visible) this.schedule();
+      this.#visible = message.visible;
+      if (message.visible) this.#schedule();
       return;
     }
-    const client = this.entry?.client;
+    const client = this.#entry?.client;
     if (!client) {
       if (message.t === "call" || message.t === "iterate" || message.t === "next")
-        this.post({
+        this.#post({
           t: "failed",
           call: message.call,
           error: errorShape(new ClientError("offline")),
@@ -284,65 +284,65 @@ class Tab {
     }
     switch (message.t) {
       case "lease":
-        return this.lease(client, message.lease, message.scope);
+        return this.#lease(client, message.lease, message.scope);
       case "release":
-        return this.release(message.lease);
+        return this.#release(message.lease);
       case "call":
-        return void this.call(client, message.call, message.method, message.args);
+        return void this.#call(client, message.call, message.method, message.args);
       case "iterate":
-        return this.iterate(client, message.call, message.method, message.args);
+        return this.#iterate(client, message.call, message.method, message.args);
       case "next":
-        return void this.next(message.call);
+        return void this.#next(message.call);
       case "return":
-        return void this.stop(message.call);
+        return void this.#stop(message.call);
       case "abort":
-        return this.calls.get(message.call)?.abort();
+        return this.#calls.get(message.call)?.abort();
       case "send":
-        return this.sendControl(client, message.message);
+        return this.#sendControl(client, message.message);
       case "watchPendingSends":
-        return this.watchPending(client);
+        return this.#watchPending(client);
       case "unwatchPendingSends":
-        this.stopPending?.();
-        this.stopPending = undefined;
-        this.pendingDirty.clear();
-        this.pendingReset = false;
+        this.#stopPending?.();
+        this.#stopPending = undefined;
+        this.#pendingDirty.clear();
+        this.#pendingReset = false;
         return;
       case "watchIntent":
-        return this.watch(client, message.id);
+        return this.#watch(client, message.id);
       case "unwatchIntent":
-        this.intents.get(message.id)?.();
-        this.intents.delete(message.id);
+        this.#intents.get(message.id)?.();
+        this.#intents.delete(message.id);
         return;
     }
   }
-  private alive(lock: string): void {
-    const watch = this.options.lockReleased;
-    if (!watch || this.dropped) return;
-    this.stopLock?.();
-    this.stopLock = watch(lock, () => this.drop());
+  #alive(lock: string): void {
+    const watch = this.#options.lockReleased;
+    if (!watch || this.#dropped) return;
+    this.#stopLock?.();
+    this.#stopLock = watch(lock, () => this.drop());
   }
-  private connect(config: unknown): void {
+  #connect(config: unknown): void {
     let entry: Entry;
     try {
-      entry = this.host.join(this, config);
+      entry = this.#host.join(this, config);
     } catch (error) {
-      this.post({ t: "attached", error: errorShape(error) });
+      this.#post({ t: "attached", error: errorShape(error) });
       return;
     }
-    if (this.entry && this.entry !== entry) {
-      this.detach();
-      this.host.part(this, this.entry);
+    if (this.#entry && this.#entry !== entry) {
+      this.#detach();
+      this.#host.part(this, this.#entry);
     }
-    this.entry = entry;
-    this.watchMessages();
+    this.#entry = entry;
+    this.#watchMessages();
     entry.started.then(
-      () => this.post({ t: "attached", idPrefix: entry.client.commandId() }),
-      (error: unknown) => this.post({ t: "attached", error: errorShape(error) }),
+      () => this.#post({ t: "attached", idPrefix: entry.client.commandId() }),
+      (error: unknown) => this.#post({ t: "attached", error: errorShape(error) }),
     );
     this.connection();
   }
-  private lease(client: Client, lease: number, scope: Scope): void {
-    if (this.leases.has(lease)) return;
+  #lease(client: Client, lease: number, scope: Scope): void {
+    if (this.#leases.has(lease)) return;
     let held: Held;
     try {
       if (scope.kind === "thread") {
@@ -357,7 +357,7 @@ class Tab {
           dirty: "all",
           sent: new Map(),
         };
-        held.unobserve = store.observe((keys) => this.dirty(held, keys));
+        held.unobserve = store.observe((keys) => this.#dirty(held, keys));
       } else {
         const subscription = client.threads();
         const store = subscription.store;
@@ -370,25 +370,25 @@ class Tab {
           dirty: "all",
           sent: new Map(),
         };
-        held.unobserve = store.observe((keys) => this.dirty(held, keys));
+        held.unobserve = store.observe((keys) => this.#dirty(held, keys));
       }
     } catch (error) {
       // A lease the client refuses (limits) shows as the store's error in the tab.
       const copy = { error: errorShape(error), view: undefined, truncated: [], ids: [] };
-      this.post({ t: "changes", leases: [{ lease, reset: copy }] });
+      this.#post({ t: "changes", leases: [{ lease, reset: copy }] });
       return;
     }
-    this.leases.set(lease, held);
-    this.schedule();
+    this.#leases.set(lease, held);
+    this.#schedule();
   }
-  private release(lease: number): void {
-    const held = this.leases.get(lease);
+  #release(lease: number): void {
+    const held = this.#leases.get(lease);
     if (!held) return;
-    this.leases.delete(lease);
+    this.#leases.delete(lease);
     held.unobserve();
     held.release();
   }
-  private dirty(held: Held, keys: ReadonlySet<string> | "all"): void {
+  #dirty(held: Held, keys: ReadonlySet<string> | "all"): void {
     if (keys === "all" || held.dirty === "all") held.dirty = "all";
     else if (held.dirty) for (const key of keys) held.dirty.add(key);
     else held.dirty = new Set(keys);
@@ -398,20 +398,20 @@ class Tab {
       held.dirty = "all";
       held.sent.clear();
     }
-    this.schedule();
+    this.#schedule();
   }
-  private schedule(): void {
-    if (this.flushing || !this.visible) return;
-    this.flushing = this.options.scheduler.set(this.options.frameMs ?? 16, () => {
-      this.flushing = undefined;
-      this.flush();
+  #schedule(): void {
+    if (this.#flushing || !this.#visible) return;
+    this.#flushing = this.#options.scheduler.set(this.#options.frameMs ?? 16, () => {
+      this.#flushing = undefined;
+      this.#flush();
     });
   }
-  private flush(): void {
-    if (!this.visible) return;
-    this.flushPending();
+  #flush(): void {
+    if (!this.#visible) return;
+    this.#flushPending();
     const leases: LeaseChanges[] = [];
-    for (const [lease, held] of this.leases) {
+    for (const [lease, held] of this.#leases) {
       const dirty = held.dirty;
       if (!dirty) continue;
       held.dirty = undefined;
@@ -426,31 +426,31 @@ class Tab {
         leases.push({ lease, reset: copy });
       } else leases.push({ lease, patches: held.read(dirty) });
     }
-    if (leases.length) this.post({ t: "changes", leases });
+    if (leases.length) this.#post({ t: "changes", leases });
   }
-  private watchPending(client: Client): void {
-    if (!this.stopPending)
-      this.stopPending = client.observePendingSends((id) => {
-        if (!this.pendingReset) {
-          this.pendingDirty.add(id);
-          if (this.pendingDirty.size > defaultLimits.intents) {
-            this.pendingDirty.clear();
-            this.pendingReset = true;
+  #watchPending(client: Client): void {
+    if (!this.#stopPending)
+      this.#stopPending = client.observePendingSends((id) => {
+        if (!this.#pendingReset) {
+          this.#pendingDirty.add(id);
+          if (this.#pendingDirty.size > defaultLimits.intents) {
+            this.#pendingDirty.clear();
+            this.#pendingReset = true;
           }
         }
-        this.schedule();
+        this.#schedule();
       });
-    this.pendingDirty.clear();
-    this.pendingReset = true;
-    this.schedule();
+    this.#pendingDirty.clear();
+    this.#pendingReset = true;
+    this.#schedule();
   }
-  private flushPending(): void {
-    const client = this.entry?.client;
-    if (!client || !this.stopPending) return;
-    if (this.pendingReset) {
-      this.pendingReset = false;
-      this.pendingDirty.clear();
-      this.post({
+  #flushPending(): void {
+    const client = this.#entry?.client;
+    if (!client || !this.#stopPending) return;
+    if (this.#pendingReset) {
+      this.#pendingReset = false;
+      this.#pendingDirty.clear();
+      this.#post({
         t: "pendingSends",
         reset: true,
         entries: client.pendingSends().getSnapshot(),
@@ -458,159 +458,162 @@ class Tab {
       });
       return;
     }
-    if (!this.pendingDirty.size) return;
+    if (!this.#pendingDirty.size) return;
     const entries: PendingSend[] = [];
     const removed: string[] = [];
-    for (const id of this.pendingDirty) {
+    for (const id of this.#pendingDirty) {
       const entry = client.pendingSend(id);
       if (entry) entries.push(entry);
       else removed.push(id);
     }
-    this.pendingDirty.clear();
-    this.post({ t: "pendingSends", entries, removed });
+    this.#pendingDirty.clear();
+    this.#post({ t: "pendingSends", entries, removed });
   }
-  private watch(client: Client, id: string): void {
-    if (this.intents.has(id)) return;
+  #watch(client: Client, id: string): void {
+    if (this.#intents.has(id)) return;
     const selection = client.intent(id);
     const send = () => {
       const intent = selection.getSnapshot();
-      this.post(intent ? { t: "intent", id, intent } : { t: "intent", id });
+      this.#post(intent ? { t: "intent", id, intent } : { t: "intent", id });
     };
-    this.intents.set(id, selection.subscribe(send));
+    this.#intents.set(id, selection.subscribe(send));
     send();
   }
-  private watchMessages(): void {
-    const client = this.entry?.client;
-    if (!client || !this.wantsMessages || this.stopMessages) return;
+  #watchMessages(): void {
+    const client = this.#entry?.client;
+    if (!client || !this.#wantsMessages || this.#stopMessages) return;
     try {
-      this.stopMessages = client.onMessage((message) => {
-        if (isServicePush(message)) this.post({ t: "message", message });
+      this.#stopMessages = client.onMessage((message) => {
+        if (isServicePush(message)) this.#post({ t: "message", message });
       });
     } catch {
       // At the listener limit the tab misses pushes; its reads still work.
     }
   }
-  private async call(client: Client, call: number, method: string, args: unknown[]) {
+  async #call(client: Client, call: number, method: string, args: unknown[]) {
     const controller = new AbortController();
-    this.calls.set(call, controller);
+    this.#calls.set(call, controller);
     try {
       admitArguments(args);
       const value =
         method === "request" && isChannelRequest(args[0])
-          ? await this.channelRequest(client, call, controller, args)
+          ? await this.#channelRequest(client, call, controller, args)
           : await callArgs(client, method, args, controller.signal);
-      this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
+      this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
-      this.post({ t: "failed", call, error: errorShape(error) });
+      this.#post({ t: "failed", call, error: errorShape(error) });
     } finally {
-      this.calls.delete(call);
+      this.#calls.delete(call);
     }
   }
-  private async channelRequest(
+  async #channelRequest(
     client: Client,
     call: number,
     controller: AbortController,
     args: unknown[],
   ): Promise<unknown> {
     // The connection a request starts on is fixed before the module loads.
-    const entry = this.entry;
+    const entry = this.#entry;
     const generation = entry?.generation;
-    const channels = this.channels ?? (await this.loadChannels());
+    const channels = this.#channels ?? (await this.#loadChannels());
     return channels.request({
       client,
       args,
       signal: controller.signal,
       forward: (forwarded) => requestArgs(client, forwarded, controller.signal),
       current: () => entry !== undefined && entry.generation === generation,
-      pending: () => this.calls.has(call) && !controller.signal.aborted,
+      pending: () => this.#calls.has(call) && !controller.signal.aborted,
     });
   }
-  private loadChannels(): Promise<TabChannels> {
-    this.loadingChannels ??= loadServiceWire().then(
-      (wire) => (this.channels = new TabChannels(this.subscriber, wire)),
+  #loadChannels(): Promise<TabChannels> {
+    this.#loadingChannels ??= loadServiceWire().then(
+      (wire) => (this.#channels = new TabChannels(this.#subscriber, wire)),
       (error: unknown) => {
         // A failed load is retried by the next request rather than remembered.
-        this.loadingChannels = undefined;
+        this.#loadingChannels = undefined;
         throw error;
       },
     );
-    return this.loadingChannels;
+    return this.#loadingChannels;
   }
   /**
    * Pass a tab's one-way control on. File and Preview controls go through the tab's channels;
    * before the tab opened any, none of them is the tab's to send.
    */
-  private sendControl(client: Client, value: unknown): void {
+  #sendControl(client: Client, value: unknown): void {
     // Only channel controls are decoded here; `sendArgs` decodes every control it passes on.
     const type = objectInput(value).type;
     if (typeof type === "string" && channelControls.has(type)) {
       const control = client.decodeOneWay(value);
-      if (control && !this.channels?.admits(control)) return;
+      if (control && !this.#channels?.admits(control)) return;
     }
     sendArgs(client, value);
   }
-  private iterate(client: Client, call: number, method: string, args: unknown[]): void {
+  #iterate(client: Client, call: number, method: string, args: unknown[]): void {
     const controller = new AbortController();
     try {
-      this.iterators.set(call, iterateArgs(client, method, args, controller.signal));
-      this.calls.set(call, controller);
-      void this.next(call);
+      this.#iterators.set(call, iterateArgs(client, method, args, controller.signal));
+      this.#calls.set(call, controller);
+      void this.#next(call);
     } catch (error) {
-      this.post({ t: "failed", call, error: errorShape(error) });
+      this.#post({ t: "failed", call, error: errorShape(error) });
     }
   }
-  private async next(call: number): Promise<void> {
-    const iterator = this.iterators.get(call);
+  async #next(call: number): Promise<void> {
+    const iterator = this.#iterators.get(call);
     if (!iterator) return;
     try {
       const step = await iterator.next();
-      if (step.done) this.finish(call);
-      this.post(
+      if (step.done) this.#finish(call);
+      this.#post(
         step.done
           ? { t: "yield", call, done: true }
           : { t: "yield", call, done: false, value: step.value },
+        step.value instanceof Uint8Array && step.value.buffer instanceof ArrayBuffer
+          ? [step.value.buffer]
+          : undefined,
       );
     } catch (error) {
-      this.finish(call);
-      this.post({ t: "failed", call, error: errorShape(error) });
+      this.#finish(call);
+      this.#post({ t: "failed", call, error: errorShape(error) });
     }
   }
-  private async stop(call: number): Promise<void> {
-    const iterator = this.iterators.get(call);
-    this.calls.get(call)?.abort();
-    this.finish(call);
+  async #stop(call: number): Promise<void> {
+    const iterator = this.#iterators.get(call);
+    this.#calls.get(call)?.abort();
+    this.#finish(call);
     await iterator?.return(undefined).catch(() => {});
   }
-  private finish(call: number): void {
-    this.iterators.delete(call);
-    this.calls.delete(call);
+  #finish(call: number): void {
+    this.#iterators.delete(call);
+    this.#calls.delete(call);
   }
-  private detach(): void {
-    this.channels?.detach(this.entry?.client);
-    for (const lease of this.leases.keys()) this.release(lease);
-    for (const stop of this.intents.values()) stop();
-    this.intents.clear();
-    this.stopPending?.();
-    this.stopPending = undefined;
-    this.pendingDirty.clear();
-    this.pendingReset = false;
-    this.stopMessages?.();
-    this.stopMessages = undefined;
-    for (const controller of this.calls.values()) controller.abort();
-    for (const call of this.iterators.keys()) void this.stop(call);
-    this.flushing?.();
-    this.flushing = undefined;
+  #detach(): void {
+    this.#channels?.detach(this.#entry?.client);
+    for (const lease of this.#leases.keys()) this.#release(lease);
+    for (const stop of this.#intents.values()) stop();
+    this.#intents.clear();
+    this.#stopPending?.();
+    this.#stopPending = undefined;
+    this.#pendingDirty.clear();
+    this.#pendingReset = false;
+    this.#stopMessages?.();
+    this.#stopMessages = undefined;
+    for (const controller of this.#calls.values()) controller.abort();
+    for (const call of this.#iterators.keys()) void this.#stop(call);
+    this.#flushing?.();
+    this.#flushing = undefined;
   }
   drop(): void {
-    if (this.dropped) return;
-    this.dropped = true;
-    this.stopLock?.();
-    this.stopLock = undefined;
-    this.detach();
-    this.port.removeEventListener("message", this.listener);
-    this.port.close?.();
-    if (this.entry) this.host.part(this, this.entry);
-    this.host.forget(this);
-    this.entry = undefined;
+    if (this.#dropped) return;
+    this.#dropped = true;
+    this.#stopLock?.();
+    this.#stopLock = undefined;
+    this.#detach();
+    this.#port.removeEventListener("message", this.#listener);
+    this.#port.close?.();
+    if (this.#entry) this.#host.part(this, this.#entry);
+    this.#host.forget(this);
+    this.#entry = undefined;
   }
 }

@@ -139,7 +139,7 @@ export function attachFilesChannel(
     }
   };
   const allocate = () => {
-    if (outgoing.size + incoming.size + opening.size >= 4 || channel >= 0xffffffff)
+    if (outgoing.size + incoming.size + opening.size >= 4 || channel >= 0x3fffffff)
       throw new FileError("BUSY", "Socket channel limit reached");
     opening.add(++channel);
     return channel;

@@ -64,46 +64,46 @@ export interface PairedMachine {
 
 /** Serialized metadata writes; credentials live exclusively in the injected secret store. */
 export class MachineDirectory {
-  private entries: readonly MachineEntry[] = [];
-  private tail: Promise<unknown> = Promise.resolve();
-  private storage: Storage;
-  private secrets: MachineSecretStore;
+  #entries: readonly MachineEntry[] = [];
+  #tail: Promise<unknown> = Promise.resolve();
+  #storage: Storage;
+  #secrets: MachineSecretStore;
   constructor(storage: Storage, secrets: MachineSecretStore) {
-    this.storage = storage;
-    this.secrets = secrets;
+    this.#storage = storage;
+    this.#secrets = secrets;
   }
   get machines(): readonly MachineEntry[] {
-    return this.entries;
+    return this.#entries;
   }
-  private serialize<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.tail.then(work);
-    this.tail = next.catch(() => {});
+  #serialize<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#tail.then(work);
+    this.#tail = next.catch(() => {});
     return next;
   }
   load(): Promise<readonly MachineEntry[]> {
-    return this.serialize(async () => {
-      const raw = await this.storage.load();
+    return this.#serialize(async () => {
+      const raw = await this.#storage.load();
       if (raw && raw.length > 1024 * 1024) throw new ClientError("limit");
       const parsed = raw ? Directory.parse(JSON.parse(raw)).machines : [];
       if (new Set(parsed.map((entry) => entry.hostId)).size !== parsed.length)
         throw new ClientError("storage", "Duplicate machine identity");
-      this.entries = Object.freeze(
+      this.#entries = Object.freeze(
         parsed.map((entry) => Object.freeze({ ...entry, target: Object.freeze(entry.target) })),
       );
-      return this.entries;
+      return this.#entries;
     });
   }
-  private async save(entries: readonly MachineEntry[]): Promise<void> {
+  async #save(entries: readonly MachineEntry[]): Promise<void> {
     const parsed = Directory.parse({ version: 1, machines: entries });
-    await this.storage.save(JSON.stringify(parsed));
-    this.entries = Object.freeze(
+    await this.#storage.save(JSON.stringify(parsed));
+    this.#entries = Object.freeze(
       parsed.machines.map((entry) =>
         Object.freeze({ ...entry, target: Object.freeze(entry.target) }),
       ),
     );
   }
   add(paired: PairedMachine): Promise<MachineEntry> {
-    return this.serialize(async () => {
+    return this.#serialize(async () => {
       const identity = HostIdentity.parse(paired.identity);
       const entry = MachineEntry.parse({
         hostId: identity.hostId,
@@ -112,22 +112,22 @@ export class MachineDirectory {
         target: paired.target,
         deviceId: paired.deviceId,
       });
-      if (this.entries.some((old) => old.hostId === entry.hostId))
+      if (this.#entries.some((old) => old.hostId === entry.hostId))
         throw new ClientError(
           "storage",
           "Machine already paired; remove it before replacing authorization",
         );
-      if (this.entries.length >= 100) throw new ClientError("limit");
+      if (this.#entries.length >= 100) throw new ClientError("limit");
       const token = DeviceCredential.shape.token.parse(paired.token);
       const key = machineSecretKey(entry);
-      await this.secrets.set(key, token);
+      await this.#secrets.set(key, token);
       try {
-        await this.save([...this.entries, entry]);
+        await this.#save([...this.#entries, entry]);
       } catch (error) {
-        await this.secrets.delete(key);
+        await this.#secrets.delete(key);
         throw error;
       }
-      return this.entries.find((saved) => saved.hostId === entry.hostId) ?? entry;
+      return this.#entries.find((saved) => saved.hostId === entry.hostId) ?? entry;
     });
   }
   /** Redeemer owns QR/link parsing, pinned transport and the authenticated identity read. */
@@ -138,26 +138,26 @@ export class MachineDirectory {
     return this.add(await redeem(link));
   }
   rename(hostId: string, displayName: string, icon?: MachineIcon): Promise<void> {
-    return this.serialize(async () => {
-      const entry = this.entries.find((candidate) => candidate.hostId === hostId);
+    return this.#serialize(async () => {
+      const entry = this.#entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) throw new ClientError("offline", "Unknown machine");
       const renamed = MachineEntry.parse({ ...entry, displayName, ...(icon ? { icon } : {}) });
-      await this.save(this.entries.map((old) => (old.hostId === hostId ? renamed : old)));
+      await this.#save(this.#entries.map((old) => (old.hostId === hostId ? renamed : old)));
     });
   }
   remove(hostId: string): Promise<void> {
-    return this.serialize(async () => {
-      const entry = this.entries.find((candidate) => candidate.hostId === hostId);
+    return this.#serialize(async () => {
+      const entry = this.#entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) return;
       // Remove authority first. A failed metadata write leaves a visible entry requiring pairing.
-      await this.secrets.delete(machineSecretKey(entry));
-      await this.save(this.entries.filter((candidate) => candidate.hostId !== hostId));
+      await this.#secrets.delete(machineSecretKey(entry));
+      await this.#save(this.#entries.filter((candidate) => candidate.hostId !== hostId));
     });
   }
   async token(entry: MachineEntry): Promise<string> {
     let token: string | null;
     try {
-      token = await this.secrets.get(machineSecretKey(entry));
+      token = await this.#secrets.get(machineSecretKey(entry));
     } catch {
       throw new ClientError("storage", "Machine authorization store unavailable");
     }
