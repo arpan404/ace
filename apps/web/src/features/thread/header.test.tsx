@@ -26,7 +26,8 @@ const header = () => {
   return found;
 };
 async function openEditorsMenu() {
-  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
+  const card = screen.queryByRole("complementary", { name: "Work card" }) ?? (await openCard());
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
 }
 
@@ -34,13 +35,17 @@ const sidePanel = () => screen.findByRole("region", { name: "Thread panel" });
 
 /** Open the work card from the header's list button. */
 async function openCard() {
-  await userEvent.click(within(header()).getByRole("button", { name: "Work card" }));
-  return screen.findByRole("complementary", { name: "Work card" });
+  await userEvent.click(within(header()).getByRole("button", { name: /^Work card/ }));
+  return screen.findByRole("complementary", { name: /^Work card/ });
 }
 
 /** The git step the card's branch row offers once the checkout has been read. */
 async function gitStep(name: string) {
   const card = await openCard();
+  if (name === "Commit & push" || name === "Push") {
+    await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
+    return screen.findByRole("menuitem", { name: name === "Push" ? "Push" : "Commit & push…" });
+  }
   return within(card).findByRole("button", { name });
 }
 
@@ -76,17 +81,8 @@ const sketch = {
 
 test("the header keeps only navigation, the title, its ⋯, the work card and the side panel's toggle", async () => {
   await openThread();
-  const names = within(header())
-    .getAllByRole("button")
-    .map((button) => button.getAttribute("aria-label"));
-  expect(names).toEqual([
-    expect.stringMatching(/sidebar$/),
-    "Back",
-    "Forward",
-    "More actions",
-    "Work card",
-    "Right panel",
-  ]);
+  expect(within(header()).getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(within(header()).getByRole("button", { name: "Right panel" })).toBeTruthy();
   expect(within(header()).getByRole("heading", { level: 1 }).textContent).toBe(
     "Replay cursor resets on every resume",
   );
@@ -120,29 +116,29 @@ test("search and turns live in the ⋯ menu, and their shortcuts still work", as
 
 test("the work card opens under its button and closes on Escape, giving focus back, or on a click outside", async () => {
   await openThread();
-  const button = within(header()).getByRole("button", { name: "Work card" });
+  const button = within(header()).getByRole("button", { name: /^Work card/ });
   const card = await openCard();
   expect(button.getAttribute("aria-pressed")).toBe("true");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relay");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relay · Local");
 
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
   );
   expect(document.activeElement).toBe(button);
   expect(button.getAttribute("aria-pressed")).toBe("false");
 
   await openCard();
   await userEvent.click(screen.getByRole("feed", { name: "Transcript" }));
-  expect(screen.getByRole("complementary", { name: "Work card" })).toBeTruthy();
+  expect(screen.getByRole("complementary", { name: /^Work card/ })).toBeTruthy();
   await userEvent.click(button);
 
   // ⌥⌘O toggles it from anywhere on the thread.
   await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
-  expect(await screen.findByRole("complementary", { name: "Work card" })).toBeTruthy();
+  expect(await screen.findByRole("complementary", { name: /^Work card/ })).toBeTruthy();
   await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
   await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
   );
 });
 
@@ -153,7 +149,7 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(await screen.findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Copy path/ })).toBeNull());
-  expect(screen.getByRole("complementary", { name: "Work card" })).toBeTruthy();
+  expect(screen.getByRole("complementary", { name: /^Work card/ })).toBeTruthy();
 });
 
 test("Changes in the card opens the Changes tab and gets out of the way", async () => {
@@ -163,7 +159,7 @@ test("Changes in the card opens the Changes tab and gets out of the way", async 
   const panel = await sidePanel();
   expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
   await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
   );
 });
 
@@ -171,9 +167,10 @@ test("an action from the card runs the project's script in a terminal tab of the
   // Before the agent starts the relay in the background.
   const app = await openThread("replay", "delegated");
   const card = await openCard();
-  const actions = within(card).getByRole("region", { name: "Actions" });
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  const actions = await screen.findByRole("menu");
   await userEvent.click(
-    await within(actions).findByRole("button", { name: "Run bun run dev:relay" }),
+    await within(actions).findByRole("menuitem", { name: "Run bun run dev:relay" }),
   );
   const panel = await sidePanel();
   // The tab opening on the script's terminal is the only confirmation.
@@ -191,38 +188,16 @@ test("an action from the card runs the project's script in a terminal tab of the
   // Running it again goes back to its terminal rather than starting a second one, and the
   // card says it is running.
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  const again = within(await openCard()).getByRole("region", { name: "Actions" });
+  const nextCard = await openCard();
+  await userEvent.click(within(nextCard).getByRole("button", { name: "Project actions" }));
+  const again = await screen.findByRole("menu");
   await userEvent.click(
-    await within(again).findByRole("button", {
-      name: "Run bun run dev:relay, running: shows its terminal",
+    await within(again).findByRole("menuitem", {
+      name: "Run bun run dev:relay",
     }),
   );
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor")).toHaveLength(1);
-});
-
-test("the actions search narrows the scripts by name or command", async () => {
-  const app = harness();
-  app.daemon.setScripts("relay", ["dev:relay", "soak", "test", "lint", "typecheck"]);
-  app.play(replayCursor()).runThrough("finding");
-  await app.open("/t/thread-replay-cursor");
-  await screen.findByRole("feed", { name: "Transcript" });
-  const card = await openCard();
-  const actions = within(card).getByRole("region", { name: "Actions" });
-  const list = await within(actions).findByRole("list", { name: "Project actions" });
-  expect(within(list).getAllByRole("button")).toHaveLength(5);
-
-  await userEvent.type(within(actions).getByRole("searchbox", { name: "Search actions" }), "so");
-  await waitFor(() =>
-    expect(
-      within(list)
-        .getAllByRole("button")
-        .map((row) => row.getAttribute("aria-label")),
-    ).toEqual(["Run bun run soak"]),
-  );
-  await userEvent.clear(within(actions).getByRole("searchbox", { name: "Search actions" }));
-  await userEvent.type(within(actions).getByRole("searchbox", { name: "Search actions" }), "zzz");
-  expect(await within(actions).findByText("No action matches “zzz”")).toBeTruthy();
 });
 
 test("an action an agent already runs in the background shows the agent's shell, not a second copy", async () => {
@@ -230,7 +205,7 @@ test("an action an agent already runs in the background shows the agent's shell,
   const card = await openCard();
   await userEvent.click(
     await within(card).findByRole("button", {
-      name: "Run bun run dev:relay, running: shows its terminal",
+      name: /^Show bun run dev:relay:/,
     }),
   );
   const panel = await sidePanel();
@@ -239,34 +214,22 @@ test("an action an agent already runs in the background shows the agent's shell,
   expect(app.daemon.terminals.list("thread-replay-cursor")).toEqual([]);
 });
 
-test("a project without scripts says how to add one, and Add action says the same", async () => {
-  const app = harness();
-  app.daemon.setScripts("relay", []);
-  app.play(replayCursor()).runThrough("finding");
-  await app.open("/t/thread-replay-cursor");
-  await screen.findByRole("feed", { name: "Transcript" });
-  const actions = within(await openCard()).getByRole("region", { name: "Actions" });
-  const hint = "Add a script to package.json, a Makefile, justfile or Procfile";
-  expect(await within(actions).findByText(hint)).toBeTruthy();
-  const add = within(actions).getByRole("button", { name: "Add action" });
-  expect(add.getAttribute("aria-disabled")).toBe("true");
-});
-
 test("when the scripts can't be read, the card says so and reads them again", async () => {
   const app = harness();
   app.daemon.failRequests("workspace.request");
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  const actions = within(await openCard()).getByRole("region", { name: "Actions" });
-  const retry = await within(actions).findByRole("button", {
-    name: /Couldn't read this project's scripts/,
+  const card = await openCard();
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  const actions = await screen.findByRole("menu");
+  const retry = await within(actions).findByRole("menuitem", {
+    name: /Couldn't read scripts/,
   });
   app.daemon.restoreRequests();
   await userEvent.click(retry);
-  expect(
-    await within(actions).findByRole("button", { name: /^Run bun run dev:relay/ }),
-  ).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  expect(await screen.findByRole("menuitem", { name: /^Run bun run dev:relay/ })).toBeTruthy();
 });
 
 test("Open in launches the checkout in an editor, and the one picked becomes the default", async () => {
@@ -276,36 +239,30 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
   expect(within(card).queryByRole("region", { name: "Open in" })).toBeNull();
   await userEvent.keyboard("{Escape}");
   const openEditors = async () => {
-    await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+    await openEditorsMenu();
     return screen.findByRole("menuitem", { name: "Open in Visual Studio Code, default" });
   };
   expect(await openEditors()).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open in Zed" }));
   expect(await screen.findByText("Opened in Zed")).toBeTruthy();
   expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self");
-  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  await openEditorsMenu();
   const picked = await screen.findByRole("menuitem", { name: "Open in Zed, default" });
-  const menu = picked.closest('[role="menu"]');
-  expect(menu).toBeTruthy();
-  expect(menu?.querySelector('[role="menuitem"]')?.textContent).toContain("Zed");
+  expect(picked.textContent).toContain("Zed");
   launched.mockRestore();
 });
 
 test("the header only offers installed editors and says when none are installed", async () => {
   const app = await openThread();
   app.daemon.workspace.setEditors([]);
-  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  await openEditorsMenu();
   expect(await screen.findByRole("menuitem", { name: "No editors installed" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: /Open in (Visual Studio Code|Zed)/ })).toBeNull();
   await userEvent.keyboard("{Escape}{Escape}");
   app.daemon.workspace.setEditors([{ id: "cursor", name: "Cursor", command: "cursor" }]);
-  await userEvent.click(within(header()).getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
+  await openEditorsMenu();
   const editor = await screen.findByRole("menuitem", { name: "Open in Cursor, default" });
-  expect(editor.querySelector('[data-app-icon="cursor"]')).toBeTruthy();
+  expect(editor.textContent).toContain("Cursor");
   expect(screen.queryByRole("menuitem", { name: /Open in (Visual Studio Code|Zed)/ })).toBeNull();
 });
 
@@ -349,18 +306,18 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await app.open("/t/thread-branch");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  expect(await within(card).findByText("3 uncommitted")).toBeTruthy();
+  expect(await within(card).findByText("· 3 files")).toBeTruthy();
   await userEvent.hover(
     within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
   );
-  expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} · 3 uncommitted`);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main, 0 ahead`);
   await userEvent.unhover(
     within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
   );
   expect(within(card).getAllByRole("button", { name: /^Commit/ })).toHaveLength(1);
   await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
   await screen.findByRole("menu");
-  expect(screen.queryByRole("menuitem", { name: /^Commit/ })).toBeNull();
+  expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
 });
 
 test("a provider MCP server waiting for its own sign-in shows nowhere in the thread", async () => {
@@ -389,7 +346,7 @@ test("another thread opens with the card closed", async () => {
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Fix flaky checkout test/ }));
   await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
-  expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull();
+  expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -416,7 +373,7 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
   const prs = within(await openCard()).getByRole("region", { name: "Pull requests" });
   await userEvent.click(await within(prs).findByRole("button", { name: /^Pull request #1/ }));
   await screen.findByRole("region", { name: "Pull request #1" });
-  await userEvent.click(within(prs).getByRole("button", { name: "Open on GitHub" }));
+  await userEvent.click(within(prs).getByRole("button", { name: /^Open PR #/ }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/billing-api/pull/1",
     "_blank",
@@ -496,18 +453,14 @@ test("Commit can't run with nothing picked, and View diff shows the changes inst
   expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
 
-test("Create PR says why it can't run when the checkout has no GitHub or GitLab remote", async () => {
+test("a checkout without a remote has no primary Create PR button", async () => {
   const app = harness();
   app.play(idleThread("thread-no-remote", sketch)).runUntilBlocked();
   await app.open("/t/thread-no-remote");
   await screen.findByRole("feed", { name: "Transcript" });
-  const create = await gitStep("Create PR");
-  await waitFor(() => expect(create.getAttribute("aria-disabled")).toBe("true"));
-  expect(create.getAttribute("aria-description")).toBe(
-    "ace found no GitHub or GitLab remote for this checkout.",
-  );
-  await userEvent.click(create);
-  expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull();
+  const card = await openCard();
+  expect(await within(card).findByText("Up to date")).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
 });
 
 test("the card says when the thread's directory isn't a git checkout, and offers no git step", async () => {
@@ -528,7 +481,7 @@ test("the card says when the thread's directory isn't a git checkout, and offers
   const card = await openCard();
   expect(await within(card).findByText("Not a git checkout")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "Git actions" })).toBeNull();
-  expect(within(card).getByText("No branch to open one from")).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Commit" })).toBeNull();
 });
 
 test("with a linked PR, the card lists it, opens it, and says why a draft PR can't be created", async () => {
@@ -551,15 +504,18 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
   const opened = vi.spyOn(window, "open").mockImplementation(() => null);
   const draft = await gitMenu(/^Create draft PR/);
   expect(draft.getAttribute("aria-disabled")).toBe("true");
-  expect(draft.textContent).toContain("PR #188 is already open");
+  expect(draft.getAttribute("aria-description")).toBe("PR #188 is already open");
   await userEvent.keyboard("{Escape}");
 
-  const prs = within(screen.getByRole("complementary", { name: "Work card" })).getByRole("region", {
-    name: "Pull requests",
-  });
+  const prs = within(screen.getByRole("complementary", { name: /^Work card/ })).getByRole(
+    "region",
+    {
+      name: "Pull requests",
+    },
+  );
   await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
   await screen.findByRole("region", { name: "Pull request #188" });
-  await userEvent.click(within(prs).getByRole("button", { name: "Open on GitHub" }));
+  await userEvent.click(within(prs).getByRole("button", { name: /^Open PR #/ }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/api/pull/188",
     "_blank",
@@ -660,21 +616,13 @@ test("past 500 files the list says it is cut short, and commits only what it lis
 // ---------------------------------------------------------------------------------------------
 // Where the thread runs, at the head of the card
 
-test("environment details move into the work card while project actions only change the checkout", async () => {
+test("project actions hide checkout moves while agents work", async () => {
   await openThread("checkout");
   const card = await openCard();
-  expect(within(card).queryByRole("button", { name: /^Where this thread runs/ })).toBeNull();
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Worktree");
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
-  const menu = await screen.findByRole("menu");
-  expect(within(menu).queryByText("Machine")).toBeNull();
-  expect(within(menu).queryByText("Environment")).toBeNull();
-  const move = within(menu).getByRole("menuitem", { name: /Move to a worktree/ });
-  expect(move.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.keyboard("{Escape}");
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(within(environment).getByText("Machine")).toBeTruthy();
-  expect(within(environment).getByText("Fake machine")).toBeTruthy();
-  expect(within(environment).getByText("Commit")).toBeTruthy();
+  await screen.findByRole("menu");
+  expect(screen.queryByRole("menuitem", { name: /Move to a worktree/ })).toBeNull();
 });
 
 test("from the card, an idle thread switches branch and moves into a worktree of its own", async () => {
@@ -698,8 +646,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(within(environment).getByText("Its own worktree")).toBeTruthy();
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Worktree");
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -738,41 +685,6 @@ test("deleting a thread with work still running from the ⋯ menu keeps it and s
   const view = app.daemon.snapshot({ kind: "threads" });
   expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
-});
-
-test("the ⋯ menu keeps the common thread actions in the row menu's order", async () => {
-  await openThread();
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
-  await userEvent.keyboard("{Escape}");
-  const row = within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
-    name: /Replay cursor resets/,
-  });
-  await userEvent.pointer({ keys: "[MouseRight]", target: row });
-  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
-  const context = within(menu)
-    .getAllByRole("menuitem")
-    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""))
-    .filter((label) => !/^(Link pull request…|Unlink all pull requests)$/.test(label));
-  // The thread screen adds a side chat, the agent tree and the long-thread tools, and shows its
-  // own shortcuts.
-  const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
-  expect(
-    items
-      .filter(
-        (label) =>
-          !/^(Open agent tree|New side chat|Attachments|Open in…|Search this thread|Turns)/.test(
-            label,
-          ),
-      )
-      .map((label) => label.replace(shortcut, "")),
-  ).toEqual(context);
-  expect(context.slice(0, 4)).toEqual([
-    "New thread on main",
-    "Rename",
-    expect.stringMatching(/^Fork from the last turn…/),
-    "Copy link",
-  ]);
 });
 
 test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {

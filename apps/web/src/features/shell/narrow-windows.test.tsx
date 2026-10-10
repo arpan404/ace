@@ -105,58 +105,31 @@ test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide wi
   expect(layout()).toBe(before);
 });
 
-test("on a phone the header keeps one ⋯ for its tools and the thread menu, and no history", async () => {
+test("on a phone the work icon stays in the header while the panel toggle folds", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
-  expect(within(header).queryByRole("button", { name: "Back" })).toBeNull();
-  const overflow = within(header).getAllByRole("button", { name: "More actions" });
-  expect(overflow).toHaveLength(1);
-
-  await userEvent.click(await moreActions(header));
-  expect(await screen.findByRole("button", { name: "Work card" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "More options" }));
-  expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: /^Search this thread/ })).toBeTruthy();
-});
-
-test("on a phone the header keeps a back caret, title and one ⋯ with no status; tools are in the ⋯", async () => {
-  windowWidth(390);
-  await openThread();
-  const header = screen.getByRole("banner");
-  expect(
-    within(header)
-      .getAllByRole("button")
-      .map((button) => button.ariaLabel),
-  ).toEqual(["Back to threads", "More actions"]);
-  expect(within(header).queryByRole("img", { name: "Waiting on 2 subagents" })).toBeNull();
-  expect(within(header).queryByRole("status")).toBeNull();
-
-  const tools = ["Work card", "Right panel"];
-  for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();
+  expect(within(header).getByRole("button", { name: "Back to threads" })).toBeTruthy();
+  expect(within(header).getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
   const more = await moreActions(header);
-  // Loaded, the tools stay mounted but hidden until it opens.
-  for (const name of tools) expect(screen.queryByRole("button", { name })).toBeNull();
   await userEvent.click(more);
-  for (const name of tools) expect(await screen.findByRole("button", { name })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Right panel" })).toBeTruthy();
   await userEvent.click(more);
   await waitFor(() => expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull());
-
-  // The thread's shortcuts still work with the ⋯ closed.
   await userEvent.keyboard("{Meta>}f{/Meta}");
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
 });
 
-test("on a phone the work card is a sheet over the thread that Escape closes", async () => {
+test("on a phone the work card stacks above the thread and Escape returns to its icon", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(within(card).getByRole("region", { name: "Actions" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
+  const card = await screen.findByRole("complementary", { name: /^Work card/ });
+  expect(within(card).getByRole("region", { name: "Background" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
   );
 });
 
@@ -164,7 +137,7 @@ test("in a wide window the header shows only its ⋯, the work card and the side
   windowWidth(1440);
   await openThread();
   const header = screen.getByRole("banner");
-  for (const name of ["More actions", "Work card", "Right panel"])
+  for (const name of ["More actions", /^Work card/, "Right panel"])
     expect(within(header).getByRole("button", { name })).toBeTruthy();
   for (const name of ["Search this thread", "Turns", "Commit", "Open", "Bottom panel"])
     expect(within(header).queryByRole("button", { name })).toBeNull();
@@ -175,7 +148,7 @@ test("a header narrowed by a side panel still shows the work card and one ⋯", 
   headerWidth(400);
   await openThread();
   const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: "Work card" })).toBeTruthy();
+  expect(within(header).getByRole("button", { name: /^Work card/ })).toBeTruthy();
   expect(within(header).getAllByRole("button", { name: "More actions" })).toHaveLength(1);
   await userEvent.click(within(header).getByRole("button", { name: "More actions" }));
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();

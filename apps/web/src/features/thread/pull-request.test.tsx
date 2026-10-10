@@ -83,8 +83,8 @@ async function withPr(status: ForgePrStatus | undefined, details: Partial<Detail
 async function openCard() {
   const header = document.querySelector("header");
   if (!header) throw new Error("No header");
-  await userEvent.click(within(header).getByRole("button", { name: "Work card" }));
-  return screen.findByRole("complementary", { name: "Work card" });
+  await userEvent.click(within(header).getByRole("button", { name: /^Work card/ }));
+  return screen.findByRole("complementary", { name: /^Work card/ });
 }
 
 /** The work card's PR row, opened into its popover. */
@@ -95,6 +95,17 @@ async function openPr(number = 42) {
     await within(prs).findByRole("button", { name: new RegExp(`^Pull request #${number}`) }),
   );
   return screen.findByRole("region", { name: `Pull request #${number}` });
+}
+
+async function linkField(card: HTMLElement) {
+  await userEvent.click(within(card).getByRole("button", { name: "Link a pull request" }));
+  return within(card).getByRole("textbox", { name: "Link pull request…" });
+}
+async function unlink(card: HTMLElement, number: number, index = 0) {
+  const button = within(card).getAllByRole("button", { name: `PR #${number} actions` })[index];
+  if (!button) throw new Error("No pull request actions");
+  await userEvent.click(button);
+  await userEvent.click(await screen.findByRole("menuitem", { name: `Unlink PR #${number}` }));
 }
 
 const linked = (app: ReturnType<typeof harness>) => {
@@ -108,6 +119,7 @@ test("a PR with failing checks lists them with their logs, and Merge says to fix
   );
   const popover = await openPr();
   expect(await within(popover).findByText("1 of 2 checks failed")).toBeTruthy();
+  expect(await screen.findByRole("img", { name: "Work needs you" })).toBeTruthy();
   const checks = within(popover).getByRole("list", { name: "Checks" });
   expect(within(checks).getAllByRole("listitem")[0]?.textContent).toContain("test (pdf)");
   expect(within(checks).getByRole("button", { name: "Open the test (pdf) logs" })).toBeTruthy();
@@ -168,7 +180,7 @@ test("auto-merge waits for running checks, then the PR merges once they pass", a
   // The checks pass on the forge: GitHub merges it, and the card follows.
   app.daemon.seedServices({ pullRequests: { "thread-pr": pr() } });
   await waitFor(() => expect(linked(app)).toMatchObject({ state: "merged" }));
-  const card = screen.getByRole("complementary", { name: "Work card" });
+  const card = screen.getByRole("complementary", { name: /^Work card/ });
   expect(
     await within(card).findByRole("button", { name: /^Pull request #42.*, merged/ }),
   ).toBeTruthy();
@@ -192,8 +204,8 @@ test("Request review asks the GitHub users typed, and refuses a name that can't 
 test("Link existing PR follows a valid address and explains malformed addresses", async () => {
   const app = await withPr(undefined);
   const card = await openCard();
-  expect(within(card).getByText("None for this branch yet")).toBeTruthy();
-  const field = within(card).getByRole("textbox", { name: "Link pull request…" });
+  expect(within(card).queryByRole("textbox", { name: "Link pull request…" })).toBeNull();
+  const field = await linkField(card);
   await userEvent.type(field, "https://github.com/acme/api/issues/77{Enter}");
   expect((await within(card).findByRole("alert")).textContent).toBe(
     "Enter a PR number like #42, or its HTTPS pull request address on GitHub",
@@ -247,11 +259,8 @@ test("a GitLab checkout says merge requests aren't supported before anything is 
     repository: { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "api" },
   });
   const card = await openCard();
-  expect(within(card).getByText("GitLab merge requests aren't supported yet")).toBeTruthy();
-  const create = await within(card).findByRole("button", { name: "Create PR" });
-  expect(create.getAttribute("aria-description")).toBe(
-    "GitLab merge requests aren't supported yet: open one on GitLab.",
-  );
+  expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Link a pull request" })).toBeNull();
 });
 
 test("switching branch with uncommitted changes offers to bring them along", async () => {
@@ -281,8 +290,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(within(environment).getByText("Local checkout")).toBeTruthy();
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });
@@ -294,14 +302,14 @@ test("a missing PR shows one explanation and can be unlinked without GitHub", as
     "GitHub couldn't find the pull request",
   );
   expect(within(popover).queryByText("No status from GitHub yet")).toBeNull();
-  const work = screen.getByRole("complementary", { name: "Work card" });
+  const work = screen.getByRole("complementary", { name: /^Work card/ });
   expect(within(work).queryByText("open", { exact: true })).toBeNull();
-  expect(within(work).getByText("Unavailable")).toBeTruthy();
+  expect(within(work).getByRole("button", { name: /Pull request #214.*Unavailable/ })).toBeTruthy();
   expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();
-  await userEvent.click(within(work).getByRole("button", { name: "Unlink PR #214" }));
+  await unlink(work, 214);
   expect(await screen.findByText("Pull request unlinked")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toBeNull());
-  expect(await screen.findByText("None for this branch yet")).toBeTruthy();
+  expect(within(work).queryByRole("button", { name: /Pull request #214/ })).toBeNull();
 });
 
 test("a failed refresh replaces stale checks and a successful retry restores them", async () => {
@@ -332,7 +340,8 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   await app.open("/t/thread-retry-budget");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Commit & push" }));
+  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   const files = await within(dialog).findByRole("list", { name: "Files to commit" });
   expect(files.textContent).toContain("src/supervisor/restart-budget.ts");
@@ -349,25 +358,26 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
 test("several pull requests stay linked, duplicates do nothing, and people can unlink one or all", async () => {
   const app = await withPr(pr({ ref: { repository, number: 283 } }));
   const card = await openCard();
-  const input = within(card).getByRole("textbox", { name: "Link pull request…" });
+  let input = await linkField(card);
   await userEvent.type(input, "#284{Enter}");
-  expect(await within(card).findByRole("button", { name: "Unlink PR #283" })).toBeTruthy();
-  expect(await within(card).findByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "PR #283 actions" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "PR #284 actions" })).toBeTruthy();
+  input = await linkField(card);
   await userEvent.type(input, "#284{Enter}");
   await waitFor(() => {
     const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
     expect(view && "thread" in view && view.thread.details?.linkedPrs).toHaveLength(2);
   });
-  await userEvent.click(within(card).getByRole("button", { name: "Unlink PR #283" }));
+  await unlink(card, 283);
   await waitFor(() =>
-    expect(within(card).queryByRole("button", { name: "Unlink PR #283" })).toBeNull(),
+    expect(within(card).queryByRole("button", { name: "PR #283 actions" })).toBeNull(),
   );
-  await userEvent.click(within(card).getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(within(card).getByRole("button", { name: "PR #284 actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unlink all" }));
   const dialog = await screen.findByRole("dialog", { name: "Unlink all pull requests?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-  expect(within(card).getByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "Pull request actions" }));
+  expect(within(card).getByRole("button", { name: "PR #284 actions" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "PR #284 actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unlink all" }));
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "Unlink all pull requests?" })).getByRole(
@@ -384,8 +394,8 @@ test("a live link publication updates the work card and sidebar with both PRs", 
   app.daemon.seedServices({
     pullRequests: { "thread-pr": pr({ ref: { repository, number: 283 } }) },
   });
-  expect(await within(card).findByRole("button", { name: "Unlink PR #283" })).toBeTruthy();
-  expect(await within(card).findByRole("button", { name: "Unlink PR #284" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "PR #283 actions" })).toBeTruthy();
+  expect(await within(card).findByRole("button", { name: "PR #284 actions" })).toBeTruthy();
   const sidebar = screen.getByRole("navigation", { name: "Threads" });
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
   expect(row.textContent).toContain("#283+1");
@@ -397,16 +407,23 @@ test("a live link publication updates the work card and sidebar with both PRs", 
 test("explicit PR addresses can link another repository and unlink only that association", async () => {
   const app = await withPr(pr({ ref: { repository, number: 283 } }));
   const card = await openCard();
-  const field = within(card).getByRole("textbox", { name: "Link pull request…" });
-  await userEvent.type(field, "https://github.com/other/docs/pull/283{Enter}");
+  const field = await linkField(card);
+  await userEvent.click(field);
+  await userEvent.paste("https://github.com/other/docs/pull/283");
+  await userEvent.keyboard("{Enter}");
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toHaveLength(2);
   });
-  const section = within(card).getByRole("region", { name: "Pull requests" });
-  await userEvent.click(
-    within(section).getAllByRole("button", { name: "Unlink PR #283" })[0] ?? field,
-  );
+  const secondary = within(card).getAllByRole("button", { name: /^Pull request #283/ })[1];
+  if (!secondary) throw new Error("The second linked pull request is missing");
+  await userEvent.click(secondary);
+  const details = within(card).getByRole("region", { name: "Pull request #283" });
+  expect(within(details).getByText("No status from GitHub yet")).toBeTruthy();
+  expect(within(details).queryByRole("button", { name: "Refresh" })).toBeNull();
+  expect(within(details).queryByRole("button", { name: /^Merge/ })).toBeNull();
+  await userEvent.click(secondary);
+  await unlink(card, 283);
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toMatchObject([

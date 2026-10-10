@@ -354,12 +354,13 @@ test("when the remote can't be reached, the thread starts from the last fetched 
   expect(created?.details?.base).toMatchObject({ remote: "origin", fetch: "unreachable" });
   // Once its agent is stopped, the composer's tab shows where it runs, and raises the details.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const card = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(within(card).getByText(/^origin\/main at [0-9a-f]{7}$/)).toBeTruthy();
-  expect(
-    within(card).getByText("origin couldn't be reached, so it started from the last fetched copy."),
-  ).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
+  const card = await screen.findByRole("complementary", { name: "Work card" });
+  const branch = await within(card).findByText(created?.details?.branch ?? "");
+  await userEvent.hover(branch);
+  expect((await screen.findByRole("tooltip")).textContent).toContain(
+    "origin couldn't be reached, so it started from the last fetched copy.",
+  );
 });
 
 test("files and @ mentions work before the thread exists and arrive with it", async () => {
