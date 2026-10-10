@@ -225,6 +225,12 @@ export async function startCapture(options: {
           "32",
           "-analyzeduration",
           "0",
+          // screenrecord sends nothing while the screen is still, so a decoder that waits for
+          // later frames (frame threads hold one per core) would keep the latest picture back.
+          "-flags",
+          "low_delay",
+          "-thread_type",
+          "slice",
           "-f",
           "h264",
           "-i",

@@ -1,9 +1,13 @@
 import { afterEach, expect, it } from "vitest";
+import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import { ScreenManager, type Frame } from "@ace/screen";
 import { ScreenFrameReader } from "@ace/screen/frames-client";
+import { findExecutable } from "@ace/provider-kit/discovery";
 import { spawnRawSupervised, type RawSupervisedProcess } from "@ace/provider-kit/process";
 import { DevicePlatform, startCapture } from "./index.ts";
 import type { DeviceRuntime } from "./runtime.ts";
@@ -20,15 +24,35 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-async function fixture(mode = "stream", initialSerial = "emulator-5554") {
+/** Real ffmpeg decodes a recorded H.264 stream that, like screenrecord, then goes quiet. */
+interface RealDecoder {
+  ffmpeg: string;
+  video: string;
+}
+async function fixture(mode = "stream", initialSerial = "emulator-5554", decoder?: RealDecoder) {
   const root = await mkdtemp(join(tmpdir(), "ace-device-capture-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const scripts = {
-    "platform-tools/adb": `import { createInterface } from "node:readline";
+  const adb = decoder
+    ? `import { readFileSync } from "node:fs";
+const data=readFileSync(process.env.VIDEO);
+const starts=[];
+for(let i=0;i+4<data.length;i++) if(data[i]===0&&data[i+1]===0&&data[i+2]===1){
+  const type=data[i+3]&31;
+  if(type===7||type===1||(type===5&&!starts.length)) starts.push(i);
+}
+let next=0;
+const timer=setInterval(()=>{
+  if(next<starts.length) process.stdout.write(data.subarray(starts[next],starts[++next]??data.length));
+  else clearInterval(timer);
+},20);
+process.stdin.resume();`
+    : `import { createInterface } from "node:readline";
 createInterface({input:process.stdin}).on("line",line=>{
   if(line==="end") process.exit(0);
   else process.stdout.write(Buffer.from([Number(line)]));
-});`,
+});`;
+  const scripts: Record<string, string> = {
+    "platform-tools/adb": adb,
     "emulator/emulator": "process.stdin.resume();",
     ffmpeg: `const width=Number(process.env.WIDTH),height=Number(process.env.HEIGHT);
 const image=Buffer.from([255,216,255,192,0,8,8,height>>8,height&255,width>>8,width&255,1,255,217]);
@@ -47,6 +71,7 @@ process.stdin.on("data",chunk=>{
 });
 process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   };
+  if (decoder) delete scripts["ffmpeg"];
   for (const [relative, script] of Object.entries(scripts)) {
     const path = join(root, relative);
     await mkdir(join(path, ".."), { recursive: true });
@@ -59,7 +84,14 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   let serial = initialSerial;
   let oldName = "Pixel";
   const probes: string[][] = [];
-  const env = { PATH: root, ANDROID_HOME: root, MODE: mode, WIDTH: "320", HEIGHT: "640" };
+  const env = {
+    PATH: decoder ? `${root}${delimiter}${dirname(decoder.ffmpeg)}` : root,
+    ANDROID_HOME: root,
+    MODE: mode,
+    WIDTH: "320",
+    HEIGHT: "640",
+    VIDEO: decoder?.video ?? "",
+  };
   const platform = new DevicePlatform({
     platform: "linux",
     home: root,
@@ -226,6 +258,67 @@ it("fragmented Android JPEGs retain guest scale and the shared binary screen pac
   expect(Buffer.from(decoded[0] ?? [])).toEqual(frame.payload);
   expect(f.failures).toEqual([]);
 });
+
+const ffmpeg = await findExecutable("ffmpeg", process.env);
+it.skipIf(!ffmpeg)(
+  "once the Android screen goes still, the stream shows its latest picture within a few frames",
+  async () => {
+    if (!ffmpeg) return;
+    const run = promisify(execFile);
+    const root = await mkdtemp(join(tmpdir(), "ace-device-decoder-"));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const video = join(root, "screen.h264");
+    const count = 40;
+    // A counting test picture, encoded the way screenrecord does: baseline, no reordering.
+    await run(
+      ffmpeg,
+      ["-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x640:rate=25"].concat(
+        ["-frames:v", String(count), "-pix_fmt", "yuv420p", "-c:v", "libx264"],
+        ["-profile:v", "baseline", "-x264-params", "sliced-threads=0", "-f", "h264", video],
+      ),
+    );
+    const pictures = (
+      await run(ffmpeg, ["-v", "error", "-i", video, "-f", "rawvideo", "-pix_fmt", "gray", "-"], {
+        encoding: "buffer",
+        maxBuffer: 64 * 1024 * 1024,
+      })
+    ).stdout;
+    const f = await fixture("stream", "emulator-5554", { ffmpeg, video });
+    let latest: Frame | undefined;
+    for (;;) {
+      const next = await Promise.race([f.frame(), sleep(2_000).then(() => undefined)]);
+      if (!next) break;
+      latest = next;
+    }
+    if (!latest) throw new Error("No frame reached the stream");
+    const shown = (
+      await new Promise<Buffer>((resolve, reject) => {
+        const child = execFile(
+          ffmpeg,
+          ["-v", "error", "-f", "mjpeg", "-i", "-", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+          { encoding: "buffer" },
+          (error, stdout) => (error ? reject(error) : resolve(stdout)),
+        );
+        child.stdin?.end(latest.payload);
+      })
+    ).subarray(0, 320 * 640);
+    const distance = (index: number) => {
+      const picture = pictures.subarray(index * 320 * 640, (index + 1) * 320 * 640);
+      let total = 0;
+      for (let pixel = 0; pixel < picture.length; pixel += 7)
+        total += Math.abs((picture[pixel] ?? 0) - (shown[pixel] ?? 0));
+      return total;
+    };
+    const indexes = Array.from({ length: count }, (_, index) => index);
+    const closest = indexes.reduce((best, index) =>
+      distance(index) < distance(best) ? index : best,
+    );
+    // Some lag remains: the 10 fps sampling and the decoder each keep the newest frame or so.
+    expect(closest).toBeGreaterThanOrEqual(count - 7);
+    expect(f.failures).toEqual([]);
+  },
+  30_000,
+);
 
 it("an early Android decoder exit fails once and terminates the screenrecord process", async () => {
   const f = await fixture("early");
