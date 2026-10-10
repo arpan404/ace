@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useThreadMeta } from "@ace/client-react";
 import { isCheckoutPath } from "@ace/ui-core";
 import { ArchiveIcon } from "@phosphor-icons/react";
+import { ArtifactImage } from "./artifact-image.tsx";
 import { UnavailableImage } from "./attachment-message.tsx";
 import { projectRelative } from "./attachment-format.ts";
 const ArtifactActions = lazy(() =>
@@ -28,7 +29,7 @@ export function ArtifactLine(props: {
   const trigger = useRef<HTMLButtonElement>(null);
   const file = useMemo(
     () => ({
-      name: props.filename ?? "Device recording.mp4",
+      name: props.filename ?? props.path.split("/").at(-1) ?? "Saved file",
       mimeType: props.mimeType,
       bytes: props.bytes,
       source: props.artifactId
@@ -40,7 +41,7 @@ export function ArtifactLine(props: {
           }
         : undefined,
     }),
-    [props.filename, props.mimeType, props.bytes, props.artifactId, props.threadId],
+    [props.filename, props.path, props.mimeType, props.bytes, props.artifactId, props.threadId],
   );
   const thread = useThreadMeta(props.threadId);
   const name = projectRelative(props.path, [
@@ -73,7 +74,7 @@ export function ArtifactLine(props: {
       </p>
       {props.artifactId && (
         <Button ref={trigger} variant="ghost" size="sm" onClick={() => setOpen(true)}>
-          Play recording
+          {props.mimeType.startsWith("video/") ? "Play recording" : "Open file"}
         </Button>
       )}
       {open && (
@@ -81,7 +82,12 @@ export function ArtifactLine(props: {
           <Preview file={file} finalFocus={trigger} onClose={() => setOpen(false)} />
         </Suspense>
       )}
-      {props.mimeType.startsWith("image/") && <UnavailableImage name={name} />}
+      {props.mimeType.startsWith("image/") &&
+        (file.source ? (
+          <ArtifactImage name={file.name} source={{ ...file.source, mimeType: props.mimeType }} />
+        ) : (
+          <UnavailableImage name={name} />
+        ))}
     </div>
   );
 }

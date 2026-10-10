@@ -1,4 +1,4 @@
-import { BoundedCache } from "@ace/provider-kit/bounded-cache";
+import { RecordCache, type RecordTransaction } from "./record-cache.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
 import { Append, restoreAppend } from "./append.ts";
@@ -15,10 +15,8 @@ function parseRecord<T>(schema: z.ZodType<T>, value: unknown): T {
 /** Disk-backed dictionaries return plain entities, so core can clone emitted events. */
 export class Records<T> {
   readonly values: Record<string, T>;
-  private cache = new BoundedCache<string, { value: T; json: string; bytes: number }>(
-    128,
-    1_048_576,
-  );
+  private readonly cache: RecordCache;
+  private readonly transaction: RecordTransaction | undefined;
   private tracking = false;
   private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
@@ -41,7 +39,11 @@ export class Records<T> {
     initial: Record<string, T>,
     decorate: (key: string, value: T) => T = (_key, value) => value,
     encode: (key: string, value: T) => string = (_key, value) => JSON.stringify(value),
+    cache = new RecordCache(),
+    transaction?: RecordTransaction,
   ) {
+    this.cache = cache;
+    this.transaction = transaction;
     this.db = db;
     this.thread = thread;
     this.group = group;
@@ -73,8 +75,9 @@ export class Records<T> {
       },
       deleteProperty: (_target, key) => {
         if (typeof key === "string") {
+          this.access(true);
           this.touched.set(key, undefined);
-          this.cache.delete(key);
+          this.cache.delete(this.group, key);
           this.enumerated?.delete(key);
         }
         return true;
@@ -82,25 +85,33 @@ export class Records<T> {
     });
     for (const [key, value] of Object.entries(initial)) this.write(key, value);
   }
+  private access(write = false): void {
+    if (this.transaction?.tracking) {
+      this.tracking = true;
+      this.transaction.touch(this);
+    } else if (write) this.transaction?.touch(this);
+  }
   private write(key: string, value: T): void {
+    this.access(true);
     const decorated = this.decorate(key, value);
-    const previous = this.cache.get(key)?.json ?? "";
-    this.cache.set(
-      key,
-      { value: decorated, json: previous, bytes: Buffer.byteLength(previous) },
-      Buffer.byteLength(previous),
-    );
+    const previous = this.cache.get<T>(this.group, key)?.json ?? "";
+    this.cache.set(this.group, key, {
+      value: decorated,
+      json: previous,
+      bytes: Buffer.byteLength(previous),
+    });
     this.replaced.add(key);
     this.touched.set(key, decorated);
     this.enumerated?.add(key);
   }
   private read(key: string): T | undefined {
+    this.access();
     if (this.appendValue?.key === key) {
       if (this.tracking) this.touched.set(key, this.appendValue.value);
       return this.appendValue.value;
     }
     if (this.touched.has(key)) return this.touched.get(key);
-    let entry = this.cache.get(key);
+    let entry = this.cache.get<T>(this.group, key);
     if (!entry) {
       const row = this.db
         .prepare("SELECT value FROM engine_state_records WHERE thread_id=? AND section=? AND key=?")
@@ -120,8 +131,8 @@ export class Records<T> {
       }
       entry = { json, bytes, value: this.decorate(key, parseRecord(this.decoder, value)) };
     }
-    this.cache.delete(key);
-    this.cache.set(key, entry, entry.bytes);
+    this.cache.delete(this.group, key);
+    this.cache.set(this.group, key, entry);
     // An accessed plain entity can be mutated in place by core.
     if (this.tracking) {
       this.touched.set(key, entry.value);
@@ -130,6 +141,7 @@ export class Records<T> {
     return entry.value;
   }
   private keys(): string[] {
+    this.access();
     const keys =
       this.enumerated ??
       new Set(
@@ -156,13 +168,14 @@ export class Records<T> {
       this.appendValue = undefined;
       if (this.appended.has(key)) {
         // The full cached value predates this chunk. Materialize it only for a full read.
-        this.cache.delete(key);
+        this.cache.delete(this.group, key);
         this.touched.delete(key);
       } else if (!this.replaced.has(key)) this.touched.delete(key);
     };
   }
   append(key: string, patch: Append): void {
-    const entry = this.cache.get(key);
+    this.access(true);
+    const entry = this.cache.get<T>(this.group, key);
     if (this.replaced.has(key) || (!entry?.json && this.appendValue?.key !== key)) return;
     this.db
       .prepare("INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)")
@@ -197,7 +210,7 @@ export class Records<T> {
       if (this.appended.has(key) && !this.replaced.has(key)) continue;
       const json = this.encode(key, value);
       if (
-        json !== (this.originals.get(key) ?? this.cache.get(key)?.json) ||
+        json !== (this.originals.get(key) ?? this.cache.get<T>(this.group, key)?.json) ||
         this.replaced.has(key)
       ) {
         this.db
@@ -209,7 +222,7 @@ export class Records<T> {
           )
           .run(this.thread, this.group, key, json);
       }
-      this.cache.set(key, { value, json, bytes: Buffer.byteLength(json) }, Buffer.byteLength(json));
+      this.cache.set(this.group, key, { value, json, bytes: Buffer.byteLength(json) });
     }
     this.touched.clear();
     this.originals.clear();

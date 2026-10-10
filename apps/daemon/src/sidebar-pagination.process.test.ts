@@ -179,3 +179,112 @@ test("settling active work prunes the older edge of the loaded window and stable
     stop();
   }
 });
+
+test("deeply paged live windows refresh changed history and remove deleted entries", async () => {
+  const f = await seeded();
+  const messages: ServerMessage[] = [];
+  const stop = subscribe(
+    f.store,
+    "deep",
+    { kind: "threads", window: { limit: 20 } },
+    undefined,
+    5000,
+    (message) => messages.push(message),
+  );
+  try {
+    for (;;) {
+      const last = messages.at(-1);
+      const window =
+        last?.type === "snapshot" && last.view.kind === "threads"
+          ? last.view.window
+          : last?.type === "threads.patch"
+            ? last.window
+            : undefined;
+      if (!window?.before) break;
+      pageSubscription(stop, window.before, "more");
+    }
+    const target = f.entries.at(-1);
+    if (!target) throw new Error("Missing history");
+    f.store.appendEvents(
+      target.id,
+      [{ type: "thread.updated", title: "Changed deep history" }],
+      6000,
+    );
+    const update = messages.at(-1);
+    if (update?.type !== "threads.patch") throw new Error("Missing update");
+    expect(Object.keys(update.threads)).toEqual([target.id]);
+    expect(update.threads[target.id]?.title).toBe("Changed deep history");
+    expect(update.window.total).toBe(55);
+    f.store.appendEvents(
+      target.id,
+      [{ type: "thread.client.updated", changes: { deletedAt: 6001 } }],
+      6001,
+    );
+    const removal = messages.at(-1);
+    if (removal?.type !== "threads.patch") throw new Error("Missing removal");
+    expect(removal.removed).toContain(target.id);
+    expect(removal.window.total).toBe(54);
+  } finally {
+    stop();
+  }
+});
+
+test("quiet SQL changes become visible on the next unrelated sidebar event", async () => {
+  const f = await seeded();
+  const messages: ServerMessage[] = [];
+  const stop = subscribe(
+    f.store,
+    "sql",
+    { kind: "threads", window: { limit: 20 } },
+    undefined,
+    5000,
+    (message) => messages.push(message),
+  );
+  try {
+    const quiet = f.entries[0];
+    if (!quiet) throw new Error("Missing quiet thread");
+    f.store.atomic((db) =>
+      db.prepare("UPDATE threads SET title=? WHERE id=?").run("Quiet update", quiet.id),
+    );
+    f.store.appendEvents(f.active.id, [{ type: "thread.updated", title: "Unrelated" }], 6000);
+    const update = messages.at(-1);
+    if (update?.type !== "threads.patch") throw new Error("Missing update");
+    expect(update.threads[quiet.id]?.title).toBe("Quiet update");
+    expect(
+      f.store.sidebarPage({ limit: 20 }).threads.find((entry) => entry.id === quiet.id)?.title,
+    ).toBe("Quiet update");
+  } finally {
+    stop();
+  }
+});
+
+test("a quietly replaced row cannot reuse its deleted predecessor's payload", async () => {
+  const f = await seeded();
+  const messages: ServerMessage[] = [];
+  const stop = subscribe(
+    f.store,
+    "replace",
+    { kind: "threads", window: { limit: 20 } },
+    undefined,
+    5000,
+    (message) => messages.push(message),
+  );
+  try {
+    const quiet = f.entries[0];
+    if (!quiet) throw new Error("Missing quiet thread");
+    f.store.atomic((db) => {
+      db.exec("CREATE TEMP TABLE replaced_sidebar_row AS SELECT * FROM threads WHERE 0");
+      db.prepare("INSERT INTO replaced_sidebar_row SELECT * FROM threads WHERE id=?").run(quiet.id);
+      db.prepare("DELETE FROM threads WHERE id=?").run(quiet.id);
+      db.exec(
+        "UPDATE replaced_sidebar_row SET title='Recreated'; INSERT INTO threads SELECT * FROM replaced_sidebar_row; DROP TABLE replaced_sidebar_row;",
+      );
+    });
+    f.store.appendEvents(f.active.id, [{ type: "thread.updated", title: "Unrelated" }], 6000);
+    const update = messages.at(-1);
+    if (update?.type !== "threads.patch") throw new Error("Missing update");
+    expect(update.threads[quiet.id]?.title).toBe("Recreated");
+  } finally {
+    stop();
+  }
+});

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, Command, Thread, WorkspaceId, type Event } from "@ace/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 
@@ -30,6 +30,33 @@ function setup(onError: (error: unknown) => void = console.error) {
   };
 }
 describe("store", () => {
+  it("checks live ownership without decoding history and follows tombstones and rollback", () => {
+    const { store, thread } = setup();
+    vi.spyOn(store, "getThread").mockImplementation(() => {
+      throw new Error("Unexpected full thread decode");
+    });
+    expect(store.hasLiveThread(thread.id)).toBe(true);
+    expect(() =>
+      store.atomic((db) => {
+        db.prepare("UPDATE threads SET client=? WHERE id=?").run(
+          JSON.stringify({ deletedAt: 100 }),
+          thread.id,
+        );
+        expect(store.hasLiveThread(thread.id)).toBe(false);
+        throw new Error("Roll back tombstone");
+      }),
+    ).toThrow("Roll back tombstone");
+    expect(store.hasLiveThread(thread.id)).toBe(true);
+    store.atomic((db) => {
+      db.prepare("UPDATE threads SET client=? WHERE id=?").run(
+        JSON.stringify({ deletedAt: 0 }),
+        thread.id,
+      );
+    });
+    expect(store.hasLiveThread(thread.id)).toBe(false);
+    store.atomic((db) => db.prepare("DELETE FROM threads WHERE id=?").run(thread.id));
+    expect(store.hasLiveThread(thread.id)).toBe(false);
+  });
   it("appends, reads, projects and maintains gap-free sequences across many appends", () => {
     const { store, thread } = setup();
     for (let i = 0; i < 100; i++)
@@ -233,4 +260,59 @@ describe("store", () => {
     expect(state.store.getThread(state.thread.id)?.rootAgentId).toBe(root.id);
     expect(state.store.acquireThread(state.thread.id).thread.rootAgentId).toBe(root.id);
   });
+});
+
+it("sidebar pages and counts invalidate after savepoint rollback and external writes", () => {
+  const f = setup();
+  const before = f.store.sidebarPage({ limit: 20 });
+  expect(() =>
+    f.store.atomic(() => {
+      f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Rolled back" }]);
+      expect(
+        f.store.sidebarPage({ limit: 20 }).threads.find((entry) => entry.id === f.thread.id)?.title,
+      ).toBe("Rolled back");
+      throw new Error("rollback");
+    }),
+  ).toThrow("rollback");
+  expect(f.store.sidebarPage({ limit: 20 })).toEqual(before);
+  const external = new Store(f.dbPath);
+  cleanup.push(() => external.close());
+  external.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Written externally" }]);
+  expect(
+    f.store.sidebarPage({ limit: 20 }).threads.find((entry) => entry.id === f.thread.id)?.title,
+  ).toBe("Written externally");
+  expect(f.store.sidebarPage({ limit: 40 }).window.counts).toEqual(before.window.counts);
+});
+
+it("incremental sidebar membership and payloads share a snapshot during an external deletion", () => {
+  const f = setup();
+  const external = new Store(f.dbPath);
+  cleanup.push(() => external.close());
+  const statement = f.store.statement.bind(f.store);
+  let removed = false;
+  const statements = vi.spyOn(f.store, "statement").mockImplementation((sql) => {
+    const prepared = statement(sql);
+    if (!sql.startsWith("SELECT threads.id") || !sql.includes("AND NOT")) return prepared;
+    const all = prepared.all.bind(prepared);
+    const rows = vi.spyOn(prepared, "all").mockImplementation((...params) => {
+      const result = all(...params);
+      rows.mockRestore();
+      external.atomic((db) => db.prepare("DELETE FROM threads WHERE id=?").run(f.thread.id));
+      removed = true;
+      return result;
+    });
+    return prepared;
+  });
+  try {
+    const page = f.store.sidebarPage({ limit: 20 }, undefined, {
+      entries: new Map(),
+      changed: new Set(),
+    });
+    expect(removed).toBe(true);
+    expect(page.threads.find((entry) => entry.id === f.thread.id)?.title).toBe(f.thread.title);
+    statements.mockRestore();
+    expect(f.store.sidebarPage({ limit: 20 }).threads).toEqual([]);
+  } finally {
+    statements.mockRestore();
+  }
 });

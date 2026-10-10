@@ -9,6 +9,7 @@ import { Command, DeviceId } from "@ace/protocol";
 import { z } from "zod";
 import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
+import { startDaemon, readConfig } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -322,7 +323,6 @@ it("SIGTERM after endpoint discovery cleans up while optional initialization is 
   expect(await stopped).toEqual([0, null]);
   await expect(readFile(join(home, "daemon-endpoint"))).rejects.toMatchObject({ code: "ENOENT" });
   // Reacquiring the same home through the public daemon API detects a leaked lock.
-  const { startDaemon, readConfig } = await import("./index.ts");
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
     handler: {

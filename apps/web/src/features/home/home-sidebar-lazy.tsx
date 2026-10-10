@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 
 const HomeSidebar = lazy(() =>
   import("./home-sidebar.tsx").then((module) => ({ default: module.HomeSidebar })),
@@ -11,7 +12,16 @@ const HomeSidebar = lazy(() =>
 export function ThreadsSidebar() {
   return (
     <aside aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
-      <Suspense fallback={null}>
+      <Suspense
+        fallback={
+          <>
+            <div aria-hidden className="h-9 shrink-0" />
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ListSkeleton label="threads" shape="thread" className="px-2" />
+            </div>
+          </>
+        }
+      >
         <HomeSidebar />
       </Suspense>
     </aside>

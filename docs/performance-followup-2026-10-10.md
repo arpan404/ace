@@ -1,0 +1,48 @@
+# Bounded work and incremental state
+
+This follows the [9 October audit](performance-audit-2026-10-09.md). The implementation is in one worktree. It keeps provider control transitions, restart recovery, authorization and exact source text ahead of performance shortcuts.
+
+## Changes
+
+- Source highlighting has its own worker lane, content-keyed shared jobs, a 16 MiB retained-input budget and consumer leases. Closing a view removes queued work; abandoned active workers terminate once other consumers finish. Reopening an aborted active key creates a fresh job. Highlighted results over 8 MiB return a small cached plain marker; the view retains the original source without cloning a token graph. A source/newline preflight also skips oversized line-array construction. File search runs in a worker, caches normalized lines and skips full-source dispatch after cancellation.
+- Large code fences mount visible lines within a bounded scroll region. Pathological long lines stay plain instead of creating thousands of colored spans. Copy retains the complete source, and Full source provides native text selection. Large unfinished paragraphs, tables and fences defer expensive rich parsing between geometric growth thresholds; structural boundaries still force correct parsing. Open paragraphs and tables keep a plain preview until settlement to avoid switching between plain and rich rendering.
+- Ordinary per-agent transport signals preserve the last derived status only before the next deadline, with a monotonic observation time and no revival condition. Controls, expired deadlines, process exits, transport recovery, unknown agents and clock reversals take the full derivation path.
+- Snapshot transactions visit only enlisted record sections. One bounded cache serves all sections, while transaction baselines remain pinned until flush. SQLite rollback generations invalidate repository snapshots even when an event-free save leaves the event sequence unchanged.
+- Subscription framing shares event encoding and byte sizing. Sidebar pages and counts share revision caches. Loaded history reuses unchanged payloads after checking durable row revisions, including direct SQL and external-writer changes. Revisions survive deletion and reinsertion of the same ID, and a read savepoint keeps membership and payload lookups in one snapshot. SQLite still determines membership, ordering and cursors.
+- Browser screenshots and downloaded images register opaque artifacts before publication. Local and relay reads check exact thread ownership. Publication, restart reconciliation, failed-publication compensation and deleted-thread cleanup share one bounded owner. Inline previews, dialogs and downloads share a per-client byte cache and transfer admission. Text artifact previews stop after 64 KiB instead of downloading the full file.
+- Original attachments use a paced binary files channel on the client's existing authenticated connection. Cancellation closes the individual transfer, leaving chat connected. One consumer pull grants one 64 KiB chunk, with an explicit caller budget of at most 32 MiB and four opening/active streams per channel. The server keeps the blob leased, checks current thread access around reads and closes the file on cancellation. Live-thread checks use the thread primary key without decoding history for every chunk. Worker reads transfer owned chunk buffers rather than cloning a complete base64 image. Portable clients can supply an authenticated encrypted relay channel; JSON-only transports and thumbnails retain the bounded context reader. The web's existing relay-machine availability restriction remains unchanged.
+- Client and worker internals use native private members, while public and protected interfaces remain available. Standard Terser compression runs with Oxc worker compression retained; no property mangling or unsafe compression options are enabled. This spends additional build CPU to keep the validated production worker within the existing size limits. Attachment stream code shares the client utility chunk instead of introducing another lazy module boundary.
+
+## Evidence
+
+`node apps/daemon/bench/stream-history.ts` feeds public core facts and counts reads of the real agent records. One root signal plus text append performs seven reads and no agent enumeration with 1, 128 or 1,000 completed children. The previous audit measured 22, 1,292 and 10,012 reads. This is an operation count, not a latency claim.
+
+`node apps/daemon/bench/sidebar-live.ts` seeds 10,000 threads and publishes 100 live updates after loading 20, 1,000 and 10,000 historical entries. Each update publishes one thread payload. Membership queries still depend on the loaded window; unchanged thread payloads are not repeatedly deserialized. Timing depends on host load and is reported separately by the script.
+
+A browser artifact ownership probe used 10,001 items and 200 ownership lookups. The indexed query took 0.11 ms versus 198.97 ms for the previous scan on this host. `EXPLAIN QUERY PLAN` reported indexed search by artifact ID and thread. These timings describe this query and workload only.
+
+A streamed-table regression appends 180,070 characters in 1,418 fixed-size chunks. The Markdown parser receives 1,132,323 characters in total, or 6.29 times the final source size. Structural boundaries and final output are checked against Marked.
+
+`node --expose-gc apps/web/scripts/source-stages.ts` separates warm source hashing, grammar/token construction and token cloning, collecting garbage outside each measured sample. On this host, a token-dense 128 KiB TypeScript source produced 2.35 MB of token JSON: hashing took 1.40 ms, grammar/token construction 24.59 ms and cloning 18.79 ms. A 1 MiB source produced 18.85 MB of token JSON: hashing took 1.83 ms, grammar/token construction 158.23 ms and cloning 175.20 ms. The bounded worker reply for that source is a 44-byte plain marker, whose clone took 0.02 ms. These are Node CPU medians, not browser latency or worker round-trip measurements.
+
+Focused regressions cover cancellation, shared reads, cached reads under full admission, exact live/final Markdown and fence indentation, minified lines, complete Copy/selection, delayed find-cache replies, direct and outer transaction rollback, external database writes and deletion during a read, deep paging, artifact ownership, restart reconciliation, quota recovery and recording finalization after deletion.
+
+The production bundle check measures 72.76 KiB gzip for the complete client worker and 72.67 KiB for the machine worker, including their lazy chunks, against the unchanged 73 KiB limit. Their eager chunks are 55.96 and 55.87 KiB against the unchanged 60 KiB limit. Route, first-screen and CSS limits also pass. The earlier build minifier replacement was discarded; the retained configuration keeps Oxc's worker compression before the final standard Terser pass.
+
+### Streaming style recalculation
+
+Validation reproduced a main-thread budget failure in the existing 11-second Markdown workload at 200 deltas per second. Separate Chromium metrics measured 3.12 seconds of task time, including 1.42 seconds of style recalculation, 0.68 seconds of script and 0.11 seconds of layout. The result was 4.64 ms per frame against the unchanged 4 ms budget.
+
+An invalidation trace identified the body-wide `:has` rule that hides notifications behind open popovers. Streaming DOM mutations repeatedly invalidated that relational selector. Tracing itself added substantial overhead and retained only the beginning of the workload; its timings are not qualification measurements.
+
+Removing only that rule in a temporary diagnostic reduced style time to 0.16 seconds and task time to 1.82 seconds, or 2.68 ms per frame. A direct-portal prefix while retaining the body anchor still failed at 4.52 ms per frame. The retained fix anchors the lookup on sibling portal elements in either DOM order, including nested popovers beneath an outer portal. It measured 0.16 seconds of style time, 1.87 seconds of task time and 2.74 ms per frame. Script and layout time stayed approximately unchanged. All measurements used the original workload, assertions and budgets; these are local browser samples, not portable speedup claims.
+
+The sidebar now shows its existing loading skeleton while its lazy code is pending. It still waits for actual sidebar data before showing rows or the empty state. The editor-menu fixture warms its nested lazy module before the test body; discovery, launch and reconnect still use the real fixture wire and original deadlines.
+
+Browser validation also opens the actual model and narrow-header popovers after all performance snapshots. Notifications hide while each is open and become visible after Escape. The header check retains the popup's exact DOM node and verifies that closing reveals notifications even though the popup remains mounted. These functional checks are separate from the measured streaming window.
+
+## Native and GPU qualification
+
+Syntax grammar parsing stays in CPU workers. No regex parser was moved to the GPU. Existing native video decoding, simulator frame negotiation and latest-frame dropping remain available. The simulator JPEG path already passes through native bytes when viewport and bitrate budgets fit; it only transforms oversized frames.
+
+The earlier native probe established transport correctness at a requested 5 FPS. It did not qualify smooth motion or input latency. This change does not claim a native FPS improvement. Hardware capture, transform, network and presentation measurements still need the existing device harness on an unlocked, idle host with the intended simulator/emulator. Performance budgets and baselines are unchanged.

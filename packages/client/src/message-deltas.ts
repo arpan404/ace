@@ -24,7 +24,7 @@ function shell(item: Message, parts: ContentPart[]): Message {
 /** Immutable tails keep application O(append); materialize the full parts array on read.
  * Prefixes are shared, never chained through previous items. Weak keys do not retain history. */
 export class MessageDeltas {
-  private tails = new WeakMap<object, Tail>();
+  #tails = new WeakMap<object, Tail>();
   append(
     item: Message,
     append: string,
@@ -32,7 +32,7 @@ export class MessageDeltas {
     partLimit: number,
     clipped: () => void,
   ): Message {
-    let previous = this.tails.get(item);
+    let previous = this.#tails.get(item);
     if (!previous) {
       const parts = item.parts;
       const last = parts.at(-1);
@@ -74,7 +74,7 @@ export class MessageDeltas {
       configurable: true,
       get: () => (parts ??= [...prefix, last]),
     });
-    this.tails.set(next, { prefix, tail: last, prefixUnits });
+    this.#tails.set(next, { prefix, tail: last, prefixUnits });
     return next;
   }
   /**
@@ -83,7 +83,7 @@ export class MessageDeltas {
    * makes a new one.
    */
   appended(previous: object, next: object): boolean {
-    const run = this.tails.get(previous)?.prefix;
-    return !!run && run === this.tails.get(next)?.prefix;
+    const run = this.#tails.get(previous)?.prefix;
+    return !!run && run === this.#tails.get(next)?.prefix;
   }
 }

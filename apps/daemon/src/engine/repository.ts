@@ -54,6 +54,7 @@ export class EngineRepository {
   readonly transitions: TransitionState;
   private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
+  private snapshotGeneration = 0;
   private admissionStatements: {
     has: StatementSync;
     mark: StatementSync;
@@ -134,8 +135,15 @@ export class EngineRepository {
   private recoveryAcknowledgement(id: ThreadId): boolean {
     return !this.opening.has(id) && this.pending.recoveryAcknowledgement(id);
   }
+  private syncSnapshots(): void {
+    const generation = this.store.rollbackGeneration();
+    if (generation === this.snapshotGeneration) return;
+    this.snapshots.clear();
+    this.snapshotGeneration = generation;
+  }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((_db) => {
+      this.syncSnapshots();
       const row = this.store
         .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
         .get(id);
@@ -180,6 +188,7 @@ export class EngineRepository {
   }
   save(state: ThreadState, payloads: EventPayload[], at: number): void {
     this.store.atomic((_db) => {
+      this.syncSnapshots();
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state)
         snapshot = new Snapshot({ prepare: (sql) => this.store.statement(sql) }, state);

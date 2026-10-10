@@ -47,7 +47,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
 });
 `,
     );
-    await writeFile(join(f.home, "sdk-safe-status"), "logged-out");
+    await writeFile(join(f.home, "sdk-safe-status"), "logged-in");
     const registry = await openRegistry(join(f.home, "accounts.sqlite"));
     resources.own(() => registry.close());
     await registry.register(
@@ -90,6 +90,16 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     startProviderStatuses(context);
     const statuses = context.services.providerStatuses;
     if (!statuses) throw new Error("Provider statuses unavailable");
+    // Startup probes in the background. Finish it before changing auth so each explicit
+    // refresh proves a fresh observation rather than racing or joining startup discovery.
+    await statuses.refresh();
+    expect(statuses.list().find((row) => row.provider === "cursor")).toMatchObject({
+      runtime: "cursor-sdk",
+      auth: "logged_in",
+      authDetail: "sdk-store",
+    });
+    expect(registry.summary("sdk-selected", 1000)?.quota.auth).toBe("logged_in");
+    await writeFile(join(f.home, "sdk-safe-status"), "logged-out");
     server = await fixture({ providerStatuses: statuses });
     const client = await server.connect();
     await client.next();
@@ -127,10 +137,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       },
     });
     expect(registry.summary("sdk-selected", 1000)?.quota.auth).toBe("logged_in");
-    expect((await readFile(join(f.home, "sdk-calls"), "utf8")).trim().split("\n")).toEqual([
-      `status:${join(selectedHome, "user")}`,
-      `status:${join(selectedHome, "user")}`,
-    ]);
+    const calls = (await readFile(join(f.home, "sdk-calls"), "utf8")).trim().split("\n");
+    expect(new Set(calls)).toEqual(new Set([`status:${join(selectedHome, "user")}`]));
   } finally {
     await server?.close();
     await resources.close();

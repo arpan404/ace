@@ -1,3 +1,4 @@
+import { BrowserArtifactFiles } from "./browser-artifact-files.ts";
 import { createHash } from "node:crypto";
 import { FilesService } from "@ace/files";
 import type { ThreadId } from "@ace/protocol";
@@ -7,11 +8,13 @@ import type { ServiceContext } from "./services/types.ts";
 
 /** Shared persistent upload/mutation owner per execution root, independent of ACE_WORKSPACE_ROOT. */
 export class FilesWorkspaces {
+  readonly browserArtifacts: BrowserArtifactFiles;
   private services = new Map<string, Promise<FilesService>>();
   private context: ServiceContext;
   private closed = false;
   constructor(context: ServiceContext) {
     this.context = context;
+    this.browserArtifacts = new BrowserArtifactFiles(context);
   }
   root(threadId: ThreadId): string {
     const binding = this.context.store.executionWorkspace(threadId);
@@ -57,6 +60,7 @@ export class FilesWorkspaces {
     return service;
   }
   async sweep(signal: AbortSignal): Promise<void> {
+    await this.browserArtifacts.sweep(signal);
     for (const service of this.services.values()) {
       signal.throwIfAborted();
       await (await service).sweep(signal);
@@ -67,5 +71,6 @@ export class FilesWorkspaces {
     const all = await Promise.allSettled(this.services.values());
     for (const result of all) if (result.status === "fulfilled") await result.value.close();
     this.services.clear();
+    await this.browserArtifacts.close();
   }
 }

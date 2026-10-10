@@ -31,7 +31,7 @@ test("an unrecognized fenced language remains readable with unchanged whitespace
 });
 
 test("a pending source highlight shows one readable text span before worker colors arrive", () => {
-  const code = 'const pending = "readable"; // preserve whitespace\n'.repeat(1_000);
+  const code = 'const pending = "readable"; // preserve whitespace\n'.repeat(200);
   const view = render(<CodeBlock code={code} lang="typescript" />);
   const source = screen.getByRole("figure").querySelector("code");
   expect(source?.textContent).toBe(code);

@@ -88,8 +88,9 @@ export function authenticatedChannel(
       if (frame instanceof Uint8Array || frame.type !== "welcome")
         throw new Error("Authenticated welcome required");
       if (
-        options.target.kind === "relay" &&
-        frame.hostId !== (options.expectedHostId ?? options.target.pinnedFingerprint)
+        (options.expectedHostId !== undefined && frame.hostId !== options.expectedHostId) ||
+        (options.target.kind === "relay" &&
+          frame.hostId !== (options.expectedHostId ?? options.target.pinnedFingerprint))
       )
         throw new Error("Unexpected relay host");
       limitAttempts = 0;
@@ -123,8 +124,6 @@ export function authenticatedChannel(
           channel: kind,
         });
         if (options.target.kind === "relay") {
-          // The relay's Noise handshake and ciphers load only for relay targets, so a local
-          // channel (the web app's only kind) never fetches them.
           const { connectPortableRelay } = await import("./portable-relay.ts");
           if (epoch !== stamp) return;
           const opened = await connectPortableRelay({

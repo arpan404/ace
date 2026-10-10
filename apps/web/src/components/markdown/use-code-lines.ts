@@ -1,7 +1,7 @@
 import { LruCache } from "@ace/ui-core";
 import { useEffect, useMemo, useState } from "react";
 import { codeHash, codeLinesWeight, type CodeLines } from "./code-lines.ts";
-import { markdownWorker } from "./worker.ts";
+import { highlightJobs } from "./highlight-jobs.ts";
 
 /** Files highlighted this session, so switching back to a file tab shows it at once. */
 const ready = new LruCache<string, CodeLines>({
@@ -11,8 +11,9 @@ const ready = new LruCache<string, CodeLines>({
 });
 
 /**
- * A source file's highlighted lines, built in the markdown worker. Undefined while they are
- * being built (show the plain text meanwhile) or when there is no code.
+ * A source file's highlighted lines, built in the highlighting worker. Undefined while they are
+ * being built, when the result exceeds the token budget, or when there is no code. The caller
+ * keeps its exact plain source in each case; compact plain results are cached too.
  */
 export function useCodeLines(code: string | undefined, lang: string | undefined) {
   const hash = useMemo(() => (code === undefined ? undefined : codeHash(code, lang)), [code, lang]);
@@ -21,10 +22,11 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
   useEffect(() => {
     if (code === undefined || !hash || ready.get(hash)) return;
     let live = true;
-    markdownWorker.run({ code, lang, hash }).then(
+    const lease = highlightJobs.acquire(hash, { code, lang, hash }, code.length * 2);
+    lease.result.then(
       (lines) => {
-        // A code job answers with lines.
-        if (!lines || !("lines" in lines)) return;
+        // A code job answers with rich lines or a compact plain result.
+        if (!lines || !live) return;
         ready.set(hash, lines);
         if (live) setDone(lines);
       },
@@ -33,8 +35,9 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
     );
     return () => {
       live = false;
+      lease.release();
     };
   }, [code, lang, hash]);
-  if (cached) return cached;
-  return done?.hash === hash ? done : undefined;
+  const result = cached ?? (done?.hash === hash ? done : undefined);
+  return result && "lines" in result ? result : undefined;
 }

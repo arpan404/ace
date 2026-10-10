@@ -1,4 +1,6 @@
+import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
+import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
 import { NativeImageStore } from "./native-image-store.ts";
@@ -97,11 +99,27 @@ export class Store {
   private engineSessionsKnown = false;
   private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
+  private rolledBack = 0;
   private depth = 0;
   private installingHistory = false;
   private historyWriting = false;
   private listeners = new Set<Listener>();
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
+  private sidebarRevision = "";
+  private sidebarReads = 0;
+  private readonly sidebarPageWeight = new SidebarPageWeight();
+  private readonly sidebarRowRevisions = new WeakMap<
+    import("@ace/protocol").ThreadListEntry,
+    number
+  >();
+  private readonly sidebarPages = new BoundedCache<string, ReturnType<typeof sidebarPageStorage>>(
+    16,
+    4 * 1024 * 1024,
+  );
+  private readonly sidebarSummaries = new BoundedCache<
+    string,
+    Pick<import("@ace/protocol").ThreadListWindow, "total" | "counts">
+  >(16, 256 * 1024);
   private publications: Event[][] = [];
   private publishing = false;
   constructor(
@@ -120,6 +138,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;",
       );
       migrate(this.db);
+      migrateSidebarRevisions(this.db);
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
@@ -255,6 +274,10 @@ export class Store {
   headSeq(): number {
     return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
   }
+  /** In-memory projections must reload after any rollback, including event-free saves. */
+  rollbackGeneration(): number {
+    return this.rolledBack;
+  }
   private transaction<T>(run: () => T): T {
     if (this.installingHistory) return run();
     if (this.transactionEvents) {
@@ -267,6 +290,9 @@ export class Store {
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        this.rolledBack++;
+        this.sidebarPages.clear();
+        this.sidebarSummaries.clear();
         this.transactionEvents.length = length;
         throw error;
       } finally {
@@ -284,6 +310,9 @@ export class Store {
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
+      this.rolledBack++;
+      this.sidebarPages.clear();
+      this.sidebarSummaries.clear();
       throw error;
     } finally {
       this.transactionEvents = undefined;
@@ -377,6 +406,9 @@ export class Store {
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
+      this.rolledBack++;
+      this.sidebarPages.clear();
+      this.sidebarSummaries.clear();
       throw error;
     } finally {
       this.installingHistory = false;
@@ -484,6 +516,14 @@ export class Store {
     if (!row) return undefined;
     return this.decodeThread(row);
   }
+  /** Live authorization checks do not need to deserialize a thread's historical payload. */
+  hasLiveThread(id: ThreadId): boolean {
+    return (
+      this.statement(
+        "SELECT 1 FROM threads WHERE id=? AND json_extract(client,'$.deletedAt') IS NULL",
+      ).get(id) !== undefined
+    );
+  }
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
     const metadata =
       row.provider_metadata == null
@@ -536,13 +576,79 @@ export class Store {
   sidebarPage(
     options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
     before?: import("@ace/protocol").ThreadListCursor,
+    reuse?: {
+      entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
+      changed: ReadonlySet<string>;
+    },
   ) {
-    return sidebarPageStorage(
+    return this.readSidebar(() => this.loadSidebarPage(options, before, reuse));
+  }
+  private readSidebar<T>(read: () => T): T {
+    const name = `sidebar_read_${++this.sidebarReads}`;
+    this.db.exec(`SAVEPOINT ${name}`);
+    try {
+      return read();
+    } catch (error) {
+      this.db.exec(`ROLLBACK TO ${name}`);
+      this.sidebarPages.clear();
+      this.sidebarSummaries.clear();
+      throw error;
+    } finally {
+      this.db.exec(`RELEASE ${name}`);
+    }
+  }
+  private loadSidebarPage(
+    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
+    before?: import("@ace/protocol").ThreadListCursor,
+    reuse?: {
+      entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
+      changed: ReadonlySet<string>;
+    },
+  ) {
+    // Covers direct writes through atomic(), including imports and rollback invalidation.
+    const revisionRow = this.statement(
+      "SELECT total_changes() AS writes, (SELECT data_version FROM pragma_data_version) AS external, (SELECT revision FROM sidebar_thread_revisions LIMIT 1) AS snapshot_anchor",
+    ).get();
+    const revision = `${revisionRow?.writes}:${revisionRow?.external}`;
+    if (revision !== this.sidebarRevision) {
+      this.sidebarPages.clear();
+      this.sidebarSummaries.clear();
+      this.sidebarRevision = revision;
+    }
+    const key = JSON.stringify([
+      options.limit,
+      options.project ?? null,
+      options.archived === true,
+      before ?? null,
+    ]);
+    const cached = this.sidebarPages.get(key);
+    if (cached) return cached;
+    const page = sidebarPageStorage(
       (sql) => this.statement(sql),
-      (row) => this.decodeThread(row),
+      (row) => {
+        const entry = this.decodeThread(row);
+        this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
+        return entry;
+      },
       options,
       before,
+      reuse
+        ? {
+            ...reuse,
+            current: (entry, rowRevision) => this.sidebarRowRevisions.get(entry) === rowRevision,
+          }
+        : undefined,
+      (load) => {
+        const summaryKey = JSON.stringify([options.project ?? null, options.archived === true]);
+        const summaryHit = this.sidebarSummaries.get(summaryKey);
+        if (summaryHit) return summaryHit;
+        const summary = load();
+        this.sidebarSummaries.set(summaryKey, summary, Buffer.byteLength(JSON.stringify(summary)));
+        return summary;
+      },
     );
+    this.sidebarPages.set(key, page, this.sidebarPageWeight.bytes(page));
+    return page;
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")

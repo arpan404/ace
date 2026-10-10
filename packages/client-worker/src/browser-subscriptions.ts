@@ -3,28 +3,28 @@ import { z } from "zod";
 
 /** One ordered transition stream per tab/thread. Pending reservations count toward admission. */
 export class BrowserSubscriptions {
-  private entries = new Map<string, { held: boolean; pending: number; tail: Promise<void> }>();
-  private pending = 0;
-  private closed = false;
+  #entries = new Map<string, { held: boolean; pending: number; tail: Promise<void> }>();
+  #pending = 0;
+  #closed = false;
   run<T>(
     thread: string,
     type: "browser.subscribe" | "browser.unsubscribe",
     request: () => Promise<T>,
     cleanup: () => void,
   ): Promise<T> {
-    if (this.closed) return Promise.reject(new ClientError("offline"));
-    if (this.pending >= 32) return Promise.reject(new ClientError("limit"));
-    let entry = this.entries.get(thread);
+    if (this.#closed) return Promise.reject(new ClientError("offline"));
+    if (this.#pending >= 32) return Promise.reject(new ClientError("limit"));
+    let entry = this.#entries.get(thread);
     if (!entry) {
-      if (this.entries.size >= 8) return Promise.reject(new ClientError("limit"));
+      if (this.#entries.size >= 8) return Promise.reject(new ClientError("limit"));
       entry = { held: false, pending: 0, tail: Promise.resolve() };
-      this.entries.set(thread, entry);
+      this.#entries.set(thread, entry);
     }
     const owned = entry;
     owned.pending++;
-    this.pending++;
+    this.#pending++;
     const result = owned.tail.then(async () => {
-      if (this.closed) throw new ClientError("offline");
+      if (this.#closed) throw new ClientError("offline");
       let value: T;
       try {
         value = await request();
@@ -44,14 +44,14 @@ export class BrowserSubscriptions {
       )
       .finally(() => {
         owned.pending--;
-        this.pending--;
-        if (this.closed) cleanup();
-        else if (!owned.pending && !owned.held) this.entries.delete(thread);
+        this.#pending--;
+        if (this.#closed) cleanup();
+        else if (!owned.pending && !owned.held) this.#entries.delete(thread);
       });
     return result;
   }
   close(cleanup: (thread: string) => void): void {
-    this.closed = true;
-    for (const thread of this.entries.keys()) cleanup(thread);
+    this.#closed = true;
+    for (const thread of this.#entries.keys()) cleanup(thread);
   }
 }

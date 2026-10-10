@@ -1,8 +1,14 @@
 import { failingSubagent } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+beforeEach(() => {
+  // These cases vary gateway sign-in, not server availability. Keep the reachability probe
+  // deterministic instead of racing a real connection failure on localhost:3000.
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

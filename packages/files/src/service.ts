@@ -365,6 +365,13 @@ export class FilesService {
       this.catalog.delete(id);
     });
   }
+  /** Trusted owner reconciliation. Source bytes remain owned by their producer. */
+  reconcileArtifacts(retain: (id: string) => boolean): Promise<void> {
+    return this.serial(async () => {
+      for (const record of this.catalog.list("artifact"))
+        if (!retain(record.id)) this.catalog.delete(record.id);
+    });
+  }
   /** Called by the daemon's maintenance owner with its injected clock. */
   sweep(signal?: AbortSignal): Promise<void> {
     return this.serial(async () => {

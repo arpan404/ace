@@ -1,6 +1,11 @@
 import { createHash, type Hash } from "node:crypto";
 import { z } from "zod";
-import { FilesClientMessage, type FilesServerMessage, type ThreadId } from "@ace/protocol";
+import {
+  FilesClientMessage,
+  type FilesServerMessage,
+  type FileOperation,
+  type ThreadId,
+} from "@ace/protocol";
 import type { FilesService } from "./service.ts";
 import { codeOf, FileError, type Download } from "./types.ts";
 import { drainUpload } from "./upload-lifetime.ts";
@@ -30,7 +35,11 @@ type Channel = {
 /** Pull/ACK frames bound memory to one 64 KiB chunk per channel, even through a shared worker. */
 export function chunkFilesChannel(options: {
   device: string;
-  resolve(threadId: ThreadId | undefined, scope?: "support"): Promise<Binding>;
+  resolve(
+    threadId: ThreadId | undefined,
+    scope?: "support",
+    operation?: FileOperation,
+  ): Promise<Binding>;
   send(message: FilesServerMessage): void;
 }) {
   const channels = new Map<number, Channel>();
@@ -157,7 +166,7 @@ export function chunkFilesChannel(options: {
     const threadId = message.threadId;
     if (!threadId && message.scope !== "support")
       throw new FileError("INVALID_MESSAGE", "Thread scope required");
-    const binding = await options.resolve(threadId, message.scope);
+    const binding = await options.resolve(threadId, message.scope, message.operation);
     assertOpening();
     const op = message.operation;
     const access = [

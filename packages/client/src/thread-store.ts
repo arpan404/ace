@@ -14,95 +14,95 @@ export type { ThreadKey, ThreadReader } from "./readers.ts";
 
 const emptyOrder: readonly string[] = [];
 export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
-  private messageDeltas = new MessageDeltas();
-  private journal: PageJournal;
-  private hydrated = new Map<string, number>();
-  private creation = new Map<string, number>();
-  private failure: ClientError | undefined;
+  #messageDeltas = new MessageDeltas();
+  #journal: PageJournal;
+  #hydrated = new Map<string, number>();
+  #creation = new Map<string, number>();
+  #failure: ClientError | undefined;
   get error() {
-    return this.failure;
+    return this.#failure;
   }
   fail(error: ClientError): void {
-    this.failure = error;
-    this.notifications.emit(["error"]);
+    this.#failure = error;
+    this.#notifications.emit(["error"]);
   }
-  private view: ThreadView | undefined;
-  private notifications: Notifications;
-  private limits: Limits;
-  private clipped = new Set<string>();
-  private counts = new Map<string, number>();
+  #view: ThreadView | undefined;
+  #notifications: Notifications;
+  #limits: Limits;
+  #clipped = new Set<string>();
+  #counts = new Map<string, number>();
   constructor(limits: Limits) {
-    this.limits = limits;
-    this.journal = new PageJournal(limits);
-    this.notifications = new Notifications(limits.listeners);
+    this.#limits = limits;
+    this.#journal = new PageJournal(limits);
+    this.#notifications = new Notifications(limits.listeners);
   }
   get thread() {
-    return this.view?.thread;
+    return this.#view?.thread;
   }
   get queue() {
-    return this.view?.queue;
+    return this.#view?.queue;
   }
   get context() {
-    const root = this.view?.thread.rootAgentId;
+    const root = this.#view?.thread.rootAgentId;
     return root ? this.contextMeter(root) : undefined;
   }
   get order(): readonly string[] {
-    return this.view?.itemOrder ?? emptyOrder;
+    return this.#view?.itemOrder ?? emptyOrder;
   }
   get cursor() {
-    return this.view?.seq;
+    return this.#view?.seq;
   }
   get entitiesBefore() {
-    return this.view?.entitiesBefore;
+    return this.#view?.entitiesBefore;
   }
   get itemsBefore() {
-    return this.view?.itemsBefore;
+    return this.#view?.itemsBefore;
   }
   agentIds(): readonly string[] {
-    return this.view ? Object.keys(this.view.agents) : emptyOrder;
+    return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
   children(agentId: string): readonly string[] {
     // Projection appends children in place, so never hand out its array.
-    return [...(this.own(this.view?.agentChildren, agentId) ?? emptyOrder)];
+    return [...(this.#own(this.#view?.agentChildren, agentId) ?? emptyOrder)];
   }
   interactionIds(): readonly string[] {
-    return this.view ? Object.keys(this.view.interactions) : emptyOrder;
+    return this.#view ? Object.keys(this.#view.interactions) : emptyOrder;
   }
   taskIds(): readonly string[] {
-    return this.view ? Object.keys(this.view.backgroundTasks) : emptyOrder;
+    return this.#view ? Object.keys(this.#view.backgroundTasks) : emptyOrder;
   }
   item(id: string) {
-    return this.own(this.view?.items, id);
+    return this.#own(this.#view?.items, id);
   }
   agent(id: string) {
-    return this.own(this.view?.agents, id);
+    return this.#own(this.#view?.agents, id);
   }
   run(id: string) {
-    return this.own(this.view?.runs, id);
+    return this.#own(this.#view?.runs, id);
   }
   interaction(id: string) {
-    return this.own(this.view?.interactions, id);
+    return this.#own(this.#view?.interactions, id);
   }
   task(id: string) {
-    return this.own(this.view?.backgroundTasks, id);
+    return this.#own(this.#view?.backgroundTasks, id);
   }
   contextMeter(id: string) {
-    const meters = this.view?.contextMeters;
+    const meters = this.#view?.contextMeters;
     return meters && Object.hasOwn(meters, id) ? meters[id] : undefined;
   }
   usage(id: string) {
-    return this.own(this.view?.usage, id);
+    return this.#own(this.#view?.usage, id);
   }
   usageSnapshot(key: string) {
-    return this.own(this.view?.usageSnapshots, key);
+    return this.#own(this.#view?.usageSnapshots, key);
   }
   truncated(id: string) {
-    return this.clipped.has(id);
+    return this.#clipped.has(id);
   }
   appended(previous: Item, next: Item) {
-    return this.messageDeltas.appended(previous, next);
+    return this.#messageDeltas.appended(previous, next);
   }
-  private own<T>(record: Record<string, T> | undefined, id: string): T | undefined {
+  #own<T>(record: Record<string, T> | undefined, id: string): T | undefined {
     return record && Object.hasOwn(record, id) ? record[id] : undefined;
   }
   select<T>(
@@ -110,15 +110,15 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     selector: (reader: ThreadReader) => T,
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
-    return this.notifications.select(keys, () => selector(this), equal);
+    return this.#notifications.select(keys, () => selector(this), equal);
   }
   observe(tap: ChangeTap): () => void {
-    return this.notifications.tap(tap);
+    return this.#notifications.tap(tap);
   }
   /** Shares the store's own objects; a structured clone (postMessage) copies them. */
   export(): ThreadExport {
-    const failure = this.failure;
-    const view = this.view;
+    const failure = this.#failure;
+    const view = this.#view;
     return {
       error: failure && { code: failure.code, message: failure.message },
       view: view && {
@@ -138,22 +138,22 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         ...(view.queue && { queue: view.queue }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
       },
-      truncated: [...this.clipped],
+      truncated: [...this.#clipped],
     };
   }
   snapshot(view: ThreadView): void {
     const runs = Object.keys(view.runs).length;
-    if (runs > this.limits.entities) endedRuns(view, runs - this.limits.entities);
+    if (runs > this.#limits.entities) endedRuns(view, runs - this.#limits.entities);
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
       throw new ClientError("limit", "Snapshot item capacity exceeded");
     if (Object.keys(view.itemSeqs ?? {}).length > 200)
       throw new ClientError("limit", "Item cursor capacity exceeded");
     closedInteractions(
       view,
-      Math.max(0, Object.keys(view.interactions).length - this.limits.entities),
+      Math.max(0, Object.keys(view.interactions).length - this.#limits.entities),
     );
-    endedTasks(view, Math.max(0, Object.keys(view.backgroundTasks).length - this.limits.entities));
-    endedAgents(view, Math.max(0, Object.keys(view.agents).length - this.limits.entities));
+    endedTasks(view, Math.max(0, Object.keys(view.backgroundTasks).length - this.#limits.entities));
+    endedAgents(view, Math.max(0, Object.keys(view.agents).length - this.#limits.entities));
     // Parent indexes are derived from retained agents, never retained from stale wire references.
     rebuildAgentChildren(view);
     const counts = new Map<string, number>();
@@ -168,54 +168,54 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usageSnapshots: view.usageSnapshots,
     }))
       counts.set(name, Object.keys(record).length);
-    this.view = view;
-    this.failure = undefined;
-    this.journal.reset(view.seq);
-    this.hydrated.clear();
-    this.creation.clear();
-    this.clipped.clear();
-    this.counts = counts;
+    this.#view = view;
+    this.#failure = undefined;
+    this.#journal.reset(view.seq);
+    this.#hydrated.clear();
+    this.#creation.clear();
+    this.#clipped.clear();
+    this.#counts = counts;
     for (const id of view.itemOrder) {
       const seq = view.itemSeqs?.[id];
-      if (seq !== undefined) this.creation.set(id, seq);
+      if (seq !== undefined) this.#creation.set(id, seq);
     }
     delete view.itemSeqs;
-    this.trim();
-    for (const id of view.itemOrder) this.clip(id);
-    this.notifications.emitAll();
+    this.#trim();
+    for (const id of view.itemOrder) this.#clip(id);
+    this.#notifications.emitAll();
   }
-  private copy<T>(record: Record<string, T>, id: string): void {
-    const value = this.own(record, id);
+  #copy<T>(record: Record<string, T>, id: string): void {
+    const value = this.#own(record, id);
     // Entities are individually bounded. No full view or history copy on deltas.
     if (value !== undefined) record[id] = { ...value };
   }
-  private capacity(name: string, exists: boolean, keys?: Set<ThreadKey>): void {
+  #capacity(name: string, exists: boolean, keys?: Set<ThreadKey>): void {
     if (exists) return;
-    let count = (this.counts.get(name) ?? 0) + 1;
-    if (count > this.limits.entities && this.view) {
-      const batch = Math.ceil(this.limits.entities / 4);
-      if (name === "agents") count -= endedAgents(this.view, batch, keys);
+    let count = (this.#counts.get(name) ?? 0) + 1;
+    if (count > this.#limits.entities && this.#view) {
+      const batch = Math.ceil(this.#limits.entities / 4);
+      if (name === "agents") count -= endedAgents(this.#view, batch, keys);
       else if (name === "usageSnapshots") {
-        for (const id of Object.keys(this.view.usageSnapshots).slice(0, batch)) {
-          delete this.view.usageSnapshots[id];
+        for (const id of Object.keys(this.#view.usageSnapshots).slice(0, batch)) {
+          delete this.#view.usageSnapshots[id];
           keys?.add(`usageSnapshot:${id}`);
           count--;
         }
-      } else if (name === "runs") count -= endedRuns(this.view, batch, keys);
-      else if (name === "interactions") count -= closedInteractions(this.view, batch, keys);
-      else if (name === "tasks") count -= endedTasks(this.view, batch, keys);
+      } else if (name === "runs") count -= endedRuns(this.#view, batch, keys);
+      else if (name === "interactions") count -= closedInteractions(this.#view, batch, keys);
+      else if (name === "tasks") count -= endedTasks(this.#view, batch, keys);
     }
-    this.counts.set(name, count);
+    this.#counts.set(name, count);
   }
   delivery(message: EventBatch | Progress): "applied" | "ignored" | "gap" {
-    const view = this.view;
+    const view = this.#view;
     if (!view) return "gap";
     if (message.throughSeq <= view.seq) return "ignored";
     if (message.afterSeq !== view.seq) return "gap";
     if (message.type === "events")
       for (const event of message.events) {
         if (event.threadId !== view.thread.id) throw new ClientError("protocol");
-        this.journal.record(event);
+        this.#journal.record(event);
       }
     const admitted = new Set<string>();
     const sequential =
@@ -228,8 +228,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
                 : payload.type === "item.delta" || payload.type === "item.deleted"
                   ? payload.itemId
                   : undefined;
-            if (itemId && event.seq <= (this.hydrated.get(itemId) ?? -1)) return false;
-            if (payload.type === "item.created") this.creation.set(payload.item.id, event.seq);
+            if (itemId && event.seq <= (this.#hydrated.get(itemId) ?? -1)) return false;
+            if (payload.type === "item.created") this.#creation.set(payload.item.id, event.seq);
             if (payload.type === "item.created") {
               admitted.add(payload.item.id);
               return true;
@@ -254,7 +254,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "agent.created":
           if (!keys.has(`agent:${p.agent.id}`))
-            this.capacity("agents", !!this.agent(p.agent.id), keys);
+            this.#capacity("agents", !!this.agent(p.agent.id), keys);
           if (p.agent.origin === "root") {
             view.thread = { ...view.thread };
             keys.add("thread");
@@ -264,17 +264,17 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "agent.status":
         case "agent.updated":
-          this.copy(view.agents, p.agentId);
+          this.#copy(view.agents, p.agentId);
           keys.add(`agent:${p.agentId}`);
           if (p.type === "agent.updated" && (p.parentId !== undefined || p.spawnedBy !== undefined))
             keys.add("agents");
           break;
         case "run.started":
-          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id), keys);
+          if (!keys.has(`run:${p.run.id}`)) this.#capacity("runs", !!this.run(p.run.id), keys);
           keys.add(`run:${p.run.id}`);
           break;
         case "run.ended":
-          this.copy(view.runs, p.runId);
+          this.#copy(view.runs, p.runId);
           keys.add(`run:${p.runId}`);
           break;
         case "item.created":
@@ -287,9 +287,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add(`item:${p.item.id}`);
           break;
         case "item.deleted":
-          this.clipped.delete(p.itemId);
-          this.hydrated.delete(p.itemId);
-          this.creation.delete(p.itemId);
+          this.#clipped.delete(p.itemId);
+          this.#hydrated.delete(p.itemId);
+          this.#creation.delete(p.itemId);
           keys.add(`item:${p.itemId}`);
           keys.add("order");
           keys.add("history");
@@ -298,12 +298,12 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           {
             const item = this.item(p.itemId);
             if (item?.type === "message" && p.field === "text") {
-              view.items[p.itemId] = this.messageDeltas.append(
+              view.items[p.itemId] = this.#messageDeltas.append(
                 item,
                 p.append,
-                this.limits.text,
-                this.limits.items,
-                () => this.clipped.add(p.itemId),
+                this.#limits.text,
+                this.#limits.items,
+                () => this.#clipped.add(p.itemId),
               );
               appended = true;
             } else if (item?.type === "tool_call")
@@ -317,28 +317,28 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "interaction.opened":
           if (!keys.has(`interaction:${p.interaction.id}`))
-            this.capacity("interactions", !!this.interaction(p.interaction.id), keys);
+            this.#capacity("interactions", !!this.interaction(p.interaction.id), keys);
           keys.add(`interaction:${p.interaction.id}`);
           keys.add("interactions");
           break;
         case "permission.reviewed":
-          this.copy(view.interactions, p.review.interactionId);
+          this.#copy(view.interactions, p.review.interactionId);
           keys.add(`interaction:${p.review.interactionId}`);
           break;
         case "interaction.closed":
-          this.copy(view.interactions, p.interactionId);
+          this.#copy(view.interactions, p.interactionId);
           keys.add(`interaction:${p.interactionId}`);
           // `interactions` changes when one opens or closes, so lists of open requests follow
           // one key instead of one per interaction.
           keys.add("interactions");
           break;
         case "background_task.started":
-          if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id), keys);
+          if (!keys.has(`task:${p.task.id}`)) this.#capacity("tasks", !!this.task(p.task.id), keys);
           keys.add(`task:${p.task.id}`);
           keys.add("tasks");
           break;
         case "background_task.updated":
-          this.copy(view.backgroundTasks, p.taskId);
+          this.#copy(view.backgroundTasks, p.taskId);
           keys.add(`task:${p.taskId}`);
           break;
         case "queue.updated":
@@ -346,17 +346,17 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "context_meter.updated":
           if (!keys.has(`context:${p.meter.agentId}`))
-            this.capacity("contextMeters", !!this.contextMeter(p.meter.agentId));
+            this.#capacity("contextMeters", !!this.contextMeter(p.meter.agentId));
           keys.add(`context:${p.meter.agentId}`);
           break;
         case "usage.updated": {
           if (p.usageScope === "provider_session" || p.usageScope === "model_session") {
             const key = usageSnapshotKey(p);
             if (!keys.has(`usageSnapshot:${key}`))
-              this.capacity("usageSnapshots", !!this.usageSnapshot(key));
+              this.#capacity("usageSnapshots", !!this.usageSnapshot(key));
             keys.add(`usageSnapshot:${key}`);
           } else {
-            if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
+            if (!keys.has(`usage:${p.agentId}`)) this.#capacity("usage", !!this.usage(p.agentId));
             keys.add(`usage:${p.agentId}`);
           }
           break;
@@ -380,25 +380,30 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
             },
       );
       if (result.kind !== "applied") return result.kind;
-      if (p.type === "item.created" || p.type === "item.updated") this.clip(p.item.id);
-      else if (p.type === "item.delta" && !appended) this.clip(p.itemId);
+      if (p.type === "item.created" || p.type === "item.updated") this.#clip(p.item.id);
+      else if (p.type === "item.delta" && !appended) this.#clip(p.itemId);
     }
     view.seq = message.throughSeq;
-    const evicted = this.trim();
+    const evicted = this.#trim();
     if (evicted.length) {
       keys.add("order");
       keys.add("history");
       for (const id of evicted) keys.add(`item:${id}`);
     }
-    this.notifications.emit(keys);
+    this.#notifications.emit(keys);
     return "applied";
   }
   page(page: ItemsPage): void {
-    const view = this.view;
+    const view = this.#view;
     if (!view) throw new ClientError("offline");
     if (page.threadId !== view.thread.id) throw new ClientError("protocol");
-    const items = this.journal.reconcile(page, view.seq);
-    const window = pageWindow(view.itemOrder, this.creation, { ...page, items }, this.limits.items);
+    const items = this.#journal.reconcile(page, view.seq);
+    const window = pageWindow(
+      view.itemOrder,
+      this.#creation,
+      { ...page, items },
+      this.#limits.items,
+    );
     const retained = new Set(window.order);
     const keys = new Set<ThreadKey>();
     for (const item of items)
@@ -409,18 +414,18 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           enumerable: true,
           configurable: true,
         });
-        this.hydrated.set(item.id, Math.max(page.seq, view.seq));
+        this.#hydrated.set(item.id, Math.max(page.seq, view.seq));
         const seq = page.itemSeqs?.[item.id];
-        if (seq !== undefined) this.creation.set(item.id, seq);
+        if (seq !== undefined) this.#creation.set(item.id, seq);
         keys.add(`item:${item.id}`);
-        this.clip(item.id);
+        this.#clip(item.id);
       }
     for (const id of view.itemOrder)
       if (!retained.has(id)) {
         delete view.items[id];
-        this.clipped.delete(id);
-        this.hydrated.delete(id);
-        this.creation.delete(id);
+        this.#clipped.delete(id);
+        this.#hydrated.delete(id);
+        this.#creation.delete(id);
         keys.add(`item:${id}`);
       }
     if (
@@ -436,26 +441,26 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemsBefore = before;
       keys.add("history");
     }
-    this.notifications.emit(keys);
+    this.#notifications.emit(keys);
   }
-  private trim(): string[] {
-    const view = this.view;
+  #trim(): string[] {
+    const view = this.#view;
     if (!view) return [];
-    const count = view.itemOrder.length - this.limits.items;
+    const count = view.itemOrder.length - this.#limits.items;
     if (count <= 0) return [];
     const removed = view.itemOrder.slice(0, count);
     view.itemOrder = view.itemOrder.slice(count);
-    view.itemsBefore = this.creation.get(view.itemOrder[0] ?? "") ?? view.itemsBefore;
+    view.itemsBefore = this.#creation.get(view.itemOrder[0] ?? "") ?? view.itemsBefore;
     for (const id of removed) {
       delete view.items[id];
-      this.clipped.delete(id);
-      this.hydrated.delete(id);
-      this.creation.delete(id);
+      this.#clipped.delete(id);
+      this.#hydrated.delete(id);
+      this.#creation.delete(id);
     }
     return removed;
   }
-  private clip(id: string): void {
+  #clip(id: string): void {
     const item = this.item(id);
-    if (item && clipItem(item, this.limits)) this.clipped.add(id);
+    if (item && clipItem(item, this.#limits)) this.#clipped.add(id);
   }
 }

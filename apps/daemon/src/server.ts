@@ -459,6 +459,7 @@ export async function startServer(options: ServerOptions): Promise<{
               250,
               runtime.delay,
               message.paced,
+              encoder,
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {

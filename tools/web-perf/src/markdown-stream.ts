@@ -4,6 +4,7 @@ import { z } from "zod";
 import { budgets } from "./budgets.ts";
 import { observe, readRecord, report, resetRecord } from "./measure.ts";
 import { open, withPerfApp } from "./perf-app.ts";
+import { verifyPopoverToasts } from "./popover-toasts.ts";
 
 /*
  * One long answer streaming in a real browser (ADR 0056): the production build in `--mode perf`
@@ -91,6 +92,9 @@ async function measureStream(): Promise<void> {
     const busyMs = (await busy()) - startBusy;
     const endProbe = await readProbe(page);
     const updates = (await readUpdates(page)).slice(startUpdates);
+    // These functional checks happen after every measurement snapshot, so the budgeted
+    // streaming workload and its metrics are unchanged.
+    await verifyPopoverToasts(page);
     await page.close();
 
     // The first answer of the window, from its first update to its last.

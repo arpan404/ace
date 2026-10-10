@@ -78,6 +78,8 @@ export interface ThreadState {
   initialRoot?: RootAgentInit;
   processExit?: { deliberate: boolean; message?: string; unsettled?: Key[] };
   lastTransportSignalAt?: number;
+  /** Last clock at which derived statuses were observed, including ticks and control facts. */
+  statusObservedAt?: number;
   agents: Record<Key, AgentRecord>;
   runs: Record<string, Run>;
   items: Record<Key, Item>;

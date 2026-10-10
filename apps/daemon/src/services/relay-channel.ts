@@ -9,7 +9,12 @@ import {
 } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
-import { chunkFilesChannel, attachFilesRelay, type FilesService } from "@ace/files";
+import {
+  chunkFilesChannel,
+  attachFilesRelay,
+  attachmentChannel,
+  type FilesService,
+} from "@ace/files";
 import {
   BrowserClientMessage,
   AgentId,
@@ -55,11 +60,8 @@ export function attachRelayService(
     });
   const threadAccess = (threadId: string) => {
     const id = ThreadId.parse(threadId);
-    const thread = options.store?.getThread(id);
     return (
-      thread !== undefined &&
-      thread.deletedAt === undefined &&
-      (options.canReadThread?.(device, id) ?? true)
+      options.store?.hasLiveThread(id) === true && (options.canReadThread?.(device, id) ?? true)
     );
   };
   const send = async (message: Parameters<HostChannel["send"]>[0]) => {
@@ -166,6 +168,32 @@ export function attachRelayService(
         authorize(scope === "files.read" ? "read" : "operate"),
       )
     : undefined;
+  const attachmentService = options.context;
+  const attachments = attachmentService?.downloadAttachment
+    ? attachmentChannel({
+        async resolve(thread, hash, maxBytes) {
+          const authorized = () => authorize("read") && threadAccess(thread);
+          if (!authorized() || !attachmentService.downloadAttachment)
+            throw new Error("Thread attachment unavailable");
+          const download = await attachmentService.downloadAttachment(
+            device,
+            thread,
+            hash,
+            maxBytes,
+            authorized,
+          );
+          return { download, authorized };
+        },
+        async send(message) {
+          if (channel.bufferedBytes > 256 * 1024) throw new Error("Attachment relay backpressure");
+          await channel.send(message);
+        },
+        async binary(bytes) {
+          if (channel.bufferedBytes > 256 * 1024) throw new Error("Attachment relay backpressure");
+          await channel.sendBinary(bytes);
+        },
+      })
+    : undefined;
   const chunks =
     options.threadFiles || options.supportFiles
       ? chunkFilesChannel({
@@ -177,7 +205,7 @@ export function attachRelayService(
             }
             void channel.send(message).catch(() => channel.close());
           },
-          async resolve(threadId, scope) {
+          async resolve(threadId, scope, operation) {
             if (scope === "support" && options.supportFiles)
               return {
                 service: options.supportFiles,
@@ -186,6 +214,22 @@ export function attachRelayService(
             const files = options.threadFiles;
             if (!threadId || !files || !threadAccess(threadId))
               throw new Error("File thread unavailable");
+            if (
+              operation?.op === "artifact.download" &&
+              operation.artifactId.startsWith("browser-")
+            ) {
+              const artifacts = files.browserArtifacts;
+              if (!artifacts.owns(threadId, operation.artifactId))
+                throw new Error("Artifact is not readable by this thread");
+              return {
+                service: await artifacts.get(),
+                allowed: (access) =>
+                  access === "read" &&
+                  authorize("read") &&
+                  threadAccess(threadId) &&
+                  artifacts.owns(threadId, operation.artifactId),
+              };
+            }
             const root = files.root(threadId);
             const service = await files.get(threadId);
             return {
@@ -198,6 +242,16 @@ export function attachRelayService(
       : undefined;
   return {
     async accept(message: ClientMessage) {
+      if (attachments?.accept(message)) return;
+      if (message.type === "files.request" && message.operation.op === "attachment.download") {
+        await channel.send({
+          type: "files.error",
+          requestId: message.requestId,
+          code: "NOT_FOUND",
+          message: "Attachment streaming unavailable",
+        });
+        return;
+      }
       if (message.type === "delegation.remote.output") {
         if (!options.remoteDelegation) throw new Error("Remote output unavailable");
         await channel.send(
@@ -275,6 +329,7 @@ export function attachRelayService(
     close() {
       chunks?.close();
       legacy?.close();
+      void attachments?.close().catch(() => {});
     },
   };
 }
