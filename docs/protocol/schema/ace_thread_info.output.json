@@ -1870,6 +1870,33 @@
         "queue": {
           "additionalProperties": false,
           "properties": {
+            "lastFailure": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "title": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "code"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "paused": {
               "type": "boolean"
             },

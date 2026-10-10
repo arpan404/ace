@@ -271,6 +271,15 @@ export class Sessions {
             ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
           });
         },
+        onSessionConfirmed: (nativeId) => {
+          if (generation !== actor.generation || lifetime.signal.aborted) return;
+          this.dependencies.repo.nativeSession(
+            actor.id,
+            z.string().min(1).max(512).parse(nativeId),
+            backend,
+            metadata.instanceId,
+          );
+        },
         onInputMessage: (messageIdentity) => {
           if (generation !== actor.generation || lifetime.signal.aborted)
             throw new Error("Provider input identity arrived after host admission was fenced");
@@ -351,12 +360,13 @@ export class Sessions {
         this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
-        this.dependencies.repo.nativeSession(
-          actor.id,
-          session.nativeSessionId,
-          session.backend ?? adapter.backend,
-          session.instanceId,
-        );
+        if (session.sessionConfirmed !== false)
+          this.dependencies.repo.nativeSession(
+            actor.id,
+            session.nativeSessionId,
+            session.backend ?? adapter.backend,
+            session.instanceId,
+          );
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;
@@ -377,9 +387,17 @@ export class Sessions {
       this.dependencies.wake(actor.id);
       opening = false;
     } catch (error) {
+      const resumeFailed = this.dependencies.repo.session(actor.id).nativeSessionId !== undefined;
       const failure = new SessionOpenError(
         `${stateBefore.config.provider} session opening failed`,
-        error,
+        resumeFailed
+          ? {
+              code: "resume_unavailable",
+              title:
+                "The previous provider session could not be resumed. Start a new thread and include the context you need.",
+              detail: error instanceof Error ? error.message : "Resume failed",
+            }
+          : error,
         { env: { ...process.env, ...errorEnvironment } },
         (value) =>
           typeof value === "string"

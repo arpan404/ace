@@ -103,6 +103,8 @@ export interface SessionContext {
    * Report every command, including ordinary user input; text never establishes ace origin.
    * The native ID must match the projected user message's draft.nativeId.
    */
+  /** Native transcript exists and may now be resumed after this process closes. */
+  onSessionConfirmed?(nativeSessionId: string): void;
   onInputMessage?(identity: { commandId: string; nativeId: string }): void;
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
   aceMcp?: { url: string; bearer: string; signal?: AbortSignal; end?(): void };
@@ -142,6 +144,8 @@ export interface ProviderSession {
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
+  /** False until the provider confirms a resumable transcript exists. */
+  readonly sessionConfirmed?: boolean;
   readonly backend?: ProviderBackend;
   configure?(selection: ExecutionSelection): Promise<void>;
   readonly effectiveCapabilities?: Capabilities | undefined;

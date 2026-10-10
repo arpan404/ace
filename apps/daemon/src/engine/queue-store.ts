@@ -59,6 +59,8 @@ export class QueueStore {
       const queueColumns = db.prepare("PRAGMA table_info(engine_queue)").all();
       if (!queueColumns.some((column) => column.name === "hold_token"))
         db.exec("ALTER TABLE engine_queue ADD COLUMN hold_token INTEGER NOT NULL DEFAULT 0");
+      if (!queueColumns.some((column) => column.name === "last_failure"))
+        db.exec("ALTER TABLE engine_queue ADD COLUMN last_failure TEXT");
       for (const row of db
         .prepare(
           "SELECT id,thread_id,payload FROM intents WHERE kind IN ('thread.create','thread.send') AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)",
@@ -89,6 +91,7 @@ export class QueueStore {
       revision: row.revision,
       paused: row.paused === 1,
       reason: row.reason,
+      lastFailure: row.last_failure == null ? null : JSON.parse(String(row.last_failure)),
       limited: row.limited === 1,
       resetAt: row.reset_at,
       resumeAt: row.resume_at,
@@ -99,10 +102,19 @@ export class QueueStore {
   }
   set(id: ThreadId, patch: Partial<RecoveryRecord>, at: number): void {
     this.store.atomic(() => {
-      const value = RecoveryRecord.parse({ ...this.get(id), ...patch });
+      const value = RecoveryRecord.parse({
+        ...this.get(id),
+        ...patch,
+        ...(patch.paused === false ||
+        (patch.reason !== undefined &&
+          patch.reason !== "not_sent" &&
+          patch.reason !== "model_unavailable")
+          ? { lastFailure: null }
+          : {}),
+      });
       value.revision++;
       this.sql(
-        `UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=? WHERE thread_id=?`,
+        `UPDATE engine_queue SET revision=?,paused=?,reason=?,limited=?,reset_at=?,resume_at=?,timer_action=?,continuation=?,trigger=?,hold_token=?,last_failure=? WHERE thread_id=?`,
       ).run(
         value.revision,
         Number(value.paused),
@@ -114,6 +126,7 @@ export class QueueStore {
         value.continuation,
         value.trigger,
         value.holdToken,
+        value.lastFailure ? JSON.stringify(value.lastFailure) : null,
         id,
       );
       this.store.appendEvents(
