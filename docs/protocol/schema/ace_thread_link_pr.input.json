@@ -3,8 +3,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "threadId": {
-      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    "number": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "repo": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
     },
     "url": {
       "format": "ace-whatwg-url",
@@ -13,9 +20,6 @@
       "x-ace-url-maxLength": 2048
     }
   },
-  "required": [
-    "threadId",
-    "url"
-  ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "Exactly one of url or number is required."
 }

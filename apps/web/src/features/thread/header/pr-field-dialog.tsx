@@ -55,7 +55,13 @@ export function PrFieldDialog(props: {
     }
     if (!repository) return "This checkout has no GitHub remote";
     const parsed = parsePrReference(value, repository);
-    return "error" in parsed ? parsed.error : { kind: "link-pr", number: parsed.number };
+    return "error" in parsed
+      ? parsed.error
+      : {
+          kind: "link-pr",
+          number: parsed.number,
+          ...(parsed.repository ? { repository: parsed.repository } : {}),
+        };
   };
   const submit = () => {
     const change = parse();

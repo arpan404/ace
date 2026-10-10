@@ -415,8 +415,8 @@ test("the card's branch row walks the branch from Commit & push to Create PR, an
 
   const prs = within(await openCard()).getByRole("region", { name: "Pull requests" });
   await userEvent.click(await within(prs).findByRole("button", { name: /^Pull request #1/ }));
-  const popover = await screen.findByRole("region", { name: "Pull request #1" });
-  await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
+  await screen.findByRole("region", { name: "Pull request #1" });
+  await userEvent.click(within(prs).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/billing-api/pull/1",
     "_blank",
@@ -558,8 +558,8 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
     name: "Pull requests",
   });
   await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
-  const popover = await screen.findByRole("region", { name: "Pull request #188" });
-  await userEvent.click(within(popover).getByRole("button", { name: "Open on GitHub" }));
+  await screen.findByRole("region", { name: "Pull request #188" });
+  await userEvent.click(within(prs).getByRole("button", { name: "Open on GitHub" }));
   expect(opened).toHaveBeenCalledWith(
     "https://github.com/acme/api/pull/188",
     "_blank",
@@ -740,7 +740,7 @@ test("deleting a thread with work still running from the ⋯ menu keeps it and s
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
-test("the ⋯ menu offers the same thread actions, in the same order, as the row's context menu", async () => {
+test("the ⋯ menu keeps the common thread actions in the row menu's order", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
@@ -752,7 +752,8 @@ test("the ⋯ menu offers the same thread actions, in the same order, as the row
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   const context = within(menu)
     .getAllByRole("menuitem")
-    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""));
+    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R|P)$/, ""))
+    .filter((label) => !/^(Link pull request…|Unlink all pull requests)$/.test(label));
   // The thread screen adds a side chat, the agent tree and the long-thread tools, and shows its
   // own shortcuts.
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;

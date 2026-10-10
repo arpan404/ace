@@ -184,3 +184,63 @@ test("the Safari demo reports the time spent across its actions", async () => {
   expect(within(feed).queryByRole("button", { name: /^Worked for 1s/ })).toBeNull();
   expect(within(feed).getByRole("button", { name: /^Worked for 3[0-9]s/ })).toBeTruthy();
 });
+
+test("linked PR tools read as short PR steps with the result's list count", async () => {
+  const app = harness();
+  app
+    .play({
+      thread: {
+        id: "pr-steps",
+        workspaceId: "api",
+        title: "Link the replay changes",
+        provider: "codex",
+      },
+      steps: [
+        {
+          kind: "facts",
+          facts: [
+            facts.rootAgent("codex"),
+            facts.turn("root"),
+            facts.message("root", "ask", "user", "Link the pull requests"),
+            aceCall(
+              "root",
+              "link-pr",
+              "ace_thread_link_pr",
+              { url: "https://github.com/acme/api/pull/283" },
+              [{ type: "text", text: JSON.stringify({ ok: true, data: { number: 283 } }) }],
+            ),
+            aceCall("root", "list-pr", "ace_thread_list_prs", {}, [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  ok: true,
+                  data: { linkedPrs: [{ number: 283 }, { number: 284 }] },
+                }),
+              },
+            ]),
+            aceCall("root", "unlink-pr", "ace_thread_unlink_pr", { number: 283 }, [
+              { type: "text", text: JSON.stringify({ ok: true, data: { number: 283 } }) },
+            ]),
+            aceCall("root", "unlink-all", "ace_thread_unlink_pr", { all: true }, [
+              {
+                type: "text",
+                text: JSON.stringify({ ok: true, data: { all: true, linkedPrs: [] } }),
+              },
+            ]),
+            facts.message("root", "done", "assistant", "The pull request links are up to date."),
+            facts.endTurn("root"),
+          ],
+        },
+      ],
+    })
+    .runUntilBlocked();
+  const { steps } = await openSteps(app, "pr-steps");
+  for (const name of [
+    "Linked PR #283",
+    "Listed 2 linked PRs",
+    "Unlinked PR #283",
+    "Unlinked all PRs",
+  ])
+    expect(within(steps).getByRole("button", { name })).toBeTruthy();
+  expect(steps.textContent).not.toMatch(/ace_thread_|linkedPrs|\{"/);
+});

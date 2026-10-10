@@ -5,7 +5,6 @@ import {
   GitCommitIcon,
   GitDiffIcon,
   GitPullRequestIcon,
-  LinkIcon,
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
@@ -178,14 +177,6 @@ function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
           onClick={() => git.open("draft-pr")}
         >
           Create draft PR…
-        </MenuItem>
-        <MenuItem
-          icon={glyph(LinkIcon)}
-          disabled={!!git.linkBlocked || git.pending}
-          reason={git.linkBlocked}
-          onClick={() => git.open("link-pr")}
-        >
-          Link existing PR…
         </MenuItem>
       </MenuContent>
     </Menu>

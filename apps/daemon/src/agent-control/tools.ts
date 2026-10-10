@@ -32,7 +32,6 @@ export type ThreadOwnerOperation = Extract<
       | "thread.read"
       | "thread.rename"
       | "thread.regenerate_title"
-      | "thread.link_pr"
       | "thread.settle"
       | "thread.snooze";
   }
@@ -42,7 +41,6 @@ function threadOwnerOperation(operation: AgentControlOperation): ThreadOwnerOper
     case "thread.read":
     case "thread.rename":
     case "thread.regenerate_title":
-    case "thread.link_pr":
     case "thread.settle":
     case "thread.snooze":
       return operation;
@@ -50,12 +48,21 @@ function threadOwnerOperation(operation: AgentControlOperation): ThreadOwnerOper
       return undefined;
   }
 }
+export type PrOwnerOperation = Extract<
+  AgentControlOperation,
+  { op: "thread.link_pr" | "thread.unlink_pr" | "thread.list_prs" }
+>;
 /** Typed owner ports are capability-gated. They cannot carry an approval or arbitrary command. */
 export interface AgentControlExtensions {
   /** Canonical client thread/Forge owners register here without expanding agent authority. */
   thread?(
     caller: McpAttribution,
     operation: ThreadOwnerOperation,
+    signal: AbortSignal,
+  ): Promise<AgentControlResult>;
+  pr?(
+    caller: McpAttribution,
+    operation: PrOwnerOperation,
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
   execute?(
@@ -147,6 +154,7 @@ export function createAgentControlPort(
             data: {
               thread: store.getThread(operation.threadId),
               metadata: service.journal.readMetadata(operation.threadId),
+              linkedPrs: store.getThread(operation.threadId)?.details?.linkedPrs ?? [],
               ...store.readItemPage(
                 operation.threadId,
                 operation.before ?? store.headSeq() + 1,
@@ -216,23 +224,12 @@ export function createAgentControlPort(
           ]);
           return { ok: true };
         }
-        case "thread.link_pr": {
-          const url = new URL(operation.url);
-          if (
-            url.protocol !== "https:" ||
-            url.hostname !== "github.com" ||
-            !/^\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(url.pathname) ||
-            url.search ||
-            url.hash ||
-            url.username ||
-            url.password
-          )
-            return { ok: false, code: "invalid" };
-          store.atomic(() =>
-            service.journal.metadata(operation.threadId, { prUrl: operation.url }),
-          );
-          return { ok: true };
-        }
+        case "thread.link_pr":
+        case "thread.unlink_pr":
+        case "thread.list_prs":
+          return extensions.pr
+            ? extensions.pr(caller, operation, signal)
+            : { ok: false, code: "unsupported" };
         case "thread.settle": {
           if (
             !["done", "failed", "new"].includes(

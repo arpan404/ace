@@ -57,6 +57,16 @@ export function startAgentControl(context: ServiceContext): void {
   const owners = createAgentOwners(context, delegations);
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
+    pr: async (caller, operation, signal) => {
+      const workspace = services.workspaceActions;
+      if (!workspace) return { ok: false, code: "unsupported" };
+      return workspace.forge.agent(
+        caller.threadId,
+        workspace.root(caller.threadId),
+        operation,
+        signal,
+      );
+    },
     execute: async (caller, operation, signal) => {
       const result = await owners.execute(caller, operation, signal);
       return result.code === "unsupported" && options.agentControl?.extensions?.execute

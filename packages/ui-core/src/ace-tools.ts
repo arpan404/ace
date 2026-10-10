@@ -27,7 +27,7 @@ export type ToolMark =
   | { kind: "app"; bundleId: string; name: string }
   | { kind: "site"; host: string }
   | { kind: "device"; platform: "ios" | "android" | undefined }
-  | { kind: "glyph"; glyph: "screen" | "browser" | "agent" | "thread" | "ace" };
+  | { kind: "glyph"; glyph: "screen" | "browser" | "agent" | "thread" | "pr" | "ace" };
 
 /** What earlier steps of the same log tell about this one. All optional. */
 export interface AceToolContext {
@@ -200,11 +200,40 @@ export function aceToolView(
 function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): AceToolView {
   const args = record(call.args);
   const subject = subjectOf(spec, args, context);
-  const words = spec.words({ args, subject: subject.name, element: context.element });
+  let words = spec.words({ args, subject: subject.name, element: context.element });
   const raw: readonly RawPayload[] =
     call.result === undefined ? call.raw : [{ type: "result", data: call.result }, ...call.raw];
   const parts =
     raw.length && !measurementTools.has(aceToolName(call.tool)) ? mcpResultParts(raw) : undefined;
+  const name = aceToolName(call.tool);
+  const isPr = /^ace_thread_(link_pr|unlink_pr|list_prs)$/.test(name);
+  if (isPr) {
+    let data = field(field(call.result, "structuredContent") ?? call.result, "data");
+    if (!data)
+      for (const text of parts?.texts ?? []) {
+        try {
+          const parsed: unknown = JSON.parse(text);
+          data = field(parsed, "data");
+        } catch {
+          /* Provider text may be prose. */
+        }
+        if (data) break;
+      }
+    const number = field(data, "number");
+    const links = field(data, "linkedPrs");
+    if (name === "ace_thread_list_prs" && Array.isArray(links))
+      words = say(
+        ["Listed", "Listing", "List"],
+        ` ${links.length} linked PR${links.length === 1 ? "" : "s"}`,
+      );
+    else if (typeof number === "number")
+      words = say(
+        name === "ace_thread_link_pr"
+          ? ["Linked", "Linking", "Link"]
+          : ["Unlinked", "Unlinking", "Unlink"],
+        ` PR #${number}`,
+      );
+  }
   // Some adapters report an MCP error result as a success; the typed result says otherwise.
   const failed = call.status === "failed" || field(call.result, "isError") === true;
   let problem: ToolProblem | undefined;
@@ -235,9 +264,9 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
   }
   return {
     family: spec.family,
-    mark: subject.mark,
+    mark: isPr ? { kind: "glyph", glyph: "pr" } : subject.mark,
     words,
-    subject: subject.group,
+    subject: isPr ? undefined : subject.group,
     images: parts?.images ?? [],
     problem,
     tool: `${call.server} · ${call.tool}`,

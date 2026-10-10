@@ -209,9 +209,13 @@ Example:
         "files": 8
       },
       "head": null,
-      "linkedPr": {
-        "number": 3,
-        "state": "open"
+      "linkedPrs": [],
+      "machine": {
+        "host": "example",
+        "icon": {
+          "kind": "server"
+        },
+        "name": "example"
       },
       "mode": "worktree",
       "repository": {

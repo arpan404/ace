@@ -2,13 +2,7 @@ import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText } from "@ace/ui-core";
-import {
-  ArrowSquareOutIcon,
-  CopyIcon,
-  GitForkIcon,
-  LaptopIcon,
-  WarningIcon,
-} from "@phosphor-icons/react";
+import { CopyIcon, GitForkIcon, LaptopIcon, WarningIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -109,19 +103,6 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef }) {
           {host && (
             <Row term="Machine">
               <MachineLabel name={host.name} icon={host.icon} />
-            </Row>
-          )}
-          {checkout?.pr?.url && (
-            <Row term="Pull request">
-              <a
-                href={checkout.pr.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="inline-flex items-center gap-1 text-foreground underline-offset-4 hover:underline focus-ring rounded-xs"
-              >
-                #{checkout.pr.number} · {checkout.pr.state}
-                <ArrowSquareOutIcon aria-hidden size={12} />
-              </a>
             </Row>
           )}
         </dl>

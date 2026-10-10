@@ -73,7 +73,21 @@ export function ThreadHoverContent(props: {
         )}
         {(card.pr !== undefined || card.diff) && (
           <div className="flex flex-wrap items-center gap-3 pt-0.5">
-            {card.pr !== undefined && <PullRequest card={card} />}
+            {card.prs?.length
+              ? card.prs.map((pr) => (
+                  <div
+                    key={`${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}/${pr.number}`}
+                    className="flex w-full min-w-0 items-center gap-2"
+                  >
+                    <PullRequest
+                      card={{ ...card, pr: pr.number, prState: pr.state, prs: undefined }}
+                    />
+                    <span className="min-w-0 truncate" title={pr.title}>
+                      {pr.title}
+                    </span>
+                  </div>
+                ))
+              : card.pr !== undefined && <PullRequest card={card} />}
             {card.diff && (
               <span
                 role="img"

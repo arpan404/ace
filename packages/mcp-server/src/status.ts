@@ -10,7 +10,7 @@ export type StatusReader = (caller: McpAttribution) => {
 };
 
 export const aceInstructions =
-  "ace tools for this thread. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for what is enabled.";
+  "ace tools for this thread. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for what is enabled.\nWhen you open or find a pull request for this thread's work, link it with ace_thread_link_pr.";
 
 export function createStatusRegistry(
   registry: ToolRegistry,

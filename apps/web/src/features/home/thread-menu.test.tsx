@@ -149,3 +149,36 @@ test("New thread on main starts a thread in the same project", async () => {
   expect(await screen.findByRole("button", { name: "Project: billing-api" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Start from: main" })).toBeTruthy();
 });
+
+test("people link pull requests from the thread menu and confirm before unlinking all", async () => {
+  const app = await openHome();
+  let menu = await rightClick(/Retry budget/);
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Link pull request…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Link pull request" });
+  await userEvent.type(
+    within(dialog).getByRole("textbox", { name: "Link pull request…" }),
+    "#283{Enter}",
+  );
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({
+      kind: "thread",
+      threadId: ThreadId.parse("thread-retry-budget"),
+    });
+    expect(
+      snapshot &&
+        "thread" in snapshot &&
+        snapshot.thread.details?.linkedPrs?.some((pr) => pr.number === 283),
+    ).toBe(true);
+  });
+  menu = await rightClick(/Retry budget/);
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Unlink all pull requests" }));
+  const confirmation = await screen.findByRole("dialog", { name: "Unlink all pull requests?" });
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Unlink all" }));
+  await waitFor(() => {
+    const snapshot = app.daemon.snapshot({
+      kind: "thread",
+      threadId: ThreadId.parse("thread-retry-budget"),
+    });
+    expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toEqual([]);
+  });
+});

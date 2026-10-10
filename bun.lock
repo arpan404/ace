@@ -719,6 +719,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/forge": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",

@@ -105,7 +105,9 @@ export class ReviewLoop {
     return status;
   }
   #assertLink(state: ForgeLinkState): void {
-    if (this.#store.getLinkState(state.link.threadId)?.generation !== state.generation)
+    if (
+      this.#store.getLinkState(state.link.threadId, state.link.pr)?.generation !== state.generation
+    )
       throw new ForgeError("conflict");
   }
   async #drain(
@@ -115,7 +117,7 @@ export class ReviewLoop {
     signal: AbortSignal,
   ): Promise<void> {
     const threadId = state.link.threadId;
-    let pending = this.#store.pending(threadId);
+    let pending = this.#store.pending(threadId, state.link.pr);
     while (pending.length) {
       for (const intent of pending) {
         if (signal.aborted) throw new ForgeError("cancelled");
@@ -152,7 +154,7 @@ export class ReviewLoop {
         }
         this.#store.acknowledge(intent);
       }
-      pending = this.#store.pending(threadId);
+      pending = this.#store.pending(threadId, state.link.pr);
     }
   }
 }

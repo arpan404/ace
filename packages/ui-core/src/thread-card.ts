@@ -3,6 +3,7 @@ import type {
   ProviderKind,
   ThreadListEntry,
   ThreadReadStateResponse,
+  ThreadDetails,
 } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
@@ -50,6 +51,7 @@ export interface CardDetails {
   branch?: string | undefined;
   pr?: number | undefined;
   prState?: "open" | "merged" | "closed" | "draft" | undefined;
+  prs?: ThreadDetails["linkedPrs"] | undefined;
   /** The thread runs in its own worktree rather than the project checkout. */
   worktree?: boolean | undefined;
   /** Set when the thread runs on another machine. */
@@ -68,8 +70,11 @@ export function cardDetails(entry: ThreadListEntry, home: string | undefined): C
   const machine = details.machine;
   return {
     branch: details.branch ?? undefined,
-    pr: details.linkedPr?.number,
-    prState: details.linkedPr?.draft ? "draft" : details.linkedPr?.state,
+    pr: details.linkedPrs?.[0]?.number ?? details.linkedPr?.number,
+    prState:
+      details.linkedPrs?.[0]?.state ??
+      (details.linkedPr?.draft ? "draft" : details.linkedPr?.state),
+    prs: details.linkedPrs,
     worktree: details.mode === "worktree",
     machine: machine && home !== undefined && machine.host !== home ? machine.name : undefined,
     diff: details.diff && { added: details.diff.additions, removed: details.diff.deletions },
@@ -123,6 +128,7 @@ export interface ThreadCard {
   /** A linked pull request remains visible even without a feature branch. */
   pr: number | undefined;
   prState: CardDetails["prState"];
+  prs: CardDetails["prs"];
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
   /** "tomorrow 9:00 AM" while snoozed. */
@@ -233,6 +239,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
         : undefined,
     pr: details?.pr,
     prState: details?.prState,
+    prs: details?.prs,
     announceUnread: unread && !needsYou,
     wake:
       snoozed && entry.snoozedUntil !== undefined

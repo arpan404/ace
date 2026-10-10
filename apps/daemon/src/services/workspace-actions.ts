@@ -4,6 +4,7 @@ import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
 import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
+import { PullRequestAutoLink } from "../pr-auto-link.ts";
 import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { ServiceContext } from "./types.ts";
@@ -41,6 +42,10 @@ export async function startWorkspaceActions({
   services.canReadThread = (_device, id) =>
     Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;
   resources.own(() => workspace.close());
+  const prLinks = new PullRequestAutoLink(store, workspace, (error) =>
+    log.log("debug", "Created pull request could not be linked", logError(error)),
+  );
+  resources.own(() => prLinks.close());
   const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) =>
     log.log("debug", "Workspace metadata unavailable", logError(error)),
   );

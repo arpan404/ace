@@ -213,7 +213,7 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
         Command.parse({
           id: "unlink",
           deviceId: "device",
-          payload: { type: "forge.pr.unlink", threadId: thread.id },
+          payload: { type: "forge.pr.unlink", threadId: thread.id, all: true },
         }),
       ),
     ).toMatchObject({ ok: true });
