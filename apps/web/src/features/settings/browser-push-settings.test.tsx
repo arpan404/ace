@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+// Warm the lazy control before behavioural test deadlines begin.
+await import("./browser-push-settings.tsx");
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

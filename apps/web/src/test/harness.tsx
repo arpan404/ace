@@ -20,7 +20,12 @@ import { type KeyValueStorage } from "@ace/ui-core";
 
 // Load deferred test UI before test deadlines begin. Under merge load, transforming
 // these modules inside the first open() can time out and race cleanup with mounting.
-await Promise.all([preloadDeferred(), preloadProjectDialogs()]);
+await Promise.all([
+  preloadDeferred(),
+  preloadProjectDialogs(),
+  import("@/features/home/home-sidebar.tsx"),
+  import("@/features/shell/workspace/panel.tsx"),
+]);
 // Workspace metadata and the individual tab bodies load separately in production.
 // Start behavioural tests after both are ready, including Devices and Preview.
 await threadWorkspace.load();
