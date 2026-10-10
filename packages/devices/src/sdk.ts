@@ -28,6 +28,7 @@ export type SDKOptions = {
   home: string;
   env: NodeJS.ProcessEnv;
   probe?: typeof probeOutput;
+  after?: (ms: number, run: () => void) => () => void;
 };
 export async function resolveAndroidSDK(
   options: SDKOptions,

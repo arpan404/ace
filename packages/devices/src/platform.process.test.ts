@@ -7,6 +7,14 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DevicePlatform, type Device } from "./index.ts";
 
+function shutdownClock(ms: number, run: () => void) {
+  if (ms === 30000) {
+    queueMicrotask(run);
+    return () => {};
+  }
+  return () => {};
+}
+
 const udid = "11111111-1111-4111-8111-111111111111";
 async function fixture(platform = "linux") {
   const home = await mkdtemp(join(tmpdir(), "ace-device-platform-"));
@@ -75,7 +83,7 @@ async function fixture(platform = "linux") {
     '<hierarchy rotation="0"><node index="0" text="Launch" resource-id="dev.example:id/launch" class="android.widget.Button" package="dev.example" content-desc="" clickable="true" enabled="true" bounds="[10,20][110,80]" /></hierarchy>',
   );
   const env = { PATH: bin, DEVICE_JOURNAL: journal, DEVICE_STATE: state, DEVICE_TREE: tree };
-  const manager = new DevicePlatform({ platform, home, env });
+  const manager = new DevicePlatform({ platform, home, env, after: shutdownClock });
   onTestFinished(() => manager.close());
   const commands = async () =>
     (await readFile(journal, "utf8"))
@@ -411,6 +419,7 @@ it("revoked ownership during an Android UI read prevents the later tap", async (
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: async (command, args, options) => {
       const { probeOutput } = await import("@ace/provider-kit/process");
       const result = await probeOutput(command, args, options);
@@ -465,6 +474,7 @@ for (const operation of ["install", "openApp", "boot"] as const) {
       platform: "linux",
       home: f.home,
       env: f.env,
+      after: shutdownClock,
       probe: async (command, args, options) => {
         const { probeOutput } = await import("@ace/provider-kit/process");
         const result = await probeOutput(command, args, options);
@@ -528,6 +538,7 @@ for (const operation of ["install", "openApp", "boot"] as const) {
       platform: "darwin",
       home: f.home,
       env: f.env,
+      after: shutdownClock,
       probe: async (command, args, options) => {
         const { probeOutput } = await import("@ace/provider-kit/process");
         const result = await probeOutput(command, args, options);
@@ -583,6 +594,7 @@ it("concurrent Android UI reads retain their own snapshot and remove temporary g
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     async probe(command, args, options) {
       const line = args.join(" ");
       if (line.includes("'uiautomator' 'dump'")) {
@@ -618,6 +630,7 @@ it("a booted emulator is named from its system property when the emulator consol
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: (async (_command: string, args: readonly string[]) => {
       if (args.includes("-list-avds")) return { stdout: "Pixel", stderr: "", code: 0 };
       if (args[0] === "devices")
@@ -650,6 +663,7 @@ it("an emulator whose name cannot be read is still listed and does not hide othe
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: (async (_command: string, args: readonly string[]) => {
       if (args.includes("-list-avds")) return { stdout: "Tablet", stderr: "", code: 0 };
       if (args[0] === "devices")
@@ -673,7 +687,7 @@ it("an emulator whose name cannot be read is still listed and does not hide othe
   expect(devices).toContainEqual({
     id: "android:emulator-5554",
     platform: "android",
-    name: "emulator-5554",
+    name: "Android emulator",
     state: "booted",
     serial: "emulator-5554",
   });
@@ -682,7 +696,7 @@ it("an emulator whose name cannot be read is still listed and does not hide othe
     manager.captureTransport({
       id: "android:emulator-5554",
       platform: "android",
-      name: "emulator-5554",
+      name: "Android emulator",
       state: "booted",
       serial: "emulator-5554",
     }),
@@ -696,6 +710,7 @@ for (const source of ["kernel", "console"] as const)
       platform: "linux",
       home: f.home,
       env: f.env,
+      after: shutdownClock,
       probe: async (_command, args) => {
         if (args.includes("-list-avds")) return { stdout: "Pixel\nTablet", stderr: "", code: 0 };
         if (args[0] === "devices")
@@ -734,6 +749,7 @@ it("shutting down an emulator waits until adb no longer lists it", async () => {
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: (async (_command: string, args: readonly string[]) => {
       if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
       if (args.includes("wait-for-any-disconnect")) {
@@ -769,6 +785,7 @@ it("an emulator the console cannot stop is powered off through adb", async () =>
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: (async (_command: string, args: readonly string[]) => {
       if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
       if (args.includes("wait-for-any-disconnect")) {
@@ -807,6 +824,7 @@ it("an emulator that never disconnects fails shutdown with a clear error", async
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: (async (_command: string, args: readonly string[]) => {
       if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
       if (args.includes("wait-for-any-disconnect")) throw new Error("Probe timed out");
@@ -841,6 +859,7 @@ async function waitingShutdown() {
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     probe: async (_command, args) => {
       if (args.includes("-list-avds")) return { stdout: "Pixel_API_35", stderr: "", code: 0 };
       if (args[0] === "devices")
@@ -906,6 +925,7 @@ it("control transfer while the console kill is pending preserves the owned emula
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     spawn: (options) => {
       const process = spawnSupervised(options);
       processes.push(process);
@@ -951,6 +971,7 @@ it("Android UI read queues reject excess work without retaining extra native ope
     platform: "linux",
     home: f.home,
     env: f.env,
+    after: shutdownClock,
     async probe(command, args, options) {
       if (args.join(" ").includes("'uiautomator' 'dump'")) {
         reading.resolve();
@@ -968,3 +989,288 @@ it("Android UI read queues reject excess work without retaining extra native ope
   expect(await Promise.all(pending)).toHaveLength(32);
   expect((await manager.uiTree(android(), {})).nodes[0]?.name).toBe("Launch");
 });
+
+it("device commands queue behind the concurrency cap and every inventory reader finishes", async () => {
+  const f = await fixture();
+  const saturated = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let active = 0;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(_command, args) {
+      if (++active === 8) saturated.resolve();
+      await release.promise;
+      active--;
+      return {
+        code: 0,
+        stderr: "",
+        stdout: args.includes("-list-avds") ? "Pixel" : "List of devices attached\n",
+      };
+    },
+  });
+  onTestFinished(() => manager.close());
+  const requests = Array.from({ length: 12 }, () => manager.list());
+  const completed = Promise.all(requests);
+  void completed.catch(() => {});
+  await saturated.promise;
+  release.resolve();
+  expect((await completed).map((devices) => devices[0]?.name)).toEqual(Array(12).fill("Pixel"));
+});
+for (const platform of ["linux", "darwin"])
+  it(`a six-minute ${platform} installation fits its command timeout`, async () => {
+    const f = await fixture(platform);
+    await writeFile(f.state, "booted");
+    const manager = new DevicePlatform({
+      platform,
+      home: f.home,
+      env: f.env,
+      after: shutdownClock,
+      async probe(command, args, options) {
+        if (args.includes("install") && (options?.timeoutMs ?? 0) < 360000)
+          throw new Error("Probe timed out");
+        const { probeOutput } = await import("@ace/provider-kit/process");
+        return probeOutput(command, args, options);
+      },
+    });
+    onTestFinished(() => manager.close());
+    await manager.install(
+      platform === "darwin" ? ios() : android(),
+      join(f.home, platform === "darwin" ? "Example.app" : "Example.apk"),
+    );
+    expect(await f.commands()).toContainEqual({
+      tool: platform === "darwin" ? "xcrun" : "adb",
+      args:
+        platform === "darwin"
+          ? ["simctl", "install", udid, join(f.home, "Example.app")]
+          : ["-s", "emulator-5554", "install", "-r", join(f.home, "Example.apk")],
+    });
+  });
+it("inventory reuses emulator names until their transport disconnects", async () => {
+  const f = await fixture();
+  let connected = true;
+  let readable = true;
+  let name = "Pixel";
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(_command, args, options) {
+      if (args.includes("-list-avds")) return { code: 0, stderr: "", stdout: "Pixel\nTablet" };
+      if (args[0] === "devices")
+        return {
+          code: 0,
+          stderr: "",
+          stdout: connected
+            ? "List of devices attached\nemulator-5554 device"
+            : "List of devices attached\n",
+        };
+      if (!readable || (options?.timeoutMs ?? Infinity) > 5000) throw new Error("Probe timed out");
+      return { code: 0, stderr: "", stdout: name };
+    },
+  });
+  onTestFinished(() => manager.close());
+  expect((await manager.list()).find((device) => device.serial)?.name).toBe("Pixel");
+  readable = false;
+  expect((await manager.list()).find((device) => device.serial)?.name).toBe("Pixel");
+  connected = false;
+  await manager.list();
+  connected = true;
+  readable = true;
+  name = "Tablet";
+  expect((await manager.list()).find((device) => device.serial)?.name).toBe("Tablet");
+});
+it("an owned emulator that goes offline after boot stays visible as offline", async () => {
+  const f = await fixture();
+  await f.manager.boot(android());
+  await f.manager.list();
+  await writeFile(f.state, "offline");
+  expect(await f.manager.list()).toContainEqual(
+    expect.objectContaining({
+      id: "android:Pixel_API_35",
+      state: "offline",
+    }),
+  );
+});
+it("duplicate Android transports report a device issue without hiding the inventory", async () => {
+  const f = await fixture();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(_command, args) {
+      return {
+        code: 0,
+        stderr: "",
+        stdout: args.includes("-list-avds")
+          ? "Pixel\nTablet"
+          : args[0] === "devices"
+            ? "List of devices attached\nemulator-5554 device\nemulator-5556 device"
+            : "Pixel",
+      };
+    },
+  });
+  onTestFinished(() => manager.close());
+  expect((await manager.list()).map((device) => [device.name, device.state])).toEqual([
+    ["Pixel", "offline"],
+    ["Tablet", "shutdown"],
+  ]);
+  expect(manager.diagnostics()).toContainEqual(
+    expect.objectContaining({ hint: expect.stringContaining("duplicate") }),
+  );
+});
+it("iOS logs use an info filter and follow the last launched app process", async () => {
+  const f = await fixture("darwin");
+  const manager = new DevicePlatform({
+    platform: "darwin",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(command, args, options) {
+      if (args.includes("launch")) return { code: 0, stderr: "", stdout: "dev.example: 1234\n" };
+      const { probeOutput } = await import("@ace/provider-kit/process");
+      return probeOutput(command, args, options);
+    },
+  });
+  onTestFinished(() => manager.close());
+  await manager.openApp(ios(), "dev.example");
+  const spec = await manager.logs(ios());
+  expect(spec.args.slice(-4)).toEqual([
+    "--level",
+    "info",
+    "--predicate",
+    "processIdentifier == 1234",
+  ]);
+});
+it("the iOS catalog explains which tools enable background input", async () => {
+  const f = await fixture("darwin");
+  await f.manager.list();
+  expect(f.manager.diagnostics()).toContainEqual(
+    expect.objectContaining({ message: expect.stringContaining("serve-sim or idb") }),
+  );
+});
+for (const closing of [false, true])
+  it(`${closing ? "service close" : "console shutdown"} waits for snapshot saving before any process signal`, async () => {
+    const f = await fixture();
+    let running = false;
+    const saving = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const effects: string[] = [];
+    let child: SupervisedProcess | undefined;
+    const manager = new DevicePlatform({
+      platform: "linux",
+      home: f.home,
+      env: f.env,
+      after: () => () => {},
+      spawn() {
+        child = spawnSupervised({
+          command: process.execPath,
+          args: [
+            "-e",
+            `process.on('SIGTERM',()=>console.log('forced'));require('node:readline').createInterface({input:process.stdin}).on('line',line=>{if(line==='shutdown')console.log('saving');if(line==='finish'){console.log('saved');process.exit(0);}});`,
+          ],
+          env: {},
+          name: "fake-emulator",
+        });
+        child.stdout.on("line", (line: string) => {
+          effects.push(line);
+          if (line === "saving") saving.resolve();
+        });
+        return child;
+      },
+      async probe(_command, args) {
+        if (args.includes("-list-avds")) return { code: 0, stderr: "", stdout: "Pixel_API_35" };
+        if (args[0] === "devices")
+          return {
+            code: 0,
+            stderr: "",
+            stdout: "List of devices attached\n" + (running ? "emulator-5554 device" : ""),
+          };
+        if (args.some((arg) => arg.includes("sys.boot_completed"))) running = true;
+        if (args.includes("kill")) {
+          child?.stdin.write("shutdown\n");
+          if (closing) void resume.promise.then(() => child?.stdin.write("finish\n"));
+        }
+        if (args.includes("wait-for-any-disconnect")) {
+          await resume.promise;
+          child?.stdin.write("finish\n");
+          running = false;
+        }
+        return { code: 0, stderr: "", stdout: "Pixel_API_35" };
+      },
+    });
+    onTestFinished(async () => {
+      resume.resolve();
+      if (child) {
+        child.stdin.write("finish\n");
+        await child.stop({ graceMs: 0 });
+      }
+      await manager.close();
+    });
+    await manager.boot(android());
+    const shutdown = closing ? manager.close() : manager.shutdown(android());
+    await saving.promise;
+    expect(effects).toEqual(["saving"]);
+    expect(child?.signal.aborted).toBe(false);
+    resume.resolve();
+    await shutdown;
+    expect(effects).toEqual(["saving", "saved"]);
+  });
+
+for (const input of [
+  { kind: "longPress", x: 1, y: 2, durationMs: 8000 },
+  { kind: "swipe", x: 1, y: 2, toX: 3, toY: 4, durationMs: 8000 },
+  { kind: "type", text: "a".repeat(600) },
+] satisfies import("@ace/protocol/devices").DeviceInput[])
+  it(`Android ${input.kind} acknowledges after its gesture or typing duration`, async () => {
+    const f = await fixture();
+    await writeFile(f.state, "booted");
+    let now = 0;
+    const timers = new Set<{ at: number; run(): void }>();
+    const entered = Promise.withResolvers<void>();
+    let child: SupervisedProcess | undefined;
+    const manager = new DevicePlatform({
+      platform: "linux",
+      home: f.home,
+      env: f.env,
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+      spawn() {
+        child = spawnSupervised({
+          command: process.execPath,
+          args: [
+            "-e",
+            `let marker,ready=false;function finish(){if(marker&&ready){console.log(marker+'0');marker=undefined;ready=false;}}require('node:readline').createInterface({input:process.stdin}).on('line',line=>{if(line==='continue'){ready=true;finish();}else if(line.startsWith('printf')){marker=/ACE_INPUT_\\d+:/.exec(line)?.[0];finish();}else console.log('input started');});`,
+          ],
+          env: {},
+          name: "fake-input",
+        });
+        child.stdout.on("line", (line: string) => {
+          if (line === "input started") entered.resolve();
+        });
+        return child;
+      },
+    });
+    onTestFinished(() => manager.close());
+    const action = manager.input(android(), input);
+    void action.catch(() => {});
+    await entered.promise;
+    now = input.kind === "type" ? 30000 : 8000;
+    for (const timer of timers)
+      if (timer.at <= now) {
+        timers.delete(timer);
+        timer.run();
+      }
+    child?.stdin.write("continue\n");
+    await action;
+    expect(child?.signal.aborted).toBe(false);
+  });

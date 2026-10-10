@@ -1,3 +1,4 @@
+import { deviceInputTimeout } from "./input-budget.ts";
 import { extname, isAbsolute } from "node:path";
 import { z } from "zod";
 import { Simulators, type ScreenManager } from "@ace/screen";
@@ -20,6 +21,7 @@ import {
   simulatorHID,
   simulatorInput,
   simulatorIdentity,
+  simulatorDevice,
   simulatorRuntime,
   nativeId,
 } from "./commands.ts";
@@ -48,19 +50,29 @@ export class DevicePlatform {
   private readonly simulators: Simulators;
   private readonly android: AndroidPlatform;
   private active = 0;
+  private readonly waiters: (() => void)[] = [];
   private readonly controller = new AbortController();
   private readonly androidUI: AndroidOperations;
   private missingSDKs: DeviceError[] = [];
+  private inputHint: DeviceError | undefined;
+  private checkedInput = false;
+  private readonly appProcesses = new Map<string, string>();
   diagnostics(): DeviceFailure[] {
-    return this.missingSDKs.map(({ code, message, hint }) => ({ code, message, hint }));
+    return [
+      ...this.missingSDKs,
+      ...this.android.diagnostics(),
+      ...(this.inputHint ? [this.inputHint] : []),
+    ]
+      .slice(0, 2)
+      .map(({ code, message, hint }) => ({ code, message, hint }));
   }
   constructor(options: PlatformOptions) {
     this.options = options;
     this.probe = options.probe ?? probeOutput;
     this.android = new AndroidPlatform(
       options,
-      (command, args, maxBytes, timeoutMs, signal) =>
-        this.run(command, args, maxBytes, timeoutMs, signal),
+      (command, args, maxBytes, timeoutMs, signal, authorize) =>
+        this.run(command, args, maxBytes, timeoutMs, signal, authorize),
       options.spawn ?? spawnSupervised,
     );
     this.androidUI = new AndroidOperations(this.android, (device, input, authorize) =>
@@ -72,7 +84,14 @@ export class DevicePlatform {
     return new Simulators(this.options.platform, async (command, args, probeOptions) => {
       const xcode = await this.xcode();
       authorize?.();
-      return this.run(command === "xcrun" ? xcode.xcrun : xcode.open, args, probeOptions?.maxBytes);
+      return this.run(
+        command === "xcrun" ? xcode.xcrun : xcode.open,
+        args,
+        probeOptions?.maxBytes,
+        args.includes("boot") || args.includes("bootstatus") ? 240_000 : undefined,
+        undefined,
+        authorize,
+      );
     });
   }
 
@@ -85,6 +104,9 @@ export class DevicePlatform {
   }
   resolveAndroid() {
     return this.android.resolve();
+  }
+  async simulatorDevice(input: Device): Promise<Device> {
+    return simulatorDevice(input, await this.simulators.list());
   }
   async simulatorCaptureDevice(input: Device): Promise<Device> {
     return simulatorIdentity(input, await this.simulators.list());
@@ -110,6 +132,7 @@ export class DevicePlatform {
     maxBytes = 1024 * 1024,
     timeoutMs = 30_000,
     signal?: AbortSignal,
+    authorize?: () => void,
   ) {
     if (this.controller.signal.aborted)
       throw new DeviceError(
@@ -117,14 +140,19 @@ export class DevicePlatform {
         "Device service is closed",
         "Restart the device service.",
       );
-    if (this.active >= 8)
-      throw new DeviceError(
-        "busy",
-        "Device command concurrency limit",
-        "Wait for another device operation to finish.",
-      );
-    this.active++;
+    if (this.active >= 8) {
+      if (this.waiters.length >= 128)
+        throw new DeviceError(
+          "busy",
+          "Device command queue is full",
+          "Wait for pending device actions.",
+        );
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    } else this.active++;
     try {
+      this.controller.signal.throwIfAborted();
+      signal?.throwIfAborted();
+      authorize?.();
       const output = await this.probe(command, args, {
         env: this.options.env,
         maxBytes,
@@ -148,7 +176,9 @@ export class DevicePlatform {
         "Check the SDK installation and device connection, then retry.",
       );
     } finally {
-      this.active--;
+      const next = this.waiters.shift();
+      if (next) next();
+      else this.active--;
     }
   }
   async list(): Promise<Device[]> {
@@ -174,14 +204,41 @@ export class DevicePlatform {
       else throw result.reason;
     }
     this.missingSDKs = missing;
+    const present = new Set(devices.map((device) => device.id));
+    for (const id of this.appProcesses.keys()) if (!present.has(id)) this.appProcesses.delete(id);
+    if (!this.checkedInput && devices.some((device) => device.platform === "ios")) {
+      const [serve, idb] = await Promise.all([
+        findExecutable(this.options.env["ACE_SERVE_SIM"] ?? "serve-sim", this.options.env),
+        findExecutable("idb", this.options.env),
+      ]);
+      this.checkedInput = true;
+      if (!serve && !idb)
+        this.inputHint = new DeviceError(
+          "tool_missing",
+          "iOS background input needs serve-sim or idb",
+          "Install serve-sim on this Mac for Simulator capture and background gestures, typing and keys, or install idb with idb_companion.",
+        );
+    }
     if (missing.length && outcomes.every((result) => result.status === "rejected"))
       throw missing[0];
     return devices;
   }
-  private async simctl(device: Device, args: readonly string[], authorize?: () => void) {
+  private async simctl(
+    device: Device,
+    args: readonly string[],
+    authorize?: () => void,
+    timeoutMs?: number,
+  ) {
     const { xcrun } = await this.xcode();
     authorize?.();
-    return this.run(xcrun, ["simctl", ...args.slice(0, 1), nativeId(device), ...args.slice(1)]);
+    return this.run(
+      xcrun,
+      ["simctl", ...args.slice(0, 1), nativeId(device), ...args.slice(1)],
+      undefined,
+      timeoutMs,
+      undefined,
+      authorize,
+    );
   }
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
@@ -204,7 +261,7 @@ export class DevicePlatform {
           "iOS Simulator installs Simulator-built .app bundles",
           "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator.",
         );
-      await this.simctl(device, ["install", path], authorize);
+      await this.simctl(device, ["install", path], authorize, 600_000);
     } else {
       if (extname(path) !== ".apk")
         throw new DeviceError(
@@ -212,13 +269,15 @@ export class DevicePlatform {
           "Android install requires an .apk",
           "Select an APK built for the emulator architecture.",
         );
-      await this.android.adb(device, ["install", "-r", path], undefined, authorize);
+      await this.android.adb(device, ["install", "-r", path], undefined, authorize, 600_000);
     }
   }
   async openApp(device: Device, input: string, authorize?: () => void): Promise<void> {
     const app = AppId.parse(input);
     if (device.platform === "ios") {
-      await this.simctl(device, ["launch", app], authorize);
+      const result = await this.simctl(device, ["launch", app], authorize);
+      const pid = /:\s*(\d+)\s*$/.exec(result.stdout)?.[1];
+      if (pid) this.appProcesses.set(device.id, pid);
       return;
     }
     if (app.includes("/"))
@@ -327,7 +386,13 @@ export class DevicePlatform {
           undefined,
           authorize,
         );
-      } else await this.android.input(device, androidInput(input), authorize ?? (() => {}));
+      } else
+        await this.android.input(
+          device,
+          androidInput(input),
+          authorize ?? (() => {}),
+          deviceInputTimeout(input),
+        );
       return;
     }
     // Native device HID keeps Simulator behind ace when idb is installed.
@@ -417,7 +482,21 @@ export class DevicePlatform {
       const { xcrun } = await this.xcode();
       return {
         command: xcrun,
-        args: ["simctl", "spawn", nativeId(device), "log", "stream", "--style", "ndjson"],
+        args: [
+          "simctl",
+          "spawn",
+          nativeId(device),
+          "log",
+          "stream",
+          "--style",
+          "ndjson",
+          "--level",
+          "info",
+          "--predicate",
+          this.appProcesses.has(device.id)
+            ? `processIdentifier == ${this.appProcesses.get(device.id)}`
+            : 'process != "log" AND process != "SpringBoard" AND process != "runningboardd" AND process != "backboardd"',
+        ],
       };
     }
     return this.android.logs(device);
@@ -425,6 +504,7 @@ export class DevicePlatform {
 
   async close(): Promise<void> {
     this.controller.abort();
+    this.appProcesses.clear();
     await this.android.close();
   }
 }
