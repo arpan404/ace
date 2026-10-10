@@ -116,6 +116,14 @@ export class SearchIndex {
       return this.writer.flush("dirty=1", limit);
     });
   }
+  /** Periodic maintenance publishes settled preview documents, avoiding streaming FTS rewrites. */
+  flushCompleted(limit = 128): number {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 256) throw new Error("Invalid batch size");
+    return this.atomic(() => {
+      this.full.flush(limit);
+      return this.writer.flush("dirty=1 AND complete=1", limit);
+    });
+  }
   query(input: unknown): SearchResults {
     const generation = Number(
       this.writer.sql.get("SELECT generation FROM search_meta WHERE id=1").get()?.generation,
