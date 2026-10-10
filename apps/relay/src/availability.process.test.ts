@@ -1,5 +1,6 @@
 import { blackholeRelay } from "./testing/blackhole.ts";
 import { afterEach, expect, it } from "vitest";
+import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { startRelay, connectHostToRelay, connectClientViaRelay } from "./index.ts";
 import {
@@ -116,7 +117,6 @@ it("a full host evicts its oldest unauthenticated channel so a paired device can
 });
 it("an unverified hello expires and cannot reserve a device slot indefinitely", async () => {
   const { ManualClock } = await import("./testing/clock.ts");
-  const { DeviceId } = await import("@ace/protocol");
   const clock = new ManualClock();
   const relay = await startRelay();
   cleanup.push(() => relay.close());
@@ -150,7 +150,6 @@ it("an unverified hello expires and cannot reserve a device slot indefinitely", 
   expect(await channel.closed).toBeUndefined();
 });
 it("every authorized slot remains usable while excess clients are rejected", async () => {
-  const { DeviceId } = await import("@ace/protocol");
   let arrived = deferred<import("./index.ts").HostChannel>();
   const relay = await startRelay();
   cleanup.push(() => relay.close());
@@ -298,7 +297,7 @@ it("a half-open relay expires both control and authorized client channels, then 
   await client.send({
     type: "hello",
     protocolVersion: 1,
-    deviceId: "paired",
+    deviceId: DeviceId.parse("paired"),
     token: "a".repeat(64),
   });
   const channel = await opened.promise;
@@ -350,7 +349,7 @@ it("a dead client channel expires while control pongs keep its host registered",
   await client.send({
     type: "hello",
     protocolVersion: 1,
-    deviceId: "paired",
+    deviceId: DeviceId.parse("paired"),
     token: "a".repeat(64),
   });
   const channel = await opened.promise;
@@ -377,7 +376,7 @@ it("a dead client channel expires while control pongs keep its host registered",
   await fresh.send({
     type: "hello",
     protocolVersion: 1,
-    deviceId: "replacement",
+    deviceId: DeviceId.parse("replacement"),
     token: "a".repeat(64),
   });
 });
