@@ -72,8 +72,10 @@ export class ServerPool {
         : {}),
     };
     let entry = this.entries.get(key);
-    if (entry && !sameEnvironment(entry.env, env))
-      throw new Error("OpenCode account environment changed");
+    if (entry && !sameEnvironment(entry.env, env)) {
+      key = `${key}:environment:${++this.serial}`;
+      entry = undefined;
+    }
     if (!entry) {
       if (this.entries.size >= 128) {
         const idle = [...this.entries].find(
