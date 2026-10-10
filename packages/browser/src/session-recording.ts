@@ -13,6 +13,9 @@ export class SessionRecording {
     this.options = options;
     this.paused = paused;
   }
+  get active(): boolean {
+    return this.recording !== undefined;
+  }
   accept(frame: BrowserFrame): void {
     this.recording?.accept(frame);
   }

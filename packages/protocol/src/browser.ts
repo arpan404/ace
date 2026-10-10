@@ -33,9 +33,10 @@ const commandBase = z.object({ tabId: short.optional() });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("navigation_history") }),
+  commandBase.extend({ action: z.literal("selection") }),
   commandBase.extend({
     action: z.literal("history"),
-    direction: z.enum(["back", "forward", "reload"]),
+    direction: z.enum(["back", "forward", "reload", "stop"]),
   }),
   commandBase.extend({
     action: z.literal("find_text"),
@@ -212,6 +213,11 @@ export const BrowserState = z.object({
   status: z.enum(["ready", "paused", "recovering"]).optional(),
   reason: z.string().max(2048).optional(),
   pageStateLost: z.boolean().optional(),
+  loading: z.boolean().optional(),
+  loadError: z.string().max(2048).optional(),
+  permissionDenied: z
+    .object({ permission: z.string().max(256), origin: z.string().max(8192) })
+    .optional(),
   blocked: BrowserOriginBlock.optional(),
   activeTabId: short.optional(),
   tabs: z.array(BrowserTab).max(8).optional(),
@@ -237,6 +243,7 @@ export const BrowserArtifact = z.object({
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
 export const BrowserCaptureViewport = z.object({
+  nativeShown: z.boolean().optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),

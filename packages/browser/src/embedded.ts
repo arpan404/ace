@@ -1,3 +1,4 @@
+import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs, NativeTabs } from "./embedded-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
@@ -16,7 +17,11 @@ import { navigateCdp } from "./cdp-navigation.ts";
 import type { NavigationClock } from "./navigation.ts";
 
 const Navigation = z.object({
-  frame: z.object({ url: z.string().max(8192), parentId: z.string().optional() }),
+  frame: z.object({
+    id: z.string().optional(),
+    url: z.string().max(8192),
+    parentId: z.string().optional(),
+  }),
 });
 const Console = z.object({
   type: z.string(),
@@ -24,6 +29,7 @@ const Console = z.object({
     .array(z.object({ value: z.unknown().optional(), description: z.string().optional() }))
     .max(128),
 });
+const noop = () => {};
 const Response = z.object({
   response: z.object({ url: z.string().max(8192), status: z.number() }),
 });
@@ -32,6 +38,8 @@ interface RemoteSession {
   request: BackendOpen;
   url: string;
   pending: Set<string>;
+  mainFrame?: string | undefined;
+  lost?: boolean;
   cleanup(): void;
 }
 interface Waiter {
@@ -39,6 +47,8 @@ interface Waiter {
   resolve(value: unknown): void;
   reject(error: Error): void;
   cancel(): void;
+  pauseForDialog(): void;
+  resumeAfterDialog(): void;
 }
 export interface EmbeddedTransport {
   send(message: BrowserBackendServerMessage, serialized?: string): boolean;
@@ -101,36 +111,40 @@ export class EmbeddedBackend implements BrowserBackend {
       operation,
     };
     return new Promise((resolve, reject) => {
-      const cancelTimer = this.clock.set(
-        operation.kind === "open"
-          ? 60_000
-          : operation.kind === "cdp" &&
-              (operation.method === "Page.navigate" ||
-                (operation.method === "ace.tabs.cdp" &&
-                  operation.params?.method === "Page.navigate"))
-            ? 95_000
-            : 30_000,
-        () => {
-          signal?.removeEventListener("abort", abort);
-          this.pending.delete(id);
-          session?.pending.delete(id);
-          reject(new Error("Desktop browser command timed out"));
-          if (!session) return;
-          // Uncertain work belongs to this session, never to its siblings.
-          this.loseSession(sessionId, "Desktop browser command timed out");
-          try {
-            this.send({
-              type: "browser.backend.request",
-              backendId: this.id,
-              sessionId,
-              id: String(++this.sequence),
-              operation: { kind: "close" },
-            });
-          } catch {
-            /* Transport loss already closes sessions. */
-          }
-        },
-      );
+      let cancelTimer = noop;
+      const armTimer = () => {
+        cancelTimer = this.clock.set(
+          operation.kind === "open"
+            ? 60_000
+            : operation.kind === "cdp" &&
+                (operation.method === "Page.navigate" ||
+                  (operation.method === "ace.tabs.cdp" &&
+                    operation.params?.method === "Page.navigate"))
+              ? 95_000
+              : 30_000,
+          () => {
+            signal?.removeEventListener("abort", abort);
+            this.pending.delete(id);
+            session?.pending.delete(id);
+            reject(new Error("Desktop browser command timed out"));
+            if (!session) return;
+            // Uncertain work belongs to this session, never to its siblings.
+            this.loseSession(sessionId, "Desktop browser command timed out");
+            try {
+              this.send({
+                type: "browser.backend.request",
+                backendId: this.id,
+                sessionId,
+                id: String(++this.sequence),
+                operation: { kind: "close" },
+              });
+            } catch {
+              /* Transport loss already closes sessions. */
+            }
+          },
+        );
+      };
+      armTimer();
       const cancel = () => {
         cancelTimer();
         signal?.removeEventListener("abort", abort);
@@ -141,7 +155,32 @@ export class EmbeddedBackend implements BrowserBackend {
         session?.pending.delete(id);
         reject(signal?.reason ?? new Error("Desktop browser command cancelled"));
       };
-      this.pending.set(id, { sessionId, resolve, reject, cancel });
+      const input =
+        operation.kind === "press" ||
+        (operation.kind === "cdp" &&
+          (operation.method.startsWith("Input.") ||
+            (operation.method === "ace.tabs.cdp" &&
+              typeof operation.params?.method === "string" &&
+              operation.params.method.startsWith("Input."))));
+      let paused = false;
+      this.pending.set(id, {
+        sessionId,
+        resolve,
+        reject,
+        cancel,
+        pauseForDialog: () => {
+          if (input && !paused) {
+            paused = true;
+            cancelTimer();
+          }
+        },
+        resumeAfterDialog: () => {
+          if (paused) {
+            paused = false;
+            armTimer();
+          }
+        },
+      });
       session?.pending.add(id);
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) {
@@ -173,7 +212,19 @@ export class EmbeddedBackend implements BrowserBackend {
       return;
     }
     const session = this.sessions.get(message.sessionId);
-    if (!session) return;
+    if (!session || session.lost) return;
+    const dialog =
+      message.method === "Page.javascriptDialogOpening" ||
+      (message.method === "ace.tabs.event" &&
+        z.object({ method: z.literal("Page.javascriptDialogOpening") }).safeParse(message.params)
+          .success);
+    if (dialog) for (const id of session.pending) this.pending.get(id)?.pauseForDialog();
+    const dialogClosed =
+      message.method === "Page.javascriptDialogClosed" ||
+      (message.method === "ace.tabs.event" &&
+        z.object({ method: z.literal("Page.javascriptDialogClosed") }).safeParse(message.params)
+          .success);
+    if (dialogClosed) for (const id of session.pending) this.pending.get(id)?.resumeAfterDialog();
     if (message.method === "Page.screencastFrame") {
       const frame = Screencast.safeParse(message.params);
       if (!frame.success || frame.data.data.length > 768 * 1024) {
@@ -212,7 +263,10 @@ export class EmbeddedBackend implements BrowserBackend {
       const result = z
         .object({ origin: z.string().max(8192), permission: z.string().max(256) })
         .safeParse(message.params);
-      if (result.success) session.request.permissionDenied?.(result.data);
+      if (result.success) {
+        session.request.permissionDenied?.(result.data);
+        session.events.emit(message.method, result.data);
+      }
       return;
     }
     if (message.method === "ace.downloadDenied") {
@@ -222,10 +276,27 @@ export class EmbeddedBackend implements BrowserBackend {
       if (result.success) session.request.downloadDenied?.(result.data);
       return;
     }
+    if (message.method === "ace.tabs.changed") {
+      const tabs = NativeTabs.safeParse(message.params);
+      const active = tabs.success
+        ? tabs.data.tabs.find((tab) => tab.tabId === tabs.data.activeTabId)
+        : undefined;
+      if (active) session.url = active.url;
+    }
     if (message.method === "Page.frameNavigated") {
       const parsed = Navigation.safeParse(message.params);
       if (parsed.success && !parsed.data.frame.parentId) {
+        session.mainFrame = parsed.data.frame.id;
         session.url = parsed.data.frame.url;
+        session.request.navigation();
+      }
+    }
+    if (message.method === "Page.navigatedWithinDocument") {
+      const nav = z
+        .object({ frameId: z.string(), url: z.string().max(8192) })
+        .safeParse(message.params);
+      if (nav.success && nav.data.frameId === session.mainFrame) {
+        session.url = nav.data.url;
         session.request.navigation();
       }
     }
@@ -284,8 +355,8 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   private loseSession(sessionId: string, reason: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
-    this.sessions.delete(sessionId);
+    if (!session || session.lost) return;
+    session.lost = true;
     this.rejectPending(session, reason);
     session.cleanup();
     session.request.lost(reason);
@@ -344,6 +415,7 @@ export class EmbeddedBackend implements BrowserBackend {
       off: (method: string, listener: (raw: unknown) => void) =>
         remote.events.off(method, listener),
     };
+    const status = pageStatus(cdp, () => request.changed?.());
     let tabs: EmbeddedTabs | undefined;
     const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
@@ -371,6 +443,7 @@ export class EmbeddedBackend implements BrowserBackend {
     remote.cleanup = () => {
       request.signal.removeEventListener("abort", abort);
       guard?.close();
+      status.close();
       tabs?.stop();
       remote.events.removeAllListeners();
     };
@@ -402,6 +475,7 @@ export class EmbeddedBackend implements BrowserBackend {
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
       return {
+        pageStatus: () => tabs?.pageStatus() ?? status.read(),
         privateMode: (enabled) => {
           tabs?.inspection.privacy(enabled);
           tabs?.downloadsManager.transfers.privacy(enabled);
@@ -417,7 +491,7 @@ export class EmbeddedBackend implements BrowserBackend {
               frames: tabs.frames.bind(tabs),
             }
           : {}),
-        url: () => tabs?.current().state.url ?? remote.url,
+        url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
           const navigationSignal = signal ?? request.signal;
           await navigateCdp(

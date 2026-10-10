@@ -27,6 +27,17 @@ export type { Actor, SessionOptions } from "./session-options.ts";
 export class BrowserSession {
   readonly live: LiveCapture;
   private refs: SnapshotRefs;
+  lastActivity: number;
+  get evictable(): boolean {
+    return (
+      this.ownership.controller === "agent" &&
+      this.ownership.mode !== "private" &&
+      this.options.now() - this.lastActivity >= 30_000 &&
+      this.queue.idle &&
+      !this.recordings.active &&
+      !this.options.backend.tabs?.dialog()
+    );
+  }
   private logs: SessionLogs;
   private options: SessionOptions;
   private ownership = new SessionOwnership();
@@ -88,11 +99,26 @@ export class BrowserSession {
     this.emit();
   }
   recoveryFailed(reason: string): void {
-    this.reason = `Headless recovery failed: ${reason}`.slice(0, 2048);
+    this.reason = `The page could not reopen: ${reason}`.slice(0, 2048);
     this.paused = true;
     this.emit();
   }
-  async replace(backend: BrowserBackendSession): Promise<void> {
+  async releaseLostBackend(): Promise<void> {
+    await this.queue.settled();
+    await this.options.backend.close();
+  }
+  restarted(): void {
+    this.refs.invalidate();
+    void this.live.replace(this.options.backend.cdp).then(
+      () => this.emit(),
+      (error) =>
+        this.suspend(error instanceof Error ? error.message : "The page could not reconnect"),
+    );
+  }
+  async replace(
+    backend: BrowserBackendSession,
+    kind: "embedded" | "headless" = "headless",
+  ): Promise<void> {
     if (this.closed) {
       await backend.close();
       throw new Error("Browser closed during recovery");
@@ -104,7 +130,8 @@ export class BrowserSession {
     }
     await this.options.backend.close().catch(() => {});
     this.options.backend = backend;
-    this.options.backendKind = "headless";
+    this.options.backendKind = kind;
+    backend.privateMode?.(this.ownership.mode === "private");
     this.refs.replace(backend.cdp);
     this.leaseReady = Promise.resolve();
     this.syncLease();
@@ -112,11 +139,12 @@ export class BrowserSession {
     await this.live.replace(backend.cdp);
     this.lastUrl = undefined;
     this.paused = false;
-    this.reason = "Recovered in headless browser; page state was lost";
+    this.reason = "The page was reopened after the browser disconnected";
     this.emit();
   }
   constructor(options: SessionOptions) {
     this.options = options;
+    this.lastActivity = options.now();
     this.queue = new SessionQueue(() => options.backend.tabs?.dialog());
     this.refs = new SnapshotRefs(
       options.backend.cdp,
@@ -230,11 +258,15 @@ export class BrowserSession {
     return this.queue.run(work);
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
+    this.lastActivity = this.options.now();
     const command = BrowserCommand.parse(raw);
     const submittedGeneration = this.ownership.generation;
     const privateEpoch = this.ownership.epoch;
     // Dialog answers cannot wait behind a renderer command paused by that dialog.
-    if (command.action === "dialog")
+    if (
+      command.action === "dialog" ||
+      (command.action === "history" && command.direction === "stop")
+    )
       return (async () => {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
