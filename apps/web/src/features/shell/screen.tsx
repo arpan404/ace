@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
@@ -26,8 +26,7 @@ export function Screen(
   },
 ) {
   const [scrolled, setScrolled] = useState(false);
-  const pane = useRef<HTMLElement>(null);
-  useToastAnchor(pane);
+  const pane = useToastAnchor();
   // Any scroller inside the content draws the header hairline once it leaves the top.
   const onScroll = (event: UIEvent) => {
     const target = event.target;
