@@ -527,7 +527,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && event.shiftKey && input.current) {
       event.preventDefault();
       const range = editorSelection(input.current);
@@ -548,6 +548,15 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         event.preventDefault();
         const item = items[active];
         if (item) pick(item);
+        return;
+      }
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        trigger.kind === "command" &&
+        (suggestions.state === "loading" || suggestions.state === "failed")
+      ) {
+        event.preventDefault();
         return;
       }
       if (event.key === "Escape") {

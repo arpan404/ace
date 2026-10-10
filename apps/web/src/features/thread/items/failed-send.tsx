@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
@@ -47,11 +48,21 @@ export function FailedSend(props: {
       <NotSent reason={props.reason} />
       {payload && commandId && (
         <span className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => actions.retry(commandId, payload)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={actions.retrying(commandId)}
+            onClick={() => actions.retry(commandId, payload)}
+          >
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => actions.edit(commandId, payload)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={actions.retrying(commandId)}
+            onClick={() => actions.edit(commandId, payload)}
+          >
             <Icon icon={PencilSimpleIcon} size={12} />
             Edit
           </Button>
@@ -70,8 +81,14 @@ export function useSendActions(threadId: string) {
   const toast = useToast();
   const navigate = useNavigate();
   const { storage } = useLayout();
+  const inFlight = useRef(new Set<string>());
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   return {
+    retrying: (id: string) => pending.has(id),
     retry(commandId: string, payload: SendPayload) {
+      if (inFlight.current.has(commandId)) return;
+      inFlight.current.add(commandId);
+      setPending(new Set(inFlight.current));
       void (async () => {
         if (payload.type === "thread.send") {
           let after: CommandId | undefined;
@@ -96,7 +113,7 @@ export function useSendActions(threadId: string) {
             after = queue.next ?? undefined;
           } while (after);
         }
-        const id = crypto.randomUUID();
+        const id = `${commandId}:retry`;
         // A thread.create retried is a new thread start: its pending route moves with it.
         await client.enqueue(payload, id).then(
           () => {
@@ -108,11 +125,32 @@ export function useSendActions(threadId: string) {
                 replace: true,
               });
           },
-          () => toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+          () => {
+            if (
+              client
+                .pendingSends()
+                .getSnapshot()
+                .some((send) => send.commandId === id)
+            ) {
+              dismissSend(storage, commandId);
+              if (payload.type === "thread.create")
+                void navigate({
+                  to: "/t/$threadId",
+                  params: { threadId: `pending:${id}` },
+                  replace: true,
+                });
+            }
+            toast.add({ title: "Couldn't send it again", description: "It is still here." });
+          },
         );
-      })().catch(() =>
-        toast.add({ title: "Couldn't send it again", description: "It is still here." }),
-      );
+      })()
+        .catch(() =>
+          toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+        )
+        .finally(() => {
+          inFlight.current.delete(commandId);
+          setPending(new Set(inFlight.current));
+        });
     },
     edit(commandId: string, payload: SendPayload) {
       const draft = draftOf(payload);

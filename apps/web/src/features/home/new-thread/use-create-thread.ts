@@ -99,7 +99,15 @@ export function useCreateThread(): {
         await saved;
         return true;
       } catch {
+        if (
+          client
+            .pendingSends()
+            .getSnapshot()
+            .some((send) => send.commandId === commandId)
+        )
+          return true;
         setError("This device couldn't save the new thread. Try again.");
+        void navigate({ to: "/new", search: { project: request.project } });
         return false;
       }
     },

@@ -1,6 +1,6 @@
 import { distinctRetainedInputs } from "@ace/projection";
 import { composerInput, editComposerTokens, tokensFromInput } from "@ace/ui-core";
-import { useClient } from "@ace/client-react";
+import { useClient, useThreadMeta } from "@ace/client-react";
 import {
   CommandId,
   ThreadId,
@@ -73,6 +73,7 @@ export function overlayQueue(
 }
 
 export interface QueueControls {
+  canSteer: boolean;
   page: QueuePage | undefined;
   /** The page with the person's changes on their way applied. */
   messages: readonly QueuedMessage[];
@@ -102,6 +103,7 @@ export interface QueueControls {
  */
 export function useQueue(threadId: string): QueueControls {
   const client = useClient();
+  const canSteer = useThreadMeta(threadId)?.capabilities?.steer === true;
   const toast = useToast();
   const { storage } = useLayout();
   const { page, failed, refresh } = useServerQueue(threadId);
@@ -150,6 +152,7 @@ export function useQueue(threadId: string): QueueControls {
   );
   const ids = messages.map((message) => message.id);
   return {
+    canSteer,
     page,
     messages,
     failed,
@@ -244,27 +247,39 @@ export function useQueue(threadId: string): QueueControls {
         "save the message",
       ),
     act: (action) => {
-      if (!target || action.id === "choose_model") return;
-      const payload: CommandPayload =
-        action.id === "resume"
-          ? { type: page?.reason === "restart" ? "thread.resume" : "queue.resume", ...target }
-          : action.id === "hold"
-            ? { type: "queue.pause", ...target }
-            : {
-                type: "thread.limit",
-                ...target,
-                action: action.id,
-                ...("instanceId" in action && action.instanceId
-                  ? { instanceId: action.instanceId }
-                  : {}),
-              };
+      if (action.id === "choose_model" || inFlight.current.has("queue")) return;
+      inFlight.current.add("queue");
       setActing(true);
-      void runCommand(client, payload, crypto.randomUUID())
+      void (async () => {
+        const { queue } = await client.request({
+          type: "queue.get",
+          threadId: ThreadId.parse(threadId),
+          limit: 1,
+        });
+        const fresh = { threadId: ThreadId.parse(threadId), expectedRevision: queue.revision };
+        const payload: CommandPayload =
+          action.id === "resume"
+            ? { type: queue.reason === "restart" ? "thread.resume" : "queue.resume", ...fresh }
+            : action.id === "hold"
+              ? { type: "queue.pause", ...fresh }
+              : {
+                  type: "thread.limit",
+                  ...fresh,
+                  action: action.id,
+                  ...("instanceId" in action && action.instanceId
+                    ? { instanceId: action.instanceId }
+                    : {}),
+                };
+        await runCommand(client, payload, crypto.randomUUID());
+      })()
         .catch((error: unknown) => {
           toast.add({ title: "Couldn't do that", description: failureMessage(error) });
           refresh();
         })
-        .finally(() => setActing(false));
+        .finally(() => {
+          inFlight.current.delete("queue");
+          setActing(false);
+        });
     },
   };
 }

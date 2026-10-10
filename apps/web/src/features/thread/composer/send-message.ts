@@ -70,6 +70,15 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
     );
     return true;
   } catch {
+    if (
+      client
+        .pendingSends(threadId)
+        .getSnapshot()
+        .some((send) => send.commandId === commandId)
+    ) {
+      request.notify("Message not sent", "Use Retry or Edit on the message to send it again.");
+      return true;
+    }
     request.notify(
       "Couldn't send the message",
       "This device couldn't save it. It is back in the composer.",

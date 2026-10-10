@@ -57,14 +57,19 @@ export function useSuggestions(
     stale: boolean;
   }>();
   const scoped = !thread.draft || !!thread.id;
+  const commandOpen = trigger?.kind === "command";
+  const retryScope = thread.retryDraftScope;
   useEffect(() => {
-    if (!scoped || !ready) return;
+    if (commandOpen && draft && provider && !id) retryScope?.();
+  }, [commandOpen, draft, provider, id, retryScope]);
+  useEffect(() => {
+    if (!scoped || !ready || !commandOpen || (draft && !provider)) return;
     return sources.commands.watch(
       reference,
       (entries, stale) => setCatalog({ reference, entries, stale, failed: false }),
       () => setCatalog({ reference, entries: [], stale: false, failed: true }),
     );
-  }, [sources, scoped, ready, reference]);
+  }, [sources, scoped, ready, reference, commandOpen, draft, provider]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),

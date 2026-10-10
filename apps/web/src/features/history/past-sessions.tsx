@@ -35,11 +35,23 @@ function ProjectSessions({ project }: { project: Project }) {
   const [all, setAll] = useState(false);
   const sessions =
     query.data?.sessions.filter((session) => session.support.status === "supported") ?? [];
-  if (!sessions.length && !query.refreshing) return null;
   return (
     <section aria-label="Past sessions" className="mt-5 min-w-0">
       <h3 className="mb-2 text-sm font-medium text-muted-foreground">Past sessions</h3>
-      {query.scanLabel && <StatusLabel tone="working" label={query.scanLabel} />}
+      {query.isError ? (
+        <p role="alert" className="text-sm text-status-failed">
+          Couldn't load past sessions.{" "}
+          <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>
+            Try again
+          </Button>
+        </p>
+      ) : !query.data ? (
+        <StatusLabel tone="working" label="Loading past sessions…" />
+      ) : query.scanLabel ? (
+        <StatusLabel tone="working" label={query.scanLabel} />
+      ) : !sessions.length ? (
+        <p className="text-sm text-muted-foreground">No past sessions in {project.name}.</p>
+      ) : null}
       <ul aria-label={`Past sessions in ${project.name}`}>
         {sessions.slice(0, 4).map((session) => (
           <SessionRow
