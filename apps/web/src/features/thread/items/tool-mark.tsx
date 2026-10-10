@@ -1,6 +1,7 @@
 import type { ToolMark } from "@ace/ui-core/ace-tools";
 import {
   ChatsCircleIcon,
+  GitPullRequestIcon,
   DeviceMobileIcon,
   GlobeIcon,
   MonitorIcon,
@@ -15,6 +16,7 @@ const glyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon
   browser: GlobeIcon,
   agent: RobotIcon,
   thread: ChatsCircleIcon,
+  pr: GitPullRequestIcon,
   ace: NoteIcon,
 };
 

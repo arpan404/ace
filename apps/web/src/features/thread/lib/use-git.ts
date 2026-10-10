@@ -1,16 +1,20 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ForgePrStatus } from "@ace/protocol";
+import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 import { checkoutOf, type Checkout, type MergeMethod } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 
 const detailsKey = (threadId: string) => ["thread", "details", threadId];
+const repositoryKey = (repository: ForgeRepository | undefined) => [
+  repository?.host,
+  repository?.owner,
+  repository?.name,
+];
 const prKey = (threadId: string) => ["thread", "pr", threadId];
 const statusKey = (threadId: string) => ["thread", "git-status", threadId];
 /** The state the daemon publishes in a thread's `linkedPr` for a forge status. */
-const linkState = (status: ForgePrStatus) =>
-  status.state === "draft" || status.state === "unknown" ? "open" : status.state;
+const linkState = (status: ForgePrStatus) => (status.state === "unknown" ? "open" : status.state);
 
 /**
  * The files a commit of the checkout would take, read fresh each time a commit form opens:
@@ -46,6 +50,7 @@ export function useCheckoutState(thread: ThreadRef): {
   /** The linked PR as the forge last reported it (checks, mergeability, review threads). */
   status: ForgePrStatus | undefined;
   state: "loading" | "ready" | "none";
+  linkedPrs: ThreadDetails["linkedPrs"];
 } {
   const sources = useThreadSources();
   const live = useThreadMeta(thread.id)?.details;
@@ -57,11 +62,18 @@ export function useCheckoutState(thread: ThreadRef): {
     read: (_client, signal) => sources.workspace.details(thread, signal),
   });
   const details = live ?? read.data;
-  const linked = details?.linkedPr;
+  const linked = details?.linkedPrs?.[0] ?? details?.linkedPr;
   const pr = useDaemonQuery({
     // The daemon publishes the link's state as the forge reports it (merged by auto-merge,
     // closed on GitHub): a change reads the full status again.
-    queryKey: [...prKey(thread.id), linked?.number, linked?.state],
+    queryKey: [
+      ...prKey(thread.id),
+      ...(details?.linkedPrs?.[0]?.repo
+        ? repositoryKey(details.linkedPrs[0].repo)
+        : repositoryKey(details?.repository)),
+      linked?.number,
+      linked?.state,
+    ],
     enabled: !thread.draft && linked !== undefined && linked !== null,
     staleTime: 60_000,
     retry: false,
@@ -69,9 +81,9 @@ export function useCheckoutState(thread: ThreadRef): {
   });
   const checkout = checkoutOf(details, pr.data);
   const status = pr.data ?? undefined;
-  if (checkout) return { checkout, status, state: "ready" };
+  if (checkout) return { checkout, status, state: "ready", linkedPrs: details?.linkedPrs };
   const answered = details !== undefined || read.isError;
-  return { checkout, status, state: answered ? "none" : "loading" };
+  return { checkout, status, state: answered ? "none" : "loading", linkedPrs: details?.linkedPrs };
 }
 
 export type GitChange =
@@ -91,8 +103,8 @@ export type GitChange =
       /** GitHub usernames to ask for review once it is open. */
       reviewers?: readonly string[];
     }
-  | { kind: "link-pr"; number: number }
-  | { kind: "unlink-pr" }
+  | { kind: "link-pr"; number: number; repository?: ForgeRepository }
+  | { kind: "unlink-pr"; number?: number; repo?: ForgeRepository; all?: true }
   /** Merge the head the person saw (`headSha`): the forge refuses if the branch moved since. */
   | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string }
   | { kind: "request-review"; reviewers: readonly string[] };
@@ -118,18 +130,43 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
         return undefined;
       }
       if (change.kind === "unlink-pr") {
-        await workspace.unlinkPr(thread);
+        await workspace.unlinkPr(
+          thread,
+          change.all
+            ? { all: true }
+            : {
+                number: change.number ?? checkout?.pr?.number ?? 0,
+                ...(change.repo ? { repo: change.repo } : {}),
+              },
+        );
         queries.removeQueries({ queryKey: prKey(thread.id) });
         return undefined;
       }
-      const repository = checkout?.repository;
+      const repository =
+        change.kind === "link-pr"
+          ? (change.repository ?? checkout?.repository)
+          : checkout?.repository;
       if (!repository) throw new Error("This checkout has no GitHub remote.");
       const published = (status: ForgePrStatus) => {
-        queries.setQueryData([...prKey(thread.id), status.ref.number, linkState(status)], status);
+        queries.setQueryData(
+          [
+            ...prKey(thread.id),
+            ...repositoryKey(status.ref.repository),
+            status.ref.number,
+            linkState(status),
+          ],
+          status,
+        );
         return status;
       };
       if (change.kind === "link-pr")
-        return published(await workspace.linkPr(thread, { repository, number: change.number }));
+        return published(
+          await workspace.linkPr(thread, {
+            repository: change.repository ?? repository,
+            number: change.number,
+          }),
+        );
+      if (!checkout) throw new Error("This checkout can’t open a pull request.");
       if (change.kind === "create-pr") {
         const branch = checkout.branch;
         if (!branch) throw new Error("This checkout can't open a pull request.");
@@ -148,7 +185,10 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           ? published(await workspace.requestReview(thread, status.ref, change.reviewers))
           : status;
       }
-      const pr = checkout.pr && { repository, number: checkout.pr.number };
+      const pr = checkout.pr && {
+        repository: checkout.pr.repo ?? repository,
+        number: checkout.pr.number,
+      };
       if (!pr) throw new Error("No pull request is linked to this thread.");
       if (change.kind === "request-review")
         return published(await workspace.requestReview(thread, pr, change.reviewers));
@@ -170,11 +210,14 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
   });
   /** Ask the forge for the linked PR's status now; failures leave the last one shown. */
   const refreshPr = async () => {
-    const repository = checkout?.repository;
+    const repository = checkout?.pr?.repo ?? checkout?.repository;
     const number = checkout?.pr?.number;
     if (!repository || number === undefined) return;
     const status = await sources.workspace.refreshPr(thread, { repository, number });
-    queries.setQueryData([...prKey(thread.id), number, linkState(status)], status);
+    queries.setQueryData(
+      [...prKey(thread.id), ...repositoryKey(status.ref.repository), number, linkState(status)],
+      status,
+    );
   };
   return { change: mutation.mutateAsync, pending: mutation.isPending, refreshPr };
 }

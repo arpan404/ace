@@ -1,3 +1,4 @@
+import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
 import type { ForgeCheck, ForgePrStatus } from "@ace/protocol";
 import {
   mergeMethods,
@@ -19,17 +20,28 @@ import {
   UserPlusIcon,
   WarningIcon,
   XCircleIcon,
+  LinkBreakIcon,
+  DotsThreeIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { openExternal } from "@/boot/open-external.ts";
-import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuTrigger,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+} from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
+import { PrLinkForm } from "./pr-link-form.tsx";
+import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { TruncatedText, RowButton, RowNote, rowIcon, WorkSection } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
@@ -57,19 +69,35 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 
 const open = (url: string, onError: () => void) => void openExternal(url).catch(onError);
 
-/**
- * The thread's pull request: a row that expands its details inline (checks, conflicts, open review
- * threads, Merge and Request review), or why there is none. GitLab is named up front: the daemon
- * can't open or follow merge requests yet.
- */
+/** Linked PR rows and an inline field, with details for the primary link. */
 export function PullRequestsSection(props: { git: GitFlow }) {
   const { checkout } = props.git;
   const pr = checkout?.pr;
+  const [confirm, setConfirm] = useState(false);
+  const toast = useToast();
+  const links = props.git.linkedPrs;
   return (
-    <WorkSection id="work-card-prs" title="Pull requests">
+    <WorkSection
+      id="work-card-prs"
+      title="Pull requests"
+      controls={
+        (pr || !!links?.length) && (
+          <Menu>
+            <MenuTrigger
+              render={<IconButton icon={DotsThreeIcon} label="Pull request actions" size="sm" />}
+            />
+            <MenuContent align="end">
+              <MenuItem onClick={() => setConfirm(true)}>Unlink all</MenuItem>
+            </MenuContent>
+          </Menu>
+        )
+      }
+    >
       {pr && checkout ? (
-        <PrDisclosure key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
-      ) : (
+        <>
+          <PrDisclosure key={pr.number} git={props.git} pr={pr} base={checkout.baseBranch} />
+        </>
+      ) : !links?.length ? (
         <RowNote>
           <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
           {!checkout
@@ -78,6 +106,60 @@ export function PullRequestsSection(props: { git: GitFlow }) {
               ? "GitLab merge requests aren't supported yet"
               : "None for this branch yet"}
         </RowNote>
+      ) : null}
+      {(pr && checkout ? links?.slice(1) : links)?.map((link) => (
+        <div
+          key={`${link.repo.host}/${link.repo.owner}/${link.repo.name}/${link.number}`}
+          className="flex h-8 min-w-0 items-center gap-2 px-2.5 text-ui"
+        >
+          <PullRequestGlyph state={link.state} size={16} />
+          <Tip label={link.title ?? `Pull request #${link.number}`}>
+            <TruncatedText>
+              #{link.number} {link.title}
+            </TruncatedText>
+          </Tip>
+          <Tip
+            label={
+              link.deleted
+                ? "This pull request was deleted on GitHub"
+                : link.unverified
+                  ? "Not checked yet. ace will refresh when GitHub is reachable."
+                  : link.state
+            }
+          >
+            <span className={`text-xs ${prTone(link.state)}`}>{link.state}</span>
+          </Tip>
+          <IconButton
+            icon={ArrowSquareOutIcon}
+            label={`Open PR #${link.number} on GitHub`}
+            size="sm"
+            onClick={() => open(link.url, () => toast.error({ title: "Couldn’t open the PR" }))}
+          />
+          <IconButton
+            icon={LinkBreakIcon}
+            label={`Unlink PR #${link.number}`}
+            size="sm"
+            disabled={props.git.pending}
+            onClick={() =>
+              props.git.run({ kind: "unlink-pr", number: link.number, repo: link.repo })
+            }
+          />
+        </div>
+      ))}
+      {checkout?.repository?.forge !== "gitlab" && (
+        <PrLinkForm
+          repository={checkout?.repository}
+          pending={props.git.pending}
+          onLink={(number, repository) =>
+            props.git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
+          }
+        />
+      )}
+      {confirm && (
+        <PrUnlinkDialog
+          onClose={() => setConfirm(false)}
+          onUnlink={() => props.git.submit({ kind: "unlink-pr", all: true })}
+        />
       )}
     </WorkSection>
   );
@@ -89,7 +171,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [openNow, setOpen] = useState(false);
   const [error, setError] = useState<unknown>();
-  const repository = git.checkout?.repository;
+  const repository = pr.repo ?? git.checkout?.repository;
   const url = pr.url ?? (repository && pullRequestUrl(repository, pr.number));
   const refresh = () => {
     setRefreshing(true);
@@ -105,25 +187,58 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
   const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
     <div>
-      <RowButton
-        aria-expanded={openNow}
-        aria-controls={`pr-${pr.number}`}
-        onClick={() => {
-          setOpen(!openNow);
-          if (!openNow) refresh();
-        }}
-        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
-      >
-        <GitPullRequestIcon aria-hidden size={16} className={rowIcon} />
-        <Tip label={pr.title ?? git.checkout?.branch}>
-          <TruncatedText>
-            <span className="text-subtle-foreground">#{pr.number}</span>{" "}
-            {pr.title ?? git.checkout?.branch}
-          </TruncatedText>
-        </Tip>
-        <span className="shrink-0 text-xs text-subtle-foreground">{state}</span>
-        {ci && ci !== "none" && <ToneIcon tone={ci} />}
-      </RowButton>
+      <div className="flex min-w-0 items-center">
+        <RowButton
+          aria-expanded={openNow}
+          aria-controls={`pr-${pr.number}`}
+          onClick={() => {
+            setOpen(!openNow);
+            if (!openNow) refresh();
+          }}
+          aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
+        >
+          <PullRequestGlyph state={pr.state} size={16} />
+          <Tip label={pr.title ?? git.checkout?.branch}>
+            <TruncatedText>
+              <span className="text-subtle-foreground">#{pr.number}</span>{" "}
+              {pr.title ?? git.checkout?.branch}
+            </TruncatedText>
+          </Tip>
+          <Tip
+            label={
+              pr.deleted
+                ? "This pull request was deleted on GitHub"
+                : pr.unverified
+                  ? "Not checked yet. ace will refresh when GitHub is reachable."
+                  : state
+            }
+          >
+            <span className={`shrink-0 text-xs ${prTone(pr.state)}`}>{state}</span>
+          </Tip>
+          {ci && ci !== "none" && <ToneIcon tone={ci} />}
+        </RowButton>
+        {url && (
+          <IconButton
+            icon={ArrowSquareOutIcon}
+            label="Open on GitHub"
+            size="sm"
+            onClick={() => open(url, () => toast.error({ title: "Couldn’t open the PR" }))}
+          />
+        )}
+        <IconButton
+          icon={LinkBreakIcon}
+          label={`Unlink PR #${pr.number}`}
+          size="sm"
+          disabled={git.pending}
+          onClick={() =>
+            git.run({
+              kind: "unlink-pr",
+              number: pr.number,
+              ...(git.linkedPrs?.[0]?.repo ? { repo: git.linkedPrs[0].repo } : {}),
+            })
+          }
+        />
+      </div>
       {openNow && (
         <section id={`pr-${pr.number}`} aria-label={`Pull request #${pr.number}`}>
           <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
@@ -143,42 +258,12 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string }) {
                 onClick={refresh}
               />
             )}
-            {url && (
-              <IconButton
-                icon={ArrowSquareOutIcon}
-                label="Open on GitHub"
-                size="sm"
-                className="size-7"
-                onClick={() => open(url, () => toast.error({ title: "Couldn't open the PR" }))}
-              />
-            )}
           </div>
           {error !== undefined ? (
             <>
               <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
                 {failure(error)}
               </p>
-              <div className="flex h-8 items-center gap-1 px-2.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={git.pending}
-                  onClick={() => {
-                    setOpen(false);
-                    git.open("link-pr");
-                  }}
-                >
-                  Link…
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={git.pending}
-                  onClick={() => git.run({ kind: "unlink-pr" })}
-                >
-                  Unlink
-                </Button>
-              </div>
             </>
           ) : git.status ? (
             <PrDetails
