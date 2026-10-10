@@ -17,6 +17,7 @@ export function isolatedTestEnvironment(
     )
       env[key] = value;
   }
+  const deviceLive = ambient.ACE_DEVICE_LIVE === "1";
   return {
     ...env,
     HOME: home,
@@ -39,8 +40,12 @@ export function isolatedTestEnvironment(
     CURSOR_CONFIG_DIR: join(home, ".cursor"),
     CURSOR_DATA_DIR: join(home, ".cursor"),
     PI_CODING_AGENT_DIR: join(home, ".pi/agent"),
-    ANDROID_USER_HOME: join(home, ".android"),
-    ANDROID_AVD_HOME: join(home, ".android/avd"),
+    ANDROID_USER_HOME: deviceLive
+      ? (ambient.ANDROID_USER_HOME ?? join(realHome, ".android"))
+      : join(home, ".android"),
+    ANDROID_AVD_HOME: deviceLive
+      ? (ambient.ANDROID_AVD_HOME ?? join(realHome, ".android/avd"))
+      : join(home, ".android/avd"),
     ZDOTDIR: home,
     INPUTRC: join(home, ".inputrc"),
     GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
@@ -53,6 +58,15 @@ export function isolatedTestEnvironment(
     ACE_TEST_REAL_HOME: realHome,
     // This flag opts into only the dedicated native fixture, never a user app or home.
     ...(ambient.ACE_SCREEN_INTEGRATION === "1" ? { ACE_SCREEN_INTEGRATION: "1" } : {}),
+    ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
+    ...(ambient.ACE_DEVICE_VIDEO_LIVE === "1" ? { ACE_DEVICE_VIDEO_LIVE: "1" } : {}),
+    ...(ambient.ACE_DEVICE_GESTURE_LIVE === "1" ? { ACE_DEVICE_GESTURE_LIVE: "1" } : {}),
+    ...(ambient.ACE_DEVICE_LIVE_IOS_UUID !== undefined
+      ? { ACE_DEVICE_LIVE_IOS_UUID: ambient.ACE_DEVICE_LIVE_IOS_UUID }
+      : {}),
+    ...(ambient.ACE_DEVICE_LIVE_ANDROID_AVD !== undefined
+      ? { ACE_DEVICE_LIVE_ANDROID_AVD: ambient.ACE_DEVICE_LIVE_ANDROID_AVD }
+      : {}),
     // Browser binaries are installed once per machine; tests drive them read-only.
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
