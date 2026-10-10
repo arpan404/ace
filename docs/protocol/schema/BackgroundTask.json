@@ -30,6 +30,10 @@
     "outputPath": {
       "type": "string"
     },
+    "owner": {
+      "const": "ace",
+      "type": "string"
+    },
     "raw": {
       "default": [],
       "items": {

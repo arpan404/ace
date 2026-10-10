@@ -45,6 +45,11 @@ export function createEngineSession(context: SocketContext): SocketService {
     let cleanupComplete = true;
     try {
       await options.engine?.prepareCommand(accepted);
+      const fenced = options.store.commandReceipt(command.id, device);
+      if (fenced) {
+        send({ type: "commandResult", ...fenced });
+        return;
+      }
       if (!context.connected() || !context.authorize("operate")) return;
       if (
         options.engine &&
@@ -153,13 +158,13 @@ export function createEngineSession(context: SocketContext): SocketService {
             : { error: "workspace_unavailable" }),
       };
     } finally {
-      admission?.release();
       try {
         await preparation?.release();
       } catch (error) {
         cleanupComplete = false;
         options.log?.(error);
       }
+      admission?.release();
       if (operation) {
         const state = result?.ok
           ? useLocal || operation.action === "local"

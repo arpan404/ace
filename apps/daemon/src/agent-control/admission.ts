@@ -84,8 +84,17 @@ export class DelegationAdmission {
       }
       const now = this.deps.clock.now(),
         tree = this.journal.tree(caller.threadId, now);
+      const external = this.deps.externalCapacity?.(caller.threadId, tree.root);
       const rejection = admitDelegation(
-        { ...tree, concurrent: this.journal.concurrent(caller.threadId) },
+        {
+          ...tree,
+          children: tree.children + (external?.children ?? 0),
+          usage: {
+            tokens: tree.usage.tokens + (external?.usage.tokens ?? 0),
+            cost: tree.usage.cost + (external?.usage.cost ?? 0),
+          },
+          concurrent: this.journal.concurrent(caller.threadId) + (external?.concurrent ?? 0),
+        },
         this.policy,
         now,
       );

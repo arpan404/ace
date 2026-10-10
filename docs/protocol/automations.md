@@ -30,16 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
-  "enabled": false,
+  "concurrency": 1,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 0,
+  "jitterMs": 1,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "codex",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "event": "pr_changed",
+    "kind": "github",
+    "label": "example",
+    "pollIntervalMs": 60009,
+    "repository": "rXPX3/aRLbwlnF3wI"
   },
   "workspace": "example",
   "worktree": true
@@ -95,7 +99,7 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 8,
   "message": "example"
 }
 ```
@@ -117,16 +121,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
+    "concurrency": 2,
     "enabled": false,
     "id": "example",
-    "jitterMs": 6,
+    "jitterMs": 4,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "opencode",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
     "worktree": true
@@ -229,9 +236,9 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "error": "example",
+  "ok": false,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -259,10 +266,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 9,
   "id": "example",
-  "result": "example",
   "startedAt": 1,
-  "status": "failed",
+  "status": "skipped",
+  "threadId": "example",
   "title": "example",
   "trigger": "file"
 }
@@ -344,12 +352,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "pr_changed",
   "kind": "github",
   "label": "example",
   "pollIntervalMs": 60009,
-  "pullRequest": 5,
-  "repository": "lKskxK8o3m/2lig2kF"
+  "repository": "qOshEI7d/ns_fAm5D"
 }
 ```
 

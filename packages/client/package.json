@@ -14,7 +14,8 @@
     "./screen": "./src/screen.ts",
     "./screen-stream": "./src/screen-stream.ts",
     "./worktree-creations": "./src/worktree-creations.ts",
-    "./access": "./src/access.ts"
+    "./access": "./src/access.ts",
+    "./remote-context-relay": "./src/remote-context-relay.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.runtime.json",

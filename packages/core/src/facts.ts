@@ -144,6 +144,7 @@ export type Fact =
     }
   | {
       type: "background.started";
+      owner?: "ace";
       agent: Key;
       task: Key;
       kind: BackgroundTask["kind"];

@@ -1,3 +1,4 @@
+import { remoteContextTransfer } from "../agent-control/remote-context-transfer.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
 import {
   connectDevices,
@@ -19,6 +20,7 @@ import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 import { contextScope } from "./context-scope.ts";
 export interface RelayServices {
+  remoteDelegation?: import("../server-options.ts").ServerOptions;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   accountManagement?: import("../account-management.ts").AccountManagement;
   files?: FilesService;
@@ -195,6 +197,18 @@ export function attachRelayService(
       : undefined;
   return {
     async accept(message: ClientMessage) {
+      if (message.type === "delegation.remote.context") {
+        if (!options.remoteDelegation) throw new Error("Remote task context unavailable");
+        const scope = message.operation.op === "read" ? "read" : "operate";
+        await channel.send(
+          await remoteContextTransfer(
+            options.remoteDelegation,
+            message,
+            (thread) => authorize(scope) && (!thread || threadAccess(thread)),
+          ),
+        );
+        return;
+      }
       if (message.type === "context.request") {
         if (channel.bufferedBytes > 256 * 1024) {
           channel.close();

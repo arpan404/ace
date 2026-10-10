@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteTaskReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "running",
+        "waiting",
+        "unavailable",
+        "cancelling",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "result": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "taskId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/RemoteTaskUsage.json"
+    }
+  },
+  "required": [
+    "taskId",
+    "phase"
+  ],
+  "type": "object"
+}

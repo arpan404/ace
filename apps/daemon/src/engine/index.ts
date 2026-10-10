@@ -453,6 +453,42 @@ export class Engine {
     );
     this.wake(parentId);
   }
+  /** External execution holds the parent open without pretending the child is a local thread. */
+  remoteDelegation(task: import("@ace/protocol").RemoteTask): void {
+    const state = this.repo.requireState(task.parentThreadId);
+    const agent = state.indexes.agentKeysById[task.parentAgentId];
+    if (!agent) throw new Error("Unknown remote delegation parent");
+    const terminal = ["completed", "failed", "cancelled"].includes(task.phase);
+    const key = `ace-remote:${task.id}`;
+    this.repo.apply(
+      task.parentThreadId,
+      terminal
+        ? [
+            {
+              type: "background.ended",
+              task: key,
+              status:
+                task.phase === "completed"
+                  ? "completed"
+                  : task.phase === "cancelled"
+                    ? "stopped"
+                    : "failed",
+            },
+          ]
+        : [
+            {
+              type: "background.started",
+              owner: "ace",
+              agent,
+              task: key,
+              kind: "subagent",
+              title: `${task.request.role} · ${task.request.hostId}`,
+              stoppable: false,
+            },
+          ],
+      this.clock.now(),
+    );
+  }
   /** One stable parent item follows each independently owned child thread. */
   delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
     const state = this.repo.requireState(record.parentId);
@@ -754,6 +790,9 @@ export class Engine {
     return this.readyPromise;
   }
   /** Validate before Git I/O and hold an engine slot until acceptance or cancellation. */
+  creationPending(id: ThreadId): boolean {
+    return this.admissions.pending(id);
+  }
   admitCreation(command: Command): CreationAdmission | string {
     command = personCommand(command);
     if (this.closing) return "daemon_shutting_down";

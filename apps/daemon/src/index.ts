@@ -249,6 +249,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "providerLogin",
       "providerInstalls",
       "onboarding",
+      "agentControl",
       "mcp",
       "notifications",
       "notificationPublicKey",

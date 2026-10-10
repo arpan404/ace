@@ -1,0 +1,108 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteTask.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "context": {
+      "$ref": "https://ace.local/protocol/v1/RemoteContextManifest.json"
+    },
+    "createdAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "delivered": {
+      "type": "boolean"
+    },
+    "dispatched": {
+      "type": "boolean"
+    },
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "parentAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "parentPermissionMode": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parentPermissionOverride": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "parentProvider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "parentThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "permissionMode": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/RemoteTaskPhase.json"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/RemoteDelegationRequest.json"
+    },
+    "result": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "rootThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "sourceHostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/RemoteTaskUsage.json",
+      "default": {
+        "cost": 0,
+        "tokens": 0
+      }
+    }
+  },
+  "required": [
+    "id",
+    "sourceHostId",
+    "rootThreadId",
+    "parentProvider",
+    "parentPermissionMode",
+    "parentThreadId",
+    "parentAgentId",
+    "threadId",
+    "request",
+    "permissionMode",
+    "phase",
+    "dispatched",
+    "delivered",
+    "createdAt"
+  ],
+  "type": "object"
+}

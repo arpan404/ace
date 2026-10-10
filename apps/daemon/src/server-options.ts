@@ -30,6 +30,8 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  remoteContextTransfers?: import("./agent-control/remote-context-transfer.ts").RemoteContextTransfers;
+  agentControl?: import("./services/types.ts").Services["agentControl"];
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
   notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;

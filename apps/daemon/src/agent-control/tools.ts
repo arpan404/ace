@@ -2,6 +2,7 @@ import { oldestTitleInput } from "../engine/title-input.ts";
 import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
+  RemoteAgentOperation as RemoteOperation,
   type AgentControlResult,
   type McpAttribution,
   type ThreadId,
@@ -63,6 +64,11 @@ export interface AgentControlExtensions {
     operation: ExtensionOperation,
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
+  remote?(
+    caller: McpAttribution,
+    operation: import("@ace/protocol").RemoteAgentOperation,
+    signal: AbortSignal,
+  ): Promise<AgentControlResult>;
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
 }
 export function createAgentControlPort(
@@ -77,6 +83,13 @@ export function createAgentControlPort(
       // Authenticate again at the mutation boundary, including direct host callers.
       if (!store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
+      if (operation.op.startsWith("device."))
+        return (
+          extensions.remote?.(caller, importRemote(operation), signal) ?? {
+            ok: false,
+            code: "unsupported",
+          }
+        );
       if ("threadId" in operation) {
         const read = [
           "thread.read",
@@ -279,7 +292,11 @@ export function createAgentControlPort(
           return extensions.execute
             ? extensions.execute(caller, operation, signal)
             : { ok: false, code: "unsupported" };
+        default:
+          return { ok: false, code: "unsupported" };
       }
     },
   };
 }
+
+const importRemote = (operation: AgentControlOperation) => RemoteOperation.parse(operation);

@@ -74,6 +74,7 @@
   "devDependencies": {
     "@ace/adapter-testkit": "workspace:*",
     "@ace/client": "workspace:*",
+    "@ace/client-worker": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/perf-kit": "workspace:*",
     "@cursor/sdk": "1.0.35",

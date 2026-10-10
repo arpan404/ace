@@ -1,3 +1,5 @@
+import type { RemoteContextChannel } from "@ace/client/remote-context-relay";
+import type { RemoteRelayTarget } from "@ace/protocol";
 import {
   ClientError,
   Notifications,
@@ -40,6 +42,11 @@ export interface MachinePoolOptions {
   /** Spawn a separate worker with Client.expectedHostId = entry.hostId and a host/device outbox. */
   spawn(entry: MachineEntry, token: string): MachineWorker;
   remote: RemoteOptions;
+  openTaskRelay?(
+    entry: MachineEntry,
+    credential: () => Promise<string>,
+    target: import("zod").infer<typeof RemoteRelayTarget>,
+  ): Promise<RemoteContextChannel>;
 }
 interface Live {
   state: MachineState;
@@ -51,6 +58,7 @@ interface Live {
   attached: boolean;
   enabled: boolean;
   removing: boolean;
+  auxiliary: Set<RemoteContextChannel>;
 }
 type ThreadCommand = Exclude<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
 type CreateCommand = Extract<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
@@ -166,6 +174,36 @@ export class MachinePool {
     this.stopWorker(previous);
     this.connect(previous.state.entry);
   }
+  async contextRelay(
+    hostId: string,
+    target: import("zod").infer<typeof RemoteRelayTarget>,
+  ): Promise<RemoteContextChannel> {
+    const live = this.live.get(hostId);
+    if (
+      !live ||
+      !this.current(live) ||
+      live.state.status !== "online" ||
+      !this.options.openTaskRelay
+    )
+      throw new ClientError("offline", "Encrypted task context relay unavailable");
+    const channel = await this.options.openTaskRelay(
+      live.state.entry,
+      () => this.options.directory.token(live.state.entry),
+      target,
+    );
+    if (!this.current(live) || live.state.status !== "online") {
+      channel.close();
+      throw new ClientError("offline");
+    }
+    live.auxiliary.add(channel);
+    return {
+      request: (message) => channel.request(message),
+      close: () => {
+        live.auxiliary.delete(channel);
+        channel.close();
+      },
+    };
+  }
   /** All service families, projects, file transfers and one-way controls stay host scoped. */
   client(hostId: string): ClientApi {
     const live = this.live.get(hostId);
@@ -241,6 +279,7 @@ export class MachinePool {
       attached: false,
       enabled: true,
       removing: false,
+      auxiliary: new Set(),
     };
     this.live.set(entry.hostId, live);
     this.threads.register(entry);
@@ -330,6 +369,8 @@ export class MachinePool {
     this.stopWorker(live);
   }
   private stopWorker(live: Live): void {
+    for (const channel of live.auxiliary) channel.close();
+    live.auxiliary.clear();
     ++live.verification;
     live.stop?.();
     live.stopFailure?.();
