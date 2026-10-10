@@ -44,6 +44,11 @@ export function RemoteAccess() {
           use these controls.
         </p>
       )}
+      {status.data?.error && (
+        <p role="alert" className="py-2 text-sm text-destructive">
+          {status.data.error} Retrying automatically.
+        </p>
+      )}
       {status.isError && (
         <p role="alert" className="py-2 text-sm text-muted-foreground">
           {status.error.message}
@@ -69,9 +74,9 @@ export function RemoteAccess() {
           ? "Encrypted access on your local network. Browsers must trust this computer's HTTPS certificate. Never forward its local port to the internet."
           : selected === "tailscale"
             ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
-            : "Use a relay you host yourself. Its channels are end-to-end encrypted. Pair over LAN or Tailscale first. The relay currently carries files, browser and computer controls."}
+            : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
       </p>
-      {selected === "relay" && (
+      {
         <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
           <Input
             id={`${id}-relay`}
@@ -85,7 +90,7 @@ export function RemoteAccess() {
             }}
           />
         </SettingRow>
-      )}
+      }
     </SettingSection>
   );
 }

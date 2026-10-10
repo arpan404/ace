@@ -1,3 +1,4 @@
+import { browserCredential } from "@/boot/remote-credential.ts";
 import {
   ScreenClientError,
   ScreenStreamClient,
@@ -28,11 +29,11 @@ const schedule = (callback: () => void, delayMs: number) => {
  */
 function transportFor(endpoint: DaemonEndpoint): ScreenTransport {
   if (endpoint.kind === "fake") return endpoint.screen();
-  const { url, token } = endpoint.target;
+  const { url } = endpoint.target;
   return screenTransport({
     target: { kind: "local", url },
     deviceId: endpoint.deviceId,
-    credential: async () => token,
+    credential: browserCredential(endpoint.target),
     socket: browserScreenSocket,
     keys: () => {
       throw new Error("Relay targets are not reachable from the web app.");

@@ -158,8 +158,13 @@ export async function remoteContextTransfer(
             (db) =>
               z
                 .object({ count: z.number() })
-                .parse(db.prepare("SELECT COUNT(*) AS count FROM remote_agent_context").get())
-                .count,
+                .parse(
+                  db
+                    .prepare(
+                      "SELECT COUNT(*) AS count FROM remote_agent_context WHERE NOT EXISTS (SELECT 1 FROM threads WHERE threads.id=json_extract(record,'$.task.threadId') AND (json_extract(client,'$.deletedAt') IS NOT NULL OR json_extract(status,'$.state') IN ('done','failed')))",
+                    )
+                    .get(),
+                ).count,
           );
           if (count >= 10000) return fail("busy");
           const reply = await context.handle(

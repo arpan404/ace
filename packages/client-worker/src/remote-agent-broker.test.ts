@@ -1,7 +1,14 @@
 import { expect, test, vi } from "vitest";
+import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { Client } from "@ace/client";
 import { type ServiceRequest, type ServiceResponse } from "@ace/client";
 import { MachineEntry } from "@ace/client/machines";
-import { RemoteTask, RemoteDelegationResult, RemoteRelayTarget } from "@ace/protocol";
+import {
+  RemoteTaskReport,
+  RemoteTask,
+  RemoteDelegationResult,
+  RemoteRelayTarget,
+} from "@ace/protocol";
 import { RemoteAgentBroker } from "./remote-agent-broker.ts";
 
 const task = RemoteTask.parse({
@@ -42,12 +49,15 @@ const reply = <Q extends ServiceRequest>(input: Q, body: object): ServiceRespons
     ...body,
   }) as ServiceResponse<Q>;
 function world(
-  status: "completed" | "not_found" | "legacy",
+  status: "completed" | "not_found" | "legacy" | "files",
   afterTransfer: "running" | "cancelling" | "expired" = "running",
   tasks: RemoteTask[] = [task],
 ) {
   const calls: string[] = [];
   const phases: string[] = [];
+  const emitted: RemoteTaskReport[] = [];
+  let admitted = false;
+  let cancelled = false;
   let reports = 0;
   let transferFinished = false;
   const relay = RemoteRelayTarget.parse({
@@ -62,6 +72,7 @@ function world(
     if (input.type !== "delegation.broker.report") throw new Error("Unexpected source request");
     reports++;
     phases.push(input.report.phase);
+    emitted.push(RemoteTaskReport.parse(input.report));
     if (reports === 2 && transferFinished && afterTransfer === "expired")
       return reply(input, { ok: false, error: "forbidden" });
     return reply(input, {
@@ -83,7 +94,8 @@ function world(
                 ok: true,
                 phase: "completed",
                 result: "Already finished",
-                ...(status === "completed"
+                truncated: true,
+                ...(status === "completed" || status === "files"
                   ? {
                       artifacts: {
                         taskId: input.taskId,
@@ -92,7 +104,18 @@ function world(
                         hostId: task.request.hostId,
                         threadId:
                           tasks.find((t) => t.id === input.taskId)?.threadId ?? task.threadId,
-                        attachments: [],
+                        attachments:
+                          status === "files"
+                            ? [
+                                {
+                                  sha256: "c".repeat(64),
+                                  name: "output.txt",
+                                  mimeType: "text/plain",
+                                  bytes: 12,
+                                  kind: "text",
+                                },
+                              ]
+                            : [],
                       },
                     }
                   : {}),
@@ -102,8 +125,10 @@ function world(
       case "delegation.remote.transport":
         return reply(input, { ok: true, relay });
       case "delegation.remote.start":
+        admitted = true;
         return reply(input, { ok: true });
       case "delegation.remote.cancel":
+        cancelled = true;
         return reply(input, { ok: true, phase: "cancelled" });
       default:
         throw new Error("Unexpected target request");
@@ -148,18 +173,19 @@ function world(
     scheduler: { set: () => () => {} },
     now: () => 0,
   });
-  return { broker, calls, phases };
+  return { broker, calls, phases, emitted, admitted: () => admitted, cancelled: () => cancelled };
 }
 
 test("broker recovers adopted target status without repeating context uploads or admission", async () => {
   const f = world("completed");
   await f.broker.cycle();
-  await vi.waitFor(() =>
-    expect(f.calls.filter((call) => call === "delegation.broker.report")).toHaveLength(2),
-  );
+  await vi.waitFor(() => expect(f.phases).toContain("completed"));
   expect(f.phases).toContain("completed");
-  expect(f.calls).not.toContain("delegation.remote.start");
-  expect(f.calls).not.toContain("delegation.remote.transport");
+  expect(f.admitted()).toBe(false);
+  expect(f.emitted.find((report) => report.phase === "completed")).toMatchObject({
+    result: "Already finished",
+    truncated: true,
+  });
   f.broker.close();
 });
 test.each(["cancelling", "expired"] as const)(
@@ -167,15 +193,11 @@ test.each(["cancelling", "expired"] as const)(
   async (phase) => {
     const f = world("not_found", phase);
     await f.broker.cycle();
-    await vi.waitFor(() => expect(f.calls).toContain("relay.close"));
     await vi.waitFor(() =>
-      expect(
-        f.calls.filter((call) => call === "delegation.broker.report").length,
-      ).toBeGreaterThanOrEqual(2),
+      expect(f.phases).toContain(phase === "cancelling" ? "cancelled" : "running"),
     );
-    if (phase === "cancelling")
-      await vi.waitFor(() => expect(f.calls).toContain("delegation.remote.cancel"));
-    expect(f.calls).not.toContain("delegation.remote.start");
+    if (phase === "cancelling") await vi.waitFor(() => expect(f.cancelled()).toBe(true));
+    expect(f.admitted()).toBe(false);
     f.broker.close();
   },
 );
@@ -188,12 +210,17 @@ test("broker rotates tasks on the same host rather than starving later task iden
   });
   const f = world("completed", "running", [task, second]);
   await f.broker.cycle();
-  await vi.waitFor(() => expect(f.calls).toContain(`status:${task.id}`));
   await vi.waitFor(() =>
-    expect(f.calls.filter((call) => call === "delegation.broker.report")).toHaveLength(2),
+    expect(
+      f.emitted.some((report) => report.taskId === task.id && report.phase === "completed"),
+    ).toBe(true),
   );
   await f.broker.cycle();
-  await vi.waitFor(() => expect(f.calls).toContain(`status:${second.id}`));
+  await vi.waitFor(() =>
+    expect(
+      f.emitted.some((report) => report.taskId === second.id && report.phase === "completed"),
+    ).toBe(true),
+  );
   f.broker.close();
 });
 
@@ -203,4 +230,104 @@ test("broker reports incompatible target outcomes as unavailable rather than los
   await vi.waitFor(() => expect(f.phases).toContain("unavailable"));
   expect(f.phases).not.toContain("completed");
   f.broker.close();
+});
+
+test("repeated file-import failure returns the sealed answer and names the missing files", async () => {
+  const f = world("files");
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const previous = f.emitted.length;
+    await f.broker.cycle();
+    await vi.waitFor(() =>
+      expect(
+        f.emitted
+          .slice(previous)
+          .some((report) => report.phase === (attempt === 2 ? "completed" : "unavailable")),
+      ).toBe(true),
+    );
+  }
+  expect(f.emitted.find((report) => report.phase === "completed")).toMatchObject({
+    result: "Already finished",
+    truncated: true,
+    artifactsUnavailable: true,
+    error: expect.stringContaining("output.txt"),
+  });
+  f.broker.close();
+});
+
+test("device discovery withdraws a connected host when its files relay is unavailable", async () => {
+  const daemon = new FakeDaemon({ clock: () => 0 });
+  let sequence = 0;
+  const client = new Client({
+    deviceId: MachineEntry.shape.deviceId.parse("browser"),
+    credential: async () => daemon.token,
+    transport: () => fakeTransport(daemon),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: { set: () => () => {} },
+    random: () => 0,
+    id: () => `discovery-${++sequence}`,
+  });
+  await client.start();
+  await vi.waitFor(() => expect(client.state).toBe("ready"));
+  let available = true;
+  let now = 0;
+  const registrations: string[][] = [];
+  const remote = {
+    projects: client.projects,
+    request: <Q extends ServiceRequest>(input: Q): Promise<ServiceResponse<Q>> =>
+      input.type === "delegation.remote.transport"
+        ? Promise.resolve(
+            reply(input, {
+              ok: true,
+              ...(available
+                ? { relay: { url: "ws://relay.test/", pinnedFingerprint: "A".repeat(52) } }
+                : {}),
+            }),
+          )
+        : client.request(input),
+  };
+  const broker = new RemoteAgentBroker({
+    primary: {
+      state: "ready",
+      request: async <Q extends ServiceRequest>(input: Q) => {
+        if (input.type === "delegation.broker.register")
+          registrations.push(input.hosts.map((host) => host.hostId));
+        return reply(
+          input,
+          input.type === "delegation.broker.register"
+            ? { ok: true, lease: "lease" }
+            : { ok: true, tasks: [] },
+        );
+      },
+    },
+    pool: {
+      ids: ["target"],
+      machine: () => ({
+        status: "online",
+        entry: MachineEntry.parse({
+          hostId: "target",
+          displayName: "Target",
+          deviceId: "paired",
+          target: { kind: "direct", url: "ws://target.test/" },
+        }),
+      }),
+      client: () => remote,
+    },
+    scheduler: { set: () => () => {} },
+    now: () => now,
+  });
+  try {
+    await vi.waitFor(async () => {
+      await broker.cycle();
+      expect(registrations.at(-1)).toEqual(["target"]);
+    });
+    available = false;
+    now = 60001;
+    await vi.waitFor(async () => {
+      await broker.cycle();
+      expect(registrations.at(-1)).toEqual([]);
+    });
+  } finally {
+    broker.close();
+    await client.close();
+  }
 });

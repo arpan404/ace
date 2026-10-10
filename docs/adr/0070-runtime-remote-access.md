@@ -45,10 +45,15 @@ remain independent grants under Advanced access even with administrator access.
 ## Relay boundary
 
 Runtime Relay selection owns the already implemented encrypted auxiliary
-channels, using the user's self-hosted endpoint. It creates no LAN listener.
-Pairing still needs a direct LAN or Tailscale connection. The existing relay does
+channels, using the user's self-hosted endpoint. Relay selection keeps the LAN
+listener for pairing and conversations. A configured relay also runs alongside
+LAN or Tailscale. The existing relay does
 not implement main conversation or pairing channels. The UI describes this
 boundary; adding those channels requires a separate transport contract.
+
+Unavailable saved transports leave the local listener usable, expose an error
+status and retry with bounded backoff. The live runtime relay is also the
+delegation files relay; hosts without it are excluded from device discovery.
 
 ## Verification
 

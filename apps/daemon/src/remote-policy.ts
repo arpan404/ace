@@ -13,12 +13,11 @@ export function remotePlan(config: Config, preferences: RemotePreferences) {
   const listenOverride = config.listenOverride ?? config.listen !== "local";
   const listen = listenOverride
     ? config.listen
-    : !enabled || transport === "relay"
+    : !enabled
       ? "local"
       : transport === "tailscale"
         ? "tailscale"
         : "lan";
-  const relayUrl =
-    config.relayUrl ?? (enabled && transport === "relay" ? preferences["remote.relayUrl"] : "");
+  const relayUrl = config.relayUrl ?? (enabled ? preferences["remote.relayUrl"] : "");
   return { listen, relayUrl, signature: JSON.stringify([listen, relayUrl]) };
 }

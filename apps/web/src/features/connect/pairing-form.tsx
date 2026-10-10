@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccessClient } from "@ace/client/access";
 import { ClientError } from "@ace/client";
 import { Button } from "@/components/ui/button.tsx";
@@ -10,7 +10,8 @@ import { DaemonTarget, type DaemonTarget as Target } from "@/boot/connection-set
 export function PairingForm(props: {
   link?: string | undefined;
   url: string;
-  connect(target: Target, remember: boolean): void;
+  connect(target: Target, remember: boolean, signal: AbortSignal): void | Promise<void>;
+  submitLabel?: string;
   cancel(): void;
 }) {
   const [link, setLink] = useState(props.link ?? "");
@@ -19,7 +20,11 @@ export function PairingForm(props: {
   const [remember, setRemember] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const controller = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => controller.current?.abort(), []);
   const submit = async () => {
+    const owned = new AbortController();
+    controller.current = owned;
     setError("");
     setPending(true);
     try {
@@ -44,18 +49,21 @@ export function PairingForm(props: {
         fetch: (input, init) => fetch(input, init),
         token: async () => "",
       });
-      const paired = await access.redeem(code, name.trim());
+      const paired = await access.redeem(code, name.trim(), owned.signal);
       const url = new URL(origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      props.connect(
+      if (owned.signal.aborted) return;
+      await props.connect(
         DaemonTarget.parse({
           url: url.toString(),
           token: paired.token,
           pairedDeviceId: paired.device.id,
         }),
         remember,
+        owned.signal,
       );
     } catch (reason) {
+      if (owned.signal.aborted) return;
       setError(
         reason instanceof ClientError && reason.message === "HTTP 401"
           ? "This link expired or has already been used. Create a new one on the host computer."
@@ -130,11 +138,18 @@ export function PairingForm(props: {
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="button" variant="ghost" disabled={pending} onClick={props.cancel}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            controller.current?.abort();
+            props.cancel();
+          }}
+        >
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Pairing…" : "Pair and connect"}
+          {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
         </Button>
       </div>
     </form>

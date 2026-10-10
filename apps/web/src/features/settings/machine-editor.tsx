@@ -1,6 +1,15 @@
+import { AddMachine } from "./add-machine.tsx";
+import { machineStatus, machineProblem } from "@/lib/machine-status.ts";
+import { useToast } from "@/components/ui/toast.tsx";
 import { useState } from "react";
 import type { MachineIcon } from "@ace/protocol";
-import { CheckIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import {
+  CheckIcon,
+  PencilSimpleIcon,
+  PlusIcon,
+  ArrowClockwiseIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { MachineLabel, MachineMark } from "@/components/ui/machine-label.tsx";
@@ -39,9 +48,20 @@ const colors: readonly { value: NonNullable<MachineIcon["color"]>; label: string
 export function Machines() {
   const machines = useMachines();
   const pool = useMachinePool();
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
   const [editing, setEditing] = useState<Machine>();
   return (
     <SettingSection label="Machines">
+      <SettingRow
+        compact
+        inline
+        title="Add machine"
+        description="Use a pairing link from another computer"
+      >
+        <IconButton icon={PlusIcon} size="sm" label="Add machine" onClick={() => setAdding(true)} />
+      </SettingRow>
+      {adding && <AddMachine onClose={() => setAdding(false)} />}
       {machines.map((machine) => (
         <SettingRow
           key={machine.primary ? "primary" : machine.id}
@@ -49,12 +69,36 @@ export function Machines() {
           compact
           inline
           title={<MachineLabel name={machine.name} icon={machine.icon} />}
-          description={machine.primary ? "This machine" : "Paired machine"}
+          description={
+            machine.primary ? "This machine" : machineProblem(machine.status, !!machine.failed)
+          }
         >
           <StatusLabel
-            tone={machine.status === "online" ? "done" : "idle"}
-            label={machine.status === "online" ? "Online" : "Offline"}
+            tone={machineStatus[machine.status].tone}
+            label={machineStatus[machine.status].label}
           />
+          {!machine.primary && (
+            <>
+              <IconButton
+                icon={ArrowClockwiseIcon}
+                size="sm"
+                label={`Reconnect ${machine.name}`}
+                disabled={machine.status === "online" || machine.status === "connecting"}
+                onClick={() => pool?.reconnect(machine.id)}
+              />
+              <IconButton
+                icon={TrashIcon}
+                size="sm"
+                label={`Forget ${machine.name}`}
+                onClick={() =>
+                  void pool?.remove(machine.id).then(
+                    () => toast.add({ title: `${machine.name} forgotten` }),
+                    () => toast.error({ title: "Couldn't forget this machine. Try again." }),
+                  )
+                }
+              />
+            </>
+          )}
           <IconButton
             icon={PencilSimpleIcon}
             size="sm"

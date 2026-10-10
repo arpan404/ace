@@ -363,13 +363,190 @@ test("rejected parent result delivery rolls back its receipt and retries safely"
     ok: false,
     error: "queue_capacity_exceeded",
   }));
-  expect(() =>
-    f.remote.report("window", f.lease, { taskId: task.id, phase: "completed", result: "Ready" }),
-  ).toThrow("Remote result delivery unavailable");
-  expect(f.service.commandReceipt(`remote-result:${task.id}`)).toBeUndefined();
   expect(
     f.remote.report("window", f.lease, { taskId: task.id, phase: "completed", result: "Ready" }),
-  ).toMatchObject({ delivered: true });
+  ).toMatchObject({ phase: "completed", delivered: false });
+  expect(f.service.commandReceipt(`remote-result:${task.id}`)).toBeUndefined();
+  f.clock.advance(f.clock.now() + 5000);
+  f.remote.drain();
+  expect(f.remote.journal.get(task.id)).toMatchObject({ delivered: true });
   expect(f.service.commandReceipt(`remote-result:${task.id}`)).toMatchObject({ ok: true });
   handler.mockRestore();
+});
+
+test("an offline dispatched cancellation ends with an explicit unknown remote state", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  await f.remote.execute(
+    f.caller,
+    { op: "device.task_cancel", taskId: task.id },
+    new AbortController().signal,
+  );
+  f.remote.disconnect("window");
+  f.clock.advance(f.clock.now() + 30000);
+  f.remote.drain();
+  expect(f.remote.journal.get(task.id)).toMatchObject({
+    phase: "failed",
+    delivered: true,
+    error: expect.stringContaining("may still be running"),
+  });
+  expect(
+    Object.values(f.store.snapshotThread(f.caller.threadId).backgroundTasks).some(
+      (background) => background.status === "running",
+    ),
+  ).toBe(false);
+});
+
+test("the parent background row can stop a dispatched remote task", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  const background = Object.values(f.store.snapshotThread(f.caller.threadId).backgroundTasks).find(
+    (candidate) => candidate.kind === "subagent",
+  );
+  expect(background?.stoppable).toBe(true);
+  if (!background) throw new Error("No background row");
+  expect(
+    f.service.command("stop-remote-row", { type: "background_task.stop", taskId: background.id })
+      .ok,
+  ).toBe(true);
+  expect(f.remote.journal.get(task.id)?.phase).toBe("cancelling");
+});
+
+test("sealed text and its truncation marker survive a cancellation race and missing files", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  f.remote.stopTask(task.id);
+  f.remote.report("window", f.lease, {
+    taskId: task.id,
+    phase: "completed",
+    result: "Sealed answer",
+    truncated: true,
+    artifactsUnavailable: true,
+    error: "Files could not be imported",
+  });
+  f.remote.report("window", f.lease, { taskId: task.id, phase: "cancelled" });
+  const messages = f.events.flatMap((event) =>
+    event.payload.type === "item.created" && event.payload.item.type === "message"
+      ? event.payload.item.parts
+      : [],
+  );
+  expect(
+    messages.some(
+      (part) =>
+        part.type === "text" &&
+        part.text.includes("Sealed answer") &&
+        part.text.includes("truncated") &&
+        part.text.includes("Files could not"),
+    ),
+  ).toBe(true);
+});
+
+test("one rejected result does not stall another task and retries after its own backoff", async () => {
+  const f = await world();
+  const first = await f.delegate();
+  const second = RemoteTask.parse(
+    (
+      await f.remote.execute(
+        f.caller,
+        { ...f.operation, requestId: "second" },
+        new AbortController().signal,
+      )
+    ).data,
+  );
+  f.remote.poll("window", f.lease);
+  const original = f.engine.internalHandler.handle;
+  const handler = vi
+    .spyOn(f.engine.internalHandler, "handle")
+    .mockImplementation((command, context) =>
+      command.id === `remote-result:${first.id}`
+        ? { commandId: command.id, ok: false, error: "queue_capacity_exceeded" }
+        : original(command, context),
+    );
+  f.remote.report("window", f.lease, { taskId: first.id, phase: "completed", result: "First" });
+  expect(
+    f.remote.report("window", f.lease, { taskId: second.id, phase: "completed", result: "Second" }),
+  ).toMatchObject({ delivered: true });
+  expect(f.remote.poll("window", f.lease)).toHaveLength(1);
+  handler.mockRestore();
+  f.clock.advance(f.clock.now() + 5000);
+  f.remote.drain();
+  expect(f.remote.journal.active()).toEqual([]);
+  expect(f.service.commandReceipt(`remote-result:${first.id}`)).toMatchObject({ ok: true });
+});
+
+test("old delivered tasks expire while undelivered work remains available", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  f.remote.report("window", f.lease, { taskId: task.id, phase: "completed", result: "Finished" });
+  await f.emit(f.caller.threadId, { type: "process.exited", deliberate: false });
+  f.clock.advance(f.clock.now() + 8 * 24 * 60 * 60 * 1000);
+  f.remote.drain();
+  expect(f.remote.journal.get(task.id)).toBeUndefined();
+});
+
+test("ten thousand historical tasks do not prevent a new delegation", async () => {
+  const f = await world();
+  const first = await f.delegate();
+  f.remote.poll("window", f.lease);
+  f.remote.report("window", f.lease, { taskId: first.id, phase: "completed", result: "Finished" });
+  f.store.atomic(() => {
+    for (let index = 0; index < 10000; index++)
+      f.remote.journal.save(
+        RemoteTask.parse({
+          ...first,
+          id: index.toString(16).padStart(64, "0"),
+          rootThreadId: "historical-root",
+          phase: "completed",
+          delivered: true,
+        }),
+      );
+  });
+  const next = await f.remote.execute(
+    f.caller,
+    { ...f.operation, requestId: "after-history" },
+    new AbortController().signal,
+  );
+  expect(next).toMatchObject({ ok: true, data: { phase: "queued" } });
+});
+
+test("a sealed answer arriving after the cancellation deadline reaches the parent once without undoing the failure", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  await f.remote.execute(
+    f.caller,
+    { op: "device.task_cancel", taskId: task.id },
+    new AbortController().signal,
+  );
+  f.clock.advance(f.clock.now() + 30000);
+  f.remote.drain();
+  expect(f.remote.journal.get(task.id)).toMatchObject({ phase: "failed", delivered: true });
+  const lease = f.remote.register("window", [], () => true);
+  if (!lease) throw new Error("No broker lease");
+  const report = {
+    taskId: task.id,
+    phase: "completed" as const,
+    result: "Late sealed answer",
+    truncated: true,
+    artifactsUnavailable: true,
+  };
+  f.remote.report("window", lease, report);
+  f.remote.report("window", lease, report);
+  expect(f.remote.journal.get(task.id)).toMatchObject({
+    phase: "failed",
+    delivered: true,
+    result: "Late sealed answer",
+  });
+  const text = f.events.flatMap((event) =>
+    event.payload.type === "item.created" && event.payload.item.type === "message"
+      ? event.payload.item.parts
+      : [],
+  );
+  expect(
+    text.filter((part) => part.type === "text" && part.text.includes("Late sealed answer")),
+  ).toHaveLength(1);
 });

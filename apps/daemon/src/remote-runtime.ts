@@ -1,3 +1,4 @@
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { createServer } from "node:https";
 import type { RequestListener, Server } from "node:http";
 import { join } from "node:path";
@@ -21,6 +22,11 @@ export function remoteRuntime(
   attach: (server: Server) => void,
   disconnect: () => void,
 ) {
+  options.relay = undefined;
+  const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
+  let retry: (() => void) | undefined;
+  let retryMs = 1000;
+  let error: string | undefined;
   let listener: Server | undefined;
   let connection: { origin: string; fingerprint: string } | undefined;
   let relay: Awaited<ReturnType<typeof startRelayTransport>>;
@@ -54,6 +60,7 @@ export function remoteRuntime(
     auth.clearPending();
     await relay?.close();
     relay = undefined;
+    options.relay = undefined;
     if (listener) await closeListener(listener);
     listener = undefined;
     active = "";
@@ -67,6 +74,7 @@ export function remoteRuntime(
       throw new SettingsError("validation", "Enter your self-hosted relay address first.");
     if (signature === active) {
       preferences = next;
+      error = undefined;
       return;
     }
     // Resolve prerequisites before taking an existing listener down. Never fall back to LAN.
@@ -101,19 +109,37 @@ export function remoteRuntime(
       }
       if (relayOptions)
         relay = await startRelayTransport({ ...options, relay: relayOptions }, auth);
+      options.relay = relay ? relayOptions : undefined;
       preferences = next;
       active = signature;
+      error = undefined;
+      retryMs = 1000;
     } catch {
-      await retire();
+      // A relay outage must leave the direct pairing and conversation listener available.
+      if (!connection) await retire();
       throw new SettingsError(
         "io",
         "Couldn't start remote access. Check the selected network or relay address and try again.",
       );
     }
   };
+  const recover = (failure: unknown) => {
+    error =
+      failure instanceof SettingsError
+        ? failure.message
+        : "Couldn't start remote access. Check your network or relay address.";
+    options.log?.(new Error(error));
+    if (closed || retry) return;
+    retry = delay(() => {
+      retry = undefined;
+      void serialize(() => apply(preferences)).catch(recover);
+    }, retryMs);
+    retryMs = Math.min(retryMs * 2, 30000);
+  };
   return {
     pairing: () => connection,
     status: () => ({
+      ...(error ? { error } : {}),
       enabled: connection !== undefined || relay !== undefined,
       transport: relay ? ("relay" as const) : directTransport,
       listenOverride: options.remoteConfig?.listenOverride ? options.remoteConfig.listen : null,
@@ -135,7 +161,7 @@ export function remoteRuntime(
             preferences[entry.key] = entry.value;
         }
       }
-      await serialize(() => apply(preferences));
+      await serialize(() => apply(preferences)).catch(recover);
       const reconcile = () => {
         dirty = true;
         if (reconciling || closed) return;
@@ -154,10 +180,11 @@ export function remoteRuntime(
               if (entry.key === "remote.relayUrl" && typeof entry.value === "string")
                 next[entry.key] = entry.value;
             }
+            preferences = next;
             await apply(next);
           }
         })
-          .catch(() => options.log?.(new Error("Remote settings could not be applied")))
+          .catch(recover)
           .finally(() => {
             reconciling = false;
             if (dirty && !closed) reconcile();
@@ -173,6 +200,8 @@ export function remoteRuntime(
     set(key: string, value: unknown, commit: () => Promise<void>) {
       if (!keys.some((item) => item === key)) return commit();
       return serialize(async () => {
+        retry?.();
+        retry = undefined;
         const before = preferences;
         try {
           await apply(
@@ -184,13 +213,15 @@ export function remoteRuntime(
           );
           await commit();
         } catch (failure) {
-          await apply(before);
+          await apply(before).catch(recover);
           throw failure;
         }
       });
     },
     async close() {
       closed = true;
+      retry?.();
+      retry = undefined;
       stop?.();
       await tail;
       await retire();

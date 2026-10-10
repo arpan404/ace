@@ -4,3 +4,5 @@ export { DaemonForm } from "./daemon-form.tsx";
 export { StartingScreen } from "./starting-screen.tsx";
 export { BareBootFailure, BootErrorBoundary, BootFailure } from "./boot-failure.tsx";
 export { DesktopFailureScreen } from "./desktop-failure-screen.tsx";
+
+export { PairingForm } from "./pairing-form.tsx";
