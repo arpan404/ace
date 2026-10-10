@@ -182,6 +182,47 @@ test("restored model instance homes and environment selectors cannot scan protec
   expect(await readdir(protectedHome)).toEqual([]);
 });
 
+test("device live opt-ins reach workers while other ACE selectors stay discarded", async ({
+  onTestFinished,
+}) => {
+  const { protectedHome, safeHome } = await testHomes(onTestFinished);
+  const env = testHomeEnvironment(safeHome, protectedHome, {
+    ...process.env,
+    ACE_DEVICE_LIVE: "1",
+    ACE_DEVICE_LIVE_IOS_UUID: "ios-device-uuid",
+    ACE_DEVICE_LIVE_ANDROID_AVD: "android-avd-name",
+    ACE_DEVICE_VIDEO_LIVE: "1",
+    ACE_DEVICE_GESTURE_LIVE: "1",
+    ACE_ACCOUNTS_DB: join(protectedHome, "accounts.sqlite"),
+  });
+  expect(env["ACE_DEVICE_LIVE"]).toBe("1");
+  expect(env["ACE_DEVICE_LIVE_IOS_UUID"]).toBe("ios-device-uuid");
+  expect(env["ACE_DEVICE_LIVE_ANDROID_AVD"]).toBe("android-avd-name");
+  expect(env["ACE_DEVICE_VIDEO_LIVE"]).toBe("1");
+  expect(env["ACE_DEVICE_GESTURE_LIVE"]).toBe("1");
+  expect(env["ACE_ACCOUNTS_DB"]).toBeUndefined();
+  expect(env["HOME"]).toBe(safeHome);
+});
+
+test("android device homes stay private unless live devices are opted in", async ({
+  onTestFinished,
+}) => {
+  const { protectedHome, safeHome } = await testHomes(onTestFinished);
+  const rest = { ...process.env };
+  delete rest["ANDROID_USER_HOME"];
+  delete rest["ANDROID_AVD_HOME"];
+  const privateEnv = testHomeEnvironment(safeHome, protectedHome, { ...rest });
+  expect(privateEnv["ANDROID_USER_HOME"]).toBe(join(safeHome, ".android"));
+  expect(privateEnv["ANDROID_AVD_HOME"]).toBe(join(safeHome, ".android/avd"));
+  const liveEnv = testHomeEnvironment(safeHome, protectedHome, {
+    ...rest,
+    ACE_DEVICE_LIVE: "1",
+  });
+  expect(liveEnv["ANDROID_USER_HOME"]).toBe(join(protectedHome, ".android"));
+  expect(liveEnv["ANDROID_AVD_HOME"]).toBe(join(protectedHome, ".android/avd"));
+  expect(liveEnv["HOME"]).toBe(safeHome);
+});
+
 test.skipIf(!existsSync("/bin/zsh"))(
   "isolated terminals run private zsh startup files and never read inherited ZDOTDIR",
   async ({ onTestFinished }) => {
