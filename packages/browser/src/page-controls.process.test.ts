@@ -3,6 +3,29 @@ import { setup, executablePath } from "./parity-test-support.ts";
 import { ref } from "./test-support.ts";
 
 it.skipIf(!executablePath)(
+  "a fixture load wait keeps document refs stable when iframe responses arrive after the URL wait",
+  async () => {
+    let frameResponse = Promise.resolve();
+    const frameReleased = Promise.withResolvers<void>();
+    const f = await setup({}, () => frameResponse);
+    frameResponse = frameReleased.promise;
+    try {
+      await f.execute({ action: "navigate", url: f.url + "/other" });
+      await f.execute({ action: "wait_for", url: f.url + "/other" });
+      expect(await f.evaluate("document.readyState")).toBe("interactive");
+      frameReleased.resolve();
+      await f.execute({ action: "wait_for", text: "Fixture ready" });
+      const name = ref(await f.execute({ action: "snapshot" }), "Name");
+      await f.execute({ action: "type", ref: name, text: "after frame load" });
+      expect(await f.evaluate("document.querySelector('input').value")).toBe("after frame load");
+    } finally {
+      frameReleased.resolve();
+    }
+  },
+  60000,
+);
+
+it.skipIf(!executablePath)(
   "history restores the document and its form, forward returns to the next page, reload refreshes it",
   async () => {
     const f = await setup();
@@ -18,6 +41,7 @@ it.skipIf(!executablePath)(
     });
     await f.execute({ action: "history", direction: "back" });
     await f.execute({ action: "wait_for", url: f.url + "/" });
+    await f.execute({ action: "wait_for", text: "Fixture ready" });
     expect(await f.evaluate("document.querySelector('input').value")).toBe("retained form");
     expect(await f.execute({ action: "navigation_history" })).toEqual({
       back: true,
@@ -25,6 +49,7 @@ it.skipIf(!executablePath)(
     });
     await f.execute({ action: "history", direction: "forward" });
     await f.execute({ action: "wait_for", url: f.url + "/other" });
+    await f.execute({ action: "wait_for", text: "Fixture ready" });
     await f.execute({
       action: "type",
       ref: ref(await f.execute({ action: "snapshot" }), "Name"),
