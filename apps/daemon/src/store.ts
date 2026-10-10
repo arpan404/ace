@@ -1,5 +1,6 @@
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
+import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { settleLegacyImports } from "./history-migration.ts";
 import { NativeImageStore } from "./native-image-store.ts";
@@ -106,6 +107,7 @@ export class Store {
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private sidebarRevision = "";
   private sidebarReads = 0;
+  private readonly sidebarPageWeight = new SidebarPageWeight();
   private readonly sidebarRowRevisions = new WeakMap<
     import("@ace/protocol").ThreadListEntry,
     number
@@ -645,7 +647,7 @@ export class Store {
         return summary;
       },
     );
-    this.sidebarPages.set(key, page, Buffer.byteLength(JSON.stringify(page)));
+    this.sidebarPages.set(key, page, this.sidebarPageWeight.bytes(page));
     return page;
   }
   listThreads(): Thread[] {

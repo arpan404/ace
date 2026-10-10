@@ -32,23 +32,38 @@ const jobs = new WorkQueue(
   { jobs: 16, bytes: 16 * 1024 * 1024 },
 );
 const empty: FindHit[] = [];
+export type FindStatus = "idle" | "pending" | "ready" | "failed";
 
 /** Search stays off the render thread; stale searches cannot move the current file. */
-export function useFindHits(text: string | undefined, query: string | undefined): FindHit[] {
+export function useFindHits(text: string | undefined, query: string | undefined) {
   const hash = useMemo(() => (text === undefined ? "" : contentHash(text)), [text]);
   const key = `${hash}\u0000${query ?? ""}`;
-  const [result, setResult] = useState<{ key: string; hits: FindHit[] }>();
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<{
+    key: string;
+    attempt: number;
+    hits: FindHit[] | undefined;
+  }>();
   useEffect(() => {
     if (text === undefined || !query) return;
     const lease = jobs.acquire(key, { hash, text, query }, text.length * 2);
     let live = true;
     void lease.result.then((hits) => {
-      if (live && hits) setResult({ key, hits });
+      if (live) setResult({ key, attempt, hits });
     });
     return () => {
       live = false;
       lease.release();
     };
-  }, [text, query, key, hash]);
-  return result?.key === key ? result.hits : empty;
+  }, [text, query, key, hash, attempt]);
+  const current = result?.key === key && result.attempt === attempt ? result : undefined;
+  const status: FindStatus =
+    text === undefined || !query
+      ? "idle"
+      : current === undefined
+        ? "pending"
+        : current.hits === undefined
+          ? "failed"
+          : "ready";
+  return { hits: current?.hits ?? empty, status, retry: () => setAttempt((value) => value + 1) };
 }

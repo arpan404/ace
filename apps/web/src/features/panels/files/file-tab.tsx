@@ -1,5 +1,5 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
-import { CaretDownIcon, CaretUpIcon, PencilSimpleIcon, XIcon } from "@phosphor-icons/react";
+import { PencilSimpleIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +31,7 @@ import {
 import { openFile } from "./open-file.ts";
 import { quickOpen } from "./quick-open-store.ts";
 import { useFindHits } from "./use-find-hits.ts";
+import { FindBar } from "./find-bar.tsx";
 import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
@@ -44,77 +45,6 @@ import type { FileOperationDialog } from "./file-operation.ts";
 
 const findChord = parseChord("mod+f");
 const fadeRight = { background: "linear-gradient(to left, var(--background), transparent)" };
-
-/** Find in file: the text, how many places it occurs, and stepping between them. */
-function FindBar(props: {
-  query: string;
-  count: number;
-  index: number;
-  onQuery(query: string): void;
-  onStep(delta: 1 | -1): void;
-  onClose(): void;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => input.current?.focus(), []);
-  return (
-    <div
-      role="search"
-      className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-lg border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]"
-    >
-      <input
-        ref={input}
-        aria-label="Find in file"
-        placeholder="Find"
-        value={props.query}
-        spellCheck={false}
-        onChange={(event) => props.onQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            props.onStep(event.shiftKey ? -1 : 1);
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onClose();
-          }
-        }}
-        className="h-full w-40 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground"
-      />
-      <span
-        aria-live="polite"
-        className="min-w-[64px] text-right text-xs text-subtle-foreground tabular-nums"
-      >
-        {props.query ? (props.count ? `${props.index + 1} of ${props.count}` : "No results") : ""}
-      </span>
-      <IconButton
-        icon={CaretUpIcon}
-        label="Previous match"
-        keys="shift+enter"
-        size="sm"
-        className="size-7"
-        disabled={!props.count}
-        onClick={() => props.onStep(-1)}
-      />
-      <IconButton
-        icon={CaretDownIcon}
-        label="Next match"
-        keys="enter"
-        size="sm"
-        className="size-7"
-        disabled={!props.count}
-        onClick={() => props.onStep(1)}
-      />
-      <IconButton
-        icon={XIcon}
-        label="Close find"
-        keys="escape"
-        size="sm"
-        className="size-7"
-        onClick={props.onClose}
-      />
-    </div>
-  );
-}
 
 /** The upload line under the tree: progress, a conflict to confirm, or what went wrong. */
 function UploadStatus(props: { state: UploadState; onReplace(): void; onDismiss(): void }) {
@@ -219,7 +149,8 @@ export function FileTab(props: TabViewProps) {
   const readable =
     !data.draft && text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
   const findQuery = find?.query;
-  const hits = useFindHits(text, findQuery);
+  const search = useFindHits(text, findQuery);
+  const hits = search.hits;
   const hitIndex =
     find && hits.length ? ((find.index % hits.length) + hits.length) % hits.length : 0;
   const toggleFind = () => setFind(find ? undefined : { query: "", index: 0 });
@@ -298,6 +229,8 @@ export function FileTab(props: TabViewProps) {
             <FindBar
               query={find.query}
               count={hits.length}
+              status={search.status}
+              onRetry={search.retry}
               index={hitIndex}
               onQuery={(next) => setFind({ query: next, index: 0 })}
               onStep={(delta) => setFind({ query: find.query, index: hitIndex + delta })}
