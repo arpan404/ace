@@ -147,3 +147,39 @@ test("history notification reclaims a WAL retained by an earlier reader", async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("live callbacks remain ordered when a deferred replay spans pages and callbacks append again", async () => {
+  const store = new Store(":memory:");
+  try {
+    const thread = createDevThread(store, store.createWorkspace("/repo", "Repo"));
+    const after = store.headSeq();
+    const observed: number[] = [];
+    store.subscribe((events) => {
+      observed.push(...events.map((event) => event.seq));
+      for (const event of events) {
+        if (event.payload.type !== "thread.updated") continue;
+        if (event.payload.title === "History") {
+          store.appendEvents(
+            thread.id,
+            Array.from({ length: 80 }, (_, i) => ({
+              type: "thread.updated" as const,
+              title: `Live ${i}`,
+            })),
+          );
+        }
+        if (event.payload.title === "Live 0")
+          store.appendEvents(thread.id, [{ type: "thread.updated", title: "Tail" }]);
+      }
+    });
+    store.setHistoryWriting(true);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "History" }]);
+    await store.notifyHistory(after);
+    store.setHistoryWriting(false);
+    expect(observed).toEqual(Array.from({ length: 82 }, (_, i) => after + i + 1));
+    expect(store.acquireThread(thread.id).thread.title).toBe("Tail");
+    await expect(store.writable()).resolves.toBeUndefined();
+  } finally {
+    store.setHistoryWriting(false);
+    await store.close();
+  }
+});

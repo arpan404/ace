@@ -372,24 +372,32 @@ export class Store {
   }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
-    this.historyWriting = active;
     // Metadata writers wait for the worker lock rather than failing at the first contention.
     this.db.exec("PRAGMA busy_timeout=5000");
-    if (!active) {
-      const after = this.deferredAfter;
-      this.deferredAfter = undefined;
+    if (active) {
+      this.historyWriting = true;
+      return;
+    }
+    const after = this.deferredAfter;
+    try {
       if (after !== undefined) {
-        const through = this.headSeq();
         let cursor = after;
-        while (cursor < through) {
-          const events = this.readEvents({ afterSeq: cursor, limit: 64 }).filter(
-            (event) => event.seq <= through,
-          );
-          if (!events.length) break;
-          this.publish(events);
-          cursor = events.at(-1)?.seq ?? through;
+        // Keep the fence through all pages, including listener-created tail events.
+        while (cursor < this.headSeq()) {
+          const events = this.readEvents({ afterSeq: cursor, limit: 64 });
+          if (!events.length) throw new Error("Missing deferred history events");
+          this.notifyingHistory = true;
+          try {
+            this.publish(events);
+          } finally {
+            this.notifyingHistory = false;
+          }
+          cursor = events.at(-1)?.seq ?? this.headSeq();
         }
       }
+    } finally {
+      this.historyWriting = false;
+      this.deferredAfter = undefined;
       if (this.search.hasPendingWrites()) this.searchMaintenance.wake();
       for (const resolve of this.historyWaiters) resolve();
       this.historyWaiters.clear();

@@ -97,6 +97,10 @@ export class ServiceStartup {
   }[] = [];
   private readonly runtime: StartupRuntime;
   private deferred: readonly ServiceDefinition[] = [];
+  private readonly cleanups = new Map<
+    string,
+    { dependencies: readonly string[]; close(): Promise<void> }
+  >();
   constructor(privateContext: ServiceContext, runtime: StartupRuntime = systemStartup) {
     this.context = privateContext;
     this.runtime = runtime;
@@ -197,19 +201,33 @@ export class ServiceStartup {
     const onListen: ServiceContext["onListen"] = [];
     resources.onShutdown(() => controller.abort());
     this.context.resources.onShutdown(() => resources.beginShutdown());
-    this.context.resources.ownParallel(() =>
-      boundedCleanup(name, resources, this.runtime).catch((error: unknown) => {
-        this.context.log.log(
-          "error",
-          "Service cleanup failed",
-          logFields([
-            ["service", name],
-            ["error", error instanceof Error ? error.message : String(error)],
-          ]),
+    let closing: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      closing ??= Promise.resolve().then(async () => {
+        // Preserve dependency lifetimes while unrelated branches drain together.
+        await Promise.allSettled(
+          [...this.cleanups.values()]
+            .filter((entry) => entry.dependencies.includes(name))
+            .map((entry) => entry.close()),
         );
-        throw new Error(`Service ${name} cleanup failed`, { cause: error });
-      }),
-    );
+        await boundedCleanup(name, resources, this.runtime).catch(async (error: unknown) => {
+          this.context.log.log(
+            "error",
+            "Service cleanup failed",
+            logFields([
+              ["service", name],
+              ["error", error instanceof Error ? error.message : String(error)],
+            ]),
+          );
+          // A timeout reports the slow owner, but does not retire its dependencies.
+          await Promise.allSettled([resources.close()]);
+          throw new Error(`Service ${name} cleanup failed`, { cause: error });
+        });
+      });
+      return closing;
+    };
+    this.cleanups.set(name, { dependencies: [...definition.requires, ...definition.after], close });
+    this.context.resources.ownParallel(close);
     try {
       await bounded(
         name,

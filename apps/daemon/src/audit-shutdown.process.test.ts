@@ -2,6 +2,7 @@
 import { expect, test } from "vitest";
 import { Worker } from "node:worker_threads";
 import { EventEmitter } from "node:events";
+import { watch, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,10 +56,26 @@ async function stalledWorker() {
     held: held.promise,
     cleanupDeadline: cleanupDeadline.promise,
     overallDeadline: overallDeadline.promise,
-    async release() {
+    resume() {
       release?.();
-      await daemon.notifications.close();
-      await daemon.store.close();
+    },
+    async settle() {
+      const unlocked = Promise.withResolvers<void>();
+      const path = join(root, "daemon-lock");
+      const watcher = watch(root, () => {
+        if (!existsSync(path)) unlocked.resolve();
+      });
+      if (!existsSync(path)) unlocked.resolve();
+      try {
+        release?.();
+        await daemon.notifications.close();
+        await unlocked.promise;
+      } finally {
+        watcher.close();
+      }
+    },
+    async release() {
+      await this.settle();
       await rm(root, { recursive: true, force: true });
     },
   };
@@ -71,6 +88,7 @@ test("a failed cleanup names its service and still removes the endpoint", async 
     const failed = expect(closing).rejects.toThrow("Daemon shutdown failed");
     await f.held;
     (await f.cleanupDeadline)();
+    f.resume();
     await failed;
     await expect(readFile(join(f.root, "daemon-endpoint"))).rejects.toThrow("ENOENT");
     const log = await readFile(join(f.root, "logs/daemon.log"), "utf8").catch(async () => {
@@ -87,7 +105,7 @@ test("a failed cleanup names its service and still removes the endpoint", async 
   }
 });
 
-test("the overall deadline removes the endpoint and releases the home lock despite stalled cleanup", async () => {
+test("the overall deadline removes discovery but retains the home lock until stalled cleanup settles", async () => {
   const f = await stalledWorker();
   try {
     const closing = f.daemon.close();
@@ -97,6 +115,8 @@ test("the overall deadline removes the endpoint and releases the home lock despi
     await failed;
     await expect(readFile(join(f.root, "daemon-endpoint"))).rejects.toThrow("ENOENT");
     const { acquireLock } = await import("./local-files.ts");
+    expect(() => acquireLock(f.root)).toThrow("Another daemon owns it");
+    await f.settle();
     const unlock = acquireLock(f.root);
     unlock();
   } finally {
