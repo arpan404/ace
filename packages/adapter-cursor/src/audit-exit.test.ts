@@ -19,9 +19,11 @@ test("an unexpected exit with active work gives a readable warning", () => {
 test("snapshot ambiguity retains evidence without showing SDK internals to the person", () => {
   const run = replay();
   run.frame("snapshot", { items: [{ uuid: "native-root:0", futureField: { opaque: true } }] });
-  expect(run.diagnostics.some((raw) => JSON.stringify(raw.data).includes("futureField"))).toBe(
-    true,
-  );
+  expect(
+    run.diagnostics.some(
+      (raw) => "data" in raw && JSON.stringify(raw.data).includes("futureField"),
+    ),
+  ).toBe(true);
   expect(
     Object.values(run.state.items).flatMap((item) =>
       item.type === "notice" && !item.raw?.some((raw) => raw.type === "native-notice")
