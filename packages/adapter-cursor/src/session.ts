@@ -119,7 +119,7 @@ export async function openCursorSession(
       ...(deliberate
         ? {}
         : {
-            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor SDK host exited; unresolved child/background work and pending delivery remain uncertain`,
+            message: "Cursor stopped unexpectedly. Unfinished work needs your attention.",
           }),
     });
   });

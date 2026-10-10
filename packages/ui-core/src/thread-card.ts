@@ -1,4 +1,5 @@
 import type {
+  CatalogModel,
   MachineIcon,
   ProviderKind,
   ThreadListEntry,
@@ -26,6 +27,8 @@ import {
   type LiveStatus,
   type LiveFact,
 } from "./live-status.ts";
+
+import { recoveryAttention } from "./recovery-attention.ts";
 
 const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
   working: "working",
@@ -168,6 +171,8 @@ export interface ThreadCardInput {
   /** The project's name; its id when the name isn't known. */
   projectName?: string | undefined;
   readState?: ThreadReadStateResponse | undefined;
+  models?: readonly CatalogModel[] | undefined;
+  failedSend?: boolean | undefined;
 }
 
 /** How many characters of a branch name a Home task row's last line shows beside its marks. */
@@ -210,15 +215,19 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const flags = threadRowFlags(entry, input);
   const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
+  const recovery = recoveryAttention(entry, input.models, input.failedSend);
   const attention =
-    needsYou || entry.status.state === "failed" || entry.status.state === "unresponsive";
+    !!recovery ||
+    needsYou ||
+    entry.status.state === "failed" ||
+    entry.status.state === "unresponsive";
   const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
   const live = fact && describeLive(fact, now, input.locale);
-  const { label, tone } = live
-    ? { label: liveStatusText(live), tone: live.tone }
-    : threadStatusLabel(entry.status);
+  const { label, tone } =
+    recovery ??
+    (live ? { label: liveStatusText(live), tone: live.tone } : threadStatusLabel(entry.status));
   return {
     id: entry.id,
     title: entry.title,
@@ -230,9 +239,14 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     dimmed: input.settled || (!attention && !unread),
     pill: input.settled
       ? undefined
-      : live
-        ? livePill(live)
-        : taskPill(entry.status, { unread, since: entry.live?.workingSince ?? activityOf(entry) }),
+      : recovery
+        ? { ...recovery, icon: recovery.tone === "failed" ? "failed" : "waiting" }
+        : live
+          ? livePill(live)
+          : taskPill(entry.status, {
+              unread,
+              since: entry.live?.workingSince ?? activityOf(entry),
+            }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
@@ -258,8 +272,8 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     status: {
       label,
       tone,
-      mark: threadStatusMark(entry.status),
-      compact: compactStatus(entry, fact, now, input.locale),
+      mark: recovery?.mark ?? threadStatusMark(entry.status),
+      compact: recovery?.label ?? compactStatus(entry, fact, now, input.locale),
       ...(entry.status.state === "working" && fact?.kind !== "subagents"
         ? { since: entry.live?.workingSince ?? activityOf(entry) }
         : {}),

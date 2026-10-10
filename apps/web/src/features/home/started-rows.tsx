@@ -3,6 +3,12 @@ import { useIntent, usePendingSends, useSidebarIds } from "@ace/client-react";
 import { provisionalTitle } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
+import { useSyncExternalStore } from "react";
+import { dismissedSends, loadDismissed } from "@/lib/dismissed-sends.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { providerNames } from "@ace/ui-core";
+import { useProjectName } from "@/lib/projects.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { startedTitle } from "@/features/thread/index.ts";
@@ -28,12 +34,17 @@ function titleOf(send: PendingSend): string {
  * must never become provisional rows again when a thread leaves the list.
  */
 export function StartedRows() {
+  const { storage } = useLayout();
+  loadDismissed(storage);
+  const dismissed = useSyncExternalStore(dismissedSends.subscribe, dismissedSends.get);
   const pending = usePendingSends();
   const listed = useSidebarIds() ?? none;
   const creates = useMemo(
     () =>
-      pending.filter((send) => send.payload.type === "thread.create" && send.state !== "failed"),
-    [pending],
+      pending.filter(
+        (send) => send.payload.type === "thread.create" && !dismissed.has(send.commandId),
+      ),
+    [pending, dismissed],
   );
   useEffect(() => {
     const titles = new Map<string, string>();
@@ -45,7 +56,10 @@ export function StartedRows() {
   }, [creates]);
   const waiting = creates.filter((send) => {
     const id = realId(send);
-    return (send.state === "saving" || send.state === "sent") && (!id || !listed.includes(id));
+    return (
+      (send.state === "saving" || send.state === "sent" || send.state === "failed") &&
+      (!id || !listed.includes(id))
+    );
   });
   if (!waiting.length) return null;
   return (
@@ -60,6 +74,9 @@ export function StartedRows() {
 function StartedRow(props: { send: PendingSend }) {
   const { send } = props;
   const accepted = useIntent(send.commandId)?.state === "acked";
+  const name = useProjectName();
+  const failed = send.state === "failed";
+  const label = failed ? "Not sent" : accepted ? "Starting" : "Sending";
   return (
     <li>
       <Link
@@ -67,16 +84,25 @@ function StartedRow(props: { send: PendingSend }) {
         params={{ threadId: realId(send) ?? `pending:${send.commandId}` }}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex h-8 w-full items-center gap-2 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
+          "flex h-20 compact:h-18 w-full flex-col justify-center items-stretch gap-1 compact:gap-0.5 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
           "data-[status=active]:bg-foreground/8",
-          !accepted && "opacity-60",
+          !accepted && !failed && "opacity-60",
         )}
       >
-        <span className="min-w-0 flex-1 truncate">
-          {titleOf(send)}
-          <span className="sr-only">. {accepted ? "Starting" : "Sending to ace"}</span>
+        <span className="flex items-center justify-between gap-2 text-xs">
+          <span className="truncate text-muted-foreground">
+            {name(send.payload.type === "thread.create" ? send.payload.workspaceId : "")}
+          </span>
+          <StatusLabel
+            tone={failed ? "failed" : "working"}
+            label={label}
+            mark={failed ? undefined : <Spinner />}
+          />
         </span>
-        <Spinner />
+        <span className="truncate">{titleOf(send)}</span>
+        <span className="text-xs text-subtle-foreground">
+          {send.payload.type === "thread.create" ? providerNames[send.payload.provider] : ""}
+        </span>
       </Link>
     </li>
   );

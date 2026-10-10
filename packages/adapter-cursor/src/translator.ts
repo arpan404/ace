@@ -200,11 +200,11 @@ export class CursorTranslator implements Translator {
       if (event.kind === "host-exit") {
         const unsettled = [...this.children.calls.values()].some((child) => !child.settled);
         const preserved = this.children.preserve();
-        if (object(event.body).deliberate === true && !this.active && !unsettled) return preserved;
+        if (!this.active && !unsettled) return preserved;
         return [
           ...preserved,
           this.notice(
-            "SDK host exited; unresolved child/background work is uncertain",
+            "Cursor stopped unexpectedly. Unfinished work needs your attention.",
             event,
             "warning",
           ),
@@ -366,7 +366,14 @@ export class CursorTranslator implements Translator {
         text,
         level,
         complete: true,
-        raw: [this.current?.raw ?? { type: "cursor.sdk.v1", data }],
+        raw: [
+          this.current?.raw ?? { type: "cursor.sdk.v1", data },
+          ...(/^(?:Malformed SDK boundary|Checkpoint snapshot retained|Shell output has no observed|SDK (?:task summary|checkpoint recovery))/.test(
+            text,
+          )
+            ? [{ type: "native-notice", data: {} }]
+            : []),
+        ],
       },
     };
   }

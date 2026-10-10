@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, projectLabel, type ThreadCard } from "@ace/ui-core";
 import { useProjectMetadata } from "@/lib/projects.ts";
+import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useFailedSend } from "@/lib/recovery-attention.ts";
 import { useNow } from "@/lib/time.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useCardDetails } from "./thread-details.ts";
@@ -32,15 +34,18 @@ export function useThreadCard(
   const [lastEntry, setLastEntry] = useState(liveEntry);
   if (liveEntry !== undefined && liveEntry !== lastEntry) setLastEntry(liveEntry);
   const entry = liveEntry ?? (leaving ? lastEntry : undefined);
-  // Only mounted rows read one cursor, once per execution/read change. No history or polling.
+  // Only mounted rows read one cursor, once per read change. No history or polling.
   const read = useDaemonQuery({
-    queryKey: ["sidebar-thread-read", threadId, entry?.activitySeq, entry?.readAt],
+    queryKey: ["sidebar-thread-read", threadId, entry?.readAt],
     read: (client, signal) => client.threadReadState({ threadId }, { signal }),
     enabled: entry?.activitySeq !== undefined && !settled,
     staleTime: Infinity,
-    gcTime: 0,
+    gcTime: 300_000,
+    placeholderData: (previous) => previous,
     retry: false,
   });
+  const failed = useFailedSend(threadId);
+  const models = useModelCatalog();
   const details = useCardDetails(entry);
   const organizer = useOrganizer();
   const now = useNow();
@@ -55,6 +60,8 @@ export function useThreadCard(
     machinePrimary: details?.machinePrimary ?? true,
     card: threadCard({
       entry,
+      failedSend: failed,
+      models,
       details,
       baseline,
       settled,
