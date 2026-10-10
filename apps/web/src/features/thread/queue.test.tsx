@@ -48,39 +48,37 @@ async function queueTwo(message: HTMLElement) {
   await waitFor(() => expect(pills()).toHaveLength(2));
 }
 
-async function pillMenu(text: string) {
-  await userEvent.click(screen.getByRole("button", { name: `Queued message options: ${text}` }));
-}
-
-test("queued messages are the daemon's queue: reorder and remove change it there", async () => {
+test("queued bubbles offer only sending and taking back, preserving daemon order", async () => {
   const { app, message } = await openBusy();
   await queueTwo(message);
   expect(await daemonQueue(app)).toEqual(["Check the iOS path", "Then the Android path"]);
-
-  await pillMenu("Then the Android path");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Move up" }));
-  await waitFor(() => expect(pills()[0]).toContain("Then the Android path"));
-  expect(await daemonQueue(app)).toEqual(["Then the Android path", "Check the iOS path"]);
-
-  const first = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole(
-    "listitem",
-  )[0];
-  if (!first) throw new Error("no pill");
-  await userEvent.click(within(first).getByRole("button", { name: /^Queued message options:/ }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  const queued = screen.getByRole("list", { name: "Queued messages" });
+  const rows = within(queued).getAllByRole("listitem");
+  for (const row of rows) {
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Send now", "Take back to composer"]);
+  }
+  const first = rows[0];
+  if (!first) throw new Error("no queued message");
+  await userEvent.click(within(first).getByRole("button", { name: "Take back to composer" }));
   await waitFor(() => expect(pills()).toHaveLength(1));
-  expect(await daemonQueue(app)).toEqual(["Check the iOS path"]);
+  expect(await daemonQueue(app)).toEqual(["Then the Android path"]);
+  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Check the iOS path");
 });
 
-test("editing a queued message rewrites it on the daemon before it is sent", async () => {
+test("a queued message can be taken back, edited and queued again", async () => {
   const { app, message } = await openBusy();
   await userEvent.type(message, "Cap retries at 3{Enter}");
-  await waitFor(() => expect(pills()).toHaveLength(1));
-  await pillMenu("Cap retries at 3");
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
-  const field = await screen.findByRole("textbox", { name: "Edit queued message" });
-  await userEvent.clear(field);
-  await userEvent.type(field, "Cap retries at 5{Enter}");
+  const queued = await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.click(within(queued).getByRole("button", { name: "Take back to composer" }));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  const restored = screen.getByRole("combobox", { name: "Message" });
+  expect(restored.textContent).toBe("Cap retries at 3");
+  await userEvent.clear(restored);
+  await userEvent.type(restored, "Cap retries at 5{Enter}");
   await waitFor(() => expect(pills()[0]).toContain("Cap retries at 5"));
   expect(await daemonQueue(app)).toEqual(["Cap retries at 5"]);
 });

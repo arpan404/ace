@@ -28,6 +28,7 @@ if (args.join(" ") !== "app-server") {
 }
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const notify = (method: string, params: unknown) => write({ method, params });
+let appCatalogNotified = false;
 const item = (threadId: string, turnId: string, data: unknown, complete = true) =>
   notify(complete ? "item/completed" : "item/started", { threadId, turnId, item: data });
 const message = (text: string, id = "proof") =>
@@ -80,6 +81,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformFamily: "unix",
         platformOs: "macos",
       });
+  } else if (method === "app/list" && process.env["ACE_FAKE_RESUME"] === "oversized-catalog") {
+    const data = [{ id: "large-app", name: "Large app", description: "x".repeat(1100000) }];
+    if (!appCatalogNotified) {
+      appCatalogNotified = true;
+      notify("app/list/updated", { data });
+    }
+    respond({ data, nextCursor: null });
   } else if (method === "mcpServerStatus/list") {
     respond({
       data: [...mcpServers].map(([name, runtimeStatus]) => ({ name, runtimeStatus })),

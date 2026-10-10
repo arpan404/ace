@@ -52,6 +52,10 @@ export function AccountsPage() {
             title="Usage & accounts"
             lede="ace drives the CLIs you already have installed and signed in to. Usage comes from each provider; ace never stores credentials."
           />
+          <p className="mt-3 text-xs text-subtle-foreground">
+            Usage updates when a provider reports a new reading. Refresh reloads the last reported
+            reading.
+          </p>
           {accounts.isError ? (
             <EmptyState
               icon={ChartBarIcon}

@@ -17,7 +17,18 @@ export function windowTone(used: number): string {
  */
 export function WindowBar(props: { window: QuotaWindowView; now: number }) {
   const used = props.window.usedPercent;
-  const resets = formatResetCountdown(props.window.resetsAt, props.now);
+  const resetsAt = props.window.resetsAt;
+  if (resetsAt !== null && resetsAt <= props.now)
+    return (
+      <span className="flex flex-col gap-1">
+        <span className="flex items-baseline justify-between gap-4">
+          <span>{props.window.label}</span>
+          <span className="text-subtle-foreground">Unknown</span>
+        </span>
+        <span className="text-subtle-foreground">Waiting for a new provider reading</span>
+      </span>
+    );
+  const resets = formatResetCountdown(resetsAt, props.now);
   return (
     <span className="flex flex-col gap-1">
       <span className="flex items-baseline justify-between gap-4">

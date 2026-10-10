@@ -85,6 +85,23 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
   return url.href;
 }
 
+// Codex prints the expiry instruction before the next, separately colored code line.
+const codePrefix = String.raw`(?:(?:one[ -]time|user|device) code|enter(?: this| the)?(?: one[ -]time)? code|code:)`;
+const codeExpiry = String.raw`(?:\s*\(expires in \d{1,3} minutes?\))?`;
+const promptPattern = new RegExp(
+  String.raw`^\s*(?:\d+\.\s*)?${codePrefix}${codeExpiry}\s*:?[\s]*$`,
+  "i",
+);
+const codePattern = new RegExp(
+  String.raw`${codePrefix}${codeExpiry}\s*[:=]?\s*([A-Z0-9]{4,5}-[A-Z0-9]{4,5})(?![A-Za-z0-9_-])`,
+  "i",
+);
+
+/** A reviewed device-code instruction can introduce a separate bounded code line. */
+export function loginDeviceCodePrompt(text: string): boolean {
+  return text.length <= 512 && promptPattern.test(text);
+}
+
 export type LoginObservation = LoginUpdate & { enter?: true; manualRequired?: true };
 /** Never relay a raw line, including unknown prompts or errors. */
 export function loginObservation(
@@ -103,10 +120,7 @@ export function loginObservation(
   // eslint-disable-next-line no-control-regex
   const match = /https:\/\/[^\s<>"\u0007]+(?=\s|$)/.exec(text);
   const url = match ? loginUrl(provider, match[0]) : undefined;
-  const code =
-    /(?:user code|device code|enter(?: this| the)? code|code:)\s*[:=]?\s*([A-Z0-9]{4,5}-[A-Z0-9]{4,5})(?![A-Za-z0-9_-])/i.exec(
-      text,
-    )?.[1];
+  const code = codePattern.exec(text)?.[1];
   if (url || code)
     return {
       state: code ? "awaiting_code_entry" : "awaiting_browser",

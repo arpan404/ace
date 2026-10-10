@@ -3,6 +3,7 @@ import {
   loginArgs,
   logoutArgs,
   loginObservation,
+  loginDeviceCodePrompt,
   type ProviderLoginDriver,
   type LoginUpdate,
 } from "@ace/accounts";
@@ -162,7 +163,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         let clean = stripVTControlCharacters(line);
         if (codePending && /^\s*[A-Z0-9]{4,5}-[A-Z0-9]{4,5}\s*$/.test(clean))
           clean = `Enter code: ${clean.trim()}`;
-        codePending = /(?:one.time|device|user|enter).*code[:\s]*$/i.test(clean);
+        codePending = loginDeviceCodePrompt(clean);
         if (
           provider === "opencode" &&
           /(?:select.*github (?:domain|instance|deployment)|select.*deployment|github\.com.*github enterprise|^.*GitHub\.com\s*$)/i.test(

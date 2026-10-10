@@ -20,7 +20,7 @@ export function useAccounts() {
   return { ...accounts, data };
 }
 
-/** Re-read accounts and quota from the providers. */
+/** Reload the daemon’s last provider reports; this does not query provider usage. */
 export function useRefreshAccounts() {
   const queries = useQueryClient();
   return () => queries.invalidateQueries({ queryKey: ["accounts"] });

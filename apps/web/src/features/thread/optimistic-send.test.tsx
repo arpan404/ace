@@ -140,31 +140,43 @@ test("a queued follow-up is a pill the moment Enter is pressed, and never also a
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 });
 
-test("removing a queued message takes its pill away at once", async () => {
+test("taking back a queued message hides its bubble and preserves the current draft", async () => {
   const { feed, message } = await open("busy");
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
+    expect(
+      within(queue).getByRole("button", { name: "Take back to composer" }).hasAttribute("disabled"),
+    ).toBe(false),
   );
-  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  await userEvent.type(message, "Keep my current draft");
+  await userEvent.click(within(queue).getByRole("button", { name: "Take back to composer" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Keep my current draft\n\nAlso check the iOS cold-start path",
+    ),
+  );
 });
 
-test("a removal the daemon refuses keeps the message, which shows once it is delivered", async () => {
+test("a refused take-back keeps the queue and draft, then shows one delivered message", async () => {
   const { app, feed, message } = await open("busy");
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
-    expect(within(queue).queryByRole("button", { name: /^Queued message options:/ })).toBeTruthy(),
+    expect(
+      within(queue).getByRole("button", { name: "Take back to composer" }).hasAttribute("disabled"),
+    ).toBe(false),
   );
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
-  await userEvent.click(within(queue).getByRole("button", { name: /^Queued message options:/ }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
-  expect(await screen.findByText("Couldn't remove the message")).toBeTruthy();
+  await userEvent.type(message, "Keep my current draft");
+  await userEvent.click(within(queue).getByRole("button", { name: "Take back to composer" }));
+  expect(await screen.findByText("Couldn't take back the message")).toBeTruthy();
   app.daemon.restoreRequests();
+  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+    "Keep my current draft",
+  );
   expect(
     within(await screen.findByRole("list", { name: "Queued messages" })).getByText(
       "Also check the iOS cold-start path",
@@ -180,6 +192,7 @@ test("a removal the daemon refuses keeps the message, which shows once it is del
     ]),
   );
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
+  expect(within(feed).getAllByText("Also check the iOS cold-start path")).toHaveLength(1);
 });
 
 test("Stop reads Stopping… on its disabled button until the turn ends", async () => {

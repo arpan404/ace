@@ -1,7 +1,8 @@
 import type { ClientApi, ClientError } from "@ace/client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ConnectionScreen } from "@/features/connect/index.ts";
+import { desktopDaemon } from "@/boot/desktop.ts";
+import { StartingScreen, ConnectionScreen } from "@/features/connect/index.ts";
 import { deviceId } from "@/boot/device-id.ts";
 import {
   DaemonConnectionContext,
@@ -303,7 +304,11 @@ export function ConnectionGate(props: {
     <DaemonConnectionContext.Provider value={connection}>
       {client && status.kind === "ready" ? (
         <Fragment key={client.key}>{props.children(client.client)}</Fragment>
-      ) : behindSplash ? null : (
+      ) : behindSplash ? (
+        props.desktop ? (
+          <StartingScreen daemon={desktopDaemon()} onConnectManually={edit} />
+        ) : null
+      ) : (
         <ConnectionScreen />
       )}
     </DaemonConnectionContext.Provider>

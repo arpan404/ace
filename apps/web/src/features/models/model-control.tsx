@@ -94,11 +94,6 @@ export function ModelControl(props: {
       <PopoverContent
         side={view.side ?? "top"}
         align={view.side === "bottom" ? "start" : "end"}
-        collisionAvoidance={
-          view.side === "bottom"
-            ? { side: "none", align: "shift", fallbackAxisSide: "none" }
-            : undefined
-        }
         sideOffset={8}
         aria-label="Model and effort"
         className="overflow-hidden p-0 duration-(--dur-1)"

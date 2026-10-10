@@ -3,7 +3,7 @@ import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import {
   chooseModel,
@@ -559,4 +559,80 @@ test("new threads pass the automatic native review default without a picker inte
   await userEvent.type(await prompt(), "Review the inherited default{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Review the inherited default" });
   expect((await started(made))?.permission).toMatchObject({ override: "auto", effective: "auto" });
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+test.each(["defaults", "native"])(
+  "new-thread sending waits for selected provider %s without losing its draft",
+  async (check) => {
+    const made = app();
+    const handle = made.daemon.services.handle.bind(made.daemon.services);
+    const delayed: (() => void)[] = [];
+    let holding = true;
+    vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
+      const selectedRead =
+        check === "defaults"
+          ? message.type === "settings.subscribe" &&
+            message.keys.includes("permissions.providerModes")
+          : message.type === "permissions.capabilities";
+      if (holding && selectedRead) {
+        delayed.push(() => {
+          handle(message, push, device);
+        });
+        return true;
+      }
+      return handle(message, push, device);
+    });
+    await made.open("/new?project=relay");
+    const field = await prompt();
+    await userEvent.type(field, "Preserve this draft until checks finish");
+    await waitFor(() => expect(delayed.length).toBeGreaterThan(0));
+    expect(screen.getByText("Checking provider settings…")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await userEvent.click(field);
+    await userEvent.keyboard("{Enter}");
+    expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
+    expect(field.textContent).toBe("Preserve this draft until checks finish");
+    await act(async () => {
+      holding = false;
+      for (const release of delayed) release();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+        "true",
+      ),
+    );
+    expect(screen.queryByText("Checking provider settings…")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await started(made)).toMatchObject({ workspaceId: "relay", provider: "claude" });
+  },
+);
+
+test("failed native permission checks explain blocked sending and retain the draft", async () => {
+  const made = app();
+  const handle = made.daemon.services.handle.bind(made.daemon.services);
+  vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
+    if (message.type === "permissions.capabilities") {
+      push({
+        type: "permissions.capabilities.result",
+        requestId: message.requestId,
+        ok: false,
+        error: "provider_unavailable",
+      });
+      return true;
+    }
+    return handle(message, push, device);
+  });
+  await made.open("/new?project=relay");
+  const field = await prompt();
+  await userEvent.type(field, "Keep this while permissions recover");
+  await screen.findByText("Couldn't check provider permissions. Reconnect and try again.");
+  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await userEvent.click(field);
+  await userEvent.keyboard("{Enter}");
+  expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
+  expect(field.textContent).toBe("Keep this while permissions recover");
 });

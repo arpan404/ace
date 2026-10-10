@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { loginObservation, loginUrl } from "./index.ts";
+import { loginObservation, loginUrl, loginDeviceCodePrompt } from "./index.ts";
 
 test("only verification and authorization links reach the client", () => {
   expect(loginUrl("codex", "https://auth.openai.com/codex/device")).toBe(
@@ -89,4 +89,20 @@ test("Pi relays reviewed SDK challenges while tokens and unrelated upstreams sta
   expect(
     loginUrl("pi", "https://accounts.google.com/o/oauth2/v2/auth?client_id=synthetic"),
   ).toBeUndefined();
+});
+
+test("Codex's native one-time prompt accepts its bounded code after expiry instructions", () => {
+  expect(
+    loginObservation("codex", "2. Enter this one-time code (expires in 15 minutes)\n   ABCD-2048"),
+  ).toEqual({ state: "awaiting_code_entry", userCode: "ABCD-2048" });
+});
+
+test("only complete reviewed device instructions enable the following standalone code line", () => {
+  expect(loginDeviceCodePrompt("2. Enter this one-time code (expires in 15 minutes)")).toBe(true);
+  expect(loginDeviceCodePrompt("Enter code:")).toBe(true);
+  expect(loginDeviceCodePrompt("Paste authorization code:")).toBe(false);
+  expect(loginDeviceCodePrompt("Access token: ABCD-2048")).toBe(false);
+  expect(loginDeviceCodePrompt("An unknown diagnostic includes device code: private text")).toBe(
+    false,
+  );
 });

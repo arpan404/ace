@@ -212,7 +212,14 @@ export class JsonRpcPeer {
       this.#options.onMalformed?.(line);
       return;
     }
-    this.#options.onFrame?.("recv", raw);
+    try {
+      this.#options.onFrame?.("recv", raw);
+    } catch (error) {
+      const failure = asError(error);
+      this.close(failure);
+      this.#report(failure);
+      return;
+    }
     const parsed = RpcEnvelope.safeParse(raw);
     if (!parsed.success) {
       this.#options.onMalformed?.(line);

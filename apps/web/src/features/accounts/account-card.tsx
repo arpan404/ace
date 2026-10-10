@@ -10,6 +10,7 @@ import { accountLimit, accountStatus } from "@ace/ui-core";
 import { describeMove, useMoveThreads } from "./account-threads-source.ts";
 import type { Account } from "./accounts-source.ts";
 import { WindowBar } from "./window-bar.tsx";
+import { QuotaReading } from "./quota-reading.tsx";
 import { formatClock } from "./format.ts";
 
 const threads = (n: number) => `${n} running ${n === 1 ? "thread" : "threads"}`;
@@ -36,6 +37,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
         <AccountKeyMark method={account.authMethod} />
         <StatusLine tone={state.tone} text={state.text} />
       </div>
+      {account.windows.length > 0 && <QuotaReading observedAt={account.quota.observedAt} />}
       {account.windows.length > 0 ? (
         <div className="grid gap-x-6 gap-y-2 py-2 text-sm sm:grid-cols-2">
           {account.windows.map((window) => (
