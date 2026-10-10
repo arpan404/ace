@@ -11,6 +11,8 @@ import {
   nativeId,
   adbShell,
   androidDimensions,
+  currentDisplayCommand,
+  orientedDimensions,
 } from "./commands.ts";
 export type DeviceCommand = (
   command: string,
@@ -220,9 +222,24 @@ export class AndroidPlatform {
     const { adb } = await this.resolve();
     // Dimensions and screenrecord must use this exact transport, never a second inventory lookup.
     await this.verifyTransport(adb, device, serial);
-    const result = await this.run(adb, ["-s", serial, ...adbShell(["wm", "size"])], 4096);
+    const size = await this.displaySize(adb, serial);
     await this.verifyTransport(adb, device, serial);
-    return { adb, serial, ...androidDimensions(result.stdout) };
+    return { adb, serial, ...size };
+  }
+  /** The display's size in its current orientation. */
+  private async displaySize(adb: string, serial: string) {
+    const natural = androidDimensions(
+      (await this.run(adb, ["-s", serial, ...adbShell(["wm", "size"])], 4096)).stdout,
+    );
+    const current = await this.run(adb, ["-s", serial, "shell", currentDisplayCommand], 4096).then(
+      ({ stdout }) => stdout,
+      (error: unknown) => {
+        // Images without the window dump keep the natural orientation.
+        if (error instanceof DeviceError && error.code === "command_failed") return "";
+        throw error;
+      },
+    );
+    return orientedDimensions(natural, current);
   }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     if (this.transportWatchers.size >= 4)
@@ -259,8 +276,9 @@ export class AndroidPlatform {
     }
   }
   async captureDimensions(device: Device): Promise<{ width: number; height: number }> {
-    const { stdout } = await this.adb(device, adbShell(["wm", "size"]), 4096);
-    return androidDimensions(stdout);
+    const serial = await this.serial(device);
+    const { adb } = await this.resolve();
+    return this.displaySize(adb, serial);
   }
 
   async boot(input: Device, authorize?: () => void): Promise<void> {

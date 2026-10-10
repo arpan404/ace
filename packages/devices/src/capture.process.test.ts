@@ -54,6 +54,8 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
     await chmod(path, 0o700);
   }
   let guest = "640x1280";
+  /** The window manager's current logical size; `wm size` keeps the natural orientation. */
+  let current = "640x1280";
   let serial = initialSerial;
   let oldName = "Pixel";
   const probes: string[][] = [];
@@ -76,12 +78,15 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
             ? `List of devices attached\n${serial} device`
             : command.endsWith("emu avd name")
               ? `${args[1] === serial ? "Pixel" : oldName}\nOK`
-              : `Physical size: ${guest}`;
+              : command.includes("dumpsys window displays")
+                ? `cur=${current}`
+                : `Physical size: ${guest}`;
       return { stdout, stderr: "", code: 0 };
     },
   });
   cleanup.push(() => platform.close());
   const captureSerials: string[] = [];
+  const recordings: string[][] = [];
   const processes: RawSupervisedProcess[] = [];
   const inputs: RawSupervisedProcess[] = [];
   const outputs: RawSupervisedProcess[] = [];
@@ -108,6 +113,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
       processes.push(child);
       if (options.name === "device-h264") {
         captureSerials.push(options.args?.[1] ?? "");
+        recordings.push([...(options.args ?? [])]);
         inputs.push(child);
         spawned.get(inputs.length)?.resolve();
       } else {
@@ -188,6 +194,11 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
       env.WIDTH = "400";
       env.HEIGHT = "200";
     },
+    /** A real quarter turn: only the window manager's current size changes at once. */
+    turnDisplay() {
+      current = "1280x640";
+    },
+    recordings,
   };
 }
 
@@ -250,6 +261,19 @@ it("rotation replaces both capture processes while retaining stream identity and
       (exit) => exit.reason === "stopped",
     ),
   ).toBe(true);
+});
+
+it("a capture restarted after a quarter turn records the rotated display, not its natural size", async () => {
+  const f = await fixture();
+  f.send(3);
+  await f.frame();
+  expect(f.recordings.at(-1)).toEqual(expect.arrayContaining(["--size", "640x1280"]));
+  f.turnDisplay();
+  const restart = f.capture.restart;
+  if (!restart) throw new Error("Android capture does not support restart");
+  await restart();
+  expect(f.recordings.at(-1)).toEqual(expect.arrayContaining(["--size", "1280x640"]));
+  expect(f.failures).toEqual([]);
 });
 
 it("closing during a restart cannot spawn another cycle or leave a natural restart pending", async () => {

@@ -200,9 +200,11 @@ export async function startCapture(options: {
         "exec-out",
         "screenrecord",
         "--output-format=h264",
-        ...(settings
-          ? ["--size", `${size.width}x${size.height}`, "--bit-rate", String(settings.bitrate)]
-          : []),
+        // screenrecord fixes its frame at start. Right after a rotation it would otherwise take
+        // the old orientation and draw the rotated screen sideways inside it.
+        "--size",
+        `${size.width}x${size.height}`,
+        ...(settings ? ["--bit-rate", String(settings.bitrate)] : []),
         "--time-limit",
         "180",
         "-",

@@ -137,6 +137,23 @@ export function androidDimensions(output: string): { width: number; height: numb
     .parse(value.split("x"));
   return { width, height };
 }
+/** Prints the window manager's current logical display size (`cur=WxH`), which follows rotation. */
+export const currentDisplayCommand = "dumpsys window displays | grep -m1 -o 'cur=[0-9]*x[0-9]*'";
+/**
+ * `wm size` reports the display's natural orientation. A rotated display swaps it; the window
+ * manager's current size says so as soon as the rotation is applied, before frames catch up.
+ */
+export function orientedDimensions(
+  natural: { width: number; height: number },
+  current: string,
+): { width: number; height: number } {
+  const match = /cur=(\d+)x(\d+)/.exec(current);
+  if (!match) return natural;
+  const landscape = Number(match[1]) > Number(match[2]);
+  return landscape === natural.width > natural.height
+    ? natural
+    : { width: natural.height, height: natural.width };
+}
 
 /** idb sends device HID, independent of Simulator's desktop focus. Return is USB usage 0x28. */
 export function simulatorHID(input: DeviceInput): readonly string[] | undefined {
