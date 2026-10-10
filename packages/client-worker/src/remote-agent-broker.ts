@@ -1,3 +1,4 @@
+import { returnRemoteArtifacts } from "./remote-artifact-return.ts";
 import { transferRemoteContext } from "./remote-context-transfer.ts";
 import { ClientError, type ClientApi, type Scheduler } from "@ace/client";
 import { HostId, RemoteAgentHost, type RemoteTask, type RemoteTaskReport } from "@ace/protocol";
@@ -171,6 +172,39 @@ export class RemoteAgentBroker {
   private report(lease: string, report: RemoteTaskReport) {
     return this.primary.request({ type: "delegation.broker.report", lease, report });
   }
+  private async outcome(
+    client: RemoteClient,
+    task: RemoteTask,
+    lease: string,
+    reply: import("@ace/protocol").RemoteDelegationResult,
+  ) {
+    if (!reply.ok || !reply.phase) throw new ClientError("offline");
+    if (["completed", "failed"].includes(reply.phase) && !reply.artifacts)
+      throw new ClientError("protocol", "Remote device does not support sealed return manifests");
+    if (reply.artifacts)
+      await returnRemoteArtifacts(
+        task,
+        reply.artifacts,
+        lease,
+        this.primary,
+        client,
+        (relay) => {
+          if (!this.pool.contextRelay) throw new ClientError("offline");
+          return this.pool.contextRelay(task.request.hostId, relay);
+        },
+        () =>
+          !this.closed &&
+          this.primary.state === "ready" &&
+          this.pool.machine(task.request.hostId)?.status === "online",
+      );
+    await this.report(lease, {
+      taskId: task.id,
+      phase: reply.phase === "queued" ? "running" : reply.phase,
+      ...(reply.result !== undefined ? { result: reply.result } : {}),
+      ...(reply.usage ? { usage: reply.usage } : {}),
+      ...(reply.artifacts ? { artifacts: reply.artifacts } : {}),
+    });
+  }
   private async route(task: RemoteTask, lease: string) {
     if (["completed", "failed", "cancelled"].includes(task.phase)) return;
     if (this.pool.machine(task.request.hostId)?.status !== "online") {
@@ -193,12 +227,7 @@ export class RemoteAgentBroker {
       }
       const existing = await client.request({ type: "delegation.remote.status", taskId: task.id });
       if (existing.ok && existing.phase) {
-        await this.report(lease, {
-          taskId: task.id,
-          phase: existing.phase === "queued" ? "running" : existing.phase,
-          ...(existing.result !== undefined ? { result: existing.result } : {}),
-          ...(existing.usage ? { usage: existing.usage } : {}),
-        });
+        await this.outcome(client, task, lease, existing);
         return;
       }
       if (existing.error !== "not_found")
@@ -243,13 +272,7 @@ export class RemoteAgentBroker {
         return;
       }
       const status = await client.request({ type: "delegation.remote.status", taskId: task.id });
-      if (status.ok && status.phase)
-        await this.report(lease, {
-          taskId: task.id,
-          phase: status.phase === "queued" ? "running" : status.phase,
-          ...(status.result !== undefined ? { result: status.result } : {}),
-          ...(status.usage ? { usage: status.usage } : {}),
-        });
+      if (status.ok && status.phase) await this.outcome(client, task, lease, status);
     } catch (error) {
       if (this.closed) return;
       await this.report(lease, {

@@ -1,4 +1,5 @@
 import {
+  RemoteArtifactManifest,
   RemoteContextManifest,
   RemoteContextOperation,
   RemoteRelayTarget,
@@ -40,9 +41,11 @@ export const RemoteTaskUsage = z.strictObject({
   tokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   cost: z.number().nonnegative().finite(),
 });
+export type RemoteTaskUsage = z.infer<typeof RemoteTaskUsage>;
 export const RemoteTask = z.strictObject({
   id: z.string().regex(/^[a-f0-9]{64}$/),
   context: RemoteContextManifest.optional(),
+  artifacts: RemoteArtifactManifest.optional(),
   sourceHostId: HostId,
   rootThreadId: ThreadId,
   parentProvider: AgentSelection.shape.provider,
@@ -65,6 +68,7 @@ export type RemoteTask = z.infer<typeof RemoteTask>;
 export const RemoteTaskReport = z.strictObject({
   usage: RemoteTaskUsage.optional(),
   taskId: key,
+  artifacts: RemoteArtifactManifest.optional(),
   phase: RemoteTaskPhase.exclude(["queued"]),
   result: z.string().max(4096).optional(),
   error: z.string().max(256).optional(),
@@ -72,6 +76,24 @@ export const RemoteTaskReport = z.strictObject({
 export type RemoteTaskReport = z.infer<typeof RemoteTaskReport>;
 export const RemoteDelegationClient = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("delegation.remote.transport"), requestId: key }),
+  z.strictObject({
+    type: z.literal("delegation.remote.output"),
+    requestId: key,
+    taskId: z.string().regex(/^[a-f0-9]{64}$/),
+    operation: RemoteContextOperation.options[0],
+  }),
+  z.strictObject({
+    type: z.literal("delegation.broker.return"),
+    requestId: key,
+    lease: key,
+    artifacts: RemoteArtifactManifest,
+    operation: z.discriminatedUnion("op", [
+      RemoteContextOperation.options[1],
+      RemoteContextOperation.options[2],
+      RemoteContextOperation.options[3],
+      RemoteContextOperation.options[4],
+    ]),
+  }),
   z.strictObject({
     type: z.literal("delegation.remote.context"),
     requestId: key,
@@ -109,6 +131,7 @@ export const RemoteDelegationResult = z.strictObject({
   error: z.enum(["forbidden", "busy", "not_ready", "invalid", "not_found"]).optional(),
   context: ContextResult.shape.result.optional(),
   relay: RemoteRelayTarget.optional(),
+  artifacts: RemoteArtifactManifest.optional(),
   usage: RemoteTaskUsage.optional(),
   phase: RemoteTaskPhase.optional(),
   result: z.string().max(4096).optional(),

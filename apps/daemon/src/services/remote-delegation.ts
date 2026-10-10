@@ -1,3 +1,5 @@
+import { ThreadId } from "@ace/protocol";
+import { remoteReturnTransfer } from "../agent-control/remote-return.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Only a currently authorized administrative client may broker other hosts' execution. */
@@ -6,12 +8,13 @@ export function createRemoteDelegationSession(context: SocketContext): SocketSer
     close() {
       context.options.agentControl?.remote.disconnect(context.sessionId);
     },
-    handle(message) {
+    async handle(message) {
       if (!message.type.startsWith("delegation.broker.")) return false;
       if (
         message.type !== "delegation.broker.register" &&
         message.type !== "delegation.broker.poll" &&
-        message.type !== "delegation.broker.report"
+        message.type !== "delegation.broker.report" &&
+        message.type !== "delegation.broker.return"
       )
         return false;
       const result = { type: "delegation.broker.result" as const, requestId: message.requestId };
@@ -25,7 +28,16 @@ export function createRemoteDelegationSession(context: SocketContext): SocketSer
         context.send({ ...result, ok: false, error: "not_ready" });
         return true;
       }
-      if (message.type === "delegation.broker.register") {
+      if (message.type === "delegation.broker.return") {
+        context.send(
+          await remoteReturnTransfer(
+            context.options,
+            message,
+            context.sessionId,
+            (thread) => valid() && (!thread || context.canReadThread(ThreadId.parse(thread))),
+          ),
+        );
+      } else if (message.type === "delegation.broker.register") {
         const hosts = message.hosts.filter((host) => host.hostId !== context.options.hostId);
         const lease = owner.register(context.sessionId, hosts, valid);
         context.send(

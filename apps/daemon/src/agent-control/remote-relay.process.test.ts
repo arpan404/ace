@@ -1,4 +1,8 @@
+import { returnRemoteArtifacts } from "@ace/client-worker/remote-artifact-return";
+import { RemoteReturns, remoteReturnTransfer } from "./remote-return.ts";
+import { RemoteArtifactManifest } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
+import { z } from "zod";
 import { organizeThread } from "../thread-organization.ts";
 import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
@@ -15,6 +19,8 @@ import {
   RemoteDelegationResult,
   DeviceId,
   ClientMessage,
+  ContextResult,
+  ContextRequest,
 } from "@ace/protocol";
 import { daemonFixture } from "./daemon-test-support.ts";
 import { Client } from "../socket-test-support.ts";
@@ -72,6 +78,7 @@ async function world() {
     hostId: targetWire.hostId,
     port: 0,
     token: "unused",
+    agentControl: target.controls,
     engine: target.daemon.engine!,
     handler: target.daemon.engine!.handler,
   };
@@ -140,7 +147,12 @@ async function world() {
     });
     expect(await channel.receive()).toMatchObject({ type: "welcome", hostId: targetWire.hostId });
     return {
-      async request(message: Parameters<typeof remoteContextTransfer>[1]) {
+      async request(
+        message: Extract<
+          import("@ace/protocol").ClientMessage,
+          { type: "delegation.remote.context" | "delegation.remote.output" }
+        >,
+      ) {
         await channel.send(message);
         return RemoteDelegationResult.parse(await channel.receive());
       },
@@ -148,6 +160,16 @@ async function world() {
     };
   }
   async function sourceRequest<Q extends ServiceRequest>(input: Q): Promise<ServiceResponse<Q>> {
+    if (input.type === "delegation.broker.return") {
+      const parsed = ClientMessage.parse({ ...input, requestId: randomUUID() });
+      if (parsed.type !== "delegation.broker.return") throw new Error("Bad return input");
+      return (await remoteReturnTransfer(
+        sourceOptions,
+        parsed,
+        "broker",
+        () => true,
+      )) as ServiceResponse<Q>;
+    }
     if (input.type !== "delegation.remote.context") throw new Error("Unexpected source request");
     return (await remoteContextTransfer(
       sourceOptions,
@@ -425,4 +447,411 @@ test("text context uses relay; transient target stop retries and deleted admitte
   expect(
     await f.targetWire.request({ type: "delegation.remote.cancel", taskId: task.id }),
   ).toMatchObject({ ok: true, phase: "cancelled" });
+});
+
+async function admittedReturnTask(f: Awaited<ReturnType<typeof world>>) {
+  const task = await f.delegate();
+  f.source.controls.remote.poll("broker", f.lease);
+  await transferRemoteContext(
+    task,
+    { request: f.sourceRequest },
+    { request: f.targetRequest },
+    f.relayChannel,
+    () => true,
+  );
+  expect(await f.targetWire.request({ type: "delegation.remote.start", task })).toMatchObject({
+    ok: true,
+  });
+  await f.target.daemon.engine!.flush();
+  const thread = f.target.daemon.store.getThread(task.threadId);
+  if (!thread?.rootAgentId) throw new Error("Missing target root");
+  return {
+    task,
+    caller: { sessionId: "publication-test", threadId: task.threadId, agentId: thread.rootAgentId },
+  };
+}
+async function publish(
+  f: Awaited<ReturnType<typeof world>>,
+  caller: import("@ace/protocol").McpAttribution,
+  files: string[],
+) {
+  const lease = f.target.daemon.mcp.openSession(
+    { ...caller, capabilities: ["thread_control"] },
+    new AbortController().signal,
+  );
+  cleanup.push(() => lease.end());
+  const response = await fetch(f.target.daemon.mcp.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${lease.bearer}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": "ace_device_task_publish",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "ace_device_task_publish",
+        arguments: { requestId: "published-output", files },
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "test", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const result = await response.json();
+  expect(result, JSON.stringify(result)).toMatchObject({
+    result: { structuredContent: { ok: true } },
+  });
+  return RemoteArtifactManifest.parse(result.result.structuredContent.data);
+}
+
+test("remote agent explicitly publishes image and file through MCP; reverse relay imports source-owned bytes and preserves provenance without overwriting files", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  expect(
+    await f.source.call({
+      op: "device.task_publish",
+      requestId: "not-a-receiving-task",
+      attachments: [],
+      files: ["result.png"],
+    }),
+  ).toMatchObject({ ok: false, code: "forbidden" });
+  await writeFile(join(f.target.h.home, "result.png"), png);
+  await writeFile(join(f.target.h.home, "result.txt"), "Remote output frozen bytes");
+  await writeFile(join(f.target.h.home, "alias.txt"), "Remote output frozen bytes");
+  await writeFile(join(f.source.h.home, "result.txt"), "Do not overwrite source workspace");
+  const artifacts = await publish(f, caller, ["result.png", "result.txt", "alias.txt"]);
+  expect(artifacts).toMatchObject({
+    taskId: task.id,
+    hostId: f.targetWire.hostId,
+    threadId: task.threadId,
+    parentThreadId: f.source.caller.threadId,
+    attachments: [{ sha256: hash(png) }, { aliases: ["result.txt", "alias.txt"] }],
+  });
+  await writeFile(join(f.target.h.home, "result.txt"), "Changed after publish");
+  const outcome = await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id });
+  expect(outcome).toMatchObject({ ok: true, phase: "completed", artifacts });
+  expect(
+    f.source.controls.remote.report("broker", f.lease, {
+      taskId: task.id,
+      phase: "completed",
+      artifacts,
+    }),
+  ).toBeUndefined();
+  await returnRemoteArtifacts(
+    task,
+    artifacts,
+    f.lease,
+    { request: f.sourceRequest },
+    { request: f.targetRequest },
+    f.relayChannel,
+    () => true,
+  );
+  for (const file of artifacts.attachments) {
+    const read = await f.source.daemon.context.readAttachment(
+      "source",
+      f.source.caller.threadId,
+      file.sha256,
+      "original",
+      0,
+      65536,
+    );
+    expect(read.data).toEqual(
+      file.sha256 === hash(png) ? png : Buffer.from("Remote output frozen bytes"),
+    );
+  }
+  expect(await readFile(join(f.source.h.home, "result.txt"), "utf8")).toBe(
+    "Do not overwrite source workspace",
+  );
+  const finished = f.source.controls.remote.report("broker", f.lease, {
+    taskId: task.id,
+    phase: "completed",
+    artifacts,
+    result: "Published selected results",
+  });
+  expect(finished).toMatchObject({ phase: "completed", artifacts, delivered: true });
+  expect(
+    f.source.controls.returns.retains(f.source.caller.threadId, artifacts.attachments[0]!.sha256),
+  ).toBe(true);
+  const wait = await f.source.call({ op: "device.task_wait", taskId: task.id });
+  expect(wait).toMatchObject({
+    ok: true,
+    data: {
+      artifacts,
+      returnedFiles: [
+        {
+          hostId: task.sourceHostId,
+          threadId: task.parentThreadId,
+          provenance: { hostId: task.request.hostId, threadId: task.threadId },
+        },
+        { provenance: { aliases: ["result.txt", "alias.txt"] } },
+      ],
+    },
+  });
+  if (!wait.ok) throw new Error("Missing wait result");
+  const returned = z
+    .object({ returnedFiles: z.array(z.object({ path: z.string() })) })
+    .parse(wait.data);
+  expect(await readFile(returned.returnedFiles[0]!.path)).toEqual(png);
+  await f.source.daemon.engine!.flush();
+  const page = f.source.daemon.store.readItemPage(
+    f.source.caller.threadId,
+    f.source.daemon.store.headSeq() + 1,
+    20,
+    32768,
+  );
+  expect(
+    page.items.some(
+      (item) =>
+        item.type === "message" &&
+        item.attachments?.some((attachment) => attachment.sha256 === hash(png)),
+    ),
+  ).toBe(true);
+});
+
+test("return imports reject wrong provenance and Stop, preserve partial offsets across reconnect, and sealed outputs cannot change", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  await writeFile(join(f.target.h.home, "large.txt"), Buffer.alloc(140000, 97));
+  const artifacts = await publish(f, caller, ["large.txt"]);
+  const outcome = await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id });
+  expect(outcome.artifacts).toEqual(artifacts);
+  expect(
+    await f.sourceRequest({
+      type: "delegation.broker.return",
+      lease: f.lease,
+      artifacts: { ...artifacts, threadId: f.source.caller.threadId },
+      operation: { op: "prepare" },
+    }),
+  ).toMatchObject({ ok: false, error: "forbidden" });
+  await expect(
+    returnRemoteArtifacts(
+      task,
+      artifacts,
+      f.lease,
+      { request: f.sourceRequest },
+      { request: f.targetRequest },
+      async () => {
+        const disconnected = await f.relayChannel();
+        disconnected.close();
+        return disconnected;
+      },
+      () => true,
+    ),
+  ).rejects.toThrow();
+  expect(f.source.controls.returns.ready(task, artifacts)).toBe(false);
+  expect(f.source.controls.remote.journal.get(task.id)?.phase).not.toBe("completed");
+  const channel = await f.relayChannel();
+  expect(
+    await channel.request({
+      type: "delegation.remote.output",
+      requestId: "wrong-output",
+      taskId: task.id,
+      operation: { op: "read", sha256: "f".repeat(64), offset: 0 },
+    }),
+  ).toMatchObject({ ok: false, error: "forbidden" });
+  await f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "prepare" },
+  });
+  expect(
+    f.source.controls.remote.report("broker", f.lease, { taskId: task.id, phase: "completed" }),
+  ).toBeUndefined();
+  expect(
+    f.source.controls.remote.report("broker", f.lease, {
+      taskId: task.id,
+      phase: "completed",
+      artifacts: { ...artifacts, attachments: [] },
+    }),
+  ).toBeUndefined();
+  const begun = await f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "begin", sha256: artifacts.attachments[0]!.sha256 },
+  });
+  if (begun.context?.kind !== "upload") throw new Error("Missing source upload");
+  await f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: {
+      op: "chunk",
+      uploadId: begun.context.uploadId,
+      offset: 0,
+      data: Buffer.alloc(65536, 97).toString("base64"),
+    },
+  });
+  channel.close();
+  await returnRemoteArtifacts(
+    task,
+    artifacts,
+    f.lease,
+    { request: f.sourceRequest },
+    { request: f.targetRequest },
+    f.relayChannel,
+    () => true,
+  );
+  expect(f.source.controls.returns.ready(task, artifacts)).toBe(true);
+  expect(
+    await f.target.controls.port.execute(
+      caller,
+      RemoteAgentOperation.parse({
+        op: "device.task_publish",
+        requestId: "different",
+        files: ["large.txt"],
+      }),
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ ok: false, code: "invalid" });
+  await f.source.call({ op: "device.task_cancel", taskId: task.id });
+  expect(
+    await f.sourceRequest({
+      type: "delegation.broker.return",
+      lease: f.lease,
+      artifacts,
+      operation: { op: "begin", sha256: artifacts.attachments[0]!.sha256 },
+    }),
+  ).toMatchObject({ ok: false, error: "forbidden" });
+  expect(f.source.controls.remote.journal.get(task.id)?.phase).toBe("cancelling");
+  expect(
+    f.source.controls.returns.retains(f.source.caller.threadId, artifacts.attachments[0]!.sha256),
+  ).toBe(false);
+});
+
+test("Stop during return upload admission durably releases the new reservation and retries cleanup after restart", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  await writeFile(join(f.target.h.home, "return.txt"), "task output");
+  const artifacts = await publish(f, caller, ["return.txt"]);
+  await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id });
+  await f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "prepare" },
+  });
+  const context = f.source.daemon.context;
+  const original = context.handle.bind(context);
+  let release: (() => void) | undefined;
+  const paused = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let uploadId = "";
+  let cancelledAttempts = 0;
+  const spy = vi.spyOn(context, "handle").mockImplementation(async (...args) => {
+    if (ContextRequest.parse(args[1]).operation.op === "upload.cancel" && cancelledAttempts++ === 0)
+      throw new Error("Transient shutdown");
+    const reply = await original(...args);
+    const result = ContextResult.parse(reply).result;
+    if (ContextRequest.parse(args[1]).operation.op === "upload.begin" && result.kind === "upload") {
+      uploadId = result.uploadId;
+      await paused;
+    }
+    return reply;
+  });
+  const admission = f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "begin", sha256: artifacts.attachments[0]!.sha256 },
+  });
+  await vi.waitFor(() => expect(uploadId).not.toBe(""));
+  await f.source.call({ op: "device.task_cancel", taskId: task.id });
+  release?.();
+  expect(await admission).toMatchObject({ ok: false, error: "forbidden" });
+  expect(f.source.controls.returns.read(task.id)).toMatchObject({
+    abandoned: true,
+    uploads: { [uploadId]: { committed: false } },
+  });
+  spy.mockRestore();
+  const restarted = new RemoteReturns(f.source.daemon.store);
+  await restarted.cleanup(context, (error) => {
+    throw error;
+  });
+  expect(
+    await context.handle(remoteContextOwner, {
+      type: "context.request",
+      requestId: "after-stop",
+      operation: { op: "upload.status", uploadId },
+    }),
+  ).toMatchObject({ result: { kind: "error", code: "not_found" } });
+  expect(restarted.read(task.id)?.uploads).toEqual({});
+});
+
+test("broker disconnect during return admission preserves the owned offset for a replacement lease", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  await writeFile(join(f.target.h.home, "reconnect.txt"), "resume this output");
+  const artifacts = await publish(f, caller, ["reconnect.txt"]);
+  await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id });
+  await f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "prepare" },
+  });
+  const context = f.source.daemon.context;
+  const original = context.handle.bind(context);
+  let release: (() => void) | undefined;
+  const paused = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let begun = false;
+  const spy = vi.spyOn(context, "handle").mockImplementation(async (...args) => {
+    const reply = await original(...args);
+    if (ContextRequest.parse(args[1]).operation.op === "upload.begin") {
+      begun = true;
+      await paused;
+    }
+    return reply;
+  });
+  const admission = f.sourceRequest({
+    type: "delegation.broker.return",
+    lease: f.lease,
+    artifacts,
+    operation: { op: "begin", sha256: artifacts.attachments[0]!.sha256 },
+  });
+  await vi.waitFor(() => expect(begun).toBe(true));
+  f.source.controls.remote.disconnect("broker");
+  release?.();
+  expect(await admission).toMatchObject({ ok: false, error: "forbidden" });
+  spy.mockRestore();
+  expect(f.source.controls.returns.read(task.id)?.abandoned).toBe(false);
+  const lease = f.source.controls.remote.register("broker", [], () => true);
+  if (!lease) throw new Error("Replacement broker unavailable");
+  await returnRemoteArtifacts(
+    task,
+    artifacts,
+    lease,
+    { request: f.sourceRequest },
+    { request: f.targetRequest },
+    f.relayChannel,
+    () => true,
+  );
+  expect(
+    f.source.controls.remote.report("broker", lease, {
+      taskId: task.id,
+      phase: "completed",
+      artifacts,
+    }),
+  ).toMatchObject({ phase: "completed", delivered: true });
+  const result = await f.source.daemon.context.readAttachment(
+    "source",
+    task.parentThreadId,
+    artifacts.attachments[0]!.sha256,
+    "original",
+    0,
+    65536,
+  );
+  expect(result.data.toString()).toBe("resume this output");
 });

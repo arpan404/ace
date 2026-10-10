@@ -1,3 +1,4 @@
+import { pumpRemoteAttachments } from "./remote-attachment-pump.ts";
 import type { ClientApi } from "@ace/client";
 import { ClientError } from "@ace/client";
 import type { RemoteContextChannel } from "@ace/client/remote-context-relay";
@@ -31,50 +32,20 @@ export async function transferRemoteContext(
   };
   try {
     await request({ op: "prepare" });
-    for (const attachment of task.context.attachments) {
-      const begun = await request({ op: "begin", sha256: attachment.sha256 });
-      if (begun.kind !== "upload" || begun.bytes !== attachment.bytes)
-        throw new ClientError("protocol", "Remote attachment reservation mismatch");
-      let offset = begun.offset;
-      while (offset < attachment.bytes) {
-        if (!valid()) throw new ClientError("offline");
+    await pumpRemoteAttachments(
+      task.context.attachments,
+      async (sha256, offset) => {
         const reply = await source.request({
           type: "delegation.remote.context",
           task,
-          operation: { op: "read", sha256: attachment.sha256, offset },
+          operation: { op: "read", sha256, offset },
         });
-        const data = reply.context;
-        if (
-          !reply.ok ||
-          data?.kind !== "attachment.data" ||
-          data.offset !== offset ||
-          data.sha256 !== attachment.sha256 ||
-          data.bytes !== attachment.bytes ||
-          data.variant !== "original"
-        )
-          throw new ClientError("protocol", "Source attachment scope mismatch");
-        const written = await request({
-          op: "chunk",
-          uploadId: begun.uploadId,
-          offset,
-          data: data.data,
-        });
-        if (
-          written.kind !== "upload" ||
-          written.offset <= offset ||
-          written.offset > attachment.bytes
-        )
-          throw new ClientError("protocol", "Remote attachment offset mismatch");
-        offset = written.offset;
-      }
-      const committed = await request({ op: "commit", uploadId: begun.uploadId });
-      if (
-        committed.kind !== "attachment" ||
-        committed.attachment.sha256 !== attachment.sha256 ||
-        committed.attachment.bytes !== attachment.bytes
-      )
-        throw new ClientError("protocol", "Remote attachment hash mismatch");
-    }
+        if (!reply.ok) throw new ClientError("protocol", "Source attachment unavailable");
+        return reply.context;
+      },
+      request,
+      valid,
+    );
   } finally {
     channel.close();
   }

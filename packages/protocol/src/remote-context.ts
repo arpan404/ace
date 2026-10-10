@@ -11,7 +11,14 @@ export const RemoteContextManifest = z.strictObject({
   sourceThreadId: ThreadId,
   summary: z.string().max(8192),
   before: z.number().int().nonnegative().nullable(),
-  attachments: z.array(Attachment.extend({ sourcePath: z.string().max(1024).optional() })).max(16),
+  attachments: z
+    .array(
+      Attachment.extend({
+        sourcePath: z.string().max(1024).optional(),
+        aliases: z.array(z.string().max(1024)).max(16).optional(),
+      }),
+    )
+    .max(16),
 });
 export type RemoteContextManifest = z.infer<typeof RemoteContextManifest>;
 export const RemoteContextOperation = z.discriminatedUnion("op", [
@@ -34,3 +41,13 @@ export const RemoteRelayTarget = z.strictObject({
   url: z.string().url().max(4096),
   pinnedFingerprint: z.string().regex(/^[A-Z2-7]{52}$/),
 });
+
+export const RemoteArtifactManifest = z.strictObject({
+  taskId: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceHostId: HostId,
+  parentThreadId: ThreadId,
+  hostId: HostId,
+  threadId: ThreadId,
+  attachments: RemoteContextManifest.shape.attachments,
+});
+export type RemoteArtifactManifest = z.infer<typeof RemoteArtifactManifest>;

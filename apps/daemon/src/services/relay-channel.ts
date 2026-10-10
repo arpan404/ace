@@ -1,3 +1,4 @@
+import { remoteOutputRead } from "../agent-control/remote-return.ts";
 import { remoteContextTransfer } from "../agent-control/remote-context-transfer.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
 import {
@@ -197,6 +198,17 @@ export function attachRelayService(
       : undefined;
   return {
     async accept(message: ClientMessage) {
+      if (message.type === "delegation.remote.output") {
+        if (!options.remoteDelegation) throw new Error("Remote output unavailable");
+        await channel.send(
+          await remoteOutputRead(
+            options.remoteDelegation,
+            message,
+            (thread) => authorize("read") && (!thread || threadAccess(thread)),
+          ),
+        );
+        return;
+      }
       if (message.type === "delegation.remote.context") {
         if (!options.remoteDelegation) throw new Error("Remote task context unavailable");
         const scope = message.operation.op === "read" ? "read" : "operate";

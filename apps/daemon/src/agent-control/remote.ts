@@ -46,6 +46,14 @@ export class RemoteDelegations {
   private closed = false;
   private clock: EngineClock | undefined;
   private onError: (error: unknown) => void;
+  private resolveArtifacts: ((task: RemoteTask) => Promise<unknown>) | undefined;
+  private onReturnCancel: ((task: RemoteTask) => void) | undefined;
+  private pendingArtifacts:
+    | ((task: RemoteTask) => import("@ace/protocol").RemoteArtifactManifest | undefined)
+    | undefined;
+  private artifactReady:
+    | ((task: RemoteTask, artifacts: import("@ace/protocol").RemoteArtifactManifest) => boolean)
+    | undefined;
   private prepareContext:
     | ((
         task: RemoteTask,
@@ -53,6 +61,15 @@ export class RemoteDelegations {
       ) => Promise<import("@ace/protocol").RemoteContextManifest>)
     | undefined;
   constructor(options: {
+    resolveArtifacts?: (task: RemoteTask) => Promise<unknown>;
+    onReturnCancel?: (task: RemoteTask) => void;
+    pendingArtifacts?: (
+      task: RemoteTask,
+    ) => import("@ace/protocol").RemoteArtifactManifest | undefined;
+    artifactReady?: (
+      task: RemoteTask,
+      artifacts: import("@ace/protocol").RemoteArtifactManifest,
+    ) => boolean;
     prepareContext?: (
       task: RemoteTask,
       signal: AbortSignal,
@@ -67,6 +84,10 @@ export class RemoteDelegations {
     id: () => string;
     admit: () => boolean;
   }) {
+    this.resolveArtifacts = options.resolveArtifacts;
+    this.onReturnCancel = options.onReturnCancel;
+    this.pendingArtifacts = options.pendingArtifacts;
+    this.artifactReady = options.artifactReady;
     this.clock = options.clock;
     this.onError = options.onError ?? (() => {});
     this.prepareContext = options.prepareContext;
@@ -170,6 +191,18 @@ export class RemoteDelegations {
     const b = this.current();
     return b?.session === session && b.lease === lease;
   }
+  returnTask(session: string, lease: string, id: string): RemoteTask | undefined {
+    if (!this.owns(session, lease)) return;
+    const task = this.journal.get(id);
+    if (!task || !task.dispatched || remoteTerminal(task)) return;
+    this.revalidate(task);
+    this.journal.save(task);
+    if (task.phase === "cancelling") {
+      this.onReturnCancel?.(task);
+      return;
+    }
+    return task;
+  }
   poll(session: string, lease: string): RemoteTask[] | undefined {
     if (!this.owns(session, lease)) return undefined;
     return this.store.atomic(() =>
@@ -202,6 +235,17 @@ export class RemoteDelegations {
         return task;
       }
       this.revalidate(task);
+      if (
+        task.phase !== "cancelling" &&
+        ["completed", "failed"].includes(report.phase) &&
+        this.pendingArtifacts?.(task) &&
+        !report.artifacts
+      )
+        return undefined;
+      if (report.artifacts && task.phase !== "cancelling") {
+        if (!this.artifactReady?.(task, report.artifacts)) return undefined;
+        task.artifacts = report.artifacts;
+      }
       // Cancellation cannot be undone by a stale progress or completion report.
       task.phase =
         task.phase === "cancelling" && !["cancelled", "failed"].includes(report.phase)
@@ -241,6 +285,7 @@ export class RemoteDelegations {
       task.phase = "cancelling";
   }
   private finish(task: RemoteTask) {
+    if (["cancelling", "cancelled"].includes(task.phase)) this.onReturnCancel?.(task);
     if (!remoteTerminal(task) || task.delivered) return;
     this.store.atomic(() => {
       const parent = this.store.getThread(task.parentThreadId);
@@ -250,11 +295,21 @@ export class RemoteDelegations {
         if (this.waiters.has(task.id)) return;
         if (task.phase !== "cancelled") {
           const commandId = CommandId.parse(`remote-result:${task.id}`);
-          const text = `[ace remote task ${task.id}; host ${task.request.hostId}; thread ${task.threadId}; ${task.phase}]\n${task.result ?? task.error ?? "No text result returned."}\nFiles and artifacts remain on the remote device. No changes have been copied or merged.`;
+          const text = `[ace remote task ${task.id}; host ${task.request.hostId}; thread ${task.threadId}; ${task.phase}]\n${task.result ?? task.error ?? "No text result returned."}\n${task.artifacts?.attachments.length ? "Published images/files are attached as immutable copies on this source device. Their producing host/thread remain in the task provenance." : "No files were published for this task."} No workspace changes are overwritten or merged.`;
           const result = this.local.command(commandId, {
             type: "thread.send",
             threadId: task.parentThreadId,
             input: [{ type: "text", text }],
+            ...(task.artifacts?.attachments.length
+              ? {
+                  context: {
+                    mentions: [],
+                    attachments: task.artifacts.attachments.map((file) => ({
+                      sha256: file.sha256,
+                    })),
+                  },
+                }
+              : {}),
             delivery: "queue",
             trigger: "subagent_result",
             origin: { kind: "subagent_result" },
@@ -302,6 +357,7 @@ export class RemoteDelegations {
     signal.throwIfAborted();
     if (!this.store.getMcpAgent(caller.threadId, caller.agentId))
       return { ok: false, code: "forbidden" };
+    if (operation.op === "device.task_publish") return { ok: false, code: "unsupported" };
     if (operation.op === "device.list")
       return {
         ok: true,
@@ -447,10 +503,20 @@ export class RemoteDelegations {
         if (current) this.finish(current);
       }
     }
+    const returnedFiles = task.artifacts?.attachments.length
+      ? await this.resolveArtifacts?.(task)
+      : undefined;
+    signal.throwIfAborted();
+    if (
+      !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
+      this.store.getThread(caller.threadId)?.deletedAt !== undefined
+    )
+      return { ok: false, code: "forbidden" };
     return {
       ok: true,
       data: {
         ...task,
+        ...(returnedFiles ? { returnedFiles } : {}),
         ...(!remoteTerminal(task) &&
         !this.current()?.hosts.some((host) => host.hostId === task.request.hostId)
           ? { phase: task.phase === "cancelling" ? "cancelling" : "unavailable" }

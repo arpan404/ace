@@ -137,6 +137,8 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                               : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "delegation.remote.output": ["delegation.broker.result"],
+  "delegation.broker.return": ["delegation.broker.result"],
   "delegation.remote.transport": ["delegation.broker.result"],
   "delegation.remote.context": ["delegation.broker.result"],
   "delegation.remote.start": ["delegation.broker.result"],

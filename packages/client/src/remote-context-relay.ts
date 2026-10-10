@@ -3,7 +3,10 @@ import { RemoteDelegationResult, type ClientMessage } from "@ace/protocol";
 import { ClientError } from "./errors.ts";
 export interface RemoteContextChannel {
   request(
-    message: Extract<ClientMessage, { type: "delegation.remote.context" }>,
+    message: Extract<
+      ClientMessage,
+      { type: "delegation.remote.context" | "delegation.remote.output" }
+    >,
   ): Promise<import("@ace/protocol").RemoteDelegationResult>;
   close(): void;
 }

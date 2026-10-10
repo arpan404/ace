@@ -25,6 +25,168 @@
       "additionalProperties": false,
       "properties": {
         "operation": {
+          "additionalProperties": false,
+          "properties": {
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "read",
+              "type": "string"
+            },
+            "sha256": {
+              "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+            }
+          },
+          "required": [
+            "op",
+            "sha256",
+            "offset"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "taskId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.remote.output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "taskId",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
+        },
+        "lease": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "prepare",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "begin",
+                  "type": "string"
+                },
+                "sha256": {
+                  "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+                }
+              },
+              "required": [
+                "op",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "data": {
+                  "maxLength": 87384,
+                  "minLength": 4,
+                  "type": "string"
+                },
+                "offset": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "op": {
+                  "const": "chunk",
+                  "type": "string"
+                },
+                "uploadId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "uploadId",
+                "offset",
+                "data"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "const": "commit",
+                  "type": "string"
+                },
+                "uploadId": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "uploadId"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "delegation.broker.return",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "lease",
+        "artifacts",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
           "$ref": "https://ace.local/protocol/v1/RemoteContextOperation.json"
         },
         "requestId": {
