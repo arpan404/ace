@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, type KeyboardEvent, type ReactNode } fr
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
-import { ActionsSection } from "./work-card-actions.tsx";
+import { WorkCardActivity } from "./work-card-activity.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
 import { ChangesSection } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
-import { Rule, WorkSection } from "./work-card-parts.tsx";
-import { ThreadEnvironmentCard } from "../composer/thread-environment.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { attachCardScroll } from "./work-card-scroll.ts";
 import { WorkCardStateProvider, useWorkCardState } from "./work-card-state.tsx";
-import { XIcon } from "@phosphor-icons/react";
 
 /** Inline context beside the conversation, stacked above it when its body is narrow. */
 export function WorkCard(props: {
@@ -40,36 +36,17 @@ export function WorkCard(props: {
         hidden={!props.open}
         tabIndex={-1}
         onKeyDown={escape}
-        className="order-first max-h-[40dvh] min-h-0 w-full shrink-0 p-3 focus-ring-inset @min-[832px]/work-body:order-last @min-[832px]/work-body:h-full @min-[832px]/work-body:max-h-none @min-[832px]/work-body:w-[352px]"
+        className="order-first min-h-0 w-full shrink-0 p-2 focus-ring-inset @min-[832px]/work-body:order-last @min-[832px]/work-body:h-full @min-[832px]/work-body:w-[248px]"
       >
         <div
           data-work-card-surface
-          className="flex max-h-[calc(40dvh-24px)] min-h-0 flex-col overflow-hidden rounded-xl border bg-panel p-2 @min-[832px]/work-body:max-h-[min(480px,100%)]"
+          className="ml-auto flex max-h-[92px] w-[232px] max-w-full min-h-0 flex-col overflow-hidden rounded-lg border bg-panel p-1 @min-[832px]/work-body:max-h-[min(300px,100%)]"
         >
-          <div className="flex shrink-0 items-center gap-1">
-            <div className="min-w-0 flex-1">
-              <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
-            </div>
-            <IconButton
-              icon={XIcon}
-              label="Close work card"
-              tooltip={false}
-              size="sm"
-              onClick={() => props.onClose(true)}
-            />
-          </div>
           <CardScroll open={props.open}>
-            <WorkSection id="work-card-environment" title="Environment">
-              <ThreadEnvironmentCard thread={props.thread} />
-            </WorkSection>
-            <Rule />
-            <WorkSection id="work-card-changes" title="Changes">
-              <ChangesSection thread={props.thread} git={git} onClose={close} />
-            </WorkSection>
-            <Rule />
+            <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
+            <ChangesSection thread={props.thread} git={git} onClose={close} />
             <PullRequestsSection git={git} />
-            <Rule />
-            <ActionsSection thread={props.thread} onClose={props.onClose} />
+            <WorkCardActivity threadId={props.thread.id} onClose={close} />
           </CardScroll>
         </div>
       </aside>

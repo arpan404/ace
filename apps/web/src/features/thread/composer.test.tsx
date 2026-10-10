@@ -158,37 +158,33 @@ test("the work card carries checkout details and refreshes them after a commit",
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   const strip = await screen.findByRole("button", {
-    name: "Work card",
+    name: /^Work card/,
   });
   await userEvent.click(strip);
-  let card = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(within(card).getByText("Local checkout")).toBeTruthy();
+  let card = await screen.findByRole("complementary", { name: "Work card" });
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
 
   // The branch row opens the commit form; pushing stays optional.
-  await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  card = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: /^Work card/ }));
+  card = await screen.findByRole("complementary", { name: "Work card" });
+  expect(await within(card).findByText("↑1")).toBeTruthy();
 
   // Escape folds the details back to the strip and puts the caret in the message.
-  const close = screen.getByRole("button", { name: "Close work card" });
-  // Once the commit dialog has handed focus back.
-  await waitFor(() => {
-    close.focus();
-    expect(document.activeElement).toBe(close);
-  });
+  card.focus();
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
   );
-  expect(screen.getByRole("button", { name: "Work card" })).toBeTruthy();
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Work card" }));
+  expect(screen.getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Work card/ }));
 });
 
 test("the composer carries no context or usage meter, whatever the provider reports", async () => {

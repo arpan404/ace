@@ -19,11 +19,11 @@ async function renameMachine(button: string, name: string, icon: string) {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
-test("editing this machine updates its name and mark in Settings, both thread environments and the work card", async () => {
+test("editing this machine updates Settings and the new-thread environment while the card omits its local name", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   let view = await app.open("/settings/remote");
-  await screen.findByText("Fake machine", { exact: true });
+  await screen.findByRole("button", { name: "Edit this machine" });
   await renameMachine("Edit this machine", "Workshop Mac", "Desktop");
   const machines = screen.getByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
@@ -39,15 +39,10 @@ test("editing this machine updates its name and mark in Settings, both thread en
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
-  expect(await within(environment).findByText("Workshop Mac")).toBeTruthy();
-  expect(within(environment).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
   const card = await screen.findByRole("complementary", { name: "Work card" });
-  expect((await within(card).findAllByText("Workshop Mac")).length).toBeGreaterThan(0);
-  expect(within(card).getAllByRole("img", { name: "desktop machine icon" }).length).toBeGreaterThan(
-    0,
-  );
+  expect(card.textContent).not.toContain("Workshop Mac");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
 });
 
 test("editing a paired machine saves on that host and replaces stale thread labels", async () => {
@@ -147,7 +142,7 @@ test("a chosen emoji survives leaving Settings and appears in the new thread env
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
-  await screen.findByText("Fake machine", { exact: true });
+  await screen.findByRole("button", { name: "Edit this machine" });
   const edit = await screen.findByRole("button", { name: "Edit this machine" });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);

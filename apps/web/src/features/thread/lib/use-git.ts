@@ -118,6 +118,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
   const sources = useThreadSources();
   const queries = useQueryClient();
   const mutation = useMutation({
+    mutationKey: ["thread", thread.id, "git-change"],
     mutationFn: async (change: GitChange): Promise<ForgePrStatus | undefined> => {
       const workspace = sources.workspace;
       if (change.kind === "commit") {

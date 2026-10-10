@@ -1,6 +1,7 @@
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { ListBulletsIcon } from "@phosphor-icons/react";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { ListBulletsIcon } from "@phosphor-icons/react";
 import {
   lazy,
   Suspense,
@@ -11,7 +12,6 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -52,6 +52,7 @@ import {
   DeferredThreadMenu,
   DeferredTurnsPanel,
   DeferredWorkCard,
+  DeferredWorkCardToggle,
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
@@ -198,14 +199,24 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         }
         tools={
           thread && (
-            <IconButton
-              icon={ListBulletsIcon}
-              label="Work card"
-              shortcut="workCard"
-              pressed={card.open}
-              data-work-card-toggle
-              onClick={card.toggle}
-            />
+            <Suspense
+              fallback={
+                <IconButton
+                  icon={ListBulletsIcon}
+                  label="Work card · Reading work"
+                  shortcut="workCard"
+                  pressed={card.open}
+                  data-work-card-toggle
+                  onClick={card.toggle}
+                />
+              }
+            >
+              <DeferredWorkCardToggle.Component
+                thread={thread}
+                open={card.open}
+                onClick={card.toggle}
+              />
+            </Suspense>
           )
         }
         workspace={{
