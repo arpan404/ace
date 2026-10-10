@@ -49,6 +49,23 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
         ACE_LOG_LEVEL: "silent",
         ACE_WEB_ORIGINS: web.origin,
       }),
+      // Threads name Codex but no scenario starts a session; probing the machine's real CLIs
+      // can outlast the engine's startup deadline and leave the sandbox without an engine.
+      modelInstances: [],
+      engine: {
+        adapterDiscovery: async () => ({
+          claude: { installed: false, auth: "unknown", loginHint: "" },
+          codex: {
+            installed: true,
+            path: process.execPath,
+            version: "0.0.0",
+            auth: "unknown",
+            loginHint: "",
+          },
+          cursor: { installed: false, auth: "unknown", loginHint: "" },
+          opencode: { installed: false, auth: "unknown", loginHint: "" },
+        }),
+      },
       browser: {
         executablePath,
         backendPreference: () => backend,
@@ -136,6 +153,10 @@ await import('./app/${mainEntry}');`,
         current.store,
       );
       if (!result.ok) throw new Error(`Sandbox thread preparation failed: ${result.error}`);
+      // Home leaves empty drafts out of its list; the scenarios switch threads from it.
+      current.store.appendEvents(id, [
+        { type: "thread.client.updated", changes: { hasSentMessage: true } },
+      ]);
       const thread = current.store.getThread(id);
       if (!thread) throw new Error("Sandbox thread unavailable");
       return thread;

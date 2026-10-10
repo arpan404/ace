@@ -12,7 +12,7 @@ export const toastTimeouts = { plain: 4000, action: 8000, error: 8000 } as const
 const limit = 3;
 
 /**
- * Toasts sit below the header at the top centre, clear of composer and footer actions.
+ * Toasts sit below the header at the top centre of the main pane, clear of side panels.
  * Short confirmations take only the room their words need; descriptions and actions wrap
  * within a bounded card. Queue them under <ToastProvider> with useToast().add() or .error().
  * F6 moves focus to them (Base UI); hovering or focusing one pauses every timer.
@@ -34,7 +34,7 @@ function ToastProvider(props: { children: ReactNode }) {
             data-slot="toast-viewport"
             className={cn(
               layers.toast,
-              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-1/2 flex w-max max-w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
+              "pointer-events-none fixed top-[calc(max(var(--header-h,48px),env(safe-area-inset-top,0px))_+_12px)] left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
             )}
           >
             <ToastList />
