@@ -86,7 +86,7 @@ try {
         const target = targets.get(`${mode}-${index}`);
         if (!target) throw new Error("Missing target screenshot");
         await capture(page, `${surface}-${theme}-${width}`, target);
-        if (index === 2 && ["light", "dark"].includes(theme)) {
+        if (index === 2) {
           await page.getByRole("button", { name: "Add and sign in" }).click();
           await expect(page.getByLabel("Sign-in code")).toBeVisible();
           await capture(page, `add-waiting-${theme}-${width}`, target);
@@ -112,7 +112,7 @@ try {
           )
           .toBe(true);
       }
-      if (["light", "dark"].includes(theme)) {
+      {
         await page.goto(`${base}/settings/providers/codex`, {
           waitUntil: "domcontentloaded",
           timeout: 180_000,
@@ -148,7 +148,20 @@ try {
       process.stdout.write(`Captured ${theme} ${width}\n`);
     }
   // Contact sheets make reviewing every theme and viewport practical.
-  for (const surface of ["providers", "provider", "add-account", "usage"]) {
+  for (const surface of [
+    "providers",
+    "provider",
+    "add-account",
+    "usage",
+    "add-waiting",
+    "add-failure",
+    "add-success",
+    "account-hover",
+    "account-menu",
+    "account-remove",
+    "models",
+    "advanced",
+  ]) {
     const names = files.filter(
       (file) => file.startsWith(`${surface}-`) && !file.includes("comparison"),
     );
