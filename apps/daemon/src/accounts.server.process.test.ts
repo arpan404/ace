@@ -1,9 +1,12 @@
 import { expect, test } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountService, openRegistry, createInstance } from "@ace/accounts";
+import { AccountSummary } from "@ace/protocol/accounts";
 import { fixture } from "./socket-test-support.ts";
+import { cursorSdkDiscovery } from "./testing/cursor-sdk-discovery.ts";
 test("authenticated sockets list and query accounts without exposing filesystem selectors", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-accounts-wire-"));
   const registry = await openRegistry(join(root, "accounts.sqlite"));
@@ -60,56 +63,132 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
   const { once } = await import("node:events");
   const { Client } = await import("./socket-test-support.ts");
   const root = await mkdtemp(join(tmpdir(), "ace-accounts-default-"));
-  const registry = await openRegistry(join(root, "accounts.sqlite"));
-  await registry.register(
-    createInstance({
-      id: "shared",
-      provider: "codex",
-      label: "Shared",
-      homeDir: join(root, "provider"),
-    }),
-  );
-  registry.close();
-  const daemon = await startDaemon({
-    config: {
-      dataDir: root,
-      host: "127.0.0.1",
-      port: 0,
-      logLevel: "silent",
-      listen: "local",
-      remotePort: 0,
-    },
+  const statusStarted = Promise.withResolvers<void>();
+  const statusReleased = Promise.withResolvers<void>();
+  // The daemon's normal metadata refresh may update the shared registry between CLI reads.
+  // Hold the SDK's read-only status reply to exercise that race without a real provider login.
+  const statusGate = createServer((_request, response) => {
+    statusStarted.resolve();
+    void statusReleased.promise.then(() => {
+      if (!response.destroyed) response.end();
+    });
   });
-  const client = new Client(daemon.url);
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  let client: InstanceType<typeof Client> | undefined;
   try {
+    statusGate.listen(0, "127.0.0.1");
+    await once(statusGate, "listening");
+    const address = statusGate.address();
+    if (!address || typeof address === "string") throw new Error("Missing status gate address");
+    const entry = join(root, "sdk-status.mjs");
+    await writeFile(
+      entry,
+      `import { createInterface } from 'node:readline';
+createInterface({input:process.stdin}).on('line', async line => {
+  const request = JSON.parse(line);
+  if (request.method === 'status') await fetch(${JSON.stringify(`http://127.0.0.1:${address.port}`)});
+  const result = request.method === 'status' ? {status:'logged-out',source:'none'} :
+    request.method === 'models' ? [] : {disposed:true};
+  process.stdout.write(JSON.stringify({id:request.id,result})+'\\n');
+});`,
+    );
+    const registry = await openRegistry(join(root, "accounts.sqlite"));
+    try {
+      await registry.register(
+        createInstance({
+          id: "shared",
+          provider: "codex",
+          label: "Shared",
+          homeDir: join(root, "provider"),
+        }),
+      );
+    } finally {
+      registry.close();
+    }
+    daemon = await startDaemon({
+      engine: { cursor: { entry, discovery: cursorSdkDiscovery } },
+      config: {
+        dataDir: root,
+        host: "127.0.0.1",
+        port: 0,
+        logLevel: "silent",
+        listen: "local",
+        remotePort: 0,
+      },
+    });
+    client = new Client(daemon.url);
     await once(client.socket, "open");
-    const { stdout } = await promisify(execFile)(
-      process.execPath,
-      ["packages/accounts/src/cli.ts", "accounts", "list"],
-      { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
+    const list = async (path: string) =>
+      AccountSummary.array()
+        .max(256)
+        .parse(
+          JSON.parse(
+            (
+              await promisify(execFile)(process.execPath, [path, "accounts", "list"], {
+                env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined },
+              })
+            ).stdout,
+          ),
+        );
+    await statusStarted.promise;
+    expect(await list("packages/accounts/src/cli.ts")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "cursor-sdk-default",
+          availability: "unknown",
+          quota: expect.objectContaining({ auth: "unknown" }),
+        }),
+      ]),
     );
-    const accounts: unknown = JSON.parse(stdout);
-    expect(accounts).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "shared", label: "Shared" })]),
-    );
-    const delegated = await promisify(execFile)(
-      process.execPath,
-      ["apps/daemon/src/cli.ts", "accounts", "list"],
-      { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
-    );
-    expect(JSON.parse(delegated.stdout)).toEqual(accounts);
     const { readFile } = await import("node:fs/promises");
     const actualToken = (await readFile(daemon.tokenPath, "utf8")).trim();
     client.socket.send(
       JSON.stringify({ type: "hello", protocolVersion: 1, deviceId: "device", token: actualToken }),
     );
     await client.next();
+    client.send({ type: "providers.request", requestId: "ready", operation: "refresh" });
+    statusReleased.resolve();
+    const ready = await client.next();
+    expect(ready).toMatchObject({
+      type: "providers.result",
+      requestId: "ready",
+      result: { ok: true },
+    });
+    // Compare complete snapshots only after the real daemon's initial discovery has committed.
+    const accounts: unknown = await list("packages/accounts/src/cli.ts");
+    expect(accounts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "shared", label: "Shared" })]),
+    );
+    expect(accounts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "cursor-sdk-default",
+          availability: "logged_out",
+          quota: expect.objectContaining({ auth: "logged_out" }),
+        }),
+      ]),
+    );
+    expect(await list("apps/daemon/src/cli.ts")).toEqual(accounts);
     client.send({ type: "accounts.list", requestId: "list" });
-    expect(await client.next()).toMatchObject({ accounts });
+    expect(await client.next()).toEqual({ type: "accounts.list", requestId: "list", accounts });
   } finally {
-    await client.close();
-    await daemon.close();
-    await rm(root, { recursive: true, force: true });
+    statusReleased.resolve();
+    try {
+      try {
+        await client?.close();
+      } finally {
+        await daemon?.close();
+      }
+    } finally {
+      try {
+        if (statusGate.listening)
+          await new Promise<void>((resolve, reject) =>
+            statusGate.close((error) => (error ? reject(error) : resolve())),
+          );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
   }
 });
 test("paired read devices can inspect accounts but migration requires operate scope", async () => {
