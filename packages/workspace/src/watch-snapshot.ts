@@ -9,9 +9,9 @@ export async function fullSnapshot(
   ignore: GitIgnore,
   signal: AbortSignal,
 ): Promise<Map<string, Entry>> {
-  return ignore.scan(signal, async (ignore) => {
+  return ignore.scan(signal, async (walker) => {
     const entries = new Map<string, Entry>();
-    for await (const entry of tree(safe, ignore, {
+    for await (const entry of tree(safe, walker, {
       dir: "",
       depth: TREE_CAP,
       includeIgnored: false,
@@ -29,7 +29,7 @@ export async function changedSnapshot(
   dirty: Set<string>,
   signal: AbortSignal,
 ): Promise<{ updates: Map<string, Entry>; removed: Set<string> }> {
-  return ignore.scan(signal, async (ignore) => {
+  return ignore.scan(signal, async (walker) => {
     // A directory notification already covers all its descendant notifications.
     const roots: string[] = [];
     const covered = new Set<string>();
@@ -74,7 +74,7 @@ export async function changedSnapshot(
       if (entry && !ignored.has(path)) {
         updates.set(path, entry);
         if (entry.type === "directory") {
-          for await (const child of tree(safe, ignore, {
+          for await (const child of tree(safe, walker, {
             dir: path,
             depth: TREE_CAP,
             includeIgnored: false,

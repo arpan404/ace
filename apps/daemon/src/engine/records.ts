@@ -19,7 +19,7 @@ interface CachedRecord<T> {
 }
 /** Shared across every resident snapshot; keys never cross a section's typed owner. */
 export class RecordBudget {
-  readonly entries = new BoundedCache<string, CachedRecord<unknown>>(8192, 8_388_608);
+  private readonly entries = new BoundedCache<string, CachedRecord<unknown>>(8192, 8_388_608);
   private serial = 0;
   section<T>() {
     const prefix = `${++this.serial}:`;
