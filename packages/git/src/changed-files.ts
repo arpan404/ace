@@ -150,3 +150,22 @@ export async function changedFiles(
     return { files: listed, truncated: sorted.length > limit };
   });
 }
+
+/** Background counts never snapshot the checkout or read untracked file contents. */
+export async function changeSummary(repository: Repository, worktree: string) {
+  const root = await repository.root(worktree);
+  return repository.serial(root, async () => {
+    const { status, branch } = await repository.state(root);
+    const paths = new Set(
+      [...status.conflicted, ...status.staged, ...status.unstaged].map((entry) => entry.path),
+    );
+    const counts = branch.head
+      ? await trackedCounts(repository, root, [...paths])
+      : new Map<string, Counted>();
+    return {
+      files: new Set([...paths, ...status.untracked]).size,
+      additions: [...counts.values()].reduce((sum, value) => sum + value.added, 0),
+      deletions: [...counts.values()].reduce((sum, value) => sum + value.deleted, 0),
+    };
+  });
+}
