@@ -37,6 +37,8 @@ export class CursorTranslator implements Translator {
   private usagePosition = 0;
   private overflow = false;
   private current: CursorEnvelope | undefined;
+  private noticeIndex = 0;
+  private noticeSequence = -1;
   constructor(options: CursorTranslatorOptions) {
     this.root = options.rootKey;
     this.max = options.maxIdentities ?? 2048;
@@ -68,6 +70,9 @@ export class CursorTranslator implements Translator {
   }
   translate(frame: Frame, _now: number): Fact[] {
     this.diagnostics = [];
+    this.noticeIndex = 0;
+    this.noticeSequence = frame.seq;
+    this.current = undefined;
     if (frame.channel !== "sdk" || this.overflow) return [];
     try {
       // Synthetic/replay callers get the same admission guard as live encoded ingress.
@@ -200,13 +205,14 @@ export class CursorTranslator implements Translator {
       if (event.kind === "host-exit") {
         const unsettled = [...this.children.calls.values()].some((child) => !child.settled);
         const preserved = this.children.preserve();
-        if (object(event.body).deliberate === true && !this.active && !unsettled) return preserved;
+        if (!this.active && !unsettled) return preserved;
         return [
           ...preserved,
           this.notice(
             "SDK host exited; unresolved child/background work is uncertain",
             event,
             "warning",
+            "cursor.work-stopped",
           ),
         ];
       }
@@ -274,6 +280,7 @@ export class CursorTranslator implements Translator {
                 string(object(body.error).message) ?? "Cursor SDK run failed",
                 event,
                 "error",
+                "cursor.run-failed",
               ),
             );
           if (this.replacement) return facts;
@@ -320,6 +327,7 @@ export class CursorTranslator implements Translator {
               string(body.message) ?? "SDK failure; delivery or execution is uncertain",
               event,
               "error",
+              "cursor.run-failed",
             ),
           );
           if (this.active && !this.replacement) {
@@ -356,13 +364,20 @@ export class CursorTranslator implements Translator {
       ];
     }
   }
-  private notice(text: string, data: unknown, level: "info" | "warning" | "error" = "info"): Fact {
+  private notice(
+    text: string,
+    data: unknown,
+    level: "info" | "warning" | "error" = "info",
+    code = "cursor.diagnostic",
+  ): Fact {
     return {
       type: "item.upsert",
       agent: this.root,
-      item: `sdk:notice:${this.generation ?? "invalid"}:${this.sequence}`,
+      item: `sdk:notice:${this.generation ?? "invalid"}:${this.noticeSequence}:${this.noticeIndex++}`,
       draft: {
         type: "notice",
+        diagnostic: true,
+        code,
         text,
         level,
         complete: true,

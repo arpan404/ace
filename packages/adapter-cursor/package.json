@@ -25,7 +25,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/adapter-testkit": "workspace:*"
+    "@ace/adapter-testkit": "workspace:*",
+    "@ace/projection": "workspace:*"
   },
   "engines": {
     "node": ">=24"

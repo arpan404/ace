@@ -3824,6 +3824,9 @@
                 ],
                 "type": "object"
               },
+              "diagnostic": {
+                "type": "boolean"
+              },
               "executionSource": {
                 "additionalProperties": false,
                 "properties": {

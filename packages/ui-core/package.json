@@ -23,6 +23,7 @@
     "@ace/client": "workspace:*",
     "@ace/forge": "workspace:*",
     "@ace/models": "workspace:*",
+    "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

@@ -112,3 +112,5 @@ export { catalogModelIds } from "./catalog-ids.ts";
 export { serviceLabel } from "./provider-services.ts";
 
 export { freeModelMarker } from "./model-picker.ts";
+export { sanitizeUserText } from "@ace/native-session/user-text";
+export { stripAnsi } from "./notice-text.ts";
