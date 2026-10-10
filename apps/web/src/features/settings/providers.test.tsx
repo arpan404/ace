@@ -159,7 +159,7 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
 }, 30_000);
 
-test("Show models offers named controls for current and older models without repeating accounts", async () => {
+test("Manage models offers named controls for current and older models without repeating accounts", async () => {
   await harness().open("/settings/providers/codex");
   const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
   await userEvent.click(await within(models).findByRole("button", { name: "Manage" }));

@@ -11,7 +11,7 @@ import {
 /**
  * Every screen wired to the daemon's request/response services, against a real apps/daemon with
  * scripted providers (src/real-daemon.ts). No provider CLI runs; the daemon has no signed-in
- * accounts and no model catalog, so those screens show their real empty states.
+ * accounts or model catalog; normal CLI-login profiles have no sign-in readings.
  */
 async function connect(page: Page, path = "/") {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
@@ -29,11 +29,13 @@ async function openThread(page: Page) {
   await expect(page.getByRole("heading", { level: 1, name: screensTitle })).toBeVisible();
 }
 
-test("Usage & accounts shows what the daemon's accounts service reports", async ({ page }) => {
+test("Usage shows what the daemon's accounts service reports", async ({ page }) => {
   await connect(page, "/accounts");
-  await expect(page.getByRole("heading", { level: 1, name: "Usage & accounts" })).toBeVisible();
-  await expect(page.getByText("No accounts found yet")).toBeVisible();
-  await expect(page.getByText("Accounts unavailable")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1, name: "Usage", exact: true })).toBeVisible();
+  const account = page.getByRole("article", { name: "Codex Your CLI login" });
+  await expect(account.getByText("Not reported yet")).toBeVisible();
+  await expect(account.getByRole("meter")).toHaveCount(0);
+  await expect(page.getByText("Couldn't load usage")).toHaveCount(0);
 });
 
 test("search finds a message across threads and Enter opens its thread", async ({ page }) => {
