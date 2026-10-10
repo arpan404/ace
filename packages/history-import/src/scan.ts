@@ -171,7 +171,11 @@ export async function scan(
                 result.unsupported.push({ instanceId: instance.id, reason });
             }
           } catch (error) {
-            if (signal.aborted) throw error;
+            if (
+              signal.aborted ||
+              (error instanceof Error && error.message === "Session changed during import")
+            )
+              throw error;
             const reason =
               error instanceof Error
                 ? error.message
@@ -220,12 +224,13 @@ export async function scan(
           return await processFile(path);
         } catch (error) {
           signal.throwIfAborted();
-          const changed =
+          const sourceChanged =
             error instanceof Error &&
             (error.message === "Session changed before sampling" ||
-              error.message === "Session changed while sampling");
+              error.message === "Session changed while sampling" ||
+              error.message === "Session changed during import");
           const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-          if (changed && result.retry.length < 4096)
+          if (sourceChanged && result.retry.length < 4096)
             result.retry.push({ instanceId: instance.id, path });
           else if (!missing && result.unsupported.length < 256)
             result.unsupported.push({

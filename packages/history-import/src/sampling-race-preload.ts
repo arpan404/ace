@@ -15,11 +15,13 @@ const append = () => {
   );
 };
 const lstat = fs.lstat;
-fs.lstat = async (path, options) => {
-  const result = await lstat(path, options);
-  if (String(path) === input.path && input.mode === "stat") append();
-  return result;
-};
+fs.lstat = new Proxy(lstat, {
+  async apply(target, receiver, args) {
+    const result = await Reflect.apply(target, receiver, args);
+    if (String(args[0]) === input.path && input.mode === "stat") append();
+    return result;
+  },
+});
 const open = fs.open;
 fs.open = async (path, flags, mode) => {
   const file = await open(path, flags, mode);
