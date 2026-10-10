@@ -29,6 +29,18 @@ Focused regressions cover cancellation, shared reads, cached reads under full ad
 
 The production bundle check measures 72.76 KiB gzip for the complete client worker and 72.67 KiB for the machine worker, including their lazy chunks, against the unchanged 73 KiB limit. Their eager chunks are 55.96 and 55.87 KiB against the unchanged 60 KiB limit. Route, first-screen and CSS limits also pass. The earlier build minifier replacement was discarded; the retained configuration keeps Oxc's worker compression before the final standard Terser pass.
 
+### Streaming style recalculation
+
+Validation reproduced a main-thread budget failure in the existing 11-second Markdown workload at 200 deltas per second. Separate Chromium metrics measured 3.12 seconds of task time, including 1.42 seconds of style recalculation, 0.68 seconds of script and 0.11 seconds of layout. The result was 4.64 ms per frame against the unchanged 4 ms budget.
+
+An invalidation trace identified the body-wide `:has` rule that hides notifications behind open popovers. Streaming DOM mutations repeatedly invalidated that relational selector. Tracing itself added substantial overhead and retained only the beginning of the workload; its timings are not qualification measurements.
+
+Removing only that rule in a temporary diagnostic reduced style time to 0.16 seconds and task time to 1.82 seconds, or 2.68 ms per frame. A direct-portal prefix while retaining the body anchor still failed at 4.52 ms per frame. The retained fix anchors the lookup on sibling portal elements in either DOM order, including nested popovers beneath an outer portal. It measured 0.16 seconds of style time, 1.87 seconds of task time and 2.74 ms per frame. Script and layout time stayed approximately unchanged. All measurements used the original workload, assertions and budgets; these are local browser samples, not portable speedup claims.
+
+The sidebar now shows its existing loading skeleton while its lazy code is pending. It still waits for actual sidebar data before showing rows or the empty state. The editor-menu fixture warms its nested lazy module before the test body; discovery, launch and reconnect still use the real fixture wire and original deadlines.
+
+Browser validation also opens the actual model and narrow-header popovers after all performance snapshots. Notifications hide while each is open and become visible after Escape. The header check retains the popup's exact DOM node and verifies that closing reveals notifications even though the popup remains mounted. These functional checks are separate from the measured streaming window.
+
 ## Native and GPU qualification
 
 Syntax grammar parsing stays in CPU workers. No regex parser was moved to the GPU. Existing native video decoding, simulator frame negotiation and latest-frame dropping remain available. The simulator JPEG path already passes through native bytes when viewport and bitrate budgets fit; it only transforms oversized frames.
