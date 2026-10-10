@@ -4,11 +4,9 @@ import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
-import { useLiveConnection } from "@/lib/live-connection.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { PermissionReviewFacts } from "@/components/permission-review.tsx";
-import { displayCommand, patchLines, stepPath } from "@ace/ui-core";
+import { patchLines, stepPath } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 import { readOutputText } from "@/lib/output-read.ts";
@@ -63,45 +61,16 @@ function CallDetail(props: { threadId: string; item: ToolItem }) {
 
 function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: string }) {
   const { detail, error, raw, title } = props.item.call;
-  const context = { cwd: props.cwd };
-  const command = detail.kind === "shell" ? displayCommand(detail) : undefined;
   return (
     <div className="flex flex-col gap-2">
-      {detail.kind === "shell" && command && (
-        <ShellOutput
-          command={command.command}
-          raw={command.raw}
-          cwd={detail.cwd ? stepPath(detail.cwd, context).text : undefined}
-          output={detail.output}
-          exitCode={detail.exitCode}
-          running={props.item.call.status === "running"}
-        />
-      )}
+      {detail.kind === "shell" && detail.output && <ShellOutput output={detail.output} />}
       {"changes" in detail &&
         detail.changes.map((change) => (
           <ChangeDiff key={change.path} change={change} cwd={props.cwd} />
         ))}
-      {detail.kind === "file.read" && (
+      {detail.kind === "search" && detail.matches !== undefined && (
         <p className="text-ui text-muted-foreground">
-          <code className="font-mono text-[12px] break-all text-foreground">{detail.path}</code>
-          {detail.range && (
-            <span>
-              {" "}
-              · lines {detail.range.start}–{detail.range.end}
-            </span>
-          )}
-        </p>
-      )}
-      {detail.kind === "search" && (
-        <p className="text-ui text-muted-foreground">
-          <code className="font-mono text-foreground">{detail.query}</code>
-          {detail.path && (
-            <>
-              {" "}
-              in <code className="font-mono">{stepPath(detail.path, context).text}</code>
-            </>
-          )}
-          {detail.matches !== undefined && <> · {detail.matches} matches</>}
+          {detail.matches} {detail.matches === 1 ? "match" : "matches"}
         </p>
       )}
       {detail.kind === "web.search" && (
@@ -281,57 +250,27 @@ function JsonBlock(props: { label: string; value: unknown; collapsed?: boolean }
   );
 }
 
-function ShellOutput(props: {
-  command: string;
-  raw?: string | undefined;
-  cwd?: string | undefined;
-  output?: OutputSummary | undefined;
-  exitCode?: number | null | undefined;
-  running: boolean;
-}) {
-  const live = useLiveConnection();
+function ShellOutput(props: { output: OutputSummary }) {
   const [full, setFull] = useState<string>();
-  const text = full ?? props.output?.tail ?? "";
+  const text = full ?? props.output.tail ?? "";
   return (
     <div className="overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
-      <pre className="overflow-x-auto px-3 pt-2.5 font-mono text-[12px] leading-[1.55] whitespace-pre-wrap">
-        <span className="text-subtle-foreground">$ </span>
-        {props.command}
+      <pre
+        aria-label="Output"
+        className="max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-normal whitespace-pre-wrap text-muted-foreground"
+      >
+        {props.output.truncated && !full ? "…\n" : ""}
+        {text}
       </pre>
-      {text && (
-        <pre
-          aria-label="Output"
-          className="max-h-72 overflow-auto px-3 pt-1 font-mono text-[12px] leading-[1.55] whitespace-pre-wrap text-muted-foreground"
-        >
-          {props.output?.truncated && !full ? "…\n" : ""}
-          {text}
-        </pre>
-      )}
-      {props.raw && (
-        <p className="px-3 pt-1 font-mono text-[11.5px] break-all text-subtle-foreground">
-          Raw: {props.raw}
-        </p>
-      )}
-      <div className="flex h-8 items-center gap-2 px-3 text-xs text-subtle-foreground">
-        {props.running ? (
-          <>
-            <LiveWorkMark /> {live.fresh ? "Running" : "Last seen running"}
-          </>
-        ) : props.exitCode !== undefined && props.exitCode !== null ? (
-          <span className={cn(props.exitCode !== 0 && "text-status-failed")}>
-            Exit code {props.exitCode}
-          </span>
-        ) : null}
-        {props.cwd && <span className="truncate font-mono">{props.cwd}</span>}
-        {props.output?.truncated && !full && (
+      {props.output.truncated && !full && (
+        <div className="px-3 pb-2">
           <FullOutput streamId={props.output.streamId} onLoaded={setFull} />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Reads the whole output from the daemon's stream store (ADR 0006), bounded at 1 MiB. */
 function FullOutput(props: { streamId: string; onLoaded(text: string): void }) {
   const client = useClient();
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");

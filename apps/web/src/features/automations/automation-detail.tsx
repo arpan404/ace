@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
@@ -29,6 +29,7 @@ import { useProjectName } from "@/lib/projects.ts";
 
 /** One automation: what it does, where it runs, when next, and its recent runs. */
 export function AutomationScreen(props: { id: string }) {
+  const navigate = useNavigate();
   const { entry, pending, error, retry } = useAutomation(props.id);
   const actions = useAutomationControls(entry?.automation);
   const choices = useModelChoices();
@@ -72,9 +73,10 @@ export function AutomationScreen(props: { id: string }) {
   return (
     <Screen
       title={automation.title}
-      subtitle="Automation"
+      subtitle={`${projectName(automation.workspace)} · ${describeWhen(automation.trigger, localTimeZone())}`}
       menu={
         <>
+          <MenuItem onClick={() => void navigate(edit)}>Edit</MenuItem>
           <MenuItem danger icon={<Icon icon={TrashIcon} />} onClick={actions.remove}>
             Delete
           </MenuItem>
@@ -86,12 +88,6 @@ export function AutomationScreen(props: { id: string }) {
           <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-semibold tracking-title">{automation.title}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-base text-muted-foreground">
-                {projectName(automation.workspace)}
-              </span>
-              <Link {...edit} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Edit
-              </Link>
               {/* A paused automation must resume before it can run. */}
               {!automation.enabled || running === false ? (
                 <Tip
@@ -101,13 +97,13 @@ export function AutomationScreen(props: { id: string }) {
                       : "Automations are off on this machine"
                   }
                 >
-                  <Button variant="ghost" size="sm" disabled focusableWhenDisabled>
+                  <Button variant="primary" size="sm" disabled focusableWhenDisabled>
                     <Icon icon={PlayIcon} size={14} />
                     Run now
                   </Button>
                 </Tip>
               ) : (
-                <Button variant="ghost" size="sm" onClick={actions.runNow}>
+                <Button variant="primary" size="sm" onClick={actions.runNow}>
                   <Icon icon={PlayIcon} size={14} />
                   Run now
                 </Button>

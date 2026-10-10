@@ -1,13 +1,13 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { arrayEqual, useThread } from "@ace/client-react";
-import { CaretRightIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useCallback, useId, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
-import { keymap } from "@/lib/keymap.ts";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useCallback, useId, useMemo, useState, lazy, Suspense } from "react";
 import { AgentBranch } from "./agent-row.tsx";
+
+const SubagentActions = lazy(() =>
+  import("./subagent-actions.tsx").then((module) => ({ default: module.SubagentActions })),
+);
 
 /** The agents a run of spawn calls started. */
 function spawned(reader: ThreadReader, itemIds: readonly string[]): string[] {
@@ -41,7 +41,6 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
   );
   const children = useThread(props.threadId, keys, read, arrayEqual) ?? [];
   const [open, setOpen] = useState(false);
-  const workspace = useWorkspaceActions(props.threadId);
   const tree = useId();
   const count = Math.max(children.length, props.itemIds.length);
   return (
@@ -70,16 +69,9 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
               <AgentBranch key={child} threadId={props.threadId} agentId={child} depth={0} />
             ))}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1"
-            onClick={() => workspace.open({ kind: "agents" })}
-          >
-            <TreeStructureIcon aria-hidden size={14} />
-            Open agent tree
-            <Kbd keys={keymap.agents.keys} />
-          </Button>
+          <Suspense fallback={null}>
+            <SubagentActions threadId={props.threadId} />
+          </Suspense>
         </div>
       )}
     </div>

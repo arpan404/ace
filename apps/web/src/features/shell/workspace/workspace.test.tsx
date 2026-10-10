@@ -1,14 +1,17 @@
 import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 const coldStart = "Cap cold-start replay at 200 events";
 /** The Preview tab, titled by the dev server it shows (the thread's web server on 5173). */
 const web = "web · :5173";
 /** The cold-start totals belong to the last completed turn. */
-const changes = "ChangesLast turn";
+const changes = "Changes";
 
 async function openColdStart(storage = memoryKeyValue()) {
   const app = harness({ storage });

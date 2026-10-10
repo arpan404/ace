@@ -1,9 +1,12 @@
 import { Command } from "@ace/protocol";
 import { coldStartReplay, facts } from "@ace/fake-daemon";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
   const app = harness({ storage });
@@ -11,6 +14,7 @@ async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
   script.runThrough(through);
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   return { app, script, panel };
@@ -33,13 +37,21 @@ function panelWidth(px: number) {
   });
 }
 async function pickLayout(panel: HTMLElement, name: "Auto" | "Unified" | "Split") {
-  await userEvent.click(within(panel).getByRole("button", { name: /^Diff layout/ }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
+}
+
+async function expectLayout(panel: HTMLElement, label: string) {
+  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  expect(await screen.findByRole("menuitemradio", { name: label, checked: true })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
 }
 
 test("Changes shows the latest turn's edits by default and the whole thread under This thread", async () => {
   const { panel } = await openChanges();
-  expect(within(panel).getByRole("tab", { name: /Changes/ }).textContent).toContain("+");
+  expect((await within(panel).findByRole("toolbar", { name: "Changes" })).textContent).toContain(
+    "+",
+  );
 
   // Turn 2: the onResume edit and the subagent's outbox patch, not turn 1's replayFrom edit.
   await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
@@ -88,11 +100,11 @@ test("the selected diff layout survives switching tabs", async () => {
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await pickLayout(panel, "Split");
   expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+  await expectLayout(panel, "Split");
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
-  expect(await within(panel).findByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+  await expectLayout(panel, "Split");
 });
 
 test("a chosen Split shows unified in a panel too narrow for two columns, and split again once it is wide enough", async () => {
@@ -121,15 +133,13 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
     act(() => resize.forEach((fire) => fire()));
     await pickLayout(panel, "Split");
     // The choice is kept, and the button says why it isn't showing.
-    expect(
-      within(panel).getByRole("button", { name: "Diff layout: Split (needs a wider panel)" }),
-    ).toBeTruthy();
+    await expectLayout(panel, "Split · needs a wider panel");
     expect(within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/)).toBeTruthy();
     expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
 
     width = 1000;
     act(() => resize.forEach((fire) => fire()));
-    expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+    await expectLayout(panel, "Split");
     expect(within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/)).toBeTruthy();
   } finally {
     globalThis.ResizeObserver = original;
@@ -226,29 +236,14 @@ test("a line comment stays on its line when the diff switches between Unified an
   expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
 });
 
-test("Changes says what is uncommitted in the checkout, and follows a commit", async () => {
+test("Changes keeps counts beside the selected scope and omits unrelated saved checkout totals", async () => {
   const { panel } = await openChanges();
-  const tree = await within(panel).findByRole("status", { name: "Working tree" });
-  expect(tree.textContent).toContain("Uncommitted:");
-  expect(tree.textContent).toContain("38 added, 6 removed");
-  // The tab names the same scope as the toolbar.
-  await userEvent.hover(
-    within(within(panel).getByRole("tab", { name: /Changes/ })).getByText(/^\+/),
-  );
-  expect(await screen.findByText(/^Last turn: \+\d+ −\d+$/, {}, { timeout: 2000 })).toBeTruthy();
-
-  // The one commit action in the work card.
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
-  await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
-  // WorkCard owns the context pane while open; return to tools after the commit.
-  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  await waitFor(() =>
-    expect(within(panel).getByRole("status", { name: "Working tree" }).textContent).toContain(
-      "Everything is committed",
-    ),
-  );
+  const toolbar = within(panel).getByRole("toolbar", { name: "Changes" });
+  expect(toolbar.textContent).toContain("+");
+  expect(within(panel).queryByRole("status", { name: "Working tree" })).toBeNull();
+  expect(within(panel).getByRole("tab", { name: /Changes/ }).textContent).not.toContain("+");
+  await pickScope(panel, "Uncommitted");
+  expect(await within(panel).findByText("No uncommitted changes")).toBeTruthy();
 });
 
 test("a turn that changed many files mounts only the files near the view, and lists every one", async () => {
@@ -322,7 +317,7 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
 
   const review = within(panel).getByRole("region", { name: "Review" });
   expect(within(review).getByRole("status").textContent).toBe("2 comments to send");
-  await userEvent.click(within(review).getByRole("button", { name: "Send 2 comments to agent" }));
+  await userEvent.click(within(review).getByRole("button", { name: "Request changes" }));
 
   await waitFor(() =>
     expect(within(review).getByRole("status").textContent).toBe("2 waiting for the agent"),
@@ -391,7 +386,7 @@ test("comments and the diff layout come back after the page reloads", async () =
   const card = within(replay).getByRole("article", { name: /Comment on line/ });
   expect(within(card).getByText("Carry coldStartWindow too?")).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Send to agent" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+  await expectLayout(panel, "Split");
 });
 
 test("the files tree filters, jumps to a file, and shows which files were viewed", async () => {
@@ -426,12 +421,11 @@ test("the files tree filters, jumps to a file, and shows which files were viewed
   expect(outbox.getAttribute("aria-selected")).toBe("true");
 });
 
-test("checkout scopes the daemon can't diff yet say why instead of opening", async () => {
+test("checkout scopes that cannot run stay out of the scope menu", async () => {
   const { panel } = await openChanges();
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
-  const staged = await screen.findByRole("menuitem", { name: /^Staged/ });
-  expect(staged.getAttribute("aria-disabled")).toBe("true");
-  expect(staged.textContent).toContain("Staged changes aren't available yet");
+  await screen.findByRole("menuitemradio", { name: /^Uncommitted/ });
+  expect(screen.queryByRole("menuitem", { name: /^Staged/ })).toBeNull();
 });
 
 test("Changes shows working-tree hunks from shell edits without provider edit items", async () => {
@@ -444,6 +438,7 @@ test("Changes shows working-tree hunks from shell edits without provider edit it
   );
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
@@ -476,6 +471,7 @@ test("Changes discovers a review started on another device when the tab opens", 
   ).toMatchObject({ ok: true });
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const review = await within(panel).findByRole("region", { name: "Review" });

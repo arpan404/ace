@@ -2,15 +2,7 @@ import { PastSessions } from "@/features/history/index.ts";
 import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { useClient } from "@ace/client-react";
 import { providerNames } from "@ace/ui-core";
-import { AceMark } from "@/components/ace-mark.tsx";
-import {
-  CheckIcon,
-  FolderOpenIcon,
-  TerminalIcon,
-  WrenchIcon,
-  ArrowClockwiseIcon,
-  ArrowRightIcon,
-} from "@phosphor-icons/react";
+import { CheckIcon, ArrowClockwiseIcon, ArrowRightIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
@@ -23,8 +15,6 @@ import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { ProviderRow } from "./provider-card.tsx";
-
-const names = new Intl.ListFormat("en", { type: "conjunction" });
 
 /**
  * First-run setup (`/setup`): the providers found on the daemon's
@@ -84,24 +74,20 @@ export function SetupScreen() {
     "Choose your first project",
   ];
   return (
-    <Screen title="Set up">
+    <Screen
+      title="Set up"
+      actions={
+        <Button variant="ghost" onClick={() => leave("/")}>
+          Skip for now
+        </Button>
+      }
+    >
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-10 sm:px-10">
           <div
             key={step}
             className="fx-view-in mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-7"
           >
-            <div className="grid size-20 shrink-0 place-items-center rounded-3xl border bg-secondary shadow-glass">
-              {step === 0 ? (
-                <AceMark className="size-11" />
-              ) : step === 1 ? (
-                <TerminalIcon aria-hidden size={36} />
-              ) : step === 2 ? (
-                <WrenchIcon aria-hidden size={36} />
-              ) : (
-                <FolderOpenIcon aria-hidden size={36} />
-              )}
-            </div>
             <div className="flex flex-col items-center gap-3 text-center">
               <h2 className="text-2xl font-semibold tracking-title">{headings[step]}</h2>
               <p className="max-w-[44ch] text-base leading-normal text-muted-foreground">
@@ -148,10 +134,7 @@ export function SetupScreen() {
                       />
                     </div>
                     {installed.length > 0 && (
-                      <ul
-                        aria-label="Providers on this computer"
-                        className="divide-y rounded-xl border px-4"
-                      >
+                      <ul aria-label="Providers on this computer" className="divide-y px-4">
                         {installed.map(({ row, view }) => (
                           <ProviderRow
                             key={row.provider}
@@ -167,7 +150,7 @@ export function SetupScreen() {
                         <h3 className="text-sm font-medium text-muted-foreground">
                           {installed.length ? "More agents" : "Install an agent"}
                         </h3>
-                        <ul className="divide-y rounded-xl border px-4">
+                        <ul className="divide-y px-4">
                           {missing.map(({ row, view }) => (
                             <ProviderRow key={row.provider} row={row} view={view} />
                           ))}
@@ -179,25 +162,15 @@ export function SetupScreen() {
               </div>
             )}
             {step === 2 && (
-              <div className="w-full rounded-xl border bg-secondary/40 p-5">
+              <div className="w-full p-5">
                 <ToolchainHints />
               </div>
             )}
             {step === 3 && (
               <div className="flex w-full flex-col gap-4">
-                <div className="rounded-xl border bg-secondary/40 p-5 text-center">
-                  <p className="text-ui font-medium">
-                    {ready
-                      ? `${names.format(readyNames)} ${ready === 1 ? "is" : "are"} ready`
-                      : "You can connect an agent later"}
-                  </p>
-                  <p className="mt-2 text-ui text-muted-foreground">
-                    Start with a folder on this computer, or clone a repository.
-                  </p>
-                </div>
-                <details className="rounded-xl border px-5 py-3">
-                  <summary className="cursor-pointer text-ui text-muted-foreground">
-                    Bring an existing conversation
+                <details className="px-5 py-3">
+                  <summary className="cursor-pointer list-none text-ui text-muted-foreground">
+                    Bring an existing conversation ›
                   </summary>
                   <div className="mt-4">
                     <PastSessions />
@@ -210,15 +183,9 @@ export function SetupScreen() {
         <div className="shrink-0 border-t px-6 py-5 sm:px-10">
           <div className="mx-auto grid w-full max-w-xl grid-cols-[1fr_auto_1fr] items-center gap-4">
             <div>
-              {step > 0 ? (
-                <Button variant="ghost" onClick={() => setStep(step - 1)}>
-                  Back
-                </Button>
-              ) : (
-                <Button variant="ghost" onClick={() => leave("/")}>
-                  Skip for now
-                </Button>
-              )}
+              <Button variant="ghost" disabled={step === 0} onClick={() => setStep(step - 1)}>
+                Back
+              </Button>
             </div>
             <ol aria-label={`Step ${step + 1} of 4`} className="flex items-center gap-2">
               {headings.map((heading, index) => (
@@ -253,13 +220,6 @@ export function SetupScreen() {
               </Button>
             </div>
           </div>
-          {step > 0 && (
-            <div className="mt-3 text-center">
-              <Button variant="ghost" size="sm" onClick={() => leave("/")}>
-                Skip for now
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     </Screen>

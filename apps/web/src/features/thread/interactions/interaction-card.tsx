@@ -277,32 +277,46 @@ function OpenRequest(props: {
   };
   return (
     <article aria-label={title} onKeyDown={onKeyDown} className={props.className}>
-      <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
-        <Dot tone="needs-you" />
-        {props.asker} · {kind}
-        <span className="ml-auto flex items-center gap-3">
-          {props.aside}
-          {props.attached && request.kind === "question" && (
-            <button
-              type="button"
-              disabled={sending}
-              onClick={() => answer({ kind: "question", answers: {}, dismissed: true })}
-              className="rounded-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-ring disabled:opacity-50"
-            >
-              Skip
-            </button>
-          )}
-        </span>
-      </p>
+      {request.kind !== "approval" && (
+        <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
+          <Dot tone="needs-you" />
+          {props.asker} · {kind}
+          <span className="ml-auto flex items-center gap-3">
+            {props.aside}
+            {props.attached && request.kind === "question" && (
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => answer({ kind: "question", answers: {}, dismissed: true })}
+                className="rounded-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-ring disabled:opacity-50"
+              >
+                Skip
+              </button>
+            )}
+          </span>
+        </p>
+      )}
       {request.kind !== "question" || request.questions.length !== 1 ? (
-        <h3 className="mt-2 mb-2.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
-          {copy ? <ApprovalHeading copy={copy} /> : title}
-        </h3>
+        <div className="mt-2 mb-2.5 flex items-start gap-2">
+          <h3 className="min-w-0 flex-1 text-md leading-[1.35] font-medium tracking-[-0.005em]">
+            {copy?.command ? (
+              <>
+                Run <code className="text-ui font-normal break-words">{copy.command}</code>?
+              </>
+            ) : copy ? (
+              <ApprovalHeading copy={copy} />
+            ) : (
+              title
+            )}
+          </h3>
+          {request.kind === "approval" && props.aside}
+        </div>
       ) : null}
       {request.kind === "approval" && copy && (
         <>
           <ApprovalRequest
             copy={copy}
+            presentation="compact"
             review={interaction.review}
             disabled={sending}
             numbered

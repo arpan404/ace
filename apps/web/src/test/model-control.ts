@@ -46,21 +46,28 @@ export async function closeModelControl() {
 
 /** Choose the same model on another account through its rail entry. */
 export async function chooseAccount(popover: HTMLElement, name: string) {
-  const change = within(popover).queryByRole("button", { name: /^Change model/ });
-  const model = change?.getAttribute("aria-label")?.replace("Change model: ", "");
   const list = await openModelPicker(popover);
+  const model = within(list)
+    .getAllByRole("option")
+    .find((entry) => entry.getAttribute("aria-selected") === "true")
+    ?.getAttribute("aria-label")
+    ?.split(",")[0];
   if (name === "Add account…") {
     await userEvent.click(within(popover).getByRole("button", { name }));
     return;
   }
-  const tab = within(popover)
-    .getAllByRole("tab")
-    .find((entry) => entry.getAttribute("aria-label")?.endsWith(` · ${name}`));
-  if (!tab) throw new Error(`No account ${name}`);
-  await userEvent.click(tab);
+  await selectAccount(popover, name);
   const option = within(list)
     .getAllByRole("option")
     .find((entry) => entry.getAttribute("aria-label")?.startsWith(`${model},`));
   if (!option) throw new Error(`No ${model} on ${name}`);
   await userEvent.click(option);
+}
+
+/** Choose an account within the selected provider. */
+export async function selectAccount(popover: HTMLElement, name: string) {
+  const account = within(popover).queryByRole("combobox", { name: "Account" });
+  if (!account) return; // One account needs no selector.
+  await userEvent.click(account);
+  await userEvent.click(await screen.findByRole("option", { name }));
 }

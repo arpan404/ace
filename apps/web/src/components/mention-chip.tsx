@@ -1,3 +1,4 @@
+import { SlashIcon } from "@/components/slash-icon.tsx";
 import type { CatalogKind } from "@ace/protocol";
 import {
   BookOpenIcon,
@@ -18,7 +19,7 @@ import { Icon } from "./icon.tsx";
 export type MentionKind = CatalogKind | "file" | "thread";
 const icons = {
   skill: BookOpenIcon,
-  command: CommandIcon,
+  command: SlashIcon,
   plugin: PlugIcon,
   agent: RobotIcon,
   workflow: FlowArrowIcon,
@@ -29,6 +30,7 @@ const icons = {
 };
 export const addIcons = {
   attach: PaperclipIcon,
+  attachments: PaperclipIcon,
   files: FileIcon,
   project: FolderIcon,
   plan: LightbulbIcon,

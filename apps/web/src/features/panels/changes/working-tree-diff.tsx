@@ -1,4 +1,7 @@
 import { type ThreadDetails } from "@ace/protocol";
+import { countChanges, parseUnifiedDiff } from "@ace/ui-core";
+import { useMemo } from "react";
+import { DiffStat } from "./diff-stat.tsx";
 import type { Turn } from "@ace/ui-core";
 import { readGitDiff } from "@/lib/git-diff.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -6,7 +9,6 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { GitDiffIcon } from "@phosphor-icons/react";
 import { ScopeMenu, type Scope } from "./changes-toolbar.tsx";
-import { WorkingTree } from "./working-tree.tsx";
 
 /** Read git rather than provider edit events: shell commands and manual edits count too. */
 export function WorkingTreeDiff(props: {
@@ -22,6 +24,10 @@ export function WorkingTreeDiff(props: {
     retry: false,
     read: (client, signal) => readGitDiff(client, props.threadId, signal),
   });
+  const stat = useMemo(
+    () => countChanges(parseUnifiedDiff(diff.data?.patch ?? "")),
+    [diff.data?.patch],
+  );
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
@@ -30,6 +36,7 @@ export function WorkingTreeDiff(props: {
         className="flex items-center justify-between border-b px-2 py-1.5"
       >
         <ScopeMenu scope="working-tree" turns={props.turns} onScope={props.onScope} />
+        {(stat.additions > 0 || stat.deletions > 0) && <DiffStat {...stat} />}
         <Button
           size="sm"
           variant="ghost"
@@ -39,7 +46,6 @@ export function WorkingTreeDiff(props: {
           Refresh
         </Button>
       </div>
-      <WorkingTree details={props.details} />
       {diff.isError ? (
         <EmptyState
           icon={GitDiffIcon}
@@ -54,7 +60,10 @@ export function WorkingTreeDiff(props: {
                 This diff is truncated at 256 KiB.
               </p>
             )}
-            <pre aria-label="Uncommitted diff" className="font-mono text-xs leading-relaxed">
+            <pre
+              aria-label="Uncommitted diff"
+              className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed"
+            >
               {diff.data.patch}
             </pre>
           </div>
@@ -63,6 +72,7 @@ export function WorkingTreeDiff(props: {
             icon={GitDiffIcon}
             title="No uncommitted changes"
             description="The working tree matches HEAD."
+            className="justify-start pt-6"
           />
         )
       ) : (

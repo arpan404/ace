@@ -1,9 +1,11 @@
 import type { ApprovalOption, PermissionReview } from "@ace/protocol";
 import { reviewReason, type ApprovalCopy, type ApprovalVerb } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { Suspense, useId, useState, type ReactNode } from "react";
 import { AppMark } from "@/components/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -46,6 +48,7 @@ export interface ApprovalAnswer {
 
 export function ApprovalRequest(props: {
   copy: ApprovalCopy;
+  presentation?: "compact";
   review?: PermissionReview | undefined;
   disabled?: boolean;
   onAnswer(answer: ApprovalAnswer): void;
@@ -60,17 +63,23 @@ export function ApprovalRequest(props: {
   className?: string;
 }) {
   const { copy } = props;
+  const compact = props.presentation === "compact";
   const [open, setOpen] = useState(false);
   const details = useId();
   const high = copy.risk?.level === "high" ? copy.risk : undefined;
   const medium = copy.risk?.level === "medium" ? copy.risk : undefined;
-  const hasDetails = !!medium || copy.facts.length > 0 || !!props.review || copy.others.length > 0;
+  const hasDetails =
+    (compact && (!!high || !!copy.command || !!copy.reason)) ||
+    !!medium ||
+    copy.facts.length > 0 ||
+    !!props.review ||
+    copy.others.length > 0;
   return (
     <div
       data-approval-deliberate={high || copy.defaultToNo ? "" : undefined}
       className={cn("flex flex-col gap-2.5", props.className)}
     >
-      {copy.command && <pre className={block}>{copy.command}</pre>}
+      {!compact && copy.command && <pre className={block}>{copy.command}</pre>}
       {copy.code && (
         <pre aria-label="Script" className={block}>
           {copy.code}
@@ -83,16 +92,20 @@ export function ApprovalRequest(props: {
           ))}
         </ul>
       )}
-      {copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
-      {high && (
-        <p className="text-ui text-muted-foreground">
-          <b className="mr-[7px] font-medium text-status-failed">High risk.</b>
-          {high.text}
-        </p>
-      )}
+      {!compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
+      {high &&
+        (compact ? (
+          <p className="text-ui text-status-failed">Hard to undo</p>
+        ) : (
+          <p className="text-ui text-muted-foreground">
+            <b className="mr-[7px] font-medium text-status-failed">High risk.</b>
+            {high.text}
+          </p>
+        ))}
       {props.answered || (
         <div className="flex flex-wrap items-center gap-2">
           {copy.decisions.map((decision, index) => {
+            if (compact && decision.verb === "always_allow") return null;
             const hint = props.hints?.[decision.verb];
             const keyed = props.keyed?.(decision.option) ?? true;
             const button = (
@@ -137,6 +150,27 @@ export function ApprovalRequest(props: {
               button
             );
           })}
+          {compact && copy.decisions.some((decision) => decision.verb === "always_allow") && (
+            <Menu>
+              <MenuTrigger
+                render={<IconButton icon={DotsThreeIcon} label="More approval options" size="sm" />}
+              />
+              <MenuContent>
+                {copy.decisions
+                  .filter((decision) => decision.verb === "always_allow")
+                  .map((decision) => (
+                    <MenuItem
+                      key={decision.option.id}
+                      onClick={() =>
+                        props.onAnswer({ option: decision.option, verb: decision.verb })
+                      }
+                    >
+                      {decision.label}
+                    </MenuItem>
+                  ))}
+              </MenuContent>
+            </Menu>
+          )}
           {hasDetails && (
             <button
               type="button"
@@ -160,6 +194,9 @@ export function ApprovalRequest(props: {
       )}
       {open && (
         <div id={details} className="fx-rise-in flex flex-col gap-2">
+          {compact && copy.command && <pre className={block}>{copy.command}</pre>}
+          {compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
+          {compact && high && <p className="text-ui text-muted-foreground">{high.text}</p>}
           {medium && (
             <p className="text-sm text-muted-foreground">
               <b className="mr-[7px] font-medium text-status-needs-you">Check first.</b>

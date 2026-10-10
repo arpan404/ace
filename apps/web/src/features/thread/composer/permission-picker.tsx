@@ -1,3 +1,4 @@
+import { useComposerCompact } from "./composer-compact.ts";
 import type { PermissionOption } from "@ace/ui-core";
 import { Suspense } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -51,6 +52,7 @@ function permissionDisplay(props: PermissionPickerProps) {
 }
 
 export function PermissionPicker(props: PermissionPickerProps) {
+  const compact = useComposerCompact();
   const { menu } = props;
   const { label, Glyph, attention, waits, tip } = permissionDisplay(props);
   return (
@@ -73,7 +75,7 @@ export function PermissionPicker(props: PermissionPickerProps) {
             size={16}
             weight={attention ? "fill" : "regular"}
           />
-          <span className="min-w-0 truncate">{label}</span>
+          {!compact && <span className="min-w-0 truncate">{label}</span>}
         </MenuTrigger>
       </Tip>
       <MenuContent

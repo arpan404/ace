@@ -6,14 +6,7 @@ import { useNow } from "@/lib/time.ts";
 import { Row, invalidProps, visible } from "./form-row.tsx";
 import type { AutomationFormApi } from "./use-automation-form.ts";
 import { AutomationForm, hourSteps, scheduleFromForm } from "./automation-values.ts";
-import {
-  describeSchedule,
-  formatRunInZone,
-  timeZones,
-  upcomingRuns,
-  weekdayName,
-  weekdays,
-} from "./schedule.ts";
+import { formatRunInZone, timeZones, upcomingRuns, weekdayName, weekdays } from "./schedule.ts";
 
 const cadences = [
   { value: "daily", label: "Every day" },
@@ -214,8 +207,7 @@ function ScheduleReadBack(props: { values: AutomationForm }) {
   const next = upcomingRuns(schedule, now).map((at) => formatRunInZone(at, timezone));
   return (
     <p aria-live="polite" className="-mt-1 mb-4 text-sm text-muted-foreground">
-      Runs: <span className="text-foreground">{describeSchedule(schedule)}</span> ({timezone}).
-      {next.length > 0 && <> Next: {next.join(", ")}</>}
+      {next.length > 0 ? `Next run ${next[0]}` : "No upcoming run"}
     </p>
   );
 }

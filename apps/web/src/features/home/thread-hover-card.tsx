@@ -25,7 +25,7 @@ export function ThreadHoverContent(props: {
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
     <HoverCardContent
-      side="right"
+      side="bottom"
       align="start"
       aria-label={`Details for ${card.title}`}
       className="w-[280px] max-w-[calc(100vw-24px)] max-h-[min(400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"

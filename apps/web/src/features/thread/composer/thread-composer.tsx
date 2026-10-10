@@ -31,6 +31,7 @@ import {
   DeferredQueueArea,
 } from "./deferred-parts.tsx";
 import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
+import { UsageNotice } from "./usage-notice.tsx";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
@@ -239,6 +240,7 @@ export function ThreadComposer({
         sendsWhileUploading
         attached={
           <Suspense fallback={null}>
+            <UsageNotice threadId={props.thread.id} />
             {tab === "requests" && open ? (
               <DeferredRequestStack.Component
                 threadId={props.thread.id}

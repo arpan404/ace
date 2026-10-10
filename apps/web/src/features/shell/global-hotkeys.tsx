@@ -19,6 +19,7 @@ export function GlobalHotkeys(props: {
   const nav = useHistoryNav();
   const layout = useLayout();
   const noProjects = useNoProjects() && props.onAddProject !== undefined;
+  useHotkey(keymap.shortcuts.keys, () => layout.setShortcutsOpen(!layout.shortcutsOpen));
   useHotkey(keymap.palette.keys, () => layout.setPaletteOpen(!layout.paletteOpen));
   useHotkey(keymap.search.keys, () => (layout.search ? layout.closeSearch() : layout.openSearch()));
   useHotkey(keymap.newThread.keys, () =>

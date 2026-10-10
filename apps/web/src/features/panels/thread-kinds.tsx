@@ -18,7 +18,6 @@ import { cn } from "@/lib/cn.ts";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { closePage, nextBrowserId, setLoading } from "./browser/loading.ts";
 import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
-import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
@@ -55,7 +54,6 @@ export const changesKind = defineTabKind({
   singleton: true,
   pinned: true,
   launcher: 10,
-  Badge: (props) => <ThreadDiffStat threadId={props.scope} folded={props.folded} />,
   Skeleton: ChangesSkeleton,
   load: () => views().then((m) => ({ default: m.ChangesView })),
 });

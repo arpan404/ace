@@ -213,10 +213,16 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   };
   const intake = (data: DataTransfer) =>
     takeTransfer(data, (taken: Intake) => attach(taken.files, taken.note));
-  const found = triggerAt(text, caret);
+  const [adding, setAdding] = useState(false);
+  const found = adding
+    ? { kind: "command" as const, query: "", start: caret, end: caret }
+    : triggerAt(text, caret);
   const trigger: Trigger | undefined = found && found.start !== dismissed ? found : undefined;
-  const suggestions = useSuggestions(props.thread, trigger, () =>
-    recentFiles(storage, props.thread.workspaceId),
+  const suggestions = useSuggestions(
+    props.thread,
+    trigger,
+    () => recentFiles(storage, props.thread.workspaceId),
+    adding,
   );
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
@@ -326,7 +332,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry || item.threadId ? item.label : item.insert;
+    const label = item.entry || item.threadId ? item.label : `@${item.label}`;
     const next = accept(text, at, label);
     const catalog: CatalogMention | undefined = item.entry
       ? {
@@ -364,6 +370,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     setArgumentsFor(undefined);
   };
   const pick = (item: Suggestion) => {
+    setAdding(false);
     if (!trigger) return;
     if (
       tokens.length >= 64 ||
@@ -552,6 +559,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
       }
       if (event.key === "Escape") {
         event.preventDefault();
+        setAdding(false);
         setDismissed(trigger.start);
         return;
       }
@@ -580,7 +588,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
     props.unavailable?.short ??
     (answer?.invitesText ? "Type your answer" : undefined) ??
     (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
-    (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
+    "Ask anything";
   const expanded = suggestions.state === "ready";
 
   return (
@@ -588,9 +596,13 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
       {suggestions.state !== "closed" && (
         <Suspense fallback={null}>
           <DeferredSuggestionList.Component
+            adding={adding}
             id={listId}
             anchor={box}
-            onDismiss={() => setDismissed(trigger?.start)}
+            onDismiss={() => {
+              setAdding(false);
+              setDismissed(trigger?.start);
+            }}
             suggestions={suggestions}
             active={active}
             onPick={pick}
@@ -715,7 +727,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               onFiles={attach}
               onOpen={() => {
                 setDismissed(undefined);
-                edit(insertAt(text, caret, "/"));
+                setAdding(true);
               }}
               unavailable={props.unavailable}
             />

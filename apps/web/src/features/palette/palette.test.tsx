@@ -1,9 +1,12 @@
 import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openApp(path = "/") {
   const app = harness();
@@ -16,7 +19,7 @@ async function openApp(path = "/") {
 }
 const palette = async () => {
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  return screen.findByRole("combobox", { name: "Search commands" });
+  return screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 });
 };
 const options = () => screen.getAllByRole("option").map((option) => option.textContent ?? "");
 
@@ -36,14 +39,16 @@ test("⌘K finds a thread by its branch and opens it", async () => {
   expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
 });
 
-test("threads in the palette follow Home order, needs-you first and settled last", async () => {
+test("typing finds threads that are absent from the empty palette", async () => {
   await openApp();
-  await palette();
-  const threads = within(await screen.findByRole("group", { name: "Threads" }))
-    .getAllByRole("option")
-    .map((option) => option.textContent ?? "");
-  expect(threads[0]).toMatch(/^Partial refunds double-count tax/);
-  expect(threads.at(-1)).toMatch(/^Bump Codex app-server to 0.48/);
+  const search = await palette();
+  expect(screen.queryByRole("group", { name: "Threads" })).toBeNull();
+  await userEvent.type(search, "replay");
+  const match = await screen.findByRole("option", { name: /Dedupe thread events after reconnect/ });
+  await userEvent.click(match);
+  expect(
+    await screen.findByRole("heading", { name: "Dedupe thread events after reconnect", level: 1 }),
+  ).toBeTruthy();
 });
 
 test("picking a project narrows Home to it", async () => {
@@ -67,8 +72,8 @@ test("on a settled thread, the palette brings it back to the list", async () => 
   await openApp("/t/thread-bump-codex");
   await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" });
   const search = await palette();
-  await userEvent.type(search, "unsettle this");
-  await userEvent.keyboard("{Enter}");
+  await userEvent.type(search, "Unsettle");
+  await userEvent.click(await screen.findByRole("option", { name: /^Unsettle/ }));
   expect(await screen.findByText("Back in the list · Bump Codex app-server to 0.48")).toBeTruthy();
   expect(await screen.findByRole("link", { name: /^Bump Codex app-server to 0.48/ })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());

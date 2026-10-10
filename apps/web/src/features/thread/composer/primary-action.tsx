@@ -1,4 +1,4 @@
-import { ArrowRightIcon, ArrowUpIcon, ClockIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -23,8 +23,8 @@ function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean):
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue · sends when the agent is free · ${mod} steers it in now`
-      : "Queue · sends when the agent is free";
+      ? `Queue for after this turn · ${mod} steers it in now`
+      : "Queue for after this turn";
   return "Send";
 }
 
@@ -72,7 +72,7 @@ export function PrimaryAction(props: {
             "fx-pop",
             blocked
               ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-              : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+              : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           )}
         >
           {label}
@@ -105,7 +105,7 @@ export function PrimaryAction(props: {
           onClick={props.onStop}
           className={cn(
             iconControl,
-            "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+            "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           )}
         >
           <StopIcon aria-hidden size={12} weight="fill" />
@@ -132,15 +132,11 @@ export function PrimaryAction(props: {
           iconControl,
           blocked
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-            : "bg-foreground text-background hover:bg-foreground/85 hover:text-background",
+            : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           props.off && "opacity-40",
         )}
       >
-        {mode === "queue" ? (
-          <ClockIcon aria-hidden size={16} weight="bold" />
-        ) : (
-          <ArrowUpIcon aria-hidden size={16} weight="bold" />
-        )}
+        <ArrowUpIcon aria-hidden size={16} weight="bold" />
       </button>
     </Tip>
   );

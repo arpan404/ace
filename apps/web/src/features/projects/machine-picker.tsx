@@ -85,10 +85,12 @@ export function MachinePicker(props: {
               )}
             >
               <MachineLabel name={machine.name} icon={machine.icon} />
-              <span
-                aria-hidden
-                className={cn("size-1.5 rounded-full", statusDot[machine.status])}
-              />
+              {machine.status !== "online" && (
+                <span
+                  aria-hidden
+                  className={cn("size-1.5 rounded-full", statusDot[machine.status])}
+                />
+              )}
             </button>
           );
         })}

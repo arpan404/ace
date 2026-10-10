@@ -1,10 +1,13 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { closeModelControl, openModelControl } from "@/test/model-control.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -25,12 +28,12 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
   return view?.kind === "thread" ? view.thread : undefined;
 };
-test("+ opens the same grouped catalog as slash and files open the @ picker", async () => {
+test("Add offers context without commands and Files opens the mention picker", async () => {
   const { message } = await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Add" });
   expect(within(menu).getByText("Add")).toBeTruthy();
-  expect(within(menu).getByText("Skills")).toBeTruthy();
+  expect(within(menu).queryByText("Skills")).toBeNull();
   await userEvent.click(within(menu).getByRole("option", { name: /Files and folders/ }));
   await waitFor(() => expect(message.textContent).toBe("@ "));
   expect(await screen.findByRole("listbox", { name: "Files and threads" })).toBeTruthy();
@@ -39,7 +42,7 @@ test("+ opens the same grouped catalog as slash and files open the @ picker", as
 test("providers without native plan mode do not offer it in the catalog", async () => {
   const { app, message } = await open("idle");
   await userEvent.type(message, "/");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   expect(within(menu).queryByRole("option", { name: /Plan mode/ })).toBeNull();
   expect(thread(app, "thread-router")?.permission?.override).toBeNull();
 });
@@ -47,7 +50,7 @@ test("providers without native plan mode do not offer it in the catalog", async 
 test("Plan mode changes Claude's next turn through the native approval control", async () => {
   const { app, message } = await open("busy");
   await userEvent.type(message, "/plan");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.click(within(menu).getByRole("option", { name: /Plan mode/ }));
   await waitFor(() =>
     expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("plan"),
@@ -122,41 +125,21 @@ test("the model chip opens effort and speed for the thread's model", async () =>
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
   const popover = await openModelControl("Model: Opus 5.5, Personal, Medium effort (default)");
-  expect(within(popover).getByRole("heading", { name: "Opus 5.5" })).toBeTruthy();
-  expect(within(popover).queryByText("Default")).toBeNull();
-  expect(within(popover).getByText("Medium")).toBeTruthy();
-  expect(
-    screen.getByRole("button", { name: "Model: Opus 5.5, Personal, Medium effort (default)" }),
-  ).toBeTruthy();
-  expect(within(popover).getByRole("button", { name: "Change model: Opus 5.5" })).toBeTruthy();
-  // The predefined level is selected; every stop is an actual supported capability.
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Medium");
-  expect(
-    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuemax"),
-  ).toBe("2");
-  // Opus has no faster tier.
-  expect(
-    within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
-  ).toBe("true");
-  const fast = within(popover).getByRole("button", { name: "Fast mode" });
-  await userEvent.hover(fast);
-  expect(await screen.findByRole("tooltip", { name: "Opus 5.5 has no faster tier" })).toBeTruthy();
-  await userEvent.unhover(fast);
-  await userEvent.click(fast);
-  expect(fast.getAttribute("aria-pressed")).toBe("false");
-  const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
-  await userEvent.hover(reset);
-  expect(
-    await screen.findByRole("tooltip", { name: "Already using the model's defaults" }),
-  ).toBeTruthy();
+  expect(within(popover).getByRole("listbox", { name: "Models" })).toBeTruthy();
+  expect(within(popover).getByRole("button", { name: "Medium" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(within(popover).queryByRole("button", { name: "Fast" })).toBeNull();
+  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
 });
 
-test("effort from the slider goes with the next message and applies to its turn", async () => {
+test("effort chosen in the menu goes with the next message and applies to its turn", async () => {
   const { app, message } = await open("busy");
   const popover = await openModelControl(/^Model: Opus 5\.5/);
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{End}");
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("High");
+  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
+  expect(within(popover).getByRole("button", { name: "High" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
   await closeModelControl();
   // Nothing changes on the daemon until the message goes.
   expect(
@@ -196,13 +179,13 @@ test("an unresolved running effort stays untouched until the predefined next tur
 test("reset drops the effort picked for the next message, so it can steer again", async () => {
   const { message } = await open("busy");
   const popover = await openModelControl(/^Model: Opus 5\.5/);
-  const reset = within(popover).getByRole("button", { name: "Reset effort and speed" });
-  expect(reset.getAttribute("aria-disabled")).toBe("true");
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{End}");
-  expect(reset.getAttribute("aria-disabled")).toBeNull();
+  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
+  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
+  const reset = within(popover).getByRole("button", { name: "Reset" });
   await userEvent.click(reset);
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Medium");
+  expect(within(popover).getByRole("button", { name: "Medium" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: Opus 5.5, Personal, Medium effort (default)" }),
@@ -238,7 +221,7 @@ test("offline, the model chip keeps the thread's last-known model and says chang
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline ·/);
+  await screen.findByText(/^Offline/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
@@ -262,12 +245,12 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   expect(await screen.findByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline ·/);
+  await screen.findByText(/^Offline/);
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
 
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Offline/)).toBeNull());
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 });
 

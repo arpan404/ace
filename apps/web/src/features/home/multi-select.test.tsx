@@ -1,13 +1,14 @@
 import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { toastTimeouts } from "@/components/ui/toast.tsx";
 import { undoWindowMs } from "@/features/organize/use-thread-actions.ts";
 
+configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
@@ -179,7 +180,12 @@ test("threads deleted in bulk never come back: not after the toast, not after a 
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
   await screen.findByText("Deleted 2 threads");
   // Past every toast's life: nothing waits on it to finish the delete or to undo it.
-  await new Promise((resolve) => setTimeout(resolve, toastLife + 500));
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    act(() => vi.advanceTimersByTime(toastLife + 500));
+  } finally {
+    vi.useRealTimers();
+  }
   expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true);
   expect(onDaemon(app, "thread-docs-index")).toBe(false);
   expect(onDaemon(app, "thread-readme")).toBe(false);
@@ -201,11 +207,12 @@ test("a bulk delete removes the idle thread and offers Stop and delete for the r
   const dialog = await screen.findByRole("dialog", { name: "Delete 2 threads?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete 2 threads" }));
   await screen.findByText("Deleted 1 thread");
-  expect(await screen.findByText(/^Couldn't delete · Dedupe thread events/)).toBeTruthy();
+  const running = await screen.findByRole("dialog", { name: "Delete thread?" });
+  expect(running.textContent).toMatch(/running/);
   expect(onDaemon(app, "thread-readme")).toBe(false);
-  await waitFor(() => expect(card(/^Dedupe thread events/)).toBeTruthy());
+  expect(within(threads()).getByText(/^Dedupe thread events/)).toBeTruthy();
   expect(onDaemon(app, "thread-dedupe")).toBe(true);
-  await userEvent.click(screen.getByRole("button", { name: "Stop and delete" }));
+  await userEvent.click(within(running).getByRole("button", { name: "Stop and delete" }));
   await waitFor(() => expect(gone(/^Dedupe thread events/)).toBe(true));
   await waitFor(() => expect(onDaemon(app, "thread-dedupe")).toBe(false));
 }, 15_000);

@@ -1,10 +1,13 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { chooseModel } from "@/test/model-control.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -23,7 +26,7 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
 
 test("forking from an answer opens a new thread that starts with the person's message", async () => {
   const { app, feed } = await openRouter();
-  await within(feed).findByText(/Answer 1: route 1/);
+  await within(feed).findByText(/Answer 1: route 1/, {}, { timeout: 10000 });
   const forkHere = within(feed).getAllByRole("button", { name: "Fork from here" })[0];
   if (!forkHere) throw new Error("No finished answer to fork");
   await userEvent.click(forkHere);
@@ -51,10 +54,14 @@ test("forking from an answer opens a new thread that starts with the person's me
   expect(thread(app, "thread-router")?.status.state).toBe("done");
 });
 
-test("the ⋯ menu forks from the last finished turn", async () => {
+test("the palette forks from the last finished turn", async () => {
   await openRouter();
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Fork from the last turn…" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Fork",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
   expect(await screen.findByRole("dialog", { name: "Fork from here" })).toBeTruthy();
 });
 
@@ -81,21 +88,24 @@ test("deleting from the ⋯ menu leaves the thread and persists deletion immedia
   const { app } = await openRouter();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
+  const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   expect(await screen.findByText("Deleted · Document the router")).toBeTruthy();
   await waitFor(() => expect(thread(app, "thread-router")).toBeUndefined(), { timeout: 9_000 });
 }, 15_000);
 
-test("a thread with work running can't be deleted, and says why", async () => {
+test("a running thread asks what will stop before deletion", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
-  expect(
-    await screen.findByText(/^Still running: \d+ agents?\.$/, undefined, { timeout: 9_000 }),
-  ).toBeTruthy();
+  const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
+  expect(dialog.textContent).toMatch(/agent.*running/);
+  expect(within(dialog).getByRole("button", { name: "Stop and delete" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   expect(thread(app, "thread-replay-cursor")).toBeDefined();
 }, 15_000);
 

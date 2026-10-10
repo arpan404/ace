@@ -88,9 +88,6 @@ export default function SearchDialog(props: {
       open={props.open}
       onOpenChange={(open) => !open && props.onClose()}
       title="Search"
-      className="search-glass"
-      overlayClassName="bg-black/15"
-      overlayStyle={{ backgroundColor: "rgb(0 0 0 / 15%)" }}
     >
       {props.open && <SearchBody initial={props.query} onClose={props.onClose} />}
     </CommandDialog>
@@ -100,6 +97,7 @@ export default function SearchDialog(props: {
 /** Mounted only while open, so a search in flight is dropped when the sheet closes. */
 function SearchBody(props: { initial: string; onClose(): void }) {
   const [text, setText] = useState(props.initial);
+  const [showFilters, setShowFilters] = useState(false);
   const [kind, setKind] = useState<KindFilter>("all");
   const settled = useDebouncedValue(text, searchSettleMs);
   // Clearing the field clears the results at once; only typing waits to settle.
@@ -187,47 +185,57 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         />
         {results.updating && query && <Spinner label="Updating results" />}
       </CommandSearchRow>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
-        <SegmentedControl
-          label="Kind"
-          size="sm"
-          value={kind}
-          options={filters}
-          onValueChange={(next) => {
-            setActive(0);
-            setKind(next);
-          }}
-        />
-        <Select
-          label="Project"
-          value={project}
-          options={[
-            { value: "", label: "All projects" },
-            ...projects.ids.map((value) => ({ value, label: projectName(value) })),
-          ]}
-          className="min-w-0 flex-1"
-          onValueChange={(value) => {
-            setProject(value);
-            setActive(0);
-          }}
-        />
-        <Select
-          label="Date"
-          value={date}
-          options={[
-            { value: "all", label: "Any time" },
-            { value: "1", label: "Past day" },
-            { value: "7", label: "Past week" },
-            { value: "30", label: "Past month" },
-          ]}
-          className="min-w-0 flex-1"
-          onValueChange={(value) => {
-            setDate(value);
-            setAfter(value === "all" ? undefined : Math.max(0, now - Number(value) * 86_400_000));
-            setActive(0);
-          }}
-        />
-      </div>
+      <button
+        type="button"
+        className="self-end px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+        aria-expanded={showFilters}
+        onClick={() => setShowFilters(!showFilters)}
+      >
+        Filters
+      </button>
+      {showFilters && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+          <SegmentedControl
+            label="Kind"
+            size="sm"
+            value={kind}
+            options={filters}
+            onValueChange={(next) => {
+              setActive(0);
+              setKind(next);
+            }}
+          />
+          <Select
+            label="Project"
+            value={project}
+            options={[
+              { value: "", label: "All projects" },
+              ...projects.ids.map((value) => ({ value, label: projectName(value) })),
+            ]}
+            className="min-w-0 flex-1"
+            onValueChange={(value) => {
+              setProject(value);
+              setActive(0);
+            }}
+          />
+          <Select
+            label="Date"
+            value={date}
+            options={[
+              { value: "all", label: "Any time" },
+              { value: "1", label: "Past day" },
+              { value: "7", label: "Past week" },
+              { value: "30", label: "Past month" },
+            ]}
+            className="min-w-0 flex-1"
+            onValueChange={(value) => {
+              setDate(value);
+              setAfter(value === "all" ? undefined : Math.max(0, now - Number(value) * 86_400_000));
+              setActive(0);
+            }}
+          />
+        </div>
+      )}
       {(indexing || (query && hits.length > 0 && !results.isError)) && (
         <p role="status" className="px-3 pt-2 text-sm text-muted-foreground tabular-nums">
           {indexing
@@ -239,14 +247,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         {!query ? (
           recent.recent.length ? (
             <RecentSearches recent={recent.recent} onPick={change} onForget={recent.forget} />
-          ) : (
-            <EmptyState
-              icon={MagnifyingGlassIcon}
-              title="Search every thread"
-              description="Find a message, command or file across all projects and machines."
-              className="h-auto py-10"
-            />
-          )
+          ) : null
         ) : results.isError ? (
           <EmptyState
             icon={MagnifyingGlassIcon}
@@ -305,14 +306,15 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                 >
                   <ProviderIconTip provider={hit.provider} />
                   <div className="min-w-0 flex-1">
-                    {hit.kind !== "thread" && (
-                      <p className="line-clamp-2 text-ui">{hit.threadTitle}</p>
-                    )}
+                    <p className="truncate text-ui">
+                      {hit.threadTitle}
+                      <span className="text-xs text-muted-foreground">
+                        {" "}
+                        · {projectName(hit.workspaceId)} · {formatAge(hit.createdAt, now)}
+                      </span>
+                    </p>
                     <Snippet snippet={hit.snippet} />
                   </div>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {formatAge(hit.createdAt, now)}
-                  </span>
                 </li>
               ))}
             </ul>

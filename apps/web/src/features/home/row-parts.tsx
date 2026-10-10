@@ -1,7 +1,5 @@
-import { ProjectImage } from "@/components/project-image.tsx";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type ProjectBadge, type ThreadCard } from "@ace/ui-core";
-import type { CSSProperties } from "react";
+import { type ThreadCard } from "@ace/ui-core";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -41,37 +39,7 @@ export function threadDetails(card: ThreadCard): string[] {
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
 
-/**
- * The project's two letters on a quiet tile. The tile takes the project's tint
- * (`--project-<n>`, AA on every surface); only the variable is inline, the rule is shared.
- */
-export function ProjectMark(props: {
-  badge: ProjectBadge;
-  icon?: string | null | undefined;
-  quiet?: boolean | undefined;
-}) {
-  return (
-    <ProjectImage
-      icon={props.icon}
-      className={cn(
-        "h-4 w-5 shrink-0 rounded-xs object-contain",
-        props.quiet && "grayscale opacity-75",
-      )}
-      fallback={
-        <span
-          aria-hidden
-          style={{ "--tint": `var(--project-${props.badge.tint})` } as CSSProperties}
-          className={cn(
-            "inline-flex h-4 w-5 shrink-0 items-center justify-center rounded-xs text-[9px] leading-none font-semibold",
-            props.quiet ? "bg-secondary text-subtle-foreground" : "bg-(--tint)/12 text-(--tint)",
-          )}
-        >
-          {props.badge.initials}
-        </span>
-      }
-    />
-  );
-}
+export { ProjectMark } from "@/components/project-mark.tsx";
 
 /**
  * The status as one small mark in its tone: a spinner while working, a dot when it needs you or

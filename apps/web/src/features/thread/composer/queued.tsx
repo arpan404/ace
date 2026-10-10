@@ -58,10 +58,11 @@ function QueuedBubble(props: {
       aria-busy={busy}
       aria-label={description}
       data-queue-id={message.id}
-      className="fx-rise-in flex flex-col items-end gap-1 text-muted-foreground"
+      className="fx-rise-in group/queued flex flex-col items-end gap-1 text-muted-foreground"
     >
       <PendingBody message={message} text={queuedText(message)} />
-      <div className="flex items-center justify-end gap-1 pr-1">
+      <span className="text-xs text-subtle-foreground">Queued</span>
+      <div className="opacity-0 group-hover/queued:opacity-100 group-focus-within/queued:opacity-100 flex items-center justify-end gap-1 pr-1">
         <IconButton
           icon={ArrowUpIcon}
           label={uncertain ? "Send again" : "Send now"}

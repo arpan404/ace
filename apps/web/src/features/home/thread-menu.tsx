@@ -16,6 +16,8 @@ import {
 import { PrLinksDialog, ForkDialog, useLatestForkPoint } from "@/features/thread/index.ts";
 import { GitPullRequestIcon, LinkBreakIcon } from "@phosphor-icons/react";
 import { MenuItem } from "@/components/ui/menu.tsx";
+import { useKeys } from "@/lib/keybindings.ts";
+import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /** A picked row's menu acts on every picked thread; its code comes with the selection bar's. */
@@ -56,7 +58,6 @@ function RowItems(props: {
           )}
         </>
       }
-      hints
     />
   );
 }
@@ -74,6 +75,9 @@ export function ThreadMenu(props: {
 }) {
   const { entry } = props;
   const actions = useThreadActions();
+  const renameKeys = useKeys("renameThread");
+  const pinKeys = useKeys("pinThread");
+  const archiveKeys = useKeys("archiveThread");
   const selection = useHomeSelection();
   const selected = useSelected(entry.id);
   const [open, setOpen] = useState(false);
@@ -86,12 +90,12 @@ export function ThreadMenu(props: {
     action();
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (bulk) return;
-    if (event.key === "r" && !event.shiftKey) run(props.onRename)();
-    else if (event.key === "p" && !event.shiftKey)
+    if (matchesChord(event.nativeEvent, parseChord(renameKeys))) run(props.onRename)();
+    else if (matchesChord(event.nativeEvent, parseChord(pinKeys)))
       run(() => actions.setPinned(entry, !props.state.pinned))();
-    else if (event.key === "N" && event.shiftKey) run(() => actions.newThreadOnMain(entry))();
+    else if (matchesChord(event.nativeEvent, parseChord(archiveKeys)))
+      run(() => actions.archive(entry))();
     else return;
     event.preventDefault();
     event.stopPropagation();

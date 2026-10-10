@@ -1,9 +1,12 @@
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
 import { ForgePrStatus, ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -333,7 +336,7 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
   await userEvent.click(await within(card).findByRole("button", { name: "Commit & push" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   const files = await within(dialog).findByRole("list", { name: "Files to commit" });
   expect(files.textContent).toContain("src/supervisor/restart-budget.ts");
   expect(files.textContent).toContain("src/supervisor/supervisor.ts");

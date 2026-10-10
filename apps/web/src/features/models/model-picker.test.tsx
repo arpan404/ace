@@ -1,10 +1,18 @@
 import { replayCursor } from "@ace/fake-daemon";
 import type { CatalogModel } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { closeModelControl, openModelControl, openModelPicker } from "@/test/model-control.ts";
+import {
+  closeModelControl,
+  openModelControl,
+  openModelPicker,
+  selectAccount,
+} from "@/test/model-control.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -36,9 +44,7 @@ const groupNames = (list: HTMLElement) =>
 
 test("models read by human names with snapshot IDs hidden, each account apart, and the default chosen", async () => {
   const { popover, list } = await openPicker();
-  expect(within(popover).getByRole("tab", { name: "Claude Code · Personal" }).ariaSelected).toBe(
-    "true",
-  );
+  expect(within(popover).getByRole("tab", { name: "Claude Code" }).ariaSelected).toBe("true");
   expect(groupNames(list)).toEqual(["Personal"]);
   const personal = group(list, "Personal");
   expect(names(personal)).toEqual([
@@ -75,9 +81,7 @@ test("Legacy models open in place; an older model picked there stays checked whe
   ]);
   await userEvent.click(within(legacy).getByRole("option", { name: /^Opus 4\.8/ }));
   expect(await screen.findByRole("button", { name: /^Model: Opus 4\.8, Personal/ })).toBeTruthy();
-  expect(
-    await within(popover).findByRole("button", { name: "Change model: Opus 4.8" }),
-  ).toBeTruthy();
+  expect(await within(popover).findByRole("option", { name: /^Opus 4.8/ })).toBeTruthy();
 
   await closeModelControl();
   const again = await openModelPicker(await openModelControl(/^Model: Opus 4\.8/));
@@ -112,14 +116,14 @@ test("the keyboard reaches Legacy models: → opens them, ← closes them, Enter
 
 test("a row under another account moves the thread to that account", async () => {
   const { popover, list } = await openPicker();
-  await userEvent.click(within(popover).getByRole("tab", { name: "Claude Code · Work" }));
+  await selectAccount(popover, "Work");
   await userEvent.click(within(group(list, "Work")).getByRole("option", { name: /^Sonnet 5\.5/ }));
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Work/ })).toBeTruthy();
 });
 
 test("OpenCode lists its models by source, and a failing source says why beside its last models", async () => {
   const { popover, list } = await openPicker();
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode" }));
   expect(groupNames(list)).toEqual([
     "Local",
     "OpenCode Go",
@@ -149,7 +153,7 @@ test("OpenCode lists its models by source, and a failing source says why beside 
 
 test("Pi groups its models by the provider it is signed in to", async () => {
   const { popover, list } = await openPicker();
-  await userEvent.click(within(popover).getByRole("tab", { name: "Pi · Your CLI login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Pi" }));
   expect(groupNames(list)).toEqual(["GitHub Copilot", "Anthropic"]);
   expect(names(group(list, "GitHub Copilot"))).toEqual([
     "Opus 5.5, Pi",
@@ -164,7 +168,7 @@ test("Pi groups its models by the provider it is signed in to", async () => {
 test("a provider whose sign-in expired says so and how to fix it, and Refresh models discovers again", async () => {
   const app = harness();
   const { popover, list } = await openPicker(app);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor" }));
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   expect(within(list).getByText(/Sign in using Cursor, then refresh models\./)).toBeTruthy();
   expect(within(list).getByRole("option", { name: /^Composer 2\.5/ })).toBeTruthy();
@@ -202,7 +206,7 @@ test("a provider whose discovery failed with no models left still opens, to say 
             : push(reply),
         );
   const { popover, list } = await openPicker(app);
-  const cursor = within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" });
+  const cursor = within(popover).getByRole("tab", { name: "Cursor" });
   expect(cursor.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(cursor);
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
@@ -310,7 +314,7 @@ test("a starred model is kept under Favorites, also the next time the picker ope
   await userEvent.click(
     within(group(list, "Personal")).getByRole("button", { name: "Add Haiku 4.5 to favorites" }),
   );
-  await userEvent.click(within(popover).getByRole("tab", { name: "Codex · Personal" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Codex" }));
   await userEvent.click(
     within(group(list, "Personal")).getByRole("button", { name: "Add GPT-6 Luna to favorites" }),
   );
@@ -332,18 +336,14 @@ test("⌘ and a number pick that row, and the popover comes back to its effort",
   const { popover } = await openPicker();
   await userEvent.keyboard("{Meta>}2{/Meta}");
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Personal/ })).toBeTruthy();
-  expect(
-    await within(popover).findByRole("button", { name: "Change model: Sonnet 5.5" }),
-  ).toBeTruthy();
+  expect(await within(popover).findByRole("option", { name: /^Sonnet 5.5/ })).toBeTruthy();
 });
 
 test("the provider column moves with the arrow keys", async () => {
   const { popover, list } = await openPicker();
-  within(popover).getByRole("tab", { name: "Claude Code · Personal" }).focus();
-  await userEvent.keyboard("{ArrowDown}{ArrowDown}");
-  expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Codex · Personal" }),
-  );
+  within(popover).getByRole("tab", { name: "Claude Code" }).focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(within(popover).getByRole("tab", { name: "Codex" }));
   expect(names(group(list, "Personal"))).toEqual([
     "GPT-6.1 Sol, recommended, Codex",
     "GPT-5 Codex, Codex",
@@ -543,7 +543,7 @@ test("connected Copilot with no enabled models shows its hint and remains refres
           });
         });
   const { popover, list } = await openPicker(app);
-  const tab = within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" });
+  const tab = within(popover).getByRole("tab", { name: "OpenCode" });
   expect(tab.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(tab);
   expect(

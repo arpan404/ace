@@ -251,50 +251,52 @@ export function FileTab(props: TabViewProps) {
           />
         </Suspense>
       )}
-      <FileToolbar
-        extra={
-          content.data?.kind === "text" &&
-          !data.draft && (
-            <IconButton
-              icon={PencilSimpleIcon}
-              label="Edit file"
-              className="size-7 rounded-sm"
-              disabled={!online || content.data.size > 1024 * 1024}
-              onClick={() => {
-                if (content.data?.kind === "text")
-                  update({
-                    preview: false,
-                    draft: {
-                      text: content.data.text,
-                      original: content.data.text,
-                      version: content.data.version,
-                    },
-                  });
-              }}
-            />
-          )
-        }
-        project={meta ? projectName(meta.workspaceId) : "Checkout"}
-        path={path}
-        preview={data.preview === true}
-        source={data.source === true}
-        wrap={prefs.wrap}
-        finding={find !== undefined}
-        treeOpen={treeShown}
-        readable={readable}
-        online={online}
-        actions={fileActions}
-        line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}
-        onFolder={(folder) => {
-          setQuery(folder);
-          if (!treeShown) update({ tree: true });
-        }}
-        onKeep={() => update({ preview: false })}
-        onSource={(source) => update({ source })}
-        onWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
-        onFind={toggleFind}
-        onTree={() => update({ tree: !treeShown })}
-      />
+      {path && (
+        <FileToolbar
+          extra={
+            content.data?.kind === "text" &&
+            !data.draft && (
+              <IconButton
+                icon={PencilSimpleIcon}
+                label="Edit file"
+                className="size-7 rounded-sm"
+                disabled={!online || content.data.size > 1024 * 1024}
+                onClick={() => {
+                  if (content.data?.kind === "text")
+                    update({
+                      preview: false,
+                      draft: {
+                        text: content.data.text,
+                        original: content.data.text,
+                        version: content.data.version,
+                      },
+                    });
+                }}
+              />
+            )
+          }
+          project={meta ? projectName(meta.workspaceId) : "Checkout"}
+          path={path}
+          preview={data.preview === true}
+          source={data.source === true}
+          wrap={prefs.wrap}
+          finding={find !== undefined}
+          treeOpen={treeShown}
+          readable={readable}
+          online={online}
+          actions={fileActions}
+          line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}
+          onFolder={(folder) => {
+            setQuery(folder);
+            if (!treeShown) update({ tree: true });
+          }}
+          onKeep={() => update({ preview: false })}
+          onSource={(source) => update({ source })}
+          onWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
+          onFind={toggleFind}
+          onTree={() => update({ tree: !treeShown })}
+        />
+      )}
       <div className="relative flex min-h-0 flex-1">
         <div className={cn("relative min-w-0 flex-1", !path && treeShown && "hidden")}>
           {find && (

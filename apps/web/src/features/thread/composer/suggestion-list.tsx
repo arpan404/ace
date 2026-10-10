@@ -11,12 +11,14 @@ export function SuggestionList(props: {
   anchor: RefObject<HTMLElement | null>;
   onDismiss(): void;
   suggestions: Suggestions;
+  adding?: boolean;
   active: number;
   onPick(item: Suggestion): void;
 }) {
   const { suggestions } = props;
   if (suggestions.state === "closed") return null;
-  const title = suggestions.kind === "mention" ? "Files and threads" : "Add and commands";
+  const title =
+    suggestions.kind === "mention" ? "Files and threads" : props.adding ? "Add" : "Commands";
   return (
     <Popover
       open
@@ -88,11 +90,6 @@ export function SuggestionList(props: {
                   {item.detail && (
                     <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
                       {item.detail}
-                    </span>
-                  )}
-                  {item.entry && item.entry.source.scope !== "ace" && (
-                    <span className="shrink-0 text-xs text-subtle-foreground">
-                      {catalogSourceLabel(item.entry)}
                     </span>
                   )}
                 </div>

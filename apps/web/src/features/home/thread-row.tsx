@@ -1,6 +1,7 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useState } from "react";
+import { useConnectionState } from "@ace/client-react";
 import { modelLabel } from "@ace/ui-core";
 import { useRefusedTitle, useSelected } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -34,6 +35,7 @@ export function ThreadRow(props: {
   leaving?: boolean | undefined;
 }) {
   const { settled } = props;
+  const online = useConnectionState() === "ready";
   const data = useThreadCard(props.threadId, settled, props.leaving);
   const [editing, setRenaming] = useState(false);
   const hover = useThreadHover();
@@ -59,141 +61,145 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  return (
-    <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
-      <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
-        <HoverCardTrigger
-          delay={180}
-          closeDelay={100}
-          onClick={() => hover.change(false)}
-          onContextMenu={() => hover.change(false)}
-          render={<div />}
-          className="group/row relative"
-          data-attention={quiet ? "quiet" : "attention"}
-          // Settled rows stay out of picking and dragging, as they always have.
-          {...(settled ? {} : { "data-thread-row": entry.id })}
-        >
-          {renaming ? (
-            <div
-              className={cn(
-                row,
-                settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
-                "flex-row items-center gap-2 bg-sidebar-accent",
-              )}
-            >
-              <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
+  const body = (
+    <>
+      <span
+        className={cn(
+          "flex min-w-0 w-full",
+          settled ? "items-center gap-2" : "flex-col gap-1 compact:gap-0.5",
+        )}
+      >
+        {settled ? (
+          <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
+        ) : (
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 text-xs leading-4",
+              quiet ? "text-subtle-foreground" : "text-muted-foreground",
+            )}
+          >
+            <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
+            <span className="min-w-0 flex-1 truncate group-focus-within/row:pr-8 group-hover/row:pr-8">
+              {card.project}
+            </span>
+            <span className="contents group-focus-within/row:hidden group-hover/row:hidden group-has-[[data-popup-open]]/row:hidden">
+              <RowStatus card={card} />
+            </span>
+          </span>
+        )}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              settled
+                ? "text-ui leading-4 group-focus-within/row:pr-8 group-hover/row:pr-8"
+                : "text-ui leading-5",
+              titleTone(card, highlighted),
+            )}
+          >
+            {renaming ? (
               <RenameField
                 entry={entry}
                 title={refused ?? card.title}
                 onDone={() => setRenaming(false)}
               />
-            </div>
-          ) : (
-            <Link
-              to="/t/$threadId"
-              params={{ threadId: entry.id }}
-              aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${details.join(", ")}`}
-              data-row-focus=""
-              draggable={false}
-              className={cn(
-                row,
-                settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
-                "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
-                selected && "bg-foreground/5",
-                handle && "pointer-coarse:pr-11",
-              )}
-            >
-              <span
+            ) : (
+              card.title
+            )}
+          </span>
+        </span>
+        {settled ? (
+          <>
+            <span aria-hidden className="contents">
+              <RowMeta card={card} />
+            </span>
+            <RowIdentitySpace card={card} />
+          </>
+        ) : (
+          <RowDetail
+            card={card}
+            machinePrimary={data.machinePrimary}
+            model={model ? modelLabel(model) : undefined}
+          />
+        )}
+      </span>
+    </>
+  );
+  return (
+    <>
+      <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
+        <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
+          <HoverCardTrigger
+            delay={600}
+            closeDelay={100}
+            onClick={() => hover.change(false)}
+            onContextMenu={() => hover.change(false)}
+            render={<div />}
+            className={cn("group/row relative", !online && "opacity-60")}
+            data-attention={quiet ? "quiet" : "attention"}
+            // Settled rows stay out of picking and dragging, as they always have.
+            {...(settled ? {} : { "data-thread-row": entry.id })}
+          >
+            {renaming ? (
+              <div className={cn(row, settled ? "h-10" : "h-24 py-2.5 compact:h-22 compact:py-2")}>
+                {body}
+              </div>
+            ) : (
+              <Link
+                to="/t/$threadId"
+                params={{ threadId: entry.id }}
+                aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${details.join(", ")}`}
+                data-row-focus=""
+                draggable={false}
                 className={cn(
-                  "flex min-w-0 w-full",
-                  settled ? "items-center gap-2" : "flex-col gap-1 compact:gap-0.5",
+                  row,
+                  settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
+                  "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
+                  selected && "bg-foreground/5",
+                  handle && "pointer-coarse:pr-11",
                 )}
               >
-                {settled ? (
-                  <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
-                ) : (
-                  <span
-                    className={cn(
-                      "flex min-w-0 items-center gap-1.5 text-xs leading-4",
-                      quiet ? "text-subtle-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
-                    <span className="min-w-0 flex-1 truncate group-focus-within/row:pr-24 group-hover/row:pr-24">
-                      {card.project}
-                    </span>
-                    <span className="contents group-focus-within/row:hidden group-hover/row:hidden group-has-[[data-popup-open]]/row:hidden">
-                      <RowStatus card={card} />
-                    </span>
-                  </span>
+                {body}
+              </Link>
+            )}
+            {!renaming && (
+              <RowIdentity
+                card={card}
+                instance={instance}
+                className={cn(
+                  "absolute right-2",
+                  settled ? "top-1/2 -translate-y-1/2" : "bottom-[11px] compact:bottom-[9px]",
+                  handle && "pointer-coarse:right-12",
                 )}
-                <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate",
-                      settled
-                        ? "text-ui leading-4 group-focus-within/row:pr-24 group-hover/row:pr-24"
-                        : "text-ui leading-5",
-                      titleTone(card, highlighted),
-                    )}
-                  >
-                    {card.title}
-                  </span>
-                </span>
-                {settled ? (
-                  <>
-                    <span aria-hidden className="contents">
-                      <RowMeta card={card} />
-                    </span>
-                    <RowIdentitySpace card={card} />
-                  </>
-                ) : (
-                  <RowDetail
-                    card={card}
-                    machinePrimary={data.machinePrimary}
-                    model={model ? modelLabel(model) : undefined}
-                  />
-                )}
-              </span>
-            </Link>
-          )}
-          {!renaming && (
-            <RowIdentity
-              card={card}
-              instance={instance}
-              className={cn(
-                "absolute right-2",
-                settled ? "top-1/2 -translate-y-1/2" : "bottom-[11px] compact:bottom-[9px]",
-                handle && "pointer-coarse:right-12",
-              )}
-            />
-          )}
-          {handle && (
-            // The list starts a touch drag from here (`touch-none`: the browser doesn't scroll)
-            // and a keyboard move from Space or Enter. Hidden for a mouse: the row itself drags.
-            <button
-              type="button"
-              data-drag-handle=""
-              aria-label={`Move ${card.title}`}
-              className="absolute top-1/2 right-0.5 hidden size-11 -translate-y-1/2 touch-none place-items-center rounded-md text-subtle-foreground select-none focus-ring pointer-coarse:grid"
-            >
-              <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
-            </button>
-          )}
-          {!renaming && (
-            <RowActions
-              entry={entry}
-              settled={settled}
-              snoozed={card.flags.snoozed}
-              machinePrimary={data.machinePrimary}
-            />
-          )}
-        </HoverCardTrigger>
-      </ThreadMenu>
-      {hover.open && !renaming && (
-        <ThreadHoverContent card={card} entry={entry} icon={data.icon} instance={instance} />
-      )}
-    </HoverCard>
+              />
+            )}
+            {handle && (
+              // The list starts a touch drag from here (`touch-none`: the browser doesn't scroll)
+              // and a keyboard move from Space or Enter. Hidden for a mouse: the row itself drags.
+              <button
+                type="button"
+                data-drag-handle=""
+                aria-label={`Move ${card.title}`}
+                className="absolute top-1/2 right-0.5 hidden size-11 -translate-y-1/2 touch-none place-items-center rounded-md text-subtle-foreground select-none focus-ring pointer-coarse:grid"
+              >
+                <DotsSixVerticalIcon aria-hidden size={18} weight="bold" />
+              </button>
+            )}
+            {!renaming && (
+              <RowActions
+                onRename={() => setRenaming(true)}
+                onHover={() => hover.change(false)}
+                entry={entry}
+                flags={card.flags}
+              />
+            )}
+          </HoverCardTrigger>
+        </ThreadMenu>
+        {hover.open && !renaming && (
+          <ThreadHoverContent card={card} entry={entry} icon={data.icon} instance={instance} />
+        )}
+      </HoverCard>
+    </>
   );
 }

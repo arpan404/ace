@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
+import { ReviewerField } from "./reviewer-field.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { parseReviewers, type Checkout } from "@ace/ui-core";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
@@ -58,7 +59,10 @@ export function GitDialog(props: {
   const chosen = picked ?? (files ? pickedByDefault(files) : new Set<string>());
   const nothing = commit && chosen.size === 0;
   const text = commit
-    ? { title: "Commit changes", submit: push ? "Commit & push" : "Commit" }
+    ? {
+        title: `Commit to ${checkout.branch ?? "your checkout"}`,
+        submit: push ? "Commit & push" : "Commit",
+      }
     : {
         title: draft ? "Open a draft pull request" : "Open a pull request",
         submit: draft ? "Create draft PR" : "Create PR",
@@ -92,13 +96,7 @@ export function GitDialog(props: {
           <DialogHeader>
             <DialogTitle>{text.title}</DialogTitle>
             <DialogDescription>
-              {commit ? (
-                <>
-                  The files you pick, on{" "}
-                  <span className="font-mono whitespace-nowrap">{checkout.branch ?? "HEAD"}</span>
-                  {push && ", then pushed to origin"}.
-                </>
-              ) : (
+              {!commit && (
                 <>
                   <span className="font-mono whitespace-nowrap">{checkout.branch}</span> into{" "}
                   <span className="font-mono whitespace-nowrap">{checkout.baseBranch}</span>
@@ -135,15 +133,7 @@ export function GitDialog(props: {
               maxLength={8000}
               onChange={(event) => setBody(event.target.value)}
             />
-            {!commit && (
-              <Input
-                aria-label="Reviewers"
-                placeholder="Reviewers: GitHub usernames (optional)"
-                value={reviewerText}
-                maxLength={2000}
-                onChange={(event) => setReviewerText(event.target.value)}
-              />
-            )}
+            {!commit && <ReviewerField onChange={setReviewerText} />}
             {/* In a form, a one-off option is a checkbox; switches are for settings. */}
             {commit ? (
               <label
@@ -169,7 +159,6 @@ export function GitDialog(props: {
                   onCheckedChange={(checked) => setDraft(checked)}
                 />
                 Draft
-                <span>· not ready for review yet</span>
               </label>
             )}
           </DialogBody>

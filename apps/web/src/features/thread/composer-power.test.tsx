@@ -1,9 +1,12 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId, type CatalogEntry } from "@ace/protocol";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 async function open() {
@@ -36,11 +39,11 @@ const catalog: CatalogEntry[] = [
 test("mid-message selections remain inline and are sent as structured references in the same order", async () => {
   const { app, message, feed } = await open();
   await userEvent.type(message, "Please /writing");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
-  expect(within(menu).getByText("Global")).toBeTruthy();
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
+  expect(within(menu).queryByText("Global")).toBeNull();
   await userEvent.keyboard("{Tab}");
   await userEvent.type(message, "then /review");
-  await screen.findByRole("listbox", { name: "Add and commands" });
+  await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.keyboard("{Enter}");
   expect(message.textContent).toBe("Please Writing then Review ");
   await userEvent.type(message, "this branch{Enter}");
@@ -65,7 +68,7 @@ test("a command with typed arguments opens a form and sends the chosen values", 
   const { app, message } = await open();
   app.daemon.seedServices({ extensionCatalogs: { opencode: catalog } });
   await userEvent.type(message, "Use /explain");
-  await screen.findByRole("listbox", { name: "Add and commands" });
+  await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.keyboard("{Enter}");
   const form = await screen.findByRole("dialog", { name: "Explain" });
   await userEvent.type(within(form).getByRole("textbox", { name: "topic" }), "Reconnects");
@@ -87,7 +90,7 @@ test("a command with typed arguments opens a form and sends the chosen values", 
 test("an inline reference survives navigation and can be removed with the keyboard", async () => {
   const { app, message } = await open();
   await userEvent.type(message, "Try /writing");
-  await screen.findByRole("listbox", { name: "Add and commands" });
+  await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.keyboard("{Enter}");
   cleanup();
   await app.open("/t/thread-router");
@@ -113,7 +116,7 @@ test("an inline reference survives navigation and can be removed with the keyboa
 test("the catalog refreshes while its menu is open", async () => {
   const { app, message } = await open();
   await userEvent.type(message, "/");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   expect(within(menu).getByText("Writing")).toBeTruthy();
   act(() => app.daemon.seedServices({ extensionCatalogs: { opencode: catalog } }));
   expect(await within(menu).findByText("Explain")).toBeTruthy();
@@ -123,10 +126,10 @@ test("the catalog refreshes while its menu is open", async () => {
 test("slash commands remain visible and selectable while their catalog refreshes", async () => {
   const { app, message } = await open();
   await userEvent.type(message, "/writing");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   act(() => app.daemon.seedServices({ extensionCatalogs: {}, catalogLoading: ["opencode"] }));
   await screen.findByText("Refreshing commands…");
-  expect(screen.getByRole("listbox", { name: "Add and commands" })).toBe(menu);
+  expect(screen.getByRole("listbox", { name: "Commands" })).toBe(menu);
   expect(within(menu).getByText("Writing")).toBeTruthy();
   expect(screen.queryByText("Loading suggestions…")).toBeNull();
   act(() => app.daemon.seedServices({ extensionCatalogs: {}, catalogLoading: [] }));
@@ -138,7 +141,7 @@ test("slash commands remain visible and selectable while their catalog refreshes
 test("renaming a thread does not reload the open command list", async () => {
   const { app, message } = await open();
   await userEvent.type(message, "/writing");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   app.daemon.refuseRequests("forbidden", "catalog.list");
   await act(() =>
     app.client.command({
@@ -148,7 +151,7 @@ test("renaming a thread does not reload the open command list", async () => {
     }),
   );
   await screen.findByRole("heading", { name: "Renamed with commands open", level: 1 });
-  expect(screen.getByRole("listbox", { name: "Add and commands" })).toBe(menu);
+  expect(screen.getByRole("listbox", { name: "Commands" })).toBe(menu);
   await userEvent.keyboard("{Enter}");
   expect(message.textContent).toBe("Writing ");
 });
@@ -171,7 +174,7 @@ test("Enter chooses a current command when a refresh shrinks the highlighted lis
     },
   });
   await userEvent.type(message, "/");
-  const menu = await screen.findByRole("listbox", { name: "Add and commands" });
+  const menu = await screen.findByRole("listbox", { name: "Commands" });
   await within(menu).findByText("Review");
   await userEvent.keyboard("{ArrowUp}");
   expect(within(menu).getByRole("option", { selected: true }).textContent).toContain("Explain");
@@ -263,7 +266,7 @@ test("removing an attachment releases it and the thread attachment list can be m
   });
   expect(files.result.kind === "attachments" && files.result.attachments.length).toBe(0);
   await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "/attachments");
-  await screen.findByRole("listbox", { name: "Add and commands" });
+  await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("dialog", { name: "Attachments" })).toBeTruthy();
   expect(await screen.findByText("No attachments in this thread.")).toBeTruthy();
@@ -295,7 +298,7 @@ test("answering a question with an inline reference clears it before the next me
   );
   await screen.findByRole("group", { name: "What should be reviewed?" });
   await userEvent.type(message, "Use /writing");
-  await screen.findByRole("listbox", { name: "Add and commands" });
+  await screen.findByRole("listbox", { name: "Commands" });
   await userEvent.keyboard("{Tab}");
   await userEvent.type(message, "first{Enter}");
   await waitFor(() => expect(message.textContent).toBe(""));

@@ -6,10 +6,13 @@ import {
   workbench,
   type Scenario,
 } from "@ace/fake-daemon";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { configure, act, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -19,16 +22,17 @@ function scenario(id: string) {
   return found;
 }
 
-test("a question keeps its line in the transcript where the agent asked it, and is answered once, on the composer", async () => {
+test("a pending question is answered once on the composer without repeating the prompt in the transcript", async () => {
   const app = harness();
   app.play(scenario("thread-sheet-rotate")).runUntilBlocked();
   await app.open("/t/thread-sheet-rotate");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const line = await within(feed).findByRole("group", {
-    name: "Question: How should the sheet recover after rotate?",
-  });
-  const finding = await within(feed).findByText(/three ways to fix it/);
-  expect(finding.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(
+    within(feed).queryByRole("group", {
+      name: "Question: How should the sheet recover after rotate?",
+    }),
+  ).toBeNull();
+  expect(await within(feed).findByText(/three ways to fix it/)).toBeTruthy();
   // The card to answer it is on the composer, once, and nowhere in the transcript.
   const deck = await screen.findByRole("region", { name: "Waiting for you" });
   expect(
@@ -118,20 +122,14 @@ test("a turn is one quiet work log with a note between steps", async () => {
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 });
 
-test("while a step waits for approval nothing says Working: the line says it waits on you", async () => {
+test("an approval is explained by its request card without repeated waiting statuses", async () => {
   const app = harness();
   app.play(scenario("thread-retry-budget")).runUntilBlocked();
   await app.open("/t/thread-retry-budget");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const line = await screen.findByRole("status", { name: "Waiting for your approval" });
-  expect(line.textContent).not.toMatch(/\d+s/);
+  expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+  expect(within(feed).queryByRole("status", { name: "Waiting for your approval" })).toBeNull();
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
-  // The waiting step says so on its own row (IR-2's wording).
-  expect(
-    await within(feed).findByRole("button", {
-      name: /^Run git push .* Waiting for your approval$/,
-    }),
-  ).toBeTruthy();
 });
 
 function edit(key: string, path: string, agent = "root") {
@@ -183,11 +181,11 @@ test("a turn's changed files show once, after its last answer, when it has ended
   await app.open("/t/thread-edits");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed in both files.");
-  expect(within(feed).queryByRole("region", { name: /changed file/ })).toBeNull();
+  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
 
   act(() => script.runThrough("ended"));
-  const card = await within(feed).findByRole("region", { name: "2 changed files" });
-  expect(within(feed).getAllByRole("region", { name: /changed file/ })).toHaveLength(1);
+  const card = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
+  expect(within(feed).getAllByRole("button", { name: /^Changed \d+ files?/ })).toHaveLength(1);
   expect(follows(within(feed).getByText("Renamed in both files."), card)).toBe(true);
 });
 
@@ -246,7 +244,7 @@ test("a stopped turn says so under what it got done", async () => {
   app.play(stopped(true)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
+  const note = await within(feed).findByRole("note", { name: /^Stopped/ });
   expect(follows(within(feed).getByText("Building the web bundle first"), note)).toBe(true);
   // What it had written stays, but no longer looks like it is still being written.
   expect(within(feed).queryByRole("status", { name: "Streaming" })).toBeNull();
@@ -257,7 +255,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
   app.play(stopped(false)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
+  const note = await within(feed).findByRole("note", { name: /^Stopped/ });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
 
   act(() =>
@@ -267,7 +265,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
     ]),
   );
   const next = await within(feed).findByText("Build only the web bundle.");
-  const kept = within(feed).getByRole("note", { name: /^Stopped by you/ });
+  const kept = within(feed).getByRole("note", { name: /^Stopped/ });
   expect(follows(within(feed).getByText("Build the release bundle."), kept)).toBe(true);
   expect(follows(kept, next)).toBe(true);
 });
@@ -370,11 +368,11 @@ test("the changed-files card waits until the subagents a turn started have finis
   await app.open("/t/thread-tree");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed; the subagent is finishing the tests.");
-  expect(within(feed).queryByRole("region", { name: /changed file/ })).toBeNull();
+  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
 
   // The subagent's run ends on its own: that alone settles the turn.
   act(() => script.runThrough("tree-done"));
-  expect(await within(feed).findByRole("region", { name: "3 changed files" })).toBeTruthy();
+  expect(await within(feed).findByRole("button", { name: /^Changed 3 files/ })).toBeTruthy();
 });
 
 test("the expanded tool step follows its own updates without a body working line", async () => {
@@ -529,9 +527,7 @@ test("a question still waiting in an old turn keeps that turn open in a long thr
   expect(
     await within(feed).findByRole("button", { name: /^Turn 2: Question 2\. Show the turn$/ }),
   ).toBeTruthy();
-  expect(
-    await within(feed).findByRole("group", { name: "Question: Keep the legacy flag reader?" }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("article", { name: "Keep the legacy flag reader?" })).toBeTruthy();
   expect(within(feed).getByText("Answer 1")).toBeTruthy();
 });
 

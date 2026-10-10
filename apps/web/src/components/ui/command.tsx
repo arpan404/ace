@@ -5,11 +5,11 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
 import { Kbd } from "./kbd.tsx";
-import { layers, menuLabel } from "./menu-styles.ts";
+import { layers, menuLabel, overlaySurface } from "./menu-styles.ts";
 
 /**
  * ⌘K shell on Base UI (Dialog + inline Autocomplete), replacing the registry's cmdk-based
- * `command`, which depends on Radix. 620px glass sheet at 18% from the top (near the top on a
+ * `command`, which depends on Radix. 620px solid sheet at 18% from the top (near the top on a
  * phone, where the keyboard takes the bottom half).
  */
 function CommandDialog({
@@ -37,7 +37,8 @@ function CommandDialog({
           aria-label={title}
           className={cn(
             layers.modal,
-            "glass fixed top-[18%] left-1/2 flex max-h-[min(540px,70dvh)] w-[min(620px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl text-popover-foreground outline-none [-webkit-app-region:no-drag] max-sm:top-3",
+            overlaySurface,
+            "fixed top-[18%] left-1/2 flex min-h-[min(360px,70dvh)] max-h-[min(540px,70dvh)] w-[min(620px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-lg text-popover-foreground outline-none [-webkit-app-region:no-drag] max-sm:top-3",
             "transition-[opacity,transform] duration-(--dur-2) ease-spring data-ending-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:duration-(--dur-exit) data-ending-style:ease-exit data-starting-style:-translate-y-1.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
             className,
           )}
@@ -168,7 +169,7 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
     <Autocomplete.Item
       data-slot="command-item"
       className={cn(
-        "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-base text-foreground outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+        "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui text-foreground outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         className,
       )}
       {...props}
@@ -184,23 +185,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
 
 /** Key hints along the bottom edge. Hidden on touch, where there are no keys to press. */
 function CommandFooter() {
-  return (
-    <div className="flex shrink-0 gap-3.5 border-t px-3.5 py-2 text-xs text-muted-foreground pointer-coarse:hidden">
-      <span className="inline-flex items-center gap-1.5">
-        <Kbd>↑</Kbd>
-        <Kbd>↓</Kbd>
-        navigate
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <Kbd>↵</Kbd>
-        select
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <Kbd shortcut="palette" />
-        toggle
-      </span>
-    </div>
-  );
+  return null;
 }
 
 export {

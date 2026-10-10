@@ -24,6 +24,7 @@ export interface HeaderProps {
   actions?: ReactNode;
   /** A status mark after the title (a thread's dot), shown on a phone, where no list shows it. */
   status?: ReactNode;
+  notice?: ReactNode;
 }
 
 /**
@@ -143,6 +144,7 @@ export function AppHeader(
           </span>
         )}
       </div>
+      {props.notice}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {props.actions && wide && props.actions}
         {titleMenu && (

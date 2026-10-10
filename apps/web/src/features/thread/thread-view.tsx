@@ -33,15 +33,15 @@ const PendingThreadView = lazy(() =>
 const AttachmentsSheet = lazy(() =>
   import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
 );
-const RenameDialog = lazy(() =>
-  import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
-);
 const MergeDialog = lazy(() =>
   import("./transitions/merge-dialog.tsx").then((m) => ({ default: m.MergeDialog })),
 );
 const ForkDialog = lazy(() =>
   import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
 );
+import { InlineRenameField } from "@/features/organize/index.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
@@ -157,6 +157,23 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     }),
     [outer, forkPoint],
   );
+  const { setScreenActions } = useLayout();
+  const screenActions = useMemo(
+    () => ({
+      scope: id,
+      rename: () => setRenaming(true),
+      fork: forkPoint ? () => setForking(forkPoint) : undefined,
+      merge: meta?.lineage ? () => setMerging(true) : undefined,
+      attachments: () => setAttachmentsOpen(true),
+      find: () => findInThread(nav),
+      turns: () => nav.setTurnsOpen(!nav.turnsOpen),
+    }),
+    [id, forkPoint, nav, meta?.lineage],
+  );
+  useEffect(() => {
+    setScreenActions(screenActions);
+    return () => setScreenActions(undefined);
+  }, [screenActions, setScreenActions]);
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = useShownTitle(id, meta?.title);
@@ -182,7 +199,17 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             </>
           )
         }
-        title={error ? "Thread unavailable" : (title ?? "Loading thread…")}
+        title={
+          renaming && thread ? (
+            <Suspense fallback={null}>
+              <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
+            </Suspense>
+          ) : error ? (
+            "Thread unavailable"
+          ) : (
+            (title ?? "Loading thread…")
+          )
+        }
         menu={
           thread && (
             <Suspense fallback={null}>
@@ -191,7 +218,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 thread={thread}
                 onRename={() => setRenaming(true)}
                 onFork={setForking}
-                onMerge={() => setMerging(true)}
               />
             </Suspense>
           )
@@ -258,9 +284,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
           )}
           {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
-          {renaming && thread && (
-            <RenameDialog thread={thread} onClose={() => setRenaming(false)} />
-          )}
           {forking && thread && (
             <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
           )}

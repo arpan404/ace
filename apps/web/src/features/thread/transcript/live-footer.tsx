@@ -12,7 +12,13 @@ import { useTicker } from "../lib/clock.ts";
  */
 export function LiveFooter(props: { activity: TurnActivity | undefined }) {
   const { activity } = props;
-  if (!activity || activity.tone === "working") return null;
+  if (
+    !activity ||
+    activity.tone === "working" ||
+    activity.tone === "needs-you" ||
+    activity.label.startsWith("Watching")
+  )
+    return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
       <ActivityLine activity={activity} />

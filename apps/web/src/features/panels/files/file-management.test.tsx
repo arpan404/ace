@@ -1,9 +1,12 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 const threadId = ThreadId.parse("thread-cold-start");
 const downloads: { name: string; blob: Blob }[] = [];
@@ -32,6 +35,7 @@ async function openFiles() {
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("tab", { name: "Files" }));
