@@ -102,3 +102,17 @@ test("running threads are available in a tooltip without adding another line to 
   ).toBeTruthy();
   expect(within(personal).queryByText(/running threads/)).toBeNull();
 });
+
+test("a provider limit without meter readings never claims No limits", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find(
+    (row) => row.provider === "opencode" && row.label === "Work",
+  );
+  if (!account) throw new Error("Missing OpenCode account fixture");
+  account.quota.blockers.limitError = { usedPercent: 100, resetsAt: null };
+  await app.open("/accounts");
+  const closest = await screen.findByRole("region", { name: "Closest to a limit" });
+  const row = await within(closest).findByRole("article", { name: "OpenCode Work" });
+  expect(within(row).getByText("Limit reached")).toBeTruthy();
+  expect(within(row).queryByText("No limits")).toBeNull();
+});

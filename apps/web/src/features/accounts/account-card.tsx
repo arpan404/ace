@@ -11,9 +11,8 @@ export function AccountCard(props: { account: Account }) {
   const { account } = props;
   const now = useNow();
   const windows = liveWindows(account, now);
-  const reset =
-    accountLimit(account, now).resetsAt ??
-    windows.find((window) => window.resetsAt !== null)?.resetsAt;
+  const limit = accountLimit(account, now);
+  const reset = limit.resetsAt ?? windows.find((window) => window.resetsAt !== null)?.resetsAt;
   const threads = account.threads;
   const tip = [
     `${account.providerLabel} · ${account.label}`,
@@ -45,7 +44,8 @@ export function AccountCard(props: { account: Account }) {
           ))
         ) : (
           <span className="text-xs text-subtle-foreground">
-            {account.quota.auth === "logged_in" &&
+            {limit.level !== "reached" &&
+            account.quota.auth === "logged_in" &&
             account.quota.observedAt > 0 &&
             ["opencode", "pi"].includes(account.provider)
               ? "No limits"
@@ -55,7 +55,7 @@ export function AccountCard(props: { account: Account }) {
         {reset !== undefined && reset !== null && (
           <span className="text-xs text-subtle-foreground">{formatResets(reset, now)}</span>
         )}
-        {accountLimit(account, now).level === "reached" && (
+        {limit.level === "reached" && (
           <span className="text-xs text-status-failed">Limit reached</span>
         )}
       </div>
