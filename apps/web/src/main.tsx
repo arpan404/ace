@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
+import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
@@ -46,7 +47,7 @@ function DaemonApp(props: { client: ClientApi }) {
 const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
-const pairingLink = location.pathname === "/pair" ? location.href : undefined;
+const pairingLink = pairingLinkFromUrl(new URL(location.href));
 
 function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } = {}) {
   return (
