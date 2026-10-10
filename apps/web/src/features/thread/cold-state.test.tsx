@@ -4,6 +4,8 @@ import { screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+const mayHaveBeenSent = "This message may have been sent. Sending again may deliver it twice.";
+
 test("legacy OpenCode bookkeeping and replayed native answers stay out of the conversation", async () => {
   const app = harness();
   seedColdStartState(app.daemon);
@@ -64,8 +66,12 @@ test("one input repeated under uncertain and queued states shows one message to 
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getAllByText("yo")).toHaveLength(1);
-  expect(within(queue).getByText("May have been sent")).toBeTruthy();
-  expect(within(queue).queryByText("Queued", { exact: true })).toBeNull();
+  expect(
+    within(queue)
+      .getAllByRole("listitem")
+      .map((row) => row.getAttribute("aria-label")),
+  ).toEqual([mayHaveBeenSent]);
+  expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
 });
 
 test("a model waiting for its first catalog never shows Unavailable", async () => {
@@ -96,6 +102,10 @@ test("separate queued inputs with identical text remain individually visible", a
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getAllByText("yo")).toHaveLength(2);
-  expect(within(queue).getByText("May have been sent")).toBeTruthy();
-  expect(within(queue).getByText("Queued", { exact: true })).toBeTruthy();
+  expect(
+    within(queue)
+      .getAllByRole("listitem")
+      .map((row) => row.getAttribute("aria-label"))
+      .toSorted(),
+  ).toEqual(["Queued message, not yet sent", mayHaveBeenSent]);
 });

@@ -35,7 +35,9 @@ export function pageFacts(options: Pick<PageFacts, "catalogsReady" | "expected">
       text:
         element.querySelector<HTMLElement>("span.font-medium")?.innerText ??
         element.innerText.replace(/Queued|May.have.been.sent|Not sent/g, "").trim(),
-      state: /May.have.been.sent|may have reached/i.test(element.innerText)
+      state: /may.have.been.sent|may have reached/i.test(
+        `${element.getAttribute("aria-label") ?? ""}\n${element.innerText}`,
+      )
         ? "uncertain"
         : "queued",
     }));
