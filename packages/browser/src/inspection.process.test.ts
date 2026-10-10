@@ -79,9 +79,8 @@ it.skipIf(!executablePath)(
           ).entries.length,
       )
       .toBeGreaterThan(0);
-    const original = f.service.state("thread").activeTabId;
-    await f.execute({ action: "tabs", operation: "open" });
-    await f.execute({ action: "tabs", operation: "close", tabId: original });
+    f.service.takeover("thread", "person", "private");
+    f.service.handback("thread", "person");
     await expect(
       f.execute({ action: "network_body", requestId: response?.requestId }),
     ).rejects.toThrow(/unavailable/);

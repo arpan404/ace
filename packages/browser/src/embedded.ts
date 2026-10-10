@@ -402,7 +402,10 @@ export class EmbeddedBackend implements BrowserBackend {
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
       return {
-        privateMode: (enabled) => tabs?.downloadsManager.transfers.privacy(enabled),
+        privateMode: (enabled) => {
+          tabs?.inspection.privacy(enabled);
+          tabs?.downloadsManager.transfers.privacy(enabled);
+        },
         findText: (text, forward) => currentCdp().send("ace.findText", { text, forward }),
         get cdp() {
           return currentCdp();
