@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
@@ -54,4 +54,42 @@ test("settings read again after the daemon restarts, including changes made whil
   });
 
   await waitFor(async () => expect(await checked("Settle when the PR merges")).toBe("false"));
+});
+
+test("Reset all settings clears provider choices and native modes along with ordinary preferences", async () => {
+  const app = harness();
+  await app.client.start();
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  for (const [key, value] of [
+    ["providers.default", "claude"],
+    ["permissions.providerModes", { codex: "never" }],
+    ["providers.configuration", []],
+    ["threads.useWorktree", false],
+  ] as const)
+    await app.client.request({
+      type: "settings.set",
+      key,
+      value: key === "providers.configuration" ? [] : value,
+      layer: { kind: "global" },
+    });
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: /^Reset$/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: /Reset/ }));
+  await screen.findByText("Settings reset");
+  for (const key of [
+    "providers.default",
+    "permissions.providerModes",
+    "providers.configuration",
+    "threads.useWorktree",
+  ] as const) {
+    const reply = await app.client.request({ type: "settings.get", key, scope: {} });
+    expect(reply.entries[0]?.provenance).toBe("defaults");
+  }
+});
+
+test("Settings does not offer a silence timeout that the engine cannot use", async () => {
+  await harness().open("/settings/general");
+  await screen.findByRole("switch", { name: "Continue threads after a restart" });
+  expect(screen.queryByText("Unresponsive after")).toBeNull();
 });

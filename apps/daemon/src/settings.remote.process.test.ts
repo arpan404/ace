@@ -110,3 +110,32 @@ test("an operate-only device writes settings but cannot read or subscribe", asyn
   });
   expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
 });
+
+test("a remote reset restores permitted preferences without changing this host or cutting off remote access", async () => {
+  const f = await fixture();
+  await f.settings.set("remote.enabled", true, { kind: "global" });
+  await f.settings.set("host.displayName", "Build host", { kind: "global" });
+  await f.settings.set("providers.default", "claude", { kind: "global" });
+  await f.settings.set("permissions.providerModes", { codex: "never" }, { kind: "global" });
+  const paired = await f.pair(["read", "operate"]);
+  const client = await f.connectTicket(paired.device.id, (await f.ticket(paired.token)).ticket);
+  await client.next();
+  client.send({ type: "settings.reset", requestId: "reset" });
+  expect(await client.next()).toMatchObject({
+    type: "settings.result",
+    requestId: "reset",
+    ok: true,
+  });
+  expect((await f.settings.get("remote.enabled")).value).toBe(true);
+  expect((await f.settings.get("host.displayName")).value).toBe("Build host");
+  expect((await f.settings.get("providers.default")).provenance).toBe("defaults");
+  expect((await f.settings.get("permissions.providerModes")).value).toEqual({});
+  client.send({
+    type: "settings.get",
+    requestId: "still-connected",
+    key: "threads.useWorktree",
+    scope: {},
+  });
+  expect(await client.next()).toMatchObject({ requestId: "still-connected", ok: true });
+  await client.close();
+});

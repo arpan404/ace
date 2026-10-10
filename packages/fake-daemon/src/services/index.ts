@@ -644,6 +644,7 @@ export class FakeServices {
       case "activity.markRead":
         return this.activityReads.handle(message);
       case "settings.get":
+      case "settings.reset":
       case "settings.set":
       case "settings.subscribe":
       case "settings.unsubscribe":

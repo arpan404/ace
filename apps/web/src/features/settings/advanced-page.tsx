@@ -73,8 +73,14 @@ function ResetAll() {
       await backend.reset();
       setOpen(false);
       toast.add({ title: "Settings reset" });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "This computer didn't answer.");
+    } catch {
+      const message = "This computer couldn't save the reset. Try again.";
+      setError(message);
+      toast.error({
+        title: "Couldn't reset settings",
+        description: message,
+        actionProps: { children: "Try again", onClick: () => void reset() },
+      });
     } finally {
       setRunning(false);
     }

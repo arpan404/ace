@@ -2234,6 +2234,20 @@ Example:
 }
 ```
 
+### starting
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"starting"` |  |
+
+Example:
+
+```json
+{
+  "type": "starting"
+}
+```
+
 ### threads.patch
 
 | Field | Required | Type | Constraints |

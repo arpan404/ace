@@ -72,12 +72,6 @@ const entries = [
     keywords: ["resume", "reboot", "update"],
   },
   {
-    id: "threads.unresponsiveAfter",
-    page: "/settings/general",
-    title: "Unresponsive after",
-    keywords: ["stuck", "timeout", "health"],
-  },
-  {
     id: "automations.enabled",
     page: "/settings/general",
     title: "Run automations",

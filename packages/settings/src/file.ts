@@ -1,6 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
 import { SettingsKey, type SettingsDiagnostic, type SettingsProvenance } from "@ace/protocol";
-import { decode, assign, emptyText, SettingsError, type DecodedDocument } from "./document.ts";
+import {
+  decode,
+  assign,
+  resetPreferences,
+  emptyText,
+  SettingsError,
+  type DecodedDocument,
+} from "./document.ts";
 import type { FileIO, Scheduler } from "./io.ts";
 
 export function freeze<T>(value: T): T {
@@ -155,12 +162,18 @@ export class SettingsFile {
     });
   }
   set(key: SettingsKey, value: unknown): Promise<void> {
+    return this.update((source) => assign(source, key, value));
+  }
+  reset(keys: readonly SettingsKey[]): Promise<void> {
+    return this.update((source) => resetPreferences(source, keys));
+  }
+  private update(change: (source: DecodedDocument) => DecodedDocument): Promise<void> {
     return this.enqueue(async () => {
       try {
         await this.validate?.();
         const raw = (await this.io.read(this.path)) ?? emptyText;
         const source = raw === this.prepared.text ? this.prepared : decode(raw);
-        const result = assign(source, key, value);
+        const result = change(source);
         const text = result.text;
         if (source.migrated || text !== source.text)
           await this.io.write(this.path, text, this.validate);

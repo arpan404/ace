@@ -198,6 +198,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "models.resolve": ["models.result"],
   "settings.get": ["settings.result"],
   "settings.set": ["settings.result"],
+  "settings.reset": ["settings.result"],
   "settings.subscribe": ["settings.result"],
   "settings.unsubscribe": ["settings.result"],
   "usage.summary": ["usage.result"],

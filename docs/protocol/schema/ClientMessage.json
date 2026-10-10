@@ -934,6 +934,9 @@
       "$ref": "https://ace.local/protocol/v1/SettingsSet.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SettingsReset.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/SettingsSubscribe.json"
     },
     {

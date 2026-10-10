@@ -100,7 +100,13 @@ export function NewThreadPage(props: {
   const catalog = useNewThreadOptions();
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind>();
-  const resolved = resolve(options, choices, picked ?? start.provider);
+  const [useWorktree] = useDaemonSetting("threads.useWorktree");
+  const resolved = resolve(
+    options,
+    choices,
+    picked ?? start.provider,
+    useWorktree === false ? "local" : "worktree",
+  );
   const branches = useBaseRefs(project);
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load

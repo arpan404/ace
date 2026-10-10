@@ -636,3 +636,13 @@ test("failed native permission checks explain blocked sending and retain the dra
   expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
   expect(field.textContent).toBe("Keep this while permissions recover");
 });
+
+test("the worktree preference supplies the mode when this device has not chosen one", async () => {
+  const made = app();
+  made.daemon.services.settings.seed({ "threads.useWorktree": false });
+  await made.open("/new?project=relay");
+  expect(
+    (await screen.findByRole("checkbox", { name: "Worktree" })).getAttribute("aria-checked"),
+  ).toBe("false");
+  expect(screen.queryByRole("button", { name: /^Start from:/ })).toBeNull();
+});

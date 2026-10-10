@@ -178,3 +178,18 @@ test("in the development world each account counts the threads running on it", a
   const work = await card("Claude Code Work");
   expect(await within(work).findByText(/^\d+ running threads?$/)).toBeTruthy();
 });
+
+test("an ACP account link opens the installed provider even when its catalog name differs", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((entry) => entry.provider === "acp");
+  const agent = app.daemon.services.registry.entries.find(
+    (entry) => entry.agent.acpAgentId === "official:gemini",
+  );
+  if (!account || !agent) throw new Error("Missing ACP fixture");
+  account.acpAgentId = "official:gemini";
+  agent.agent.name = "Gemini Team CLI";
+  await app.open("/accounts");
+  await userEvent.click(await screen.findByRole("link", { name: "gemini" }));
+  expect(await screen.findByRole("heading", { name: "Gemini Team CLI" })).toBeTruthy();
+  expect(screen.queryByText("Provider not found")).toBeNull();
+});

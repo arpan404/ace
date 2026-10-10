@@ -61,9 +61,9 @@ export function daemonSettingsBackend(
   return {
     values,
     set: (key, value) => values.set(key, value),
-    // The protocol has no unset; write back what each page shows when nothing is stored.
     reset: async () => {
-      for (const [key, value] of Object.entries(defaults)) await values.set(key, value);
+      const reply = await client.request({ type: "settings.reset" });
+      if (!reply.ok) throw new Error("Couldn't reset settings. Try again.");
     },
     providers,
     async rediscover() {

@@ -57,7 +57,11 @@ const back = (
  */
 export function ProviderDetail(props: { id: string }) {
   const { entries, query } = useProviderEntries();
-  const entry = entries?.find((candidate) => candidate.id === props.id);
+  const entry = entries?.find(
+    (candidate) =>
+      candidate.id === props.id ||
+      (candidate.install.kind === "acp" && `acp:${candidate.install.name}` === props.id),
+  );
   if (!entry)
     return (
       <SettingsBody
