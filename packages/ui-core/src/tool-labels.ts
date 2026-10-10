@@ -15,7 +15,7 @@ import { humanize } from "./tool-names.ts";
 
 /*
  * Tool steps named for what they did (A4): ace's own tools by their action and key argument,
- * computer use as "the computer", other MCP servers as "server › tool". Pure.
+ * computer use as "the computer", other MCP servers as tool actions. Pure.
  */
 
 export { humanize } from "./tool-names.ts";
@@ -74,7 +74,7 @@ export function toolDisplayName(tool: string | undefined): string {
   return words ? words[0]!.toUpperCase() + words.slice(1) : "Action";
 }
 
-/** A tool step as a row reads it: "Opened `youtube.com`", "Called docs › search `TypeScript`". */
+/** A tool step as a row reads it: "Opened `youtube.com`", "Used a tool `TypeScript`". */
 export interface ToolLabel {
   icon: "web" | "tool" | "agent" | "note" | "read" | "shell";
   verb: string;
@@ -151,7 +151,7 @@ const computerUse = /^(cua|computer[-_ ]?use|computer)(?:[-_]|$)/i;
 
 /**
  * An MCP tool step (A4): ace's own tools by what they do, computer-use as "the computer", and
- * any other server as "server › tool" with its key argument. Never "ace.ace_browser_open".
+ * any other server as a tool action with its key argument. Never "ace.ace_browser_open".
  */
 export function mcpToolLabel(server: string, tool: string, args?: unknown): ToolLabel {
   const own = aceToolLabel(server, tool, args);
@@ -173,12 +173,13 @@ export function mcpToolLabel(server: string, tool: string, args?: unknown): Tool
     );
   }
   const key = oneLine(stringArgument(args), 48);
-  const name = `${humanize(server)} › ${humanize(tool)}`;
-  return label("tool", "Called", "Calling", "Call", key ? `${name} ${key}` : name);
+  return label("tool", "Used a tool", "Using a tool", "Use a tool", key);
 }
 
 /** A tool the adapter knows only by name (browser, image, notebook, custom), as "Used …". */
 export function namedToolLabel(kind: string, title: string): ToolLabel {
+  if (/›|mcp__|^(?:ace_|screen_|device_)/.test(title))
+    return label("tool", "Used a tool", "Using a tool", "Use a tool");
   const clean = oneLine(title, 72) ?? humanize(kind);
   if (kind === "browser") return label("web", "Browsed", "Browsing", "Browse", clean);
   if (computerUse.test(title))
@@ -188,8 +189,7 @@ export function namedToolLabel(kind: string, title: string): ToolLabel {
 
 /**
  * How tools and approvals read, injected into `describeStep`'s context so a row's first paint
- * doesn't carry their tables. Without them a step reads plainly ("Called docs › search", the
- * provider's title, "Awaiting approval") until they arrive.
+ * doesn't carry their tables. Without them a step reads plainly ("Used a tool", "Awaiting approval") until they arrive.
  */
 export interface StepLabels {
   mcp(server: string, tool: string, args?: unknown): ToolLabel;

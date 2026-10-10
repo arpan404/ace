@@ -1,3 +1,4 @@
+import { sanitizeUserText } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { ConversationRail } from "./conversation-rail.tsx";
@@ -5,7 +6,7 @@ import { useWatched, type ThreadNav } from "./nav.tsx";
 import { useTurnHead, useTurnSummary } from "./turn-index.ts";
 import { railOrdinals } from "./rail-ordinals.ts";
 
-export function TurnRail({ nav }: { nav: ThreadNav }) {
+export function TurnRail({ nav, overflowing }: { nav: ThreadNav; overflowing: boolean }) {
   const head = useTurnHead(nav.threadId);
   const count = head?.count ?? 0;
   const current = useWatched(nav.currentTurn);
@@ -20,7 +21,7 @@ export function TurnRail({ nav }: { nav: ThreadNav }) {
       })),
     [count, reading],
   );
-  if (count < 2) return null;
+  if (count < 2 || (!overflowing && count < 8)) return null;
   return (
     <div className="absolute top-20 bottom-24 left-0 z-[6] grid place-items-center">
       <ConversationRail
@@ -51,13 +52,13 @@ function TurnPreview({ threadId, ordinal }: { threadId: string; ordinal: number 
       <div>
         <p className="mb-1 text-2xs font-medium text-subtle-foreground">You</p>
         <p className="line-clamp-4 whitespace-pre-wrap break-words">
-          {turn.initiatingMessagePreview || "No text in this prompt."}
+          {sanitizeUserText(turn.initiatingMessagePreview ?? "") || "No text in this prompt."}
         </p>
       </div>
       <div>
         <p className="mb-1 text-2xs font-medium text-subtle-foreground">Assistant</p>
         <p className="line-clamp-4 whitespace-pre-wrap break-words text-muted-foreground">
-          {turn.latestAgentMessagePreview || "No response yet."}
+          {sanitizeUserText(turn.latestAgentMessagePreview ?? "") || "No response yet."}
         </p>
       </div>
     </div>

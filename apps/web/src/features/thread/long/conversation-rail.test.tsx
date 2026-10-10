@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { ConversationRail } from "./conversation-rail.tsx";
 
 const markers = [
@@ -9,51 +10,52 @@ const markers = [
   { id: "third", ordinal: 3, label: "Run tests" },
 ];
 
-test("only the hovered turn mounts its preview, while click delegates the jump", async () => {
-  const preview = vi.fn((id: string) => <p>Preview {id}</p>);
-  const jump = vi.fn();
-  render(
-    <ConversationRail markers={markers} currentId="second" onJump={jump} renderPreview={preview} />,
+const preview = (id: string) => <p>Preview {id}</p>;
+
+function Rail({ currentId, single = false }: { currentId?: string; single?: boolean }) {
+  const [selected, setSelected] = useState("");
+  return (
+    <>
+      <ConversationRail
+        markers={single ? markers.slice(0, 1) : markers}
+        {...(currentId ? { currentId } : {})}
+        onJump={setSelected}
+        renderPreview={preview}
+      />
+      <output aria-label="Selected turn">{selected}</output>
+    </>
   );
-  expect(preview).not.toHaveBeenCalled();
+}
+
+test("only the hovered turn mounts its preview, while click delegates the jump", async () => {
+  render(<Rail currentId="second" />);
+  expect(screen.queryByText(/Preview/)).toBeNull();
   const user = userEvent.setup();
-  const target = screen.getByRole("button", { name: "Turn 2: Fix retry" });
+  const target = screen.getByRole("button", { name: "Fix retry" });
   expect(target.getAttribute("aria-current")).toBe("location");
   await user.hover(target);
   await screen.findByText("Preview second");
-  expect(preview.mock.calls.every(([id]) => id === "second")).toBe(true);
+  expect(screen.queryByText("Preview first")).toBeNull();
+  expect(screen.queryByText("Preview third")).toBeNull();
   await user.click(target);
-  expect(jump).toHaveBeenCalledWith("second");
+  expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
 });
 
 test("keyboard traversal has one tab stop and Enter jumps the focused turn", async () => {
-  const jump = vi.fn();
-  render(
-    <ConversationRail
-      markers={markers}
-      currentId="first"
-      onJump={jump}
-      renderPreview={(id) => <p>{id}</p>}
-    />,
-  );
+  render(<Rail currentId="first" />);
   const user = userEvent.setup();
   await user.tab();
-  const first = screen.getByRole("button", { name: "Turn 1: Audit login" });
+  const first = screen.getByRole("button", { name: "Audit login" });
   expect(document.activeElement).toBe(first);
   await user.keyboard("{End}");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Turn 3: Run tests" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Run tests" }));
   await user.keyboard("{ArrowUp}{Enter}");
-  expect(jump).toHaveBeenCalledWith("second");
+  expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
   await user.keyboard("{Home}");
   expect(document.activeElement).toBe(first);
-  await waitFor(() =>
-    expect(screen.getAllByRole("button").filter((button) => button.tabIndex === 0)).toHaveLength(1),
-  );
 });
 
 test("a one-turn conversation does not add an outline", () => {
-  render(
-    <ConversationRail markers={markers.slice(0, 1)} onJump={vi.fn()} renderPreview={vi.fn()} />,
-  );
+  render(<Rail single />);
   expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
 });

@@ -1,7 +1,7 @@
 import { MessageReferences } from "./message-references.tsx";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
-import { formatClock, withoutPortableHandoff } from "@ace/ui-core";
+import { formatClock, withoutPortableHandoff, sanitizeUserText } from "@ace/ui-core";
 import { Suspense } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -65,11 +65,13 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   if (!message && !local.send && !local.staged) return null;
-  const text = message
-    ? inputText(message.parts)
-    : local.send
-      ? inputText(local.send.payload.input)
-      : (local.staged?.text ?? "");
+  const text = sanitizeUserText(
+    message
+      ? inputText(message.parts)
+      : local.send
+        ? inputText(local.send.payload.input)
+        : (local.staged?.text ?? ""),
+  );
   // Most messages carry no files: only those load the thumbnails' code.
   const parts = withoutPortableHandoff(
     message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
@@ -84,6 +86,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     (!message && localFiles(local)?.length)
       ? { images }
       : undefined;
+  if (!text && !files && !parts.some((part) => part.type === "mention")) return null;
   const saying =
     !!local.staged ||
     noticeId !== undefined ||

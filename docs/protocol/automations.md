@@ -30,23 +30,23 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
-  "enabled": true,
+  "concurrency": 2,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 1,
+  "jitterMs": 5,
   "missedRun": "skip",
+  "model": "example",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
-    "event": "pr_changed",
+    "event": "ci_failed",
     "kind": "github",
-    "label": "example",
-    "pollIntervalMs": 60009,
-    "repository": "rXPX3/aRLbwlnF3wI"
+    "pollIntervalMs": 60007,
+    "repository": "I/dqns_fAm5DE"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -81,7 +81,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 8,
   "runs": []
 }
 ```
@@ -121,22 +121,25 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
+    "concurrency": 8,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
+    "jitterMs": 3,
     "missedRun": "skip",
+    "model": "example",
+    "permissionMode": "example",
     "prompt": "example",
-    "provider": "opencode",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
-      "kind": "file",
-      "paths": [
-        "example"
-      ]
+      "event": "pr_changed",
+      "kind": "github",
+      "pollIntervalMs": 60001,
+      "pullRequest": 2,
+      "repository": "qKL/6"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -236,9 +239,23 @@ Example:
 
 ```json
 {
-  "error": "example",
-  "ok": false,
+  "automations": [],
+  "inbox": {
+    "before": 4,
+    "runs": []
+  },
+  "ok": true,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "finishedAt": 6,
+    "id": "example",
+    "startedAt": 4,
+    "status": "succeeded",
+    "title": "example",
+    "trigger": "schedule"
+  },
   "type": "automation.result"
 }
 ```
@@ -266,13 +283,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 9,
   "id": "example",
-  "startedAt": 1,
-  "status": "skipped",
-  "threadId": "example",
+  "startedAt": 4,
+  "status": "failed",
   "title": "example",
-  "trigger": "file"
+  "trigger": "github"
 }
 ```
 
@@ -352,11 +367,10 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "issue_labelled",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60009,
-  "repository": "qOshEI7d/ns_fAm5D"
+  "pollIntervalMs": 60008,
+  "repository": "aNvJ_guWbg/7"
 }
 ```
 

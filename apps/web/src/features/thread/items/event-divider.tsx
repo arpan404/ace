@@ -3,6 +3,7 @@ import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item, ProviderKind } from "@ace/protocol";
 import {
   displayNotice,
+  sanitizeUserText,
   echoesEarlierError,
   handoffSummary,
   inputLine,
@@ -251,14 +252,16 @@ function NoticeLine(props: { level: "info" | "warning" | "error"; text: string }
 /** A message the provider injected that ace has no words for: one line, the rest on demand. */
 function QuietText(props: { text: string }) {
   const [open, setOpen] = useState(false);
-  const first = props.text.split("\n").find((line) => line.trim()) ?? "";
-  const more = props.text.trim() !== first.trim();
+  const text = sanitizeUserText(props.text);
+  if (!text) return null;
+  const first = text.split("\n").find((line) => line.trim()) ?? "";
+  const more = text.trim() !== first.trim();
   return (
     <div className="flex items-start gap-2 text-ui text-muted-foreground">
       <InfoIcon aria-hidden size={16} className="mt-px shrink-0 text-subtle-foreground" />
       <div className="min-w-0 flex-1">
         <p className={cn(!open && "truncate", open && "whitespace-pre-wrap")}>
-          {open ? props.text : first}
+          {open ? text : first}
         </p>
         {more && (
           <button

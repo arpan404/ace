@@ -30,6 +30,12 @@ const screen = new Set([
 export function aceToolName(name: string): string | undefined {
   if (name.startsWith("mcp__ace__")) name = name.slice(10);
   if (
+    name === "ace_device_list" ||
+    name === "ace_device_delegate" ||
+    name.startsWith("ace_device_task_")
+  )
+    return name;
+  if (
     name.startsWith("ace_screen_") ||
     name.startsWith("ace_device_") ||
     name.startsWith("ace_ace_") ||
