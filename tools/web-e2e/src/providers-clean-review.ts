@@ -35,7 +35,7 @@ const render = async (html: string, path: string) => {
         ),
       ),
     );
-  await page.screenshot({ path, fullPage: true, animations: "disabled" });
+  await page.locator("main").screenshot({ path, animations: "disabled" });
 };
 try {
   for (const [surface, candidates] of groups) {
@@ -65,7 +65,7 @@ try {
           ),
         );
         await render(
-          `<style>body{margin:0;padding:16px;background:#777;color:white;font:14px system-ui}main{display:flex;gap:16px}img{display:block;width:${width === 1440 ? 960 : 390}px}h2{font-size:14px}</style><main>${entries.join("")}</main>`,
+          `<style>body{margin:0;padding:16px;background:#777;color:white;font:14px system-ui}main{display:flex;width:max-content;gap:16px}img{display:block;width:${width === 1440 ? 960 : 390}px}h2{font-size:14px}</style><main>${entries.join("")}</main>`,
           `${out}/before-after-${surface}-${theme}-${width}.png`,
         );
       }

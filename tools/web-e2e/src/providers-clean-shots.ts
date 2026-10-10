@@ -89,9 +89,17 @@ try {
         if (index === 3) {
           await page.getByRole("region", { name: "Usage", exact: true }).scrollIntoViewIfNeeded();
           await expect(page.getByRole("table", { name: "Usage by model" })).toBeVisible();
+          await expect(
+            page
+              .getByRole("table", { name: "Usage by model" })
+              .getByRole("cell", { name: "Opus 4.6", exact: true }),
+          ).toBeVisible();
           await capture(page, `usage-detail-${theme}-${width}`, target);
           await page.getByRole("button", { name: "By account", exact: true }).click();
           await expect(page.getByRole("table", { name: "Usage by account" })).toBeVisible();
+          await expect(
+            page.getByRole("table", { name: "Usage by account" }).getByRole("row"),
+          ).toHaveCount(6);
           await capture(page, `usage-by-account-${theme}-${width}`, target);
         }
         if (index === 2) {
