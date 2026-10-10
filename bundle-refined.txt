@@ -1,0 +1,40 @@
+@ace/web-perf bundle: [plugin builtin:vite-reporter] 
+@ace/web-perf bundle: (!) Some chunks are larger than 500 kB after minification. Consider:
+@ace/web-perf bundle: - Using dynamic import() to code-split the application
+@ace/web-perf bundle: - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+@ace/web-perf bundle: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+@ace/web-perf bundle: [33m[PLUGIN_TIMINGS] [0mJavaScript callbacks ran for 12.3s of this 12.7s build (97%).
+@ace/web-perf bundle: The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, the time it awaits is included):
+@ace/web-perf bundle:   - plugin @rolldown/plugin-babel transform (86%, 10.9s, 1484 calls)
+@ace/web-perf bundle:   - plugin @tailwindcss/vite:generate:build transform (12%, 1.5s, 4 calls)
+@ace/web-perf bundle: These rows add up to more than the total. Callbacks can overlap, so the same time counts for more than one row.
+@ace/web-perf bundle: 2 callbacks are listed without a time. Their calls overlapped, so the time inside one call includes work from other calls. To find their cost, profile the build with `node --cpu-prof`:
+@ace/web-perf bundle:   - plugin vite:asset load (5 calls)
+@ace/web-perf bundle:   - plugin vite:worker-import-meta-url transform (5 calls)
+@ace/web-perf bundle: See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.
+@ace/web-perf bundle: 
+@ace/web-perf bundle:   initial JS (entry and its static imports)                 268.72 KB  (≤ 270)
+@ace/web-perf bundle:   CSS                                                        20.59 KB  (≤ 21)
+@ace/web-perf bundle: ✗ first screen (shell + _home.new.tsx)                      411.46 KB  (≤ 405)
+@ace/web-perf bundle: ✗ route _home.new.tsx?tsr-split=component                   142.74 KB  (≤ 138)
+@ace/web-perf bundle:   route _home.t.$threadId.tsx?tsr-split=component           131.45 KB  (≤ 138)
+@ace/web-perf bundle:   route _home.tsx?tsr-split=component                       105.64 KB  (≤ 138)
+@ace/web-perf bundle:   route activity.index.tsx?tsr-split=component               96.91 KB  (≤ 138)
+@ace/web-perf bundle:   route automations.$automationId.edit.tsx?tsr-split=component   87.90 KB  (≤ 138)
+@ace/web-perf bundle:   route automations.new.tsx?tsr-split=component              87.78 KB  (≤ 138)
+@ace/web-perf bundle:   route settings.providers.$provider.tsx?tsr-split=component   87.32 KB  (≤ 138)
+@ace/web-perf bundle:   route settings.providers.index.tsx?tsr-split=component     87.20 KB  (≤ 138)
+@ace/web-perf bundle:   worker client-worker                                       56.45 KB  (≤ 60)
+@ace/web-perf bundle: ✗ worker client-worker with its lazy chunks                  73.94 KB  (≤ 73)
+@ace/web-perf bundle:   worker diff.worker                                         16.07 KB  (≤ 60)
+@ace/web-perf bundle:   worker machine-worker                                      56.31 KB  (≤ 60)
+@ace/web-perf bundle: ✗ worker machine-worker with its lazy chunks                 73.79 KB  (≤ 73)
+@ace/web-perf bundle:   worker markdown.worker                                     29.36 KB  (≤ 60)
+@ace/web-perf bundle: ✗ worker markdown.worker with its lazy chunks               306.69 KB  (≤ 73)
+@ace/web-perf bundle: bundle budgets exceeded:
+@ace/web-perf bundle: first screen (shell + _home.new.tsx)                      411.46 KB  (≤ 405)
+@ace/web-perf bundle: route _home.new.tsx?tsr-split=component                   142.74 KB  (≤ 138)
+@ace/web-perf bundle: worker client-worker with its lazy chunks                  73.94 KB  (≤ 73)
+@ace/web-perf bundle: worker machine-worker with its lazy chunks                 73.79 KB  (≤ 73)
+@ace/web-perf bundle: worker markdown.worker with its lazy chunks               306.69 KB  (≤ 73)
+@ace/web-perf bundle: Exited with code 1
