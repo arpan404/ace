@@ -13,7 +13,7 @@ const providers = [
     mode: "acceptEdits",
     label: "Accept edits",
   },
-  { adapter: createOpenCodeAdapter(), version: "2.0.0", mode: "deny", label: "Deny" },
+  { adapter: createOpenCodeAdapter(), version: "2.0.0", mode: "plan", label: "Plan" },
   {
     adapter: createCursorAdapter(),
     version: "1.0.35",
@@ -100,8 +100,8 @@ test.each([
   },
   { adapter: createOpenCodeAdapter(), version: "2.0.22", mode: "ask" },
 ])(
-  "$adapter.provider absent settings dispatches an explicit predefined native mode",
-  async ({ adapter, version, mode }) => {
+  "$adapter.provider absent settings leaves the harness default alone",
+  async ({ adapter, version }) => {
     const frames = scriptFrames();
     const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
       provider: adapter.provider,
@@ -114,8 +114,8 @@ test.each([
     });
     try {
       const id = await h.create();
-      expect(h.contexts[0]?.permissionMode).toBe(mode);
-      expect(h.store.getThread(id)?.permission?.effective).toBe(mode);
+      expect(h.contexts[0]?.permissionMode).toBeUndefined();
+      expect(h.store.getThread(id)?.permission?.effective).toBeNull();
       expect(h.store.getThread(id)?.permission?.override).toBeNull();
     } finally {
       await h.close();
@@ -125,9 +125,9 @@ test.each([
 
 test.each([
   ["acceptEdits", "acceptEdits"],
-  ["future-unavailable-mode", "auto"],
+  ["future-unavailable-mode", null],
 ] as const)(
-  "saved setting %s wins when supported and never delegates an unavailable mode to CLI defaults",
+  "saved setting %s wins when supported and falls back to CLI defaults when unavailable",
   async (configured, expected) => {
     const adapter = createClaudeAdapter();
     const frames = scriptFrames();
@@ -143,7 +143,7 @@ test.each([
     });
     try {
       const id = await h.create();
-      expect(h.contexts[0]?.permissionMode).toBe(expected);
+      expect(h.contexts[0]?.permissionMode).toBe(expected ?? undefined);
       expect(h.store.getThread(id)?.permission?.effective).toBe(expected);
       expect(h.store.getThread(id)?.permission?.override).toBeNull();
     } finally {

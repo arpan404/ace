@@ -106,7 +106,7 @@ export interface PermissionSummary {
   label: string;
   attention: boolean;
   coverage: string;
-  next: PermissionMode | undefined;
+  next: PermissionMode | null | undefined;
   inherited: boolean;
 }
 export function threadPermissionSummary(
@@ -126,14 +126,14 @@ export function threadPermissionSummary(
     attention: permissionNeedsAttention(state.effective, capabilities),
     coverage: permissionCoverage(capabilities, state.effective),
     next:
-      (options.chosen !== undefined || state.pending) && target && target !== state.effective
-        ? target
+      (options.chosen !== undefined || state.pending) && (target ?? null) !== state.effective
+        ? (target ?? null)
         : undefined,
     inherited: override === null,
   };
 }
 
-/** The provider's native option as the composer's generic risk-based control reads it. */
+/** The provider's native option as the composer reads it. */
 export type PermissionRisk = "low" | "medium" | "high";
 export interface PermissionOption {
   id: string;

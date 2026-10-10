@@ -4,7 +4,7 @@ import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { opencodePermissionRules } from "./permission-policy.ts";
+import { opencodePermissionAgent } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
@@ -155,18 +155,15 @@ export class OpenCodeSession implements ProviderSession {
               title: "ace",
               location: { directory: ctx.cwd },
               model: selectedModel(ctx.model, ctx.options),
-              ...(ctx.permissionMode
-                ? { permissions: opencodePermissionRules(ctx.permissionMode) }
-                : {}),
+              ...(ctx.permissionMode ? { agent: opencodePermissionAgent(ctx.permissionMode) } : {}),
             }),
       );
       if (ctx.resume) {
-        await s.client.session.update({
-          sessionID: info.id,
-          ...(ctx.permissionMode
-            ? { permissions: opencodePermissionRules(ctx.permissionMode) }
-            : {}),
-        });
+        if (ctx.permissionMode)
+          await s.client.session.switchAgent({
+            sessionID: info.id,
+            agent: opencodePermissionAgent(ctx.permissionMode),
+          });
         const model = selectedModel(ctx.model, ctx.options);
         const previous = z
           .object({ providerID: z.string(), id: z.string(), variant: z.string().optional() })

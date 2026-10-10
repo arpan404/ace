@@ -6,7 +6,7 @@ export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validatio
 import { applyEdits, modify } from "jsonc-parser";
 import { SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
 import { z } from "zod";
-import { legacyPermissionMode } from "./legacy-permissions.ts";
+import { legacyPermissionMode, migrateProviderPermissions } from "./legacy-permissions.ts";
 
 export function validateAssignment(
   key: string,
@@ -103,6 +103,15 @@ export function decode(text: string): DecodedDocument {
   }
   if (result.data.settings["approvals.policy"] !== undefined)
     return { ...decode(edit(text, ["settings", "approvals.policy"], undefined)), migrated: true };
+  const providerModes = result.data.settings["permissions.providerModes"];
+  if (providerModes) {
+    const next = migrateProviderPermissions(providerModes);
+    if (JSON.stringify(next) !== JSON.stringify(providerModes))
+      return {
+        ...decode(edit(text, ["settings", "permissions.providerModes"], next)),
+        migrated: true,
+      };
+  }
   const configuration = result.data.settings["providers.configuration"];
   if (configuration) {
     const next = cursorConfiguration(configuration);

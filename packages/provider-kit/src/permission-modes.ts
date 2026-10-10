@@ -101,13 +101,17 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
     case "opencode":
       return [
         mode(
-          "allow",
-          "Allow",
-          "Runs actions covered by your permission rules without asking.",
-          "high",
+          "build",
+          "Build",
+          "Uses OpenCode's Build agent and your configured permission rules.",
+          "medium",
         ),
-        mode("ask", "Ask", "Asks before actions covered by your permission rules.", "medium"),
-        mode("deny", "Deny", "Blocks actions covered by your permission rules.", "low"),
+        mode(
+          "plan",
+          "Plan",
+          "Uses OpenCode's Plan agent to explore before editing; your permission rules apply.",
+          "low",
+        ),
       ];
     case "cursor":
       return [
@@ -150,6 +154,11 @@ export function migratePermissionMode(
   advertised?: readonly NativePermissionMode[],
 ): PermissionMode | null {
   if (value == null || provider === "pi") return null;
+  if (
+    provider === "opencode" &&
+    ["allow", "ask", "deny", "read-only", "auto-review", "full-access"].includes(value)
+  )
+    return null;
   if (advertised?.some((entry) => entry.id === value)) return value;
   if (!["read-only", "ask", "auto-review", "full-access"].includes(value)) return value;
   switch (provider) {
@@ -172,7 +181,7 @@ export function migratePermissionMode(
         }[value] ?? null
       );
     case "opencode":
-      return value === "full-access" ? "allow" : value === "read-only" ? "deny" : "ask";
+      return null;
     case "cursor":
       return value === "full-access"
         ? cursorMode(false, false)
@@ -271,21 +280,11 @@ export function acpPermissionModes(raw: unknown): NativePermissionMode[] {
   }));
 }
 
-/** Explicit settings win; otherwise use an advertised native review mode, then native manual. */
+/** Absence preserves the harness's configured default, regardless of offered modes. */
 export function resolvePermissionMode(
   provider: ProviderKind,
   configured: PermissionMode | null | undefined,
   capabilities: import("@ace/protocol").PermissionCapabilities | undefined,
 ): PermissionMode | null {
-  if (configured != null)
-    return migratePermissionMode(provider, configured, capabilities?.permissionModes);
-  const offered = (id: PermissionMode | null) =>
-    id !== null && capabilities?.permissionModes?.some((entry) => entry.id === id);
-  const review =
-    provider === "claude" || provider === "codex" || provider === "cursor"
-      ? migratePermissionMode(provider, "auto-review")
-      : null;
-  if (capabilities?.nativeAutoReview && offered(review)) return review;
-  const manual = migratePermissionMode(provider, "ask");
-  return capabilities?.toolGate !== false && offered(manual) ? manual : null;
+  return migratePermissionMode(provider, configured, capabilities?.permissionModes);
 }
