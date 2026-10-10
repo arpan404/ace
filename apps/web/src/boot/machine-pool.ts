@@ -1,6 +1,7 @@
+import { machineSecrets } from "./machine-secrets.ts";
 import { portableSocket } from "./portable-socket.ts";
 import { ClientError, type Storage } from "@ace/client";
-import { MachineDirectory, type MachineSecretStore } from "@ace/client/machines";
+import { MachineDirectory } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
 import { MachinePool } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
@@ -9,12 +10,11 @@ import type { MachineTarget } from "./machine-target.ts";
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
  * other machines and one dedicated client worker per machine. Loaded only when a directory is
- * stored (`machine-pool-boot.ts`), so a window with one daemon carries none of it.
+ * stored or Settings adds a machine (`machine-pool-boot.ts`).
  */
 
 /** Where the directory (no credentials) lives. */
 export const directoryKey = "ace.machines";
-const tokenKey = (key: string) => `ace.machines.token.${key}`;
 
 /** A dedicated worker running `machine-worker.ts`, as the pool needs it. */
 export interface SpawnedWorker {
@@ -28,18 +28,6 @@ function directoryStorage(storage: KeyValueStorage): Storage {
   return {
     load: async () => storage.getItem(directoryKey),
     save: async (value) => storage.setItem(directoryKey, value),
-  };
-}
-
-/**
- * Device tokens kept the way this browser remembers its own daemon's: in local storage, apart
- * from the directory. The desktop keychain bridge replaces this (ADR 0059 follow-up).
- */
-function rememberedTokens(storage: KeyValueStorage): MachineSecretStore {
-  return {
-    get: async (key) => storage.getItem(tokenKey(key)),
-    set: async (key, token) => storage.setItem(tokenKey(key), token),
-    delete: async (key) => storage.removeItem?.(tokenKey(key)),
   };
 }
 
@@ -86,12 +74,13 @@ function dedicatedWorker(name: string): SpawnedWorker {
  */
 export function browserMachinePool(options: {
   storage: KeyValueStorage;
+  session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
 }): MachinePool {
   const spawnWorker = options.spawnWorker ?? dedicatedWorker;
   const directory = new MachineDirectory(
     directoryStorage(options.storage),
-    rememberedTokens(options.storage),
+    machineSecrets(options.storage, options.session ?? sessionStorage),
   );
   return new MachinePool({
     directory,

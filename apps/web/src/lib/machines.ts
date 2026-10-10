@@ -25,16 +25,13 @@ export interface Machine {
   client: ClientApi | undefined;
   /** This window's own daemon: the one the rest of the app shows. */
   primary: boolean;
+  failed?: boolean;
 }
 
 export const primaryMachineId = "primary";
 
 const statusOf = (state: ConnectionState): MachineStatus =>
-  state === "ready"
-    ? "online"
-    : state === "connecting" || state === "reconnecting"
-      ? "connecting"
-      : "offline";
+  state === "ready" ? "online" : state === "connecting" ? "connecting" : "offline";
 const noIds: readonly string[] = [];
 
 /** Every machine, this window's daemon first. Without a pool that is the only one. */
@@ -79,6 +76,7 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
             status: reach ? machine.status : online ? "offline" : machine.status,
             client: reach,
             primary: false,
+            failed: !!machine.error,
           },
         ];
       }),

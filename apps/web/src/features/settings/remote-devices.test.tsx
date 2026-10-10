@@ -43,3 +43,26 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
   expect(copied).toContain("scopes=read");
   expect(copied).not.toContain("operate");
 });
+
+test("an offline machine explains the failure, reconnects, and can be forgotten", async () => {
+  const app = harness({ machines: [{ hostId: "build-box", name: "Build server" }] });
+  await app.open("/settings/remote");
+  const region = await screen.findByRole("region", { name: "Machines" });
+  await waitFor(() => expect(app.pool().machine("build-box")?.status).toBe("online"));
+  app.crashMachine("build-box");
+  await waitFor(() =>
+    expect(
+      within(region)
+        .getByRole("button", { name: "Reconnect Build server" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect(within(region).getByText("Offline")).toBeTruthy();
+  await userEvent.hover(within(region).getByText("Build server"));
+  expect(await screen.findByText(/Couldn't reach this machine/)).toBeTruthy();
+  await userEvent.click(within(region).getByRole("button", { name: "Reconnect Build server" }));
+  await waitFor(() => expect(app.pool().machine("build-box")?.status).toBe("online"));
+  await userEvent.click(within(region).getByRole("button", { name: "Forget Build server" }));
+  await waitFor(() => expect(within(region).queryByText("Build server")).toBeNull());
+  expect(await screen.findByText("Build server forgotten")).toBeTruthy();
+});

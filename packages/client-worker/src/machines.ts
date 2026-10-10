@@ -108,10 +108,16 @@ export class MachinePool {
   /** Resolves after metadata loads. Machines start independently; offline hosts cannot gate boot. */
   start(): Promise<void> {
     if (this.closed) return Promise.reject(new ClientError("offline"));
-    return (this.starting ??= this.options.directory.load().then((entries) => {
-      if (this.closed) return;
-      for (const entry of entries) this.connect(entry);
-    }));
+    return (this.starting ??= this.options.directory
+      .load()
+      .then((entries) => {
+        if (this.closed) return;
+        for (const entry of entries) this.connect(entry);
+      })
+      .catch((error: unknown) => {
+        this.starting = undefined;
+        throw error;
+      }));
   }
   async add(paired: PairedMachine): Promise<MachineEntry> {
     await this.start();
@@ -319,46 +325,62 @@ export class MachinePool {
           status:
             client.state === "fatal" && client.error?.code === "auth"
               ? "auth_failed"
-              : client.state === "connecting" || client.state === "reconnecting"
+              : client.state === "connecting"
                 ? "connecting"
                 : "offline",
           ...(client.error ? { error: client.error } : {}),
         });
         return;
       }
-      void client.request({ type: "host.identity" }).then(
-        (reply) => {
-          if (!this.current(live) || live.verification !== epoch) return;
-          if (reply.identity.hostId !== live.state.entry.hostId) {
+      void client
+        .request({ type: "host.identity" })
+        .then(
+          async (reply) => {
+            if (!this.current(live) || live.verification !== epoch) return;
+            if (reply.identity.hostId !== live.state.entry.hostId) {
+              this.publish(live, {
+                entry: live.state.entry,
+                status: "auth_failed",
+                error: new ClientError("auth", "Daemon identity changed"),
+              });
+              this.stopWorker(live);
+              return;
+            }
+            await this.options.directory.rename(
+              live.state.entry.hostId,
+              reply.identity.displayName,
+              reply.identity.icon,
+            );
+            if (!this.current(live) || live.verification !== epoch) return;
+            const entry = {
+              ...live.state.entry,
+              displayName: reply.identity.displayName,
+              icon: reply.identity.icon,
+            };
+            this.publish(live, { entry, status: "online", identity: reply.identity });
+            if (live.attached) this.threads.rename(entry);
+            else {
+              live.attached = true;
+              this.threads.attach(entry, client.threads());
+            }
+          },
+          (error: unknown) => {
+            if (!this.current(live) || live.verification !== epoch) return;
             this.publish(live, {
               entry: live.state.entry,
-              status: "auth_failed",
-              error: new ClientError("auth", "Daemon identity changed"),
+              status: "offline",
+              error: error instanceof ClientError ? error : new ClientError("daemon"),
             });
-            this.stopWorker(live);
-            return;
-          }
-          const entry = {
-            ...live.state.entry,
-            displayName: reply.identity.displayName,
-            icon: reply.identity.icon,
-          };
-          this.publish(live, { entry, status: "online", identity: reply.identity });
-          if (live.attached) this.threads.rename(entry);
-          else {
-            live.attached = true;
-            this.threads.attach(entry, client.threads());
-          }
-        },
-        (error: unknown) => {
-          if (!this.current(live) || live.verification !== epoch) return;
-          this.publish(live, {
-            entry: live.state.entry,
-            status: "offline",
-            error: error instanceof ClientError ? error : new ClientError("daemon"),
-          });
-        },
-      );
+          },
+        )
+        .catch((error: unknown) => {
+          if (this.current(live))
+            this.publish(live, {
+              entry: live.state.entry,
+              status: "offline",
+              error: error instanceof ClientError ? error : new ClientError("storage"),
+            });
+        });
     };
     live.stop = client.connectionState().subscribe(changed);
     await client.start();

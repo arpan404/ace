@@ -9,7 +9,7 @@ import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { BootErrorBoundary } from "@/features/connect/index.ts";
 import { LayoutProvider } from "@/lib/layout.tsx";
-import { MachinePoolProvider } from "@/lib/machine-pool.ts";
+import { MachinePoolProvider, MachinePoolFactoryProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { createAppRouter } from "./router.ts";
@@ -55,6 +55,7 @@ export function App(props: {
   batch?: NotifyBatch;
   /** The user's other machines (ADR 0059); pickers that target a machine offer them. */
   machines?: MachinePool | undefined;
+  ensureMachines?: (() => Promise<MachinePool>) | undefined;
 }) {
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() =>
@@ -64,9 +65,11 @@ export function App(props: {
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>
         <LayoutProvider storage={props.storage}>
-          <MachinePoolProvider value={props.machines}>
-            <RouterProvider router={router} />
-          </MachinePoolProvider>
+          <MachinePoolFactoryProvider value={props.ensureMachines}>
+            <MachinePoolProvider value={props.machines}>
+              <RouterProvider router={router} />
+            </MachinePoolProvider>
+          </MachinePoolFactoryProvider>
         </LayoutProvider>
       </QueryClientProvider>
     </ClientProvider>

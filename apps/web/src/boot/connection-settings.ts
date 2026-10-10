@@ -1,3 +1,4 @@
+import { forgetMachineTokens } from "./machine-secrets.ts";
 // zod/mini: the connection gate is on the first paint, and classic Zod is ~20 KB gzip more.
 import * as z from "zod/mini";
 import { type KeyValueStorage } from "@ace/ui-core";
@@ -72,6 +73,7 @@ export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remem
 }
 
 export function forgetToken(stores: ConnectionStores) {
+  forgetMachineTokens(stores.local, stores.session);
   safeRemove(stores.local, keys.device);
   safeRemove(stores.session, keys.device);
   safeRemove(stores.local, keys.token);
