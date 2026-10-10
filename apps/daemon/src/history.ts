@@ -275,7 +275,7 @@ export class DaemonHistory {
     this.externalSignal?.throwIfAborted();
     this.lifetime.signal.throwIfAborted();
     if (request.type === "history.scan") {
-      if (request.action !== "status") this.startScan();
+      if (request.action !== "status" && !this.active) this.startScan();
       const scan = this.scanStatus();
       return {
         type: "history.scan",

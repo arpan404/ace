@@ -2,6 +2,32 @@
   "$id": "https://ace.local/protocol/v1/QueueSnapshot.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "lastFailure": {
+      "anyOf": [
+        {
+          "properties": {
+            "code": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "messages": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/QueuedMessage.json"

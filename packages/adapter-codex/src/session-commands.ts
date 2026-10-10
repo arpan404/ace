@@ -96,18 +96,34 @@ export function createSessionCommands(
         clientUserMessageId: clientUserMessageId ?? config.userMessageId(),
       } satisfies ThreadQueueAddParams);
       await config.refreshQueue(threadId);
-    } else if (turn)
-      await request(
-        "turn/steer",
-        {
-          threadId,
-          expectedTurnId: turn,
+    } else if (turn) {
+      try {
+        await request(
+          "turn/steer",
+          {
+            threadId,
+            expectedTurnId: turn,
+            input: input(parts),
+            ...(clientUserMessageId ? { clientUserMessageId } : {}),
+          } satisfies TurnSteerParams,
+          true,
+        );
+      } catch (error) {
+        let message = error instanceof Error ? error.message : "";
+        try {
+          const reply = z.object({ message: z.string() }).safeParse(JSON.parse(message));
+          if (reply.success) message = reply.data.message;
+        } catch {
+          /* Older peers may return plain error prose. */
+        }
+        if (!/^(?:no active turn to steer|expected active turn id .+ but found .+)$/i.test(message))
+          throw error;
+        await startTurn(threadId, {
           input: input(parts),
           ...(clientUserMessageId ? { clientUserMessageId } : {}),
-        } satisfies TurnSteerParams,
-        true,
-      );
-    else
+        });
+      }
+    } else
       await startTurn(threadId, {
         input: origin === "ace" ? [] : input(parts),
         ...(clientUserMessageId ? { clientUserMessageId } : {}),

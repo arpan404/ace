@@ -382,10 +382,12 @@ export class FakeDaemon implements Host {
   holdQueue(
     threadId: string,
     reason: NonNullable<import("@ace/protocol").QueueSnapshot["reason"]>,
+    lastFailure?: import("@ace/protocol").QueueSnapshot["lastFailure"],
   ): void {
     const host = this.thread(threadId);
     host.queue.paused = true;
     host.queue.reason = reason;
+    host.queue.lastFailure = lastFailure ?? null;
     host.queueDirty = true;
     this.afterChange(host, this.options.clock());
   }

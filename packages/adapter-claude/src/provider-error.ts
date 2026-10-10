@@ -31,12 +31,18 @@ export function claudeError(code: string, text: string, model?: string): AgentEr
           ? "Network trouble"
           : code === "context_length"
             ? "Conversation is too long"
-            : "Claude Code execution failed";
+            : code === "overloaded_error" || /(?:API Error: 529|overloaded)/i.test(text)
+              ? "Claude is busy. Try again shortly."
+              : code === "server_error" || /API Error: 5\d\d/.test(text)
+                ? "Claude had a server error. Try again shortly."
+                : code === "max_output_tokens" || code === "output_limit"
+                  ? "Claude reached its response limit. Ask it to continue."
+                  : "Claude Code execution failed. Try again.";
   return {
     kind,
     code: kind === "auth" ? "auth" : code === "billing_error" ? "quota" : code,
     title,
-    message: kind === "provider" ? text || title : title,
+    message: title,
     detail: text,
   };
 }

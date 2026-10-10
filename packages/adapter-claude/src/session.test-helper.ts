@@ -25,7 +25,7 @@ export async function harness(
   options: ClaudeOptions = {},
   execution: Pick<
     SessionContext,
-    "fork" | "options" | "aceMcp" | "permissionMode" | "onInputMessage"
+    "fork" | "options" | "aceMcp" | "permissionMode" | "onInputMessage" | "onSessionConfirmed"
   > = {},
 ) {
   const frames: Frame[] = [];

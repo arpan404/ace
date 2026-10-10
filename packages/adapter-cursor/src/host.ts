@@ -110,7 +110,6 @@ export class CursorHost {
         const error = z.object({ message: z.string() }).safeParse(frame.body);
         if (error.success)
           this.errorMessage = safeCursorErrorMessage(error.data.message, options.env);
-        void this.stop();
       }
     };
     this.rpc.onRequest = async ({ method, params }) => {
@@ -152,14 +151,16 @@ export class CursorHost {
   request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
     if (params !== undefined) boundedJson(params, this.limits.maxFrameBytes - 1024);
     return this.rpc
-      .request(method, params, timeoutMs === undefined ? {} : { timeoutMs })
+      .request(method, params, {
+        timeoutMs:
+          timeoutMs ?? (method === "send" ? this.limits.sendTimeoutMs : this.limits.timeoutMs),
+      })
       .catch(async (error: unknown) => {
-        await this.stop();
-        const exit = await this.process.exited;
+        const exit = this.process.signal.aborted ? await this.process.exited : undefined;
         const code = discoveryFailureCode(
           error,
           this.metadataFailureCode ??
-            (exit.reason === "spawn-error" || exit.code === 78
+            (exit?.reason === "spawn-error" || exit?.code === 78
               ? "not_configured"
               : "discovery_failed"),
         );
@@ -168,7 +169,7 @@ export class CursorHost {
           /^(?:process (?:exited|closed)|JSON-RPC closed|closed|EOF|write EPIPE)$/i.test(
             suppliedReason,
           )
-            ? `Cursor SDK host ended with code ${exit.code ?? "none"} (${exit.reason}). ${this.metadataFailureDetail ?? suppliedReason}`.slice(
+            ? `Cursor SDK host ended with code ${exit?.code ?? "none"} (${exit?.reason ?? "request rejected"}). ${this.metadataFailureDetail ?? suppliedReason}`.slice(
                 0,
                 2048,
               )

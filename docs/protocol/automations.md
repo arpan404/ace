@@ -30,20 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
-  "enabled": true,
+  "concurrency": 7,
+  "enabled": false,
   "id": "example",
   "jitterMs": 1,
   "missedRun": "skip",
+  "permissionMode": "example",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "event": "pr_changed",
-    "kind": "github",
-    "label": "example",
-    "pollIntervalMs": 60009,
-    "repository": "rXPX3/aRLbwlnF3wI"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": true
@@ -99,7 +99,7 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 9,
   "message": "example"
 }
 ```
@@ -121,13 +121,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
-    "enabled": false,
+    "concurrency": 9,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 4,
-    "missedRun": "skip",
+    "jitterMs": 1,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "opencode",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -136,7 +136,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -211,7 +211,7 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "limit": 10,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -236,7 +236,7 @@ Example:
 
 ```json
 {
-  "error": "example",
+  "automations": [],
   "ok": false,
   "requestId": "example",
   "type": "automation.result"
@@ -266,13 +266,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 9,
   "id": "example",
-  "startedAt": 1,
-  "status": "skipped",
-  "threadId": "example",
+  "result": "example",
+  "startedAt": 4,
+  "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "github"
 }
 ```
 
@@ -352,11 +351,11 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "review_comment",
   "kind": "github",
   "label": "example",
   "pollIntervalMs": 60009,
-  "repository": "qOshEI7d/ns_fAm5D"
+  "repository": "JSPxAHl/zJLXg"
 }
 ```
 

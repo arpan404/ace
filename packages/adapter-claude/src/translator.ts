@@ -3,7 +3,7 @@ import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
 import type { Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
-import { rateLimitFacts } from "./rate-limits.ts";
+import { rateLimitFacts, clearRateLimit } from "./rate-limits.ts";
 import { ResultUsage } from "./result-usage.ts";
 import { NativeQueue } from "./native-queue.ts";
 import { PendingTranscripts } from "./pending-transcripts.ts";
@@ -43,6 +43,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       if (taskFrame(state, data, now)) return true;
       const subtype = string(data["subtype"]);
       if (subtype === "init") {
+        clearRateLimit(state);
         if (typeof data["model"] === "string" && data["model"]) {
           state.model = data["model"];
           state.emit({ type: "agent.linked", agent: state.root, model: state.model });
@@ -113,6 +114,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       return false;
     }
     if (type === "stream_event") {
+      if (!data["parent_tool_use_id"] && object(data["event"])["type"] === "message_start")
+        clearRateLimit(state);
       stream(state, data, streams);
       return true;
     }
@@ -133,6 +136,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       const aborted = string(data["terminal_reason"]).startsWith("aborted_");
       const lastError = state.errors.get(state.root);
       const failed = !aborted && (data["is_error"] === true || lastError !== undefined);
+      if (!failed && !aborted) clearRateLimit(state);
       if (state.wakeDuringTurn && object(data["origin"])["kind"] !== "task-notification") {
         state.wakeUntil = now + 5_000;
         state.emit({ type: "wake.expected", agent: state.root, until: state.wakeUntil });
@@ -243,7 +247,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           `${frame.seq}`,
           state.root,
           frame.dir === "stderr" ? "warning" : "info",
-          typeof frame.data === "string" && frame.dir === "stderr" ? frame.data : undefined,
+          undefined,
         );
       }
       const bindings = state.bindings;

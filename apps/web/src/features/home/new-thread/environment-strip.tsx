@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import {
-  AttachedCard,
+  composerEnvironmentSurface,
   composerStrip,
   composerEnvironmentRow,
   useComposerCompact,
@@ -19,7 +19,7 @@ import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
 
 /**
- * Where a new thread runs, above the composer: the machine, a
+ * Where a new thread runs, below the composer: the machine, a
  * Worktree toggle (a branch and folder of its own, or the project's checkout as it is) and, for
  * a worktree, the branch it starts from, local or on a remote, found by typing. The remote's
  * copy of the default branch is offered first; it is fetched just before the worktree is made.
@@ -35,7 +35,7 @@ export function NewThreadEnvironment(props: {
 }) {
   const compact = useComposerCompact();
   return (
-    <AttachedCard label="Where this thread runs" strip cardKey="new-thread-environment">
+    <section aria-label="Where this thread runs" className={composerEnvironmentSurface}>
       <div className={cn(composerEnvironmentRow, "h-auto min-h-10 flex-wrap px-4 py-1.5")}>
         {compact ? (
           <Popover>
@@ -55,7 +55,7 @@ export function NewThreadEnvironment(props: {
           <EnvironmentControls {...props} compact={false} />
         )}
       </div>
-    </AttachedCard>
+    </section>
   );
 }
 

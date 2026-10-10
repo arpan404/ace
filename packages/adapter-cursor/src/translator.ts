@@ -200,11 +200,11 @@ export class CursorTranslator implements Translator {
       if (event.kind === "host-exit") {
         const unsettled = [...this.children.calls.values()].some((child) => !child.settled);
         const preserved = this.children.preserve();
-        if (object(event.body).deliberate === true && !this.active && !unsettled) return preserved;
+        if (!this.active && !unsettled) return preserved;
         return [
           ...preserved,
           this.notice(
-            "SDK host exited; unresolved child/background work is uncertain",
+            "Cursor session ended while work was still running. Check the conversation before continuing.",
             event,
             "warning",
           ),
