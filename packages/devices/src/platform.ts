@@ -401,7 +401,14 @@ export class DevicePlatform {
       const idb = await findExecutable("idb", this.options.env);
       if (idb) {
         authorize?.();
-        await this.run(idb, [...hid, "--udid", nativeId(device)]);
+        await this.run(
+          idb,
+          [...hid, "--udid", nativeId(device)],
+          undefined,
+          deviceInputTimeout(input),
+          undefined,
+          authorize,
+        );
         return;
       }
     }
@@ -437,7 +444,14 @@ export class DevicePlatform {
               String(input.durationMs / 1000),
             ];
       authorize?.();
-      await this.run(idb, [...args, "--udid", nativeId(device)]);
+      await this.run(
+        idb,
+        [...args, "--udid", nativeId(device)],
+        undefined,
+        deviceInputTimeout(input),
+        undefined,
+        authorize,
+      );
       return;
     }
     if (!binding || !this.options.screen)

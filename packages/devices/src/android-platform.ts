@@ -432,7 +432,14 @@ export class AndroidPlatform {
     await this.verifyTransport(adb, device, serial);
     authorize?.();
     try {
-      await this.run(adb, ["-s", serial, "emu", "kill"]);
+      await this.run(
+        adb,
+        ["-s", serial, "emu", "kill"],
+        undefined,
+        undefined,
+        undefined,
+        authorize,
+      );
     } catch {
       // Emulator console unreachable or already dead; fall through to the wait below.
     }
@@ -447,7 +454,14 @@ export class AndroidPlatform {
     await this.verifyTransport(adb, device, serial);
     authorize?.();
     try {
-      await this.run(adb, ["-s", serial, "shell", "reboot", "-p"], 4096, 10_000);
+      await this.run(
+        adb,
+        ["-s", serial, "shell", "reboot", "-p"],
+        4096,
+        10_000,
+        undefined,
+        authorize,
+      );
     } catch {
       // Power-off is best effort; the second wait decides the outcome.
     }

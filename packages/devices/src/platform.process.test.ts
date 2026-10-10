@@ -5,7 +5,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { nodeBinary } from "@ace/provider-kit/testing";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { DevicePlatform, type Device } from "./index.ts";
+import { DevicePlatform, DeviceError, type Device } from "./index.ts";
 
 function shutdownClock(ms: number, run: () => void) {
   if (ms === 30000) {
@@ -1018,6 +1018,58 @@ it("device commands queue behind the concurrency cap and every inventory reader 
   await saturated.promise;
   release.resolve();
   expect((await completed).map((devices) => devices[0]?.name)).toEqual(Array(12).fill("Pixel"));
+});
+it("control transferred while idb waits for an SDK slot prevents native input", async () => {
+  const f = await fixture();
+  await nodeBinary(
+    join(f.home, "bin"),
+    "idb",
+    `require('node:fs').appendFileSync(process.env.DEVICE_JOURNAL, JSON.stringify({tool:'idb',args:process.argv.slice(2)})+'\\n');`,
+  );
+  const saturated = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const prepared = Promise.withResolvers<void>();
+  let active = 0;
+  let allowed = true;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(command, args, options) {
+      if (command.endsWith("/idb")) {
+        const { probeOutput } = await import("@ace/provider-kit/process");
+        return probeOutput(command, args, options);
+      }
+      if (++active === 8) saturated.resolve();
+      await release.promise;
+      active--;
+      return {
+        code: 0,
+        stderr: "",
+        stdout: args.includes("-list-avds") ? "Pixel" : "List of devices attached\n",
+      };
+    },
+  });
+  onTestFinished(() => manager.close());
+  const inventories = Promise.all(Array.from({ length: 8 }, () => manager.list()));
+  await saturated.promise;
+  const input = manager.input(
+    ios(),
+    { kind: "longPress", x: 1, y: 2, durationMs: 8000 },
+    undefined,
+    () => {
+      prepared.resolve();
+      if (!allowed)
+        throw new DeviceError("lease_required", "Control transferred", "Take control again.");
+    },
+  );
+  const rejected = expect(input).rejects.toMatchObject({ code: "lease_required" });
+  await prepared.promise;
+  allowed = false;
+  release.resolve();
+  await Promise.all([inventories, rejected]);
+  expect(await f.commands()).not.toContainEqual(expect.objectContaining({ tool: "idb" }));
 });
 for (const platform of ["linux", "darwin"])
   it(`a six-minute ${platform} installation fits its command timeout`, async () => {
