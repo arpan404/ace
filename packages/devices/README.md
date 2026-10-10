@@ -16,24 +16,18 @@ There is no provider login or credential handling here.
 - `@ace/devices/client` exports a portable `DeviceClient` with an injected
   transport, request IDs and scheduler. It accepts JSON control messages and
   binary chunks, including fragmented relay packets.
-- `@ace/devices/view` exports `mountDevicePanel`. The host supplies a document,
-  current thread/agent list and an artifact download callback. The panel includes
-  live view, pointer gestures, text and hardware input, approval/delegation, app
-  lifecycle, settings, logs and recording controls.
-
-UI mounting belongs to the owner's Claude web workstream. This PR contains no
-`apps/web` changes or Expo renderer. `@ace/client` exposes `DeviceClient`,
-`deviceTransport`, `authenticatedChannel`, `ticketCredential` and
-`downloadArtifact` for those hosts. The transport accepts injected browser/native
-sockets, credentials, scheduling and Noise keys, and supports authenticated local
-or fingerprint-pinned relay channels. The existing DOM panel export is retained.
+  The React Devices tab owns the live view, gestures, approval, lifecycle, logs and
+  recording controls. `@ace/client` exposes `DeviceClient`, `deviceTransport`,
+  `authenticatedChannel` and `downloadArtifact` for web and native hosts.
 
 ## Authorization and transport
 
 An authenticated admin enables devices and approves each device for a thread.
 Only a human can grant a controller lease to a specific agent. Input uses target
 points, with `frame.scale` converting display pixels to those points. Control
-expires after 30 seconds without an action. Human takeover invalidates pending
+expires after 30 seconds without an action. Queued actions retain their ticket until
+completion. Agents can resume their expired delegation on the next action; explicit
+release, revocation and takeover invalidate it. Human takeover invalidates pending
 agent commands, including commands awaiting SDK lookup or permission checks.
 An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.

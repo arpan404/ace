@@ -136,8 +136,8 @@ test("a DPR-three device viewer requests every physical pixel and follows monito
     await waitFor(() =>
       expect(app.daemon.appDevices.streamRequests.at(-1)?.settings).toMatchObject({
         codec: "h264",
-        maxWidth: 1050,
-        maxHeight: 1950,
+        maxWidth: 1088,
+        maxHeight: 1984,
         fps: 60,
       }),
     );
@@ -146,8 +146,8 @@ test("a DPR-three device viewer requests every physical pixel and follows monito
     act(() => window.dispatchEvent(new Event("resize")));
     await waitFor(() =>
       expect(app.daemon.appDevices.streamRequests.at(-1)?.settings).toMatchObject({
-        maxWidth: 700,
-        maxHeight: 1300,
+        maxWidth: 704,
+        maxHeight: 1344,
       }),
     );
   } finally {
