@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { SettingSection, SettingRow } from "@/components/setting-row.tsx";
+import { parseOpaqueColor, rgbToHex } from "@/theme/colour.ts";
+import { tokenLabels, tokenKind } from "@/theme/tokens.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { contrastWarnings, type ContrastWarning } from "@/theme/contrast.ts";
 import { tokenGroups, type TokenName } from "@/theme/tokens.ts";
@@ -16,6 +19,7 @@ import { TokenRow } from "./token-row.tsx";
 export function ThemeEditor() {
   const { theme, appearance, update, saveTheme } = useTheme();
   const toast = useToast();
+  const [advanced, setAdvanced] = useState(false);
   const warnings = useMemo(() => contrastWarnings(theme.tokens), [theme.tokens]);
   const warned = useMemo(() => new Set(warnings.map((warning) => warning.token)), [warnings]);
 
@@ -51,34 +55,67 @@ export function ThemeEditor() {
     <>
       <EditorToolbar />
       <ContrastNotice warnings={warnings} />
-      {tokenGroups.map((group) => (
-        <section key={group.name} aria-label={group.name} className="mt-6">
-          <h3 className="mb-1.5 text-sm font-medium text-muted-foreground">{group.name}</h3>
-          {group.tokens.map((token) => (
-            <TokenRow
-              key={token}
-              token={token}
-              value={theme.tokens[token]}
-              warning={warned.has(token)}
-              onChange={onChange}
-            />
+      <SettingSection label="Colours">
+        {(
+          [
+            "--background",
+            "--foreground",
+            "--reading-rgb",
+            "--sidebar-rgb",
+            "--accent-theme",
+          ] as const
+        ).map((token) => {
+          const rgb = parseOpaqueColor(
+            tokenKind(token) === "rgbTriple" ? `rgb(${theme.tokens[token]})` : theme.tokens[token],
+          );
+          if (!rgb) return null;
+          return (
+            <SettingRow key={token} title={tokenLabels[token]} inline>
+              <input
+                type="color"
+                aria-label={`Pick ${tokenLabels[token]}`}
+                value={rgbToHex(rgb)}
+                className="size-7 cursor-pointer rounded-sm border bg-transparent p-0 focus-ring"
+                onChange={(event) => {
+                  const hex = event.target.value.toUpperCase();
+                  const channels = parseOpaqueColor(hex);
+                  onChange(
+                    token,
+                    tokenKind(token) === "rgbTriple" && channels ? channels.join(" ") : hex,
+                  );
+                }}
+              />
+            </SettingRow>
+          );
+        })}
+      </SettingSection>
+      <details className="mt-7" onToggle={(event) => setAdvanced(event.currentTarget.open)}>
+        <summary className="rounded-sm text-sm text-muted-foreground focus-ring">Advanced</summary>
+        {advanced &&
+          tokenGroups.map((group) => (
+            <SettingSection key={group.name} label={group.name}>
+              {group.tokens.map((token) => (
+                <TokenRow
+                  key={token}
+                  token={token}
+                  value={theme.tokens[token]}
+                  warning={warned.has(token)}
+                  onChange={onChange}
+                />
+              ))}
+            </SettingSection>
           ))}
-        </section>
-      ))}
+      </details>
     </>
   );
 }
 
 function ContrastNotice(props: { warnings: ContrastWarning[] }) {
   const count = props.warnings.length;
+  if (!count) return null;
   return (
     <div role="status" className="mt-3.5 text-sm text-muted-foreground">
-      <StatusLabel
-        tone={count ? "failed" : "done"}
-        label={
-          count ? `${count} contrast warning${count === 1 ? "" : "s"}` : "Contrast looks good."
-        }
-      />
+      <StatusLabel tone="failed" label={`${count} contrast warning${count === 1 ? "" : "s"}`} />
       {count > 0 && (
         <ul className="mt-1">
           {props.warnings.map((warning) => (

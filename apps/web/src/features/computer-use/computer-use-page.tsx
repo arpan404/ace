@@ -1,3 +1,4 @@
+import { visibleSessions } from "@ace/ui-core/computer-use";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { ApprovedApps, EnableRow, LiveSessions, Permissions, StopAllButton } from "./sections.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
@@ -12,20 +13,24 @@ export function ComputerUseSettings() {
     <>
       <SettingSection label="Access">
         <EnableRow use={use} />
-        <div className="flex h-9 items-center gap-3 border-b">
-          <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-            Stops every session at once, releases every agent and turns computer use off until you
-            turn it on again.
-          </p>
-          <StopAllButton use={use} />
-        </div>
       </SettingSection>
-      <SettingSection label="Live sessions">
-        <LiveSessions use={use} compact />
-      </SettingSection>
-      <SettingSection label="Approved apps">
-        <ApprovedApps use={use} />
-      </SettingSection>
+      {(use.snapshot.enabled || visibleSessions(use.snapshot.states).length > 0) && (
+        <>
+          <SettingSection
+            label="Live sessions"
+            actions={
+              visibleSessions(use.snapshot.states).length > 0 ? (
+                <StopAllButton use={use} />
+              ) : undefined
+            }
+          >
+            <LiveSessions use={use} compact />
+          </SettingSection>
+          <SettingSection label="Approved apps">
+            <ApprovedApps use={use} />
+          </SettingSection>
+        </>
+      )}
       <SettingSection label="macOS permissions">
         <Permissions use={use} />
       </SettingSection>

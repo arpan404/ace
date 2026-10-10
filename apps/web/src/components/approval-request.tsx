@@ -29,6 +29,12 @@ const block =
 /** The heading's words, beside the app's mark when the request is about an app. */
 export function ApprovalHeading(props: { copy: ApprovalCopy }) {
   const { copy } = props;
+  if (copy.command)
+    return (
+      <span className="break-words">
+        Run <code className="font-mono text-sm">{copy.command}</code>?
+      </span>
+    );
   if (!copy.app) return copy.heading;
   return (
     <span className="flex items-center gap-2">
@@ -70,7 +76,6 @@ export function ApprovalRequest(props: {
       data-approval-deliberate={high || copy.defaultToNo ? "" : undefined}
       className={cn("flex flex-col gap-2.5", props.className)}
     >
-      {copy.command && <pre className={block}>{copy.command}</pre>}
       {copy.code && (
         <pre aria-label="Script" className={block}>
           {copy.code}
@@ -99,13 +104,7 @@ export function ApprovalRequest(props: {
               <Button
                 key={decision.option.id}
                 size="sm"
-                variant={
-                  decision.emphasis === "primary"
-                    ? "primary"
-                    : decision.emphasis === "secondary"
-                      ? "secondary"
-                      : "ghost"
-                }
+                variant={decision.emphasis === "primary" ? "primary" : "secondary"}
                 disabled={props.disabled}
                 data-approval-refusal={decision.verb === "deny" ? "" : undefined}
                 aria-keyshortcuts={

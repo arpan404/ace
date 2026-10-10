@@ -1,3 +1,5 @@
+import { useNavigate } from "@tanstack/react-router";
+import { SettingsBody } from "./settings-body.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
 import type { Device, DeviceScope } from "@ace/protocol";
@@ -9,7 +11,6 @@ import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -43,7 +44,7 @@ export function countdown(expiresAt: number, now: number): string {
  * Pair a phone or browser: pick its access, then a one-time QR code and link. While the code
  * shows, the paired list is watched; the new device replaces the code with a confirmation.
  */
-export function PairDevice() {
+function PairingFlow(props: { close(): void }) {
   const backend = useSettingsBackend();
   const remote = useRemoteStatus();
   const reachable =
@@ -51,7 +52,6 @@ export function PairDevice() {
     remote.data?.enabled &&
     ["lan", "tailscale"].includes(remote.data.transport);
   const queries = useQueryClient();
-  const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<Access>("operate");
   const [advanced, setAdvanced] = useState<DeviceScope[]>([]);
   const granted = [...scopesFor[access], ...advanced];
@@ -70,7 +70,7 @@ export function PairDevice() {
   const pairing = pair.data;
   const devices = useQuery({
     ...settingsQueries.devices(backend),
-    enabled: open && pairing !== undefined,
+    enabled: pairing !== undefined,
     refetchInterval: watchMs,
   });
   const paired = known && devices.data?.find((device) => !known.has(device.id));
@@ -79,97 +79,112 @@ export function PairDevice() {
     setKnown(undefined);
   };
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
-      <Button size="sm" onClick={() => setOpen(true)}>
-        Pair
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        The link works once and expires after five minutes.{" "}
+        {remote.isFetching
+          ? "Checking remote access…"
+          : reachable
+            ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
+            : remote.isError
+              ? "Couldn't check remote access. Reconnect and try again."
+              : !remote.data
+                ? "Checking remote access…"
+                : "Turn on LAN or Tailscale access before pairing."}
+      </p>
+      {paired ? (
+        <Paired device={paired} onDone={() => props.close()} />
+      ) : pairing ? (
+        <PairingCode
+          pairing={pairing}
+          access={access}
+          scopes={granted}
+          onChange={reset}
+          onRenew={() => pair.mutate(granted)}
+          onClose={() => props.close()}
+        />
+      ) : (
+        <>
+          <SegmentedControl<Access>
+            label="Access"
+            value={access}
+            options={deviceAccessOptions}
+            onValueChange={setAccess}
+          />
+          <details>
+            <summary className="text-sm text-muted-foreground">Advanced access</summary>
+            <p className="py-2 text-sm text-muted-foreground">
+              Projects allows changing registered folders. Accounts allows managing provider
+              accounts. These are separate from administrator access.
+            </p>
+            {(["projects", "accounts"] as const).map((scope) => (
+              <label key={scope} className="flex items-center justify-between gap-4 py-2 text-sm">
+                {scope === "projects" ? "Projects" : "Accounts"}
+                <Switch
+                  checked={advanced.includes(scope)}
+                  onCheckedChange={(on) =>
+                    setAdvanced((before) =>
+                      on ? [...before, scope] : before.filter((item) => item !== scope),
+                    )
+                  }
+                />
+              </label>
+            ))}
+          </details>
+          {access === "admin" && (
+            <p className="text-sm text-muted-foreground">
+              Can change settings, pair or revoke devices, and use computer controls.
+            </p>
+          )}
+          {pair.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {pair.error.message}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => props.close()}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={pair.isPending || !reachable}
+              onClick={() => pair.mutate(granted)}
+            >
+              Show pairing code
+            </Button>
+          </DialogFooter>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Remote devices' add row opens the same flow as /pair. */
+export function PairDevice() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        + Pair a device
       </Button>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>
-          <DialogDescription>
-            The link works once and expires after five minutes.{" "}
-            {remote.isFetching
-              ? "Checking remote access…"
-              : reachable
-                ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
-                : remote.isError
-                  ? "Couldn't check remote access. Reconnect and try again."
-                  : !remote.data
-                    ? "Checking remote access…"
-                    : "Turn on LAN or Tailscale access before pairing."}
-          </DialogDescription>
         </DialogHeader>
-        {paired ? (
-          <Paired device={paired} onDone={() => setOpen(false)} />
-        ) : pairing ? (
-          <PairingCode
-            pairing={pairing}
-            access={access}
-            scopes={granted}
-            onChange={reset}
-            onRenew={() => pair.mutate(granted)}
-            onClose={() => setOpen(false)}
-          />
-        ) : (
-          <>
-            <SegmentedControl<Access>
-              label="Access"
-              value={access}
-              options={deviceAccessOptions}
-              onValueChange={setAccess}
-            />
-            <details>
-              <summary className="text-sm text-muted-foreground">Advanced access</summary>
-              <p className="py-2 text-sm text-muted-foreground">
-                Projects allows changing registered folders. Accounts allows managing provider
-                accounts. These are separate from administrator access.
-              </p>
-              {(["projects", "accounts"] as const).map((scope) => (
-                <label key={scope} className="flex items-center justify-between gap-4 py-2 text-sm">
-                  {scope === "projects" ? "Projects" : "Accounts"}
-                  <Switch
-                    checked={advanced.includes(scope)}
-                    onCheckedChange={(on) =>
-                      setAdvanced((before) =>
-                        on ? [...before, scope] : before.filter((item) => item !== scope),
-                      )
-                    }
-                  />
-                </label>
-              ))}
-            </details>
-            {access === "admin" && (
-              <p className="text-sm text-muted-foreground">
-                Can change settings, pair or revoke devices, and use computer controls.
-              </p>
-            )}
-            {pair.isError && (
-              <p role="alert" className="text-sm text-destructive">
-                {pair.error.message}
-              </p>
-            )}
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                disabled={pair.isPending || !reachable}
-                onClick={() => pair.mutate(granted)}
-              >
-                Show pairing code
-              </Button>
-            </DialogFooter>
-          </>
-        )}
+        {open && <PairingFlow close={() => setOpen(false)} />}
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function PairDevicePage() {
+  const navigate = useNavigate();
+  return (
+    <SettingsBody page="Pair a device">
+      <div className="mt-6">
+        <PairingFlow close={() => void navigate({ to: "/settings/remote" })} />
+      </div>
+    </SettingsBody>
   );
 }
 

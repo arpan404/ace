@@ -178,7 +178,8 @@ test("revoking an approved app removes the daemon's grant; a sensitive app says 
   const grants = await screen.findByRole("list", { name: "Approved apps" });
   expect(within(grants).getByText(/Ask each turn/)).toBeTruthy();
 
-  await userEvent.click(within(grants).getByRole("button", { name: "Revoke TextEdit (Always)" }));
+  await userEvent.click(within(grants).getByRole("button", { name: "Actions for TextEdit" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
 
   await waitFor(() =>
     expect(app.daemon.screen.access.list().map((grant) => grant.bundleId)).toEqual([
@@ -194,8 +195,7 @@ test("a missing macOS permission offers Request, which asks the daemon's Mac", a
   await app.open("/settings/computer-use");
 
   const permissions = await screen.findByRole("region", { name: "macOS permissions" });
-  await waitFor(() => expect(within(permissions).getByText("Not granted")).toBeTruthy());
-  await userEvent.click(within(permissions).getByRole("button", { name: "Request" }));
+  await userEvent.click(within(permissions).getByRole("button", { name: "Grant access" }));
 
   await waitFor(() => expect(app.daemon.screen.requested).toEqual(["accessibility"]));
 });
@@ -260,7 +260,8 @@ test("permissions that can't be read say why and what to do, then show once Chec
 
   app.daemon.screen.permissionReadFailure = undefined;
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
-  await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+  await waitFor(() => expect(screen.queryByText("Unavailable")).toBeNull());
+  expect(screen.queryByText("Granted", { exact: true })).toBeNull();
   expect(screen.queryByText("Unavailable")).toBeNull();
   expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
 });
@@ -289,7 +290,8 @@ test("permissions refused because computer use is off point at turning it on, an
 
   app.daemon.screen.permissionReadFailure = undefined;
   await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
-  await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+  await waitFor(() => expect(screen.queryByText("Unavailable")).toBeNull());
+  expect(screen.queryByText("Granted", { exact: true })).toBeNull();
 });
 
 test("a person grants Safari's native UI for one thread from Computer use, then can revoke it", async () => {

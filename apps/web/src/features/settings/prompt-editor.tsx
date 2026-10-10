@@ -81,7 +81,7 @@ export function PromptEditor(props: {
     return (
       <p role="alert">
         {read.error.message}{" "}
-        <Button variant="ghost" size="sm" onClick={() => void read.refetch()}>
+        <Button variant="secondary" size="sm" onClick={() => void read.refetch()}>
           Try again
         </Button>
       </p>
@@ -135,7 +135,7 @@ export function PromptEditor(props: {
           {error}{" "}
           {error.includes("changed") && (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => {
                 setText(undefined);
@@ -149,7 +149,7 @@ export function PromptEditor(props: {
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={props.onClose}>
+        <Button type="button" variant="secondary" onClick={props.onClose}>
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={saving || !name}>

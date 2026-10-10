@@ -17,8 +17,7 @@ const InCard = createContext(false);
 
 /**
  * Settings-style row: title and description on the left, the control on the right. Hairlines
- * separate rows. Below 30rem of row width the control drops under the text and wide
- * controls take the full width, unless `inline` (switches, small buttons). `id` makes the row
+ * separate rows. Labels and controls keep the same edges at narrow widths. `id` makes the row
  * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
  */
 export function SettingRow(props: {
@@ -27,7 +26,7 @@ export function SettingRow(props: {
   description?: ReactNode;
   children?: ReactNode;
   /** Associates the title with a control for assistive tech. */
-  htmlFor?: string;
+  htmlFor?: string | undefined;
   /** Keep the control beside the text at every width (a switch, a short button). */
   inline?: boolean;
   /** A single 36px row; its description is shown on hover or focus. */
@@ -37,6 +36,8 @@ export function SettingRow(props: {
 }) {
   const inCard = use(InCard);
   const compact = props.compact || props.density === "compact";
+  const titleId = useId();
+  const hintId = useId();
   const Title = props.htmlFor ? "label" : "div";
   const row = useRef<HTMLDivElement>(null);
   const flashing = useHashFlash(props.id, row);
@@ -45,25 +46,20 @@ export function SettingRow(props: {
       id={props.id}
       ref={row}
       className={cn(
-        "@container transition-colors duration-(--dur-4)",
+        "@container group/setting transition-colors duration-(--dur-4)",
         !inCard && "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
-      <div
-        className={cn(
-          compact ? "flex min-h-9 items-center gap-4 py-1" : "flex gap-4 py-3.5 compact:py-2.5",
-          props.inline || compact
-            ? "items-center"
-            : "flex-col items-stretch gap-2.5 @[30rem]:flex-row @[30rem]:items-center @[30rem]:gap-4",
-        )}
-      >
+      <div className={cn("flex min-h-9 items-center gap-3 py-1")}>
         <div className="min-w-0 flex-1">
           {compact && props.description ? (
             <Tip label={props.description}>
               <Title
                 {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-                className="block text-ui font-medium"
+                id={titleId}
+                tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
+                className="block rounded-sm text-ui focus-ring"
               >
                 {props.title}
               </Title>
@@ -71,13 +67,24 @@ export function SettingRow(props: {
           ) : (
             <Title
               {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-              className="block text-ui font-medium"
+              id={titleId}
+              tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
+              className="block rounded-sm text-ui focus-ring"
             >
               {props.title}
             </Title>
           )}
+          {props.description && compact && (
+            <span id={hintId} className="sr-only">
+              {props.description}
+            </span>
+          )}
           {props.description && !compact && (
-            <p className="mt-0.5 text-sm leading-[1.4] text-muted-foreground">
+            <p
+              id={hintId}
+              title={typeof props.description === "string" ? props.description : undefined}
+              className="truncate text-xs text-muted-foreground"
+            >
               {props.description}
             </p>
           )}
@@ -85,10 +92,7 @@ export function SettingRow(props: {
         {props.children && (
           <div
             className={cn(
-              "flex shrink-0 items-center gap-2",
-              props.inline || compact
-                ? "ml-auto"
-                : "*:flex-1 @[30rem]:ml-auto @[30rem]:*:flex-none",
+              "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full",
             )}
           >
             {props.children}
@@ -106,14 +110,9 @@ export function SettingSummaryRow(props: {
   children?: ReactNode;
 }) {
   return (
-    <div className="flex h-9 items-center gap-3 text-ui">
-      <Tip label={props.description}>
-        <span tabIndex={0} className="min-w-0 flex-1 truncate rounded-xs focus-ring">
-          {props.title}
-        </span>
-      </Tip>
+    <SettingRow title={props.title} description={props.description} compact inline>
       {props.children}
-    </div>
+    </SettingRow>
   );
 }
 
@@ -135,20 +134,11 @@ function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>
   return target && on;
 }
 
-/** Where a section's settings are kept, shown beside its heading. */
+/** Ownership metadata retained for settings callers; section chrome is scope-free. */
 export type SettingScope = "daemon" | "device" | "computer";
 
-const scopes: Record<SettingScope, { label: string; tip: string }> = {
-  daemon: {
-    label: "All devices",
-    tip: "Every paired device follows these settings",
-  },
-  device: { label: "This device", tip: "Kept in this browser or app only" },
-  computer: { label: "This computer", tip: "Kept by the desktop app on this computer" },
-};
-
 /**
- * A labelled group of rows. `scope` says where its settings live.
+ * A labelled group of rows, with dividers between rows and a quiet heading.
  */
 export function SettingSection(props: {
   label: string;
@@ -162,30 +152,18 @@ export function SettingSection(props: {
   actions?: ReactNode;
 }) {
   const id = useId();
-  const scope = props.scope ? scopes[props.scope] : undefined;
   return (
     <section id={props.anchor} className="mt-7" aria-labelledby={id}>
       <div className="mb-2 flex items-center gap-2">
         <h3 id={id} className="text-sm font-medium text-muted-foreground">
           {props.label}
         </h3>
-        {scope && (
-          <Tip label={scope.tip}>
-            <span tabIndex={0} className="rounded-xs text-xs text-subtle-foreground focus-ring">
-              {scope.label}
-            </span>
-          </Tip>
-        )}
         {props.actions && <div className="ml-auto flex items-center gap-1">{props.actions}</div>}
       </div>
       {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
-      {props.card ? (
-        <InCard value>
-          <div className="divide-y">{props.children}</div>
-        </InCard>
-      ) : (
-        props.children
-      )}
+      <InCard value>
+        <div className="divide-y">{props.children}</div>
+      </InCard>
     </section>
   );
 }

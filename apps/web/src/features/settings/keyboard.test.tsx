@@ -22,7 +22,8 @@ test("a shortcut can be rebound by pressing the new keys, and reset to its defau
   press(palette, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
   expect(palette.textContent).toBe("Shift+Ctrl+Y");
 
-  await userEvent.click(await screen.findByRole("button", { name: "Reset Command palette" }));
+  await userEvent.click(screen.getByRole("button", { name: "Actions for Command palette" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
   expect((await shortcut("Command palette")).textContent).toBe("Ctrl+K");
 });
 
@@ -94,9 +95,12 @@ test("shortcuts are grouped, filterable, and a rebound one is marked", async () 
 
   const palette = screen.getByRole("button", { name: "Command palette shortcut" });
   const again = screen.getByRole("region", { name: "General" });
-  expect(palette.getAttribute("aria-describedby")).toBeTruthy();
-  const described = document.getElementById(palette.getAttribute("aria-describedby") ?? "");
-  expect(described?.textContent).toBe("Ctrl+K. Press to change.");
+  expect(
+    screen.getByRole("button", {
+      name: "Command palette shortcut",
+      description: "Ctrl+K. Press to change.",
+    }),
+  ).toBe(palette);
   expect(within(again).queryByRole("img", { name: "Changed" })).toBeNull();
   await userEvent.click(palette);
   press(palette, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
@@ -107,9 +111,11 @@ test("sequences and plain keys are shown, not recorded; shortcuts say where they
   await harness().open("/settings/keyboard");
   const goTo = await screen.findByRole("region", { name: "Go to" });
   expect(within(goTo).queryByRole("button", { name: "Go to Home shortcut" })).toBeNull();
-  expect(within(goTo).getAllByText("Sequence").length).toBeGreaterThan(0);
-  const thread = screen.getByRole("region", { name: "Thread" });
-  expect(within(thread).getAllByText("In a thread").length).toBeGreaterThan(0);
+  expect(within(goTo).queryByText("Sequence")).toBeNull();
+  expect(within(goTo).getAllByText("then").length).toBeGreaterThan(0);
+  const cap = screen.getByLabelText("Focus notifications shortcut");
+  cap.focus();
+  expect((await screen.findByRole("tooltip")).textContent).toContain("In notifications");
 });
 
 test("a key the browser keeps is refused, and a taken one can be swapped", async () => {

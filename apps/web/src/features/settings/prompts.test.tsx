@@ -14,10 +14,8 @@ test("prompt files list their descriptions and diagnostics, and an edit is saved
   await open();
   const list = screen.getByRole("list", { name: "Prompt files" });
   expect(within(list).getByText("Explain a change in plain language")).toBeTruthy();
-  expect(
-    within(list).getByText(/settings at the top of this prompt have invalid syntax/),
-  ).toBeTruthy();
-  expect(within(list).getByRole("button", { name: /unfinished.*Edit/ })).toBeTruthy();
+  expect(within(list).getByText("Invalid frontmatter")).toBeTruthy();
+  expect(within(list).getByRole("button", { name: /unfinished/ })).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: /unfinished/ }));
   const body = await screen.findByRole("textbox", { name: "Prompt content" });
   expect(screen.getByRole("list", { name: "Prompt diagnostics" }).textContent).toContain(
@@ -27,7 +25,7 @@ test("prompt files list their descriptions and diagnostics, and an edit is saved
   await userEvent.type(body, "Explain the selected change.");
   await userEvent.click(screen.getByRole("button", { name: "Save prompt" }));
   await screen.findByText("Prompt saved.");
-  expect(screen.queryByText(/settings at the top of this prompt have invalid syntax/)).toBeNull();
+  expect(screen.queryByText("Invalid frontmatter")).toBeNull();
   await userEvent.click(
     within(screen.getByRole("list", { name: "Prompt files" })).getByRole("button", {
       name: /unfinished/,
@@ -43,7 +41,7 @@ test("a new project prompt is created in the chosen project and available from t
   const app = await open();
   await userEvent.click(screen.getByRole("combobox", { name: "Prompt location" }));
   await userEvent.click(await screen.findByRole("option", { name: "ace" }));
-  await userEvent.click(screen.getByRole("button", { name: "New prompt" }));
+  await userEvent.click(screen.getByRole("button", { name: "+ New prompt" }));
   await userEvent.type(screen.getByRole("textbox", { name: "Prompt file name" }), "branch.md");
   await userEvent.clear(screen.getByRole("textbox", { name: "Prompt content" }));
   await userEvent.type(
@@ -52,7 +50,7 @@ test("a new project prompt is created in the chosen project and available from t
   );
   await userEvent.click(screen.getByRole("button", { name: "Save prompt" }));
   const list = await screen.findByRole("list", { name: "Prompt files" });
-  const row = await within(list).findByRole("button", { name: /branch.*Project/ });
+  const row = await within(list).findByRole("button", { name: /branch/i });
   expect(row).toBeTruthy();
   cleanup();
   await app.open("/new?project=ace");

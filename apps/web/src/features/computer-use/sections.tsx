@@ -11,7 +11,9 @@ import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -29,7 +31,7 @@ export function EnableRow(props: { use: ComputerUse }) {
     ? "ace on this machine has no screen helper, so agents can't use apps here."
     : !snapshot.connected
       ? "Connecting to the screen helper…"
-      : "Agents can ask to use apps on this Mac, in the background while you keep working. You approve each app.";
+      : "Approve apps before agents use them.";
   return (
     <SettingRow
       title="Let agents use apps"
@@ -60,7 +62,7 @@ export function StopAllButton(props: { use: ComputerUse; className?: string }) {
     <div className={cn("flex flex-col items-end gap-1", props.className)}>
       <Button
         size="sm"
-        variant="danger"
+        variant="primary"
         aria-busy={stopping}
         disabled={
           stopping || !use.snapshot.connected || use.pending || use.snapshot.enabled === false
@@ -103,17 +105,7 @@ export function LiveSessions(props: {
   if (!use.snapshot.connected && sessions.length === 0)
     return <EmptyState variant="inline" title="Connecting to the screen helper…" />;
   if (sessions.length === 0)
-    return (
-      <EmptyState
-        variant="inline"
-        title="No app is being used."
-        description={
-          use.snapshot.enabled
-            ? "When an agent opens an app, it shows here live, with Take over and Stop."
-            : "Turn on computer use to let agents ask for apps."
-        }
-      />
-    );
+    return <p className="py-2 text-sm text-muted-foreground">No live sessions.</p>;
   return (
     <ul
       aria-label="Live sessions"
@@ -177,11 +169,7 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
     return (
       <>
         {picker}
-        <EmptyState
-          variant="inline"
-          title="No apps approved yet."
-          description="An agent asks before it uses a native app. Browser computer use needs your approval in the thread’s Computer use panel."
-        />
+        <p className="py-2 text-sm text-muted-foreground">No approved apps.</p>
       </>
     );
   return (
@@ -189,7 +177,10 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
       {picker}
       <ul aria-label="Approved apps" className="flex flex-col">
         {rows.map((row, index) => (
-          <li key={row.key} className="flex h-9 items-center gap-2 border-b last:border-b-0">
+          <li
+            key={row.key}
+            className="group/setting flex h-9 items-center gap-2 border-b last:border-b-0"
+          >
             <AppMark
               name={row.app}
               bundleId={row.bundleId}
@@ -205,15 +196,14 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
                 {row.sensitive ? "Ask each turn" : row.scopeLabel}
               </span>
             </p>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`Revoke ${row.app} (${row.scopeLabel})`}
-              disabled={use.pending}
-              onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
-            >
-              Revoke
-            </Button>
+            <RowMenu label={`Actions for ${row.app}`}>
+              <MenuItem
+                disabled={use.pending}
+                onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
+              >
+                Revoke
+              </MenuItem>
+            </RowMenu>
           </li>
         ))}
       </ul>
@@ -224,11 +214,11 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
 const permissionNames = {
   screenRecording: {
     title: "Screen Recording",
-    what: "Lets ace screen helper see app windows, even behind others.",
+    what: "See approved app windows.",
   },
   accessibility: {
     title: "Accessibility",
-    what: "Lets ace screen helper press buttons and type in approved apps.",
+    what: "Control approved apps.",
   },
 } as const;
 
@@ -279,26 +269,20 @@ export function Permissions(props: { use: ComputerUse }) {
             density="compact"
             inline
           >
-            <span
-              className="flex items-center gap-1.5 text-sm text-muted-foreground"
-              aria-describedby={reading.state === "unavailable" ? note : undefined}
-            >
-              <Dot tone={granted ? "done" : granted === false ? "needs-you" : "idle"} />
-              {reading.state === "checking"
-                ? "Checking"
-                : reading.state === "unavailable"
-                  ? "Unavailable"
-                  : granted
-                    ? "Granted"
-                    : "Not granted"}
-            </span>
+            {granted !== true && granted !== false && (
+              <StatusLabel
+                tone="idle"
+                label={reading.state === "checking" ? "Checking" : "Unavailable"}
+              />
+            )}
             {granted === false && (
               <Button
                 size="sm"
+                variant="secondary"
                 disabled={!snapshot.connected || use.pending}
                 onClick={() => void use.requestPermission(key)}
               >
-                Request
+                Grant access
               </Button>
             )}
           </SettingRow>

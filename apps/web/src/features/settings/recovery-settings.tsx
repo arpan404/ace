@@ -1,7 +1,5 @@
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { useKeys } from "@/lib/keybindings.ts";
-import { formatKeys } from "@/lib/keymap.ts";
 import { settingKeys, type FollowUp, type UnresponsiveAfter } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
@@ -29,13 +27,9 @@ export function RecoverySettings() {
   const unresponsiveRow = settingRow("threads.unresponsiveAfter");
   const followUp = useSettingControl(settingKeys.followUp, followRow.title);
   const unresponsive = useSettingControl(settingKeys.unresponsiveAfter, unresponsiveRow.title);
-  const send = useKeys("send");
   return (
     <SettingSection label="While agents work" card scope="daemon">
-      <SettingRow
-        {...followRow}
-        description={`Queue waits for the turn to finish; Steer adds it to the running turn. ${formatKeys(send)} does the other.`}
-      >
+      <SettingRow {...followRow} description="Queue for later or steer now.">
         <DaemonSlot control={followUp}>
           <Select
             label={followRow.title}
@@ -49,12 +43,9 @@ export function RecoverySettings() {
       <SettingSwitch
         setting={settingKeys.continueAfterRestart}
         entry="threads.continueAfterRestart"
-        description="Work cut off by an update or reboot picks up again on its own. Off, it waits for you."
+        description="Resume work after an update or reboot."
       />
-      <SettingRow
-        {...unresponsiveRow}
-        description="If the agent sends no updates for this long, mark the thread as not responding."
-      >
+      <SettingRow {...unresponsiveRow} description="Warn when an agent goes quiet.">
         <DaemonSlot control={unresponsive}>
           <Select
             label={unresponsiveRow.title}

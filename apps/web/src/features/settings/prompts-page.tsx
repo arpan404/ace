@@ -2,12 +2,12 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type PromptFile, type PromptFileScope } from "@ace/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { FileTextIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { promptProblem } from "./prompt-copy.ts";
-import { Icon } from "@/components/icon.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
 import { PromptEditor } from "./prompt-editor.tsx";
@@ -49,9 +49,7 @@ export function PromptsSettingsScreen() {
   return (
     <SettingsBody
       page="Prompts"
-      lede="Reusable prompt files, available from / in any conversation. Project prompts take precedence over global prompts."
-    >
-      <div className="mt-6 flex items-center justify-between gap-3">
+      trailing={
         <Select
           label="Prompt location"
           value={project}
@@ -65,7 +63,10 @@ export function PromptsSettingsScreen() {
             setSaved(undefined);
           }}
         />
-        {!editing && (
+      }
+    >
+      {!editing && (
+        <div className="mt-6">
           <Button
             size="sm"
             variant="ghost"
@@ -75,10 +76,10 @@ export function PromptsSettingsScreen() {
               setEditing({ scope });
             }}
           >
-            New prompt
+            + New prompt
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       {!online && (
         <p role="status" className="mt-3 text-ui text-muted-foreground">
           Reconnect to load and edit your prompts.
@@ -114,36 +115,39 @@ export function PromptsSettingsScreen() {
           </Button>
         </p>
       ) : !files.data.length ? (
-        <p className="mt-6 text-ui text-muted-foreground">No prompt files here yet.</p>
+        <p className="mt-6 text-ui text-muted-foreground">No prompts yet.</p>
       ) : (
-        <ul aria-label="Prompt files" className="mt-4">
+        <ul aria-label="Prompt files" className="mt-4 divide-y">
           {files.data.map((file) => (
             <li key={`${file.scope.kind}:${file.name}`}>
-              <button
-                type="button"
-                className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-ui hover:bg-accent focus-ring-inset"
-                onClick={() => {
-                  setEditing({ file, scope: file.scope });
-                  setSaved(undefined);
-                }}
+              <SettingRow
+                title={
+                  <button
+                    type="button"
+                    className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
+                    onClick={() => {
+                      setEditing({ file, scope: file.scope });
+                      setSaved(undefined);
+                    }}
+                  >
+                    {file.title}
+                  </button>
+                }
+                description={file.description || undefined}
+                inline
               >
-                <Icon icon={FileTextIcon} />
-                <span className="min-w-0 truncate">{file.title}</span>
-                <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
-                  {file.description || file.name}
-                </span>
-                <span className="text-xs text-subtle-foreground">
-                  {file.scope.kind === "global" ? "Global" : "Project"}
-                </span>
-                <span className="text-xs">Edit</span>
-              </button>
-              {!!file.diagnostics.length && (
-                <p role="status" className="px-2 pb-2 text-xs text-status-failed">
-                  {file.diagnostics
-                    .map((diagnostic) => promptProblem(diagnostic.message))
-                    .join(" ")}
-                </p>
-              )}
+                {!!file.diagnostics.length && (
+                  <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
+                    <span
+                      tabIndex={0}
+                      role="status"
+                      className="rounded-sm text-xs text-status-failed focus-ring"
+                    >
+                      Invalid frontmatter
+                    </span>
+                  </Tip>
+                )}
+              </SettingRow>
             </li>
           ))}
         </ul>

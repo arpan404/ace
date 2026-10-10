@@ -182,6 +182,14 @@ function formatChord(chord: string, isApple: boolean): string {
  * The chords of a binding, each formatted: "g h" → ["G", "H"], "shift+mod+n" → ["⇧⌘N"].
  * A sequence renders as one chip per chord ("G then H").
  */
+/** The keys in one chord as individual platform labels, without joining punctuation. */
+export function formatChordParts(keys: string, isApple = apple): string[] {
+  return keys.split(/\+(?!$)/).map((part) => {
+    const glyph = glyphs[part.toLowerCase()];
+    return glyph ? glyph[isApple ? 0 : 1].replace(/\+$/, "") : part.toUpperCase();
+  });
+}
+
 export function formatKeyParts(keys: string, isApple = apple): string[] {
   return keys.split(" ").map((chord) => formatChord(chord, isApple));
 }

@@ -13,6 +13,7 @@ export function SettingsBody(props: {
   back?: ReactNode;
   /** A mark beside the title (a provider's page). */
   icon?: ReactNode;
+  trailing?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -30,6 +31,7 @@ export function SettingsBody(props: {
                 </div>
               )}
             </div>
+            {props.trailing}
           </div>
           {props.children}
         </div>

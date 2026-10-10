@@ -4,6 +4,10 @@ import { afterEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { contrastRatio, parseOpaqueColor } from "@/theme/contrast.ts";
 
+async function chooseTheme(name: string) {
+  await userEvent.click(await screen.findByRole("combobox", { name: "Theme" }));
+  await userEvent.click(await screen.findByRole("option", { name }));
+}
 const root = document.documentElement;
 afterEach(() => {
   for (const name of ["data-theme", "data-scheme", "data-accent", "data-density", "style"])
@@ -25,9 +29,9 @@ test("picking a theme applies it at once and survives a reload", async () => {
   const first = await harness({ storage }).open("/settings/appearance");
   expect(root.getAttribute("data-theme")).toBe("dark");
 
-  await userEvent.click(await screen.findByRole("radio", { name: "Midnight" }));
+  await chooseTheme("Midnight");
   expect(root.getAttribute("data-theme")).toBe("midnight");
-  expect(screen.getByRole("radio", { name: "Midnight" }).getAttribute("aria-checked")).toBe("true");
+  expect(screen.getByRole("combobox", { name: "Theme" }).textContent).toContain("Midnight");
   // index.html replays this before first paint on the next load.
   await waitFor(() =>
     expect(JSON.parse(storage.getItem("ace.boot-theme") ?? "{}")).toMatchObject({
@@ -44,7 +48,7 @@ test("picking a theme applies it at once and survives a reload", async () => {
 
 test("System follows the operating system's light or dark preference", async () => {
   await harness({ matchMedia: systemPrefers(false) }).open("/settings/appearance");
-  await userEvent.click(await screen.findByRole("radio", { name: "System" }));
+  await chooseTheme("System");
   expect(root.getAttribute("data-theme")).toBe("light");
   expect(root.getAttribute("data-scheme")).toBe("light");
 });
@@ -53,9 +57,7 @@ test("a first visit follows the OS: light on a light system, dark on a dark one"
   const light = await harness({ matchMedia: systemPrefers(false) }).open("/settings/appearance");
   expect(root.getAttribute("data-theme")).toBe("light");
   expect(root.getAttribute("data-scheme")).toBe("light");
-  expect((await screen.findByRole("radio", { name: "System" })).getAttribute("aria-checked")).toBe(
-    "true",
-  );
+  expect((await screen.findByRole("combobox", { name: "Theme" })).textContent).toContain("System");
   // The browser's own bar takes the page's background.
   expect(document.querySelector('meta[name="theme-color"]')?.getAttribute("content")).toMatch(/^#/);
   light.unmount();
@@ -64,16 +66,18 @@ test("a first visit follows the OS: light on a light system, dark on a dark one"
   expect(root.getAttribute("data-theme")).toBe("dark");
 });
 
-test("themes and accents are radio groups: arrow keys move and choose", async () => {
+test("the theme picker and accent swatches can be changed by keyboard", async () => {
   await harness().open("/settings/appearance");
-  const system = await screen.findByRole("radio", { name: "System" });
+  const system = await screen.findByRole("combobox", { name: "Theme" });
   // A navigation moves focus to the view's title a frame after it renders (app-shell's route
   // focus); start from there, as a keyboard user would, so that move can't take focus back.
   await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
   system.focus();
-  await userEvent.keyboard("{ArrowRight}");
+  await userEvent.keyboard("{Enter}");
+  await screen.findByRole("option", { name: "Light" });
+  await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(root.getAttribute("data-theme")).toBe("light");
-  expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Light" }));
+  expect(document.activeElement).toBe(system);
 
   // By default the accent is the theme's own, and that swatch takes Tab.
   const own = screen.getByRole("radio", { name: "Theme's own" });
@@ -86,6 +90,7 @@ test("themes and accents are radio groups: arrow keys move and choose", async ()
 
 test("a custom accent hex becomes the ring colour; status colours are untouched", async () => {
   await harness().open("/settings/appearance");
+  await userEvent.click(await screen.findByRole("radio", { name: /^Custom colour/ }));
   const hex = await screen.findByRole("textbox", { name: "Custom accent hex" });
   expect((hex as HTMLInputElement).value).toBe("#7AA2F7");
   await userEvent.clear(hex);
@@ -104,21 +109,22 @@ const ring = () => root.style.getPropertyValue("--ring");
 test("by default the accent follows the theme; a pinned accent stays through a theme change", async () => {
   await harness().open("/settings/appearance");
   const dark = ring();
-  await userEvent.click(await screen.findByRole("radio", { name: "Paper" }));
+  await chooseTheme("Paper");
   const paper = ring();
   expect(paper).not.toBe(dark);
 
   await userEvent.click(screen.getByRole("radio", { name: "Violet" }));
   const violet = ring();
   expect(violet).not.toBe(paper);
-  await userEvent.click(screen.getByRole("radio", { name: "Light" }));
-  await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
+  await chooseTheme("Light");
+  await chooseTheme("Paper");
   expect(ring()).toBe(violet);
 });
 
 test("a white custom accent on Light keeps links and button labels readable", async () => {
   await harness().open("/settings/appearance");
-  await userEvent.click(await screen.findByRole("radio", { name: "Light" }));
+  await chooseTheme("Light");
+  await userEvent.click(screen.getByRole("radio", { name: /^Custom colour/ }));
   const hex = screen.getByRole("textbox", { name: "Custom accent hex" });
   await userEvent.clear(hex);
   await userEvent.type(hex, "#ffffff");
