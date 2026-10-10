@@ -5,17 +5,23 @@ export class OutcomeWaiters {
   private lifetime = new AbortController();
   private waits = new Map<ThreadId, Set<(result: DelegationOutcome) => void>>();
   private count = 0;
+  private callers = new Map<ThreadId, number>();
   has(thread: ThreadId) {
     return this.waits.has(thread);
   }
   deliver(thread: ThreadId, result: DelegationOutcome) {
     for (const receive of this.waits.get(thread) ?? []) receive(result);
   }
-  async wait(thread: ThreadId, callerSignal: AbortSignal): Promise<DelegationOutcome> {
+  async wait(
+    thread: ThreadId,
+    callerSignal: AbortSignal,
+    caller = thread,
+  ): Promise<DelegationOutcome> {
     const signal = AbortSignal.any([callerSignal, this.lifetime.signal]);
     signal.throwIfAborted();
-    if (this.count >= 64) throw new Error("Wait capacity");
+    if (this.count >= 64 || (this.callers.get(caller) ?? 0) >= 16) throw new Error("Wait capacity");
     this.count++;
+    this.callers.set(caller, (this.callers.get(caller) ?? 0) + 1);
     try {
       return await new Promise<DelegationOutcome>((resolve, reject) => {
         const observers = this.waits.get(thread) ?? new Set<(result: DelegationOutcome) => void>();
@@ -38,6 +44,9 @@ export class OutcomeWaiters {
       });
     } finally {
       this.count--;
+      const remaining = (this.callers.get(caller) ?? 1) - 1;
+      if (remaining) this.callers.set(caller, remaining);
+      else this.callers.delete(caller);
     }
   }
   close() {
