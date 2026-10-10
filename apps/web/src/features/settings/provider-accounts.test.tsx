@@ -118,7 +118,7 @@ test("signed-in rows show quota and the CLI login can be renamed but cannot be r
   expect(within(personal).queryByText("Signed in")).toBeNull();
   const cli = await account("Your CLI login");
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
-  expect(screen.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Rename" })).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Change badge" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
@@ -231,4 +231,23 @@ test("new accounts get varied default badges and a chosen neutral colour still w
   }
   expect(colours[0]).not.toBe(colours[1]);
   expect(colours[2]).toBe("var(--foreground)");
+});
+
+test("a signed-out account has one sign-in action and can still become default from its menu", async () => {
+  const app = harness();
+  const saved = app.daemon.services.accounts.find((row) => row.id === "claude-work");
+  if (!saved) throw new Error("Missing Work account");
+  saved.quota.auth = "logged_out";
+  saved.availability = "logged_out";
+  await app.open("/settings/providers/claude");
+  const work = await account("Work");
+  expect(within(work).getByText("Signed out")).toBeTruthy();
+  expect(within(work).queryByRole("button", { name: "Make default" })).toBeNull();
+  await userEvent.click(within(work).getByRole("button", { name: "Sign in" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await userEvent.click(within(work).getByRole("button", { name: "Manage Work" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Make default" }));
+  await within(work).findByText("Default");
+  expect(within(work).getByText("Signed out")).toBeTruthy();
 });

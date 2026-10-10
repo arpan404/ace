@@ -1,5 +1,6 @@
 import { chromium, expect as playwrightExpect, type Page } from "@playwright/test";
 import { expectBrandMark } from "./brand-mark-check.ts";
+import { expectProviderAccountGeometry } from "./provider-account-geometry.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const expect = playwrightExpect.configure({ timeout: 30_000 });
@@ -27,6 +28,7 @@ for (const mode of ["light", "dark"]) {
 await mock.close();
 const comparison = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 async function capture(page: Page, name: string, target: Buffer) {
+  if (name.startsWith("provider-")) await expectProviderAccountGeometry(page);
   if (name.startsWith("usage") && page.viewportSize()?.width === 1440) {
     await expect
       .poll(async () => (await page.getByRole("article").first().boundingBox())?.height)

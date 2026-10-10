@@ -117,14 +117,22 @@ function AccountItem(props: {
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
+  const needsSignIn =
+    state.text === "Signed out" ||
+    state.text === "Not signed in yet" ||
+    (state.text !== "Limit reached" && !state.canRun && !account.quota.blockers.homeUnavailable);
+  const makeDefault = () => {
+    if (native)
+      void actions.setDefault(native, account.id).catch(fail(`Couldn't make ${label} the default`));
+  };
   return (
     <li
       id={`account-${account.id}`}
       tabIndex={-1}
       style={highlighted ? { background: "var(--accent)" } : undefined}
-      className="group rounded-md py-0.5 focus-ring hover:bg-accent"
+      className="group rounded-md focus-ring hover:bg-accent"
     >
-      <div className="grid min-h-9 grid-cols-[1fr_auto] items-center gap-2 sm:grid-cols-[1fr_12rem_8rem]">
+      <div className="grid min-h-9 items-center gap-2 sm:grid-cols-[1fr_auto]">
         <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <AccountBadge account={account} tooltip={false} />
@@ -147,21 +155,51 @@ function AccountItem(props: {
             </span>
           )}
         </div>
-        <div className="flex w-32 items-center justify-end gap-2 sm:order-1">
-          {!account.isDefault && native && (
+        <div className="flex items-center justify-end gap-2">
+          {state.canRun ? (
+            account.windows[0] && (
+              <span className="inline-flex">
+                <CompactWindow
+                  window={
+                    account.windows.find((window) => window.label === "5-hour") ??
+                    account.windows[0]
+                  }
+                  now={now}
+                />
+              </span>
+            )
+          ) : (
+            <StatusLine
+              tone={state.tone}
+              text={
+                state.text === "Limit reached" && accountLimit(account, now).resetsAt !== undefined
+                  ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
+                  : state.text
+              }
+            />
+          )}
+          {signIn && props.manageable && needsSignIn ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
+              }
+            >
+              {state.text === "Signed out" || state.text === "Not signed in yet"
+                ? "Sign in"
+                : "Reconnect"}
+            </Button>
+          ) : !account.isDefault && native ? (
             <Button
               size="sm"
               variant="ghost"
               className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
-              onClick={() =>
-                actions
-                  .setDefault(native, account.id)
-                  .catch(fail(`Couldn't make ${label} the default`))
-              }
+              onClick={makeDefault}
             >
               Make default
             </Button>
-          )}
+          ) : null}
           {signIn && props.manageable && (
             <Menu>
               <MenuTrigger
@@ -177,6 +215,9 @@ function AccountItem(props: {
                 }
               />
               <MenuContent align="end" finalFocus={renaming ? false : undefined}>
+                {needsSignIn && !account.isDefault && native && (
+                  <MenuItem onClick={makeDefault}>Make default</MenuItem>
+                )}
                 <MenuItem
                   onClick={() =>
                     signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
@@ -243,49 +284,6 @@ function AccountItem(props: {
               </MenuContent>
             </Menu>
           )}
-        </div>
-        <div className="col-span-2 flex flex-wrap items-center gap-2 pl-7 sm:col-span-1 sm:pl-0">
-          {state.canRun ? (
-            account.windows[0] && (
-              <span className="inline-flex">
-                <CompactWindow
-                  window={
-                    account.windows.find((window) => window.label === "5-hour") ??
-                    account.windows[0]
-                  }
-                  now={now}
-                />
-              </span>
-            )
-          ) : (
-            <StatusLine
-              tone={state.tone}
-              text={
-                state.text === "Limit reached" && accountLimit(account, now).resetsAt !== undefined
-                  ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
-                  : state.text
-              }
-            />
-          )}
-          {signIn &&
-            props.manageable &&
-            (state.text === "Signed out" ||
-              state.text === "Not signed in yet" ||
-              (state.text !== "Limit reached" &&
-                !state.canRun &&
-                !account.quota.blockers.homeUnavailable)) && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
-                }
-              >
-                {state.text === "Signed out" || state.text === "Not signed in yet"
-                  ? "Sign in"
-                  : "Reconnect"}
-              </Button>
-            )}
         </div>
       </div>
       {renaming && (
