@@ -1,6 +1,7 @@
 import {
   useConnectionState,
   useInteraction,
+  useInteractions,
   useThreadError,
   useThreadMeta,
 } from "@ace/client-react";
@@ -18,6 +19,7 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
+import { RecoveryThreadRow } from "./recovery-thread-row.tsx";
 import { CardActions } from "./card-frame.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
 import { useFeed } from "./feed-source.ts";
@@ -38,6 +40,7 @@ export function ItemDetail(props: { itemKey: string }) {
   const { focusCard } = useActivityState();
   // A card shown on its own takes the card keys (A, D, 1–3, O).
   useEffect(() => focusCard(itemKey), [focusCard, itemKey]);
+  if (itemKey.startsWith("thread:")) return <ThreadDetail threadId={itemKey.slice(7)} />;
   if (itemKey.startsWith("interaction:")) {
     const [, threadId = "", interactionId = ""] = itemKey.split(":");
     return (
@@ -45,6 +48,30 @@ export function ItemDetail(props: { itemKey: string }) {
     );
   }
   return <FeedDetailPage itemKey={itemKey} />;
+}
+
+function ThreadDetail(props: { threadId: string }) {
+  const requests = useInteractions(props.threadId);
+  const thread = useThreadMeta(props.threadId);
+  const first = requests?.[0];
+  const { focusCard } = useActivityState();
+  useEffect(() => {
+    if (first) focusCard(`interaction:${props.threadId}:${first}`);
+  }, [first, focusCard, props.threadId]);
+  if (first)
+    return (
+      <RequestDetailRetry
+        threadId={props.threadId}
+        interactionId={first}
+        itemKey={`interaction:${props.threadId}:${first}`}
+      />
+    );
+  if (!thread) return <DetailLoading />;
+  return (
+    <Page>
+      <RecoveryThreadRow threadId={props.threadId} />
+    </Page>
+  );
 }
 
 /** A failed thread read is tried again by reading the thread afresh. */
@@ -63,6 +90,10 @@ function RequestDetail(props: {
   const thread = useThreadMeta(props.threadId);
   const error = useThreadError(props.threadId);
   const ready = useConnectionState() === "ready";
+  const { item, focusCard } = useActivityState();
+  useEffect(() => {
+    if (!item && interaction && interaction.state !== "pending") focusCard(undefined);
+  }, [item, interaction, focusCard]);
   if (interaction === undefined) {
     if (error?.code === "daemon" && error.message === "not_found")
       return <Gone title="This thread is gone" />;

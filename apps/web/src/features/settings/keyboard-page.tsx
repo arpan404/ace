@@ -3,6 +3,9 @@ import { SearchField } from "@/components/search-field.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import {
   conflictFor,
@@ -216,7 +219,7 @@ export function KeyboardShortcuts() {
       <div className="mt-6 flex items-center gap-3">
         <SearchField
           label="Filter shortcuts"
-          placeholder="Filter by name or keys"
+          placeholder="Click a shortcut to change it"
           value={query}
           onValueChange={setQuery}
           className="max-w-80"
@@ -308,15 +311,7 @@ function ShortcutRow(props: {
           <span role="alert">{problem.text}</span>
         ) : recording ? (
           "Press the new shortcut. Esc cancels."
-        ) : (
-          [
-            // Keys the platform or a control owns (F6, Send, terminal find): shown, not edited.
-            readOnly === "Fixed" && "Can't be changed",
-            scope !== "global" && scopeChips[scope],
-          ]
-            .filter(Boolean)
-            .join(" · ") || undefined
-        )
+        ) : undefined
       }
       inline
     >
@@ -339,21 +334,34 @@ function ShortcutRow(props: {
           </Button>
         )}
         {props.changed && !recording && (
-          <Button size="sm" variant="ghost" aria-label={`Reset ${label}`} onClick={props.onReset}>
-            Reset
-          </Button>
+          <RowMenu label={`Actions for ${label}`}>
+            <MenuItem onClick={props.onReset}>Reset</MenuItem>
+          </RowMenu>
         )}
         {readOnly ? (
-          <span className="inline-flex items-center gap-2">
-            {readOnly !== "Fixed" && (
-              <span className="text-xs text-muted-foreground">{readOnly}</span>
-            )}
-            <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
-          </span>
+          <Tip
+            label={[
+              readOnly === "Fixed"
+                ? "Can't be changed"
+                : readOnly === "Sequence"
+                  ? "Press these keys in order"
+                  : "Single key",
+              scope !== "global" && scopeChips[scope],
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            <span
+              tabIndex={0}
+              aria-label={`${label} shortcut`}
+              aria-disabled
+              className="rounded-sm focus-ring"
+            >
+              <Kbd keys={keys} resolve={false} separate className="h-5 px-2 text-sm" />
+            </span>
+          </Tip>
         ) : (
-          <span id={described} hidden>
-            {`${describeKeys(keys)}. Press to change.`}
-          </span>
+          <span id={described} hidden>{`${describeKeys(keys)}. Press to change.`}</span>
         )}
         {!readOnly && (
           <button
@@ -368,7 +376,7 @@ function ShortcutRow(props: {
             {recording ? (
               <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>
             ) : (
-              <Kbd keys={keys} resolve={false} className="h-5 px-2 text-sm" />
+              <Kbd keys={keys} resolve={false} separate className="h-5 px-2 text-sm" />
             )}
           </button>
         )}

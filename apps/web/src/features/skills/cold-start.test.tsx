@@ -72,7 +72,7 @@ test("Skills stays loading until discovery arrives in the open tab and opens the
   act(() => app.daemon.seedServices({ extensionCatalogs: { claude: [tdd] } }));
   await userEvent.click(await screen.findByRole("link", { name: /^Test Driven Development/ }));
   expect(
-    await screen.findByRole("heading", { level: 1, name: "Test Driven Development" }),
+    await screen.findByRole("heading", { level: 2, name: "Test Driven Development" }),
   ).toBeTruthy();
 });
 
@@ -104,7 +104,8 @@ test("switching the Skills provider closes a detail from the previous provider",
   app.daemon.seedServices({ extensionCatalogs: { claude: [tdd], pi: [] } });
   await app.open("/skills");
   await userEvent.click(await screen.findByRole("link", { name: /^Test Driven Development/ }));
-  await screen.findByRole("heading", { level: 1, name: "Test Driven Development" });
+  await screen.findByRole("heading", { level: 2, name: "Test Driven Development" });
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
   await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Pi$/ }));
   await waitFor(() =>

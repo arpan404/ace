@@ -12,29 +12,27 @@ const rows: {
   {
     key: "agentSays",
     title: "Agent messages",
-    description: "Messages an agent asks ace to tell you about.",
+    description: "Messages addressed to you.",
   },
   {
     key: "needsYou",
     title: "Needs you",
-    description:
-      "An approval, a question or a plan is waiting. Skipped while you're looking at it.",
+    description: "Approvals, questions and plans.",
   },
   {
     key: "failures",
     title: "Failures",
-    description: "The agent stopped with an error and won't continue on its own.",
+    description: "An agent stopped with an error.",
   },
   {
     key: "automations",
     title: "Automation finished",
-    description: "A scheduled or triggered run reports its result.",
+    description: "Results from scheduled runs.",
   },
   {
     key: "limits",
     title: "Usage limits",
-    description:
-      "Before a usage window runs out, when it does, and when the account can work again.",
+    description: "When an account needs attention.",
   },
 ];
 
@@ -48,6 +46,7 @@ export function NotificationPreferences() {
   const id = useId();
   return (
     <div>
+      <BrowserRow on={prefs.browser} set={(browser) => update({ browser })} />
       {rows.map((row) => (
         <SettingRow
           density="compact"
@@ -63,7 +62,6 @@ export function NotificationPreferences() {
           />
         </SettingRow>
       ))}
-      <BrowserRow on={prefs.browser} set={(browser) => update({ browser })} />
     </div>
   );
 }
@@ -77,11 +75,11 @@ function BrowserRow(props: { on: boolean; set(on: boolean): void }) {
   return (
     <SettingRow
       density="compact"
-      title="Browser notifications"
+      title="Show system notifications"
       description={
         blocked
           ? "This browser blocks notifications from ace. Allow them in the site settings first."
-          : "While this tab is in the background, a system notification instead of a toast."
+          : "While this tab is in the background."
       }
       htmlFor={id}
     >

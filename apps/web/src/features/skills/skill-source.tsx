@@ -1,6 +1,8 @@
 import { Textarea } from "@/components/ui/input.tsx";
 import { useEffect, useRef, useState } from "react";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent } from "@/components/ui/dialog.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -66,11 +68,10 @@ export function SkillSource({ skill }: { skill: Skill }) {
   };
   return (
     <SettingSection label="Source">
-      <p className="break-words font-mono text-sm text-muted-foreground">{skill.path}</p>
       {source.isError ? (
         <p role="alert" className="text-sm text-destructive">
           Couldn't read the source.{" "}
-          <Button variant="ghost" size="sm" onClick={() => void source.refetch()}>
+          <Button variant="secondary" size="sm" onClick={() => void source.refetch()}>
             Try again
           </Button>
         </p>
@@ -78,23 +79,23 @@ export function SkillSource({ skill }: { skill: Skill }) {
         <SkeletonText lines={4} />
       ) : (
         <>
-          <div className="flex h-9 items-center justify-end gap-2">
+          <SettingRow title="Source file" description={skill.path} compact inline>
             {draft === undefined ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={source.data.bytes > 262144}
-                onClick={() => {
-                  editingHash.current = source.data.hash;
-                  setDraft(source.data.text);
-                }}
-              >
-                Edit
-              </Button>
+              <RowMenu label="Source actions">
+                <MenuItem
+                  disabled={source.data.bytes > 262144}
+                  onClick={() => {
+                    editingHash.current = source.data?.hash;
+                    setDraft(source.data?.text);
+                  }}
+                >
+                  Edit
+                </MenuItem>
+              </RowMenu>
             ) : (
               <>
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
                   disabled={edit.isPending}
                   onClick={() => {
@@ -117,14 +118,19 @@ export function SkillSource({ skill }: { skill: Skill }) {
                 </Button>
               </>
             )}
-          </div>
+          </SettingRow>
           {source.data.bytes > 262144 && (
             <p className="text-sm text-muted-foreground">
               This source is too large to edit here. Open it in your editor.
             </p>
           )}
           {draft === undefined && skill.kind === "skill" ? (
-            <Prose text={skillMarkdown(source.data.text, skill)} />
+            <details className="mt-3">
+              <summary className="text-sm text-muted-foreground focus-ring rounded-sm">
+                Read source
+              </summary>
+              <Prose text={skillMarkdown(source.data.text, skill)} />
+            </details>
           ) : draft === undefined ? (
             <pre className="overflow-auto font-mono text-sm leading-normal whitespace-pre-wrap break-words">
               {source.data.text}
@@ -144,7 +150,7 @@ export function SkillSource({ skill }: { skill: Skill }) {
               {error}
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 onClick={() => {
                   setError(undefined);
                   setDraft(undefined);

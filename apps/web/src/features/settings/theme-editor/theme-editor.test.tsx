@@ -4,6 +4,15 @@ import { afterEach, expect, test } from "vitest";
 import { basePreset } from "@/theme/presets.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
+async function advanced() {
+  await screen.findByRole("combobox", { name: "Theme to edit" });
+  if (!screen.queryByRole("textbox", { name: "Window background" }))
+    await userEvent.click(within(screen.getByRole("main")).getByText("Advanced", { exact: true }));
+}
+async function action(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "Theme actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
 const root = document.documentElement;
 afterEach(() => {
   for (const name of ["data-theme", "data-scheme", "data-accent", "data-density", "style"])
@@ -20,6 +29,7 @@ function valueOf(name: string): string {
 }
 
 async function setToken(name: string, value: string) {
+  await advanced();
   const field = await screen.findByRole("textbox", { name });
   // These cases exercise draft validation and commit, not keyboard sequencing or the debounce.
   fireEvent.change(field, { target: { value } });
@@ -29,9 +39,9 @@ async function setToken(name: string, value: string) {
 test("editing a preset forks a custom copy, applies it live and lists it under Appearance", async () => {
   const storage = memoryKeyValue();
   await harness({ storage }).open("/settings/theme-editor");
+  await advanced();
   await screen.findByRole("textbox", { name: "Window background" });
   expect(valueOf("Window background")).toBe("#0F0F0F");
-  expect(screen.getByText("--reading-rgb")).toBeTruthy();
   expect(screen.getByRole("textbox", { name: "Main column background" })).toBeTruthy();
 
   await setToken("Window background", "#123456");
@@ -50,9 +60,9 @@ test("editing a preset forks a custom copy, applies it live and lists it under A
   await waitFor(() => expect(storage.getItem("ace.themes")).toContain("#123456"));
 
   await userEvent.click(screen.getByRole("link", { name: "Appearance", current: false }));
-  const custom = await screen.findByRole("radio", { name: /Dark custom/ });
-  expect(custom.getAttribute("aria-checked")).toBe("true");
-  expect(within(custom).getByText("custom")).toBeTruthy();
+  expect((await screen.findByRole("combobox", { name: "Theme" })).textContent).toContain(
+    "Dark custom",
+  );
 });
 
 test("a value CSS would refuse is marked and never applied or stored", async () => {
@@ -78,26 +88,29 @@ test("a value CSS would refuse is marked and never applied or stored", async () 
 
 test("the colour picker edits hex tokens; non-colour tokens have none", async () => {
   await harness().open("/settings/theme-editor");
+  await advanced();
   // Native colour inputs report a full lowercase hex.
   fireEvent.input(await screen.findByLabelText("Pick Menu background"), {
     target: { value: "#334455" },
   });
   await waitFor(() => expect(valueOf("Menu background")).toBe("#334455"));
   expect(screen.queryByLabelText("Pick Corner radius")).toBeNull();
-  expect(screen.queryByLabelText("Pick Main column background")).toBeNull();
+  expect(screen.getByLabelText("Pick Main column background")).toBeTruthy();
 });
 
 test("low-contrast text is warned about, and Reset to the preset clears it", async () => {
   await harness().open("/settings/theme-editor");
-  expect(await screen.findByText("Contrast looks good.")).toBeTruthy();
+  await screen.findByRole("combobox", { name: "Theme to edit" });
+  expect(screen.queryByText("Contrast looks good.")).toBeNull();
 
   await setToken("Secondary text", "#222222");
   expect(await screen.findByText("1 contrast warning")).toBeTruthy();
   expect(screen.getByText(/^Secondary text: 1\.\d\d:1; needs 4\.5:1\.$/)).toBeTruthy();
-  expect(screen.getByRole("img", { name: "Low contrast" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Reset to Dark" }));
-  expect(await screen.findByText("Contrast looks good.")).toBeTruthy();
+  await action("Reset to Dark");
+  await screen.findByRole("combobox", { name: "Theme to edit" });
+  expect(screen.queryByText("Contrast looks good.")).toBeNull();
+  await waitFor(() => expect(screen.queryByText("1 contrast warning")).toBeNull());
   expect(valueOf("Secondary text")).toBe(basePreset("dark").tokens["--muted-foreground"]);
   // Reset keeps the custom theme; it does not switch back to the preset.
   expect(appliedTheme()).toMatch(/^dark~/);
@@ -105,17 +118,17 @@ test("low-contrast text is warned about, and Reset to the preset clears it", asy
 
 test("duplicate, rename, then delete with undo", async () => {
   await harness().open("/settings/theme-editor");
-  await userEvent.click(await screen.findByRole("button", { name: "Duplicate" }));
+  await action("Duplicate");
   await waitFor(() => expect(select().textContent).toContain("Dark copy (custom)"));
   // Presets offer no rename or delete; the copy does.
-  await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+  await action("Rename");
   const name = await screen.findByRole("textbox", { name: "Theme name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Studio night{Enter}");
   await waitFor(() => expect(select().textContent).toContain("Studio night (custom)"));
 
   const id = appliedTheme();
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await action("Delete");
   await waitFor(() => expect(appliedTheme()).toBe("dark"));
   expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   expect(appliedCss()).not.toContain(id);
@@ -127,6 +140,7 @@ test("duplicate, rename, then delete with undo", async () => {
 
 test("import accepts an ace theme file and refuses anything else", async () => {
   await harness().open("/settings/theme-editor");
+  await advanced();
   const input = await screen.findByLabelText("Import theme file");
   const theme = { name: "Sea", scheme: "light", tokens: { "--background": "#E8F1F2" } };
   await userEvent.upload(
@@ -151,9 +165,10 @@ test("import accepts an ace theme file and refuses anything else", async () => {
 });
 
 test("export copies the theme on screen as an ace theme file", async () => {
-  const user = userEvent.setup();
   await harness().open("/settings/theme-editor");
-  await user.click(await screen.findByRole("button", { name: "Export" }));
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Theme actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Export" }));
   expect(await screen.findByText(/^Exported Dark · (File downloaded and )?copied$/)).toBeTruthy();
   const file = JSON.parse(await navigator.clipboard.readText()) as {
     name: string;

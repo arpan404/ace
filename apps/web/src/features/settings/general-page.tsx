@@ -45,11 +45,11 @@ export function GeneralSettings() {
         <SettingSwitch
           setting={settingKeys.worktree}
           entry="threads.useWorktree"
-          description="Keeps your checkout clean. Threads on main are one click away."
+          description="Keeps your checkout clean."
         />
         <SettingRow
           {...settingRow("threads.autoSettleAfter")}
-          description="Done threads with no activity move to Settled. Threads that need you never settle."
+          description="Threads that need you never settle."
         >
           <DaemonSlot control={autoSettle}>
             <Select
@@ -73,7 +73,7 @@ export function GeneralSettings() {
         <SettingSwitch
           setting={settingKeys.automations}
           entry="automations.enabled"
-          description="Turn off to stop new automation runs, including manual runs."
+          description="Allows scheduled and manual runs."
         />
       </SettingSection>
     </>
@@ -103,9 +103,7 @@ function DefaultProvider() {
       value,
       label: providerChoiceLabel({ name: providerNames[value], state: "not_installed" }),
     });
-  const description = start.chosen
-    ? "You can change it per thread in the composer."
-    : "Until you pick one, new threads start on the provider you used last, else the first one installed. You can change it per thread in the composer.";
+  const description = "Change it in any thread.";
   return (
     <SettingRow {...row} description={description}>
       <DaemonSlot control={{ loaded: start.loaded, offline, pending: write.pending }}>
@@ -128,11 +126,7 @@ function DefaultProvider() {
 function ProfileNameRow() {
   const [name, setName] = useProfileName();
   return (
-    <SettingRow
-      {...settingRow("profile.name")}
-      description="Its initials mark your account button."
-      htmlFor="profile-name"
-    >
+    <SettingRow {...settingRow("profile.name")} description={undefined} htmlFor="profile-name">
       <Input
         id="profile-name"
         className="@[30rem]:w-52"

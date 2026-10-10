@@ -80,13 +80,14 @@ function FeedTabs(props: { id: string }) {
           id={tabId(props.id, entry.id)}
           type="button"
           role="tab"
+          aria-label={entry.id === "needs" && count > 0 ? `${entry.label} ${count}` : entry.label}
           aria-selected={tab === entry.id}
           aria-controls={`${props.id}-panel`}
           tabIndex={tab === entry.id ? 0 : -1}
           onClick={() => setTab(entry.id)}
           className={cn(
             "h-[26px] rounded-sm px-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent hover:text-foreground",
-            tab === entry.id && "bg-foreground/10 text-foreground hover:bg-foreground/10",
+            tab === entry.id && "text-foreground font-semibold",
           )}
         >
           {entry.label}
@@ -191,7 +192,7 @@ function grouped(items: readonly FeedItem[], now: number): ReactNode[] {
       group = heading;
       nodes.push(
         <li key={`group:${heading}`} className="px-[11px] pt-3 pb-1.5 first:pt-1">
-          <h3 className="text-sm font-medium text-muted-foreground">{heading}</h3>
+          <h3 className="text-xs font-medium text-subtle-foreground">{heading}</h3>
         </li>,
       );
     }

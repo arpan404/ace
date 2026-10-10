@@ -9,7 +9,6 @@ export function ThemeEditorPage() {
   return (
     <SettingsBody
       page="Theme editor"
-      lede="Changes appear as you edit. Editing a preset creates your own copy. Choose the accent colour in Appearance."
       back={
         <Link
           to="/settings/appearance"

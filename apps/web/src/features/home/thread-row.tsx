@@ -63,7 +63,7 @@ export function ThreadRow(props: {
     <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
       <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
         <HoverCardTrigger
-          delay={180}
+          delay={600}
           closeDelay={100}
           onClick={() => hover.change(false)}
           onContextMenu={() => hover.change(false)}

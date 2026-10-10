@@ -1,7 +1,6 @@
 import { useIntentSender, useItem, useTask } from "@ace/client-react";
 import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
@@ -37,7 +36,11 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
   const stopping = intent?.state === "pending" || (intent?.state === "acked" && running);
   return (
-    <div role="group" aria-label={`Background task ${command}`} className="@container">
+    <div
+      role="group"
+      aria-label={`Background task ${command}`}
+      className="@container group/setting"
+    >
       {/* One line: the command gives way with an ellipsis. Phone-narrow, the label and Stop keep
           the first line and the command takes the second. */}
       <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
@@ -73,18 +76,16 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           </span>
         ) : null}
         {running && live.canStop && task.stoppable && (
-          <Button
-            variant="ghost"
+          <IconButton
+            icon={StopIcon}
             size="sm"
-            className="ml-auto shrink-0"
+            label={stopping ? "Stopping" : "Stop background task"}
+            className="ml-auto shrink-0 opacity-0 group-hover/setting:opacity-100 group-focus-within/setting:opacity-100 pointer-coarse:opacity-100"
             disabled={stopping}
             onClick={() =>
               void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
             }
-          >
-            {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
-            {stopping ? "Stopping" : "Stop"}
-          </Button>
+          />
         )}
       </div>
     </div>

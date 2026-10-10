@@ -5,6 +5,13 @@ import {
   type DaemonTarget,
 } from "./connection-settings.ts";
 
+/** The bare pairing route creates a code; only a link carrying a code redeems one. */
+export function pairingLinkFromUrl(url: URL): string | undefined {
+  return url.pathname === "/pair" && new URLSearchParams(url.hash.slice(1)).get("code")
+    ? url.href
+    : undefined;
+}
+
 /**
  * What a `#token=…&daemon=…` link may do. The daemon opens the app with one for this machine,
  * but anyone can send such a link. It is taken silently only when it names a daemon on this

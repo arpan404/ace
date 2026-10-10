@@ -95,7 +95,7 @@ test("the default provider lists the installed CLIs and remembers the choice", a
 test("the unresponsive threshold lives with the other agent settings, and Reset restores it", async () => {
   await harness().open("/settings/general");
   const section = await screen.findByRole("region", { name: "While agents work" });
-  expect(within(section).getByText("All devices")).toBeTruthy();
+  expect(within(section).queryByText("All devices")).toBeNull();
   await pick("Unresponsive after", "15 minutes");
   expect(screen.getByRole("combobox", { name: "Unresponsive after" }).textContent).toContain(
     "15 minutes",

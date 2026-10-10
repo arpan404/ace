@@ -1,18 +1,16 @@
-import { SwatchesIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
 import { useState, type KeyboardEvent } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Slider } from "@/components/ui/slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { HexColor, TranscriptSize, transcriptSizes, type Density } from "@/theme/appearance.ts";
-import { accentNames, basePreset } from "@/theme/presets.ts";
+import { accentNames } from "@/theme/presets.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { settingRow } from "./settings-index.ts";
-import { ThemeCard } from "./theme-card.tsx";
 
 const sizeOptions = TranscriptSize.options.map((value) => ({
   value,
@@ -64,36 +62,20 @@ export function AppearanceSettings() {
   return (
     <>
       <SettingSection label={settingRow("appearance.theme").title} scope="device">
-        <div
-          id="appearance.theme"
-          role="radiogroup"
-          aria-label="Theme"
-          onKeyDown={onRadioKeys}
-          className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3.5"
-        >
-          <ThemeCard
-            name="System"
-            selected={appearance.theme === "system"}
-            system={{ light: basePreset("light"), dark: basePreset("dark") }}
-            onSelect={() => update({ theme: "system" })}
+        <SettingRow {...settingRow("appearance.theme")}>
+          <Select
+            label="Theme"
+            value={appearance.theme}
+            options={[
+              { value: "system", label: "System" },
+              ...themes.map((theme) => ({ value: theme.id, label: theme.name })),
+            ]}
+            onValueChange={(theme) => update({ theme })}
           />
-          {themes.map((theme) => (
-            <ThemeCard
-              key={theme.id}
-              name={theme.name}
-              theme={theme}
-              custom={!theme.preset}
-              selected={appearance.theme === theme.id}
-              onSelect={() => update({ theme: theme.id })}
-            />
-          ))}
-        </div>
+        </SettingRow>
       </SettingSection>
-      <SettingSection label="Material" card scope="device">
-        <SettingRow
-          {...settingRow("appearance.glass")}
-          description="How much of your desktop shows through the sidebar and floating panels. Follows Reduce transparency in your OS."
-        >
+      <SettingSection label="Display" card scope="device">
+        <SettingRow {...settingRow("appearance.glass")} description={undefined}>
           <span className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Solid</span>
             <Slider
@@ -108,16 +90,10 @@ export function AppearanceSettings() {
             <span className="text-sm text-muted-foreground">Clear</span>
           </span>
         </SettingRow>
-        <SettingRow
-          {...settingRow("appearance.accent")}
-          description="Primary actions, links, selection, focus and sliders. Theme follows each theme's own accent. Status colours never change."
-        >
+        <SettingRow {...settingRow("appearance.accent")} description={undefined}>
           <AccentPicker />
         </SettingRow>
-        <SettingRow
-          {...settingRow("appearance.density")}
-          description="Compact fits more rows in lists and settings."
-        >
+        <SettingRow {...settingRow("appearance.density")} description={undefined}>
           <SegmentedControl
             label="Density"
             value={appearance.density}
@@ -136,13 +112,16 @@ export function AppearanceSettings() {
       </SettingSection>
       <SettingSection label="Make your own" card scope="device">
         <SettingRow
-          {...settingRow("appearance.themeEditor")}
-          description="Every colour, glass and shape token, with import, export and contrast checks. Saved themes appear above."
+          title={settingRow("appearance.themeEditor").title}
+          id="appearance.themeEditor"
           inline
         >
-          <Link to="/settings/theme-editor" className={buttonVariants({ size: "sm" })}>
-            <SwatchesIcon aria-hidden size={14} />
-            Open theme editor
+          <Link
+            to="/settings/theme-editor"
+            aria-label="Open theme editor"
+            className="flex h-7 items-center gap-1 rounded-sm text-sm text-muted-foreground focus-ring hover:text-foreground"
+          >
+            <CaretRightIcon aria-hidden size={14} />
           </Link>
         </SettingRow>
       </SettingSection>
@@ -151,7 +130,7 @@ export function AppearanceSettings() {
 }
 
 const swatch =
-  "size-[22px] shrink-0 rounded-full transition-shadow duration-(--dur-1) focus-ring aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
+  "size-5 shrink-0 rounded-full transition-shadow duration-(--dur-1) focus-ring aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
 
 function AccentPicker() {
   const { appearance, update } = useTheme();
@@ -164,7 +143,7 @@ function AccentPicker() {
       role="radiogroup"
       aria-label="Accent colour"
       onKeyDown={onRadioKeys}
-      className="flex flex-wrap items-center gap-2"
+      className="flex flex-wrap items-center justify-end gap-1.5"
     >
       {(["theme", ...accentNames] as const).map((name) => {
         const label = name === "theme" ? "Theme's own" : capitalised(name);
@@ -208,22 +187,24 @@ function AccentPicker() {
           />
         </label>
       </Tip>
-      <input
-        aria-label="Custom accent hex"
-        aria-invalid={invalid}
-        placeholder="#hex"
-        maxLength={7}
-        value={hex}
-        onChange={(event) => {
-          setHex(event.target.value);
-          if (HexColor.safeParse(event.target.value).success) {
-            setInvalid(false);
-            custom(event.target.value);
-          }
-        }}
-        onBlur={() => setInvalid(!HexColor.safeParse(hex).success)}
-        className="h-7 w-[84px] rounded-sm bg-secondary px-2 font-mono text-sm placeholder:text-subtle-foreground focus-ring aria-invalid:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--destructive)]"
-      />
+      {customChecked && (
+        <input
+          aria-label="Custom accent hex"
+          aria-invalid={invalid}
+          placeholder="#hex"
+          maxLength={7}
+          value={hex}
+          onChange={(event) => {
+            setHex(event.target.value);
+            if (HexColor.safeParse(event.target.value).success) {
+              setInvalid(false);
+              custom(event.target.value);
+            }
+          }}
+          onBlur={() => setInvalid(!HexColor.safeParse(hex).success)}
+          className="h-7 w-[84px] rounded-sm bg-secondary px-2 font-mono text-sm placeholder:text-subtle-foreground focus-ring aria-invalid:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--destructive)]"
+        />
+      )}
     </div>
   );
 }

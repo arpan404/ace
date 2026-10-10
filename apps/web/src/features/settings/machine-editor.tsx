@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { MachineIcon } from "@ace/protocol";
-import { CheckIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { MachineLabel, MachineMark } from "@/components/ui/machine-label.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -51,20 +52,16 @@ export function Machines() {
           title={<MachineLabel name={machine.name} icon={machine.icon} />}
           description={machine.primary ? "This machine" : "Paired machine"}
         >
-          <StatusLabel
-            tone={machine.status === "online" ? "done" : "idle"}
-            label={machine.status === "online" ? "Online" : "Offline"}
-          />
-          <IconButton
-            icon={PencilSimpleIcon}
-            size="sm"
-            label={`Edit ${machine.primary ? "this machine" : machine.name}`}
-            disabled={!machine.client}
-            reason={
-              !machine.client ? "Connect to this machine to edit its name and icon" : undefined
-            }
-            onClick={() => setEditing(machine)}
-          />
+          {machine.status !== "online" && <StatusLabel tone="idle" label="Offline" />}
+          <RowMenu label={`Actions for ${machine.name}`}>
+            <MenuItem
+              disabled={!machine.client}
+              reason={!machine.client ? "Connect to this machine to rename it" : undefined}
+              onClick={() => setEditing(machine)}
+            >
+              Rename
+            </MenuItem>
+          </RowMenu>
         </SettingRow>
       ))}
       {editing && (

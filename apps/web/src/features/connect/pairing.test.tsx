@@ -6,12 +6,13 @@ import { ConnectionGate } from "@/app/connection-gate.tsx";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { FakeDaemon } from "@ace/fake-daemon";
 import { AccessClient } from "@ace/client/access";
-import { loadTarget } from "@/boot/connection-settings.ts";
+import { loadTarget, saveTarget } from "@/boot/connection-settings.ts";
+import { pairingLinkFromUrl } from "@/boot/fragment-handoff.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function setup(linkRoute: boolean, rejectedConnection = false) {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
+async function setup(linkRoute: boolean | "bare", rejectedConnection = false) {
+  const daemon = new FakeDaemon({ clock: () => 1000, token: "a".repeat(64) });
   // Native browser fetch rejects a receiver other than the browser global.
   vi.stubGlobal("fetch", function (this: unknown, input: string, init?: RequestInit) {
     if (this !== undefined && this !== globalThis) throw new TypeError("Invalid fetch receiver");
@@ -24,12 +25,20 @@ async function setup(linkRoute: boolean, rejectedConnection = false) {
   });
   const pairing = await access.pairing(["read", "projects"]);
   const stores = { local: memoryKeyValue(), session: memoryKeyValue() };
+  if (linkRoute === "bare")
+    saveTarget(stores, { url: "ws://127.0.0.1:4242/", token: daemon.token }, true);
   render(
     <AppFrame environment={{}}>
       <ConnectionGate
         stores={stores}
         defaultUrl="ws://127.0.0.1:4242/"
-        pairingLink={linkRoute ? pairing.url : undefined}
+        pairingLink={
+          linkRoute
+            ? pairingLinkFromUrl(
+                new URL(linkRoute === "bare" ? "http://localhost/pair" : pairing.url),
+              )
+            : undefined
+        }
         createClient={() => fakeClient(daemon, rejectedConnection ? "c".repeat(64) : daemon.token)}
       >
         {() => <p>Connected to Office Mac</p>}
@@ -38,6 +47,13 @@ async function setup(linkRoute: boolean, rejectedConnection = false) {
   );
   return { stores, pairing };
 }
+
+test("opening the bare pairing route keeps the existing connection instead of asking to redeem a code", async () => {
+  const { stores } = await setup("bare");
+  expect(await screen.findByText("Connected to Office Mac")).toBeTruthy();
+  expect(screen.queryByRole("form", { name: "Pair this device" })).toBeNull();
+  expect(loadTarget(stores).remembered).toBe(true);
+});
 
 test("opening a pairing link asks for a name, stores only the issued credential and connects", async () => {
   const { stores, pairing } = await setup(true);

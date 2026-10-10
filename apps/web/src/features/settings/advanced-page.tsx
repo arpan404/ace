@@ -50,7 +50,10 @@ export function AdvancedSettings() {
         </SettingRow>
       </SettingSection>
       {/* The in-page development daemon: a developer detail, so not on General. */}
-      <DaemonSettings />
+      <details className="mt-7">
+        <summary className="rounded-sm text-sm text-muted-foreground focus-ring">Advanced</summary>
+        <DaemonSettings />
+      </details>
     </>
   );
 }
@@ -118,12 +121,8 @@ function DaemonDiagnostics() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <SettingRow
-        {...settingRow("advanced.diagnostics")}
-        description="Memory, sessions and queue depths, refreshed every 15 seconds while shown."
-        inline
-      >
-        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <SettingRow {...settingRow("advanced.diagnostics")} inline>
+        <Button size="sm" variant="secondary" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? "Hide" : "Show"}
         </Button>
       </SettingRow>

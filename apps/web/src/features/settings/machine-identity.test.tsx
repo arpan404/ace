@@ -1,4 +1,4 @@
-import { replayCursor, facts, workbench } from "@ace/fake-daemon";
+import { flakyCheckout, replayCursor, facts } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -8,6 +8,7 @@ async function renameMachine(button: string, name: string, icon: string) {
   const edit = await screen.findByRole("button", { name: button });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const dialog = await screen.findByRole("dialog");
   const input = within(dialog).getByRole("textbox", { name: "Machine name" });
   await userEvent.clear(input);
@@ -24,7 +25,7 @@ test("editing this machine updates its name and mark in Settings, both thread en
   app.play(replayCursor()).runThrough("finding");
   let view = await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
-  await renameMachine("Edit this machine", "Workshop Mac", "Desktop");
+  await renameMachine("Actions for Fake machine", "Workshop Mac", "Desktop");
   const machines = screen.getByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
   expect(within(machines).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
@@ -63,12 +64,7 @@ test("editing a paired machine saves on that host and replaces stale thread labe
     })
     .runThrough("finding");
   let view = await app.open("/settings/remote");
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Edit Old server" }).hasAttribute("disabled")).toBe(
-      false,
-    ),
-  );
-  await renameMachine("Edit Old server", "Build server", "Server");
+  await renameMachine("Actions for Old server", "Build server", "Server");
   expect(app.machines.get("build")?.services.settings.get("host.displayName")).toBe("Build server");
   expect(app.machines.get("build")?.services.settings.get("host.icon")).toMatchObject({
     kind: "server",
@@ -116,31 +112,31 @@ test("empty threads stay out of tasks until a user message is sent, even after a
   expect(await screen.findByRole("link", { name: /^New thread\./ })).toBeTruthy();
 });
 
-test("Activity identifies the remote machine with the same name and mark", async () => {
+test("Activity keeps device names in thread hover details instead of compact rows", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
-  app.machines.get("build")?.services.settings.seed({ "host.icon": { kind: "server" } });
-  for (const scenario of workbench())
-    app
-      .play({
-        ...scenario,
-        thread: {
-          ...scenario.thread,
-          details: {
-            ...scenario.thread.details,
-            machine: { host: "build", name: "Stale server", icon: { kind: "server" } },
-          },
-        },
-      })
-      .runUntilBlocked();
+  const scenario = flakyCheckout();
+  app
+    .play({
+      ...scenario,
+      thread: {
+        ...scenario.thread,
+        details: { ...scenario.thread.details, machine: { host: "build", name: "Stale server" } },
+      },
+    })
+    .runThrough("approval-requested");
   await app.open("/activity");
   const feed = await within(
     await screen.findByRole("complementary", { name: "Activity" }),
   ).findByRole("list", { name: "Activity" });
-  expect((await within(feed).findAllByText("Build server")).length).toBeGreaterThan(0);
-  expect(within(feed).getAllByRole("img", { name: "server machine icon" }).length).toBeGreaterThan(
-    0,
-  );
   expect(feed.textContent).not.toContain("Stale server");
+  expect(feed.textContent).not.toContain("Build server");
+  await app.open("/t/thread-checkout");
+  const row = await screen.findByRole("link", {
+    name: /Fix flaky checkout test.*Running on Build server/,
+  });
+  await userEvent.hover(row);
+  const detail = await screen.findByLabelText(/^Details for /);
+  expect(detail.textContent).toContain("Build server");
 });
 
 test("a chosen emoji survives leaving Settings and appears in the new thread environment", async () => {
@@ -148,9 +144,12 @@ test("a chosen emoji survives leaving Settings and appears in the new thread env
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
-  const edit = await screen.findByRole("button", { name: "Edit this machine" });
+  const edit = await screen.findByRole("button", {
+    name: /Actions for (Fake machine|Workshop Mac)/,
+  });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Emoji$/ }));
   const emoji = within(dialog).getByRole("textbox", { name: "Emoji" });
@@ -203,9 +202,12 @@ test("clearing a custom machine name restores the computer name", async () => {
   const app = harness();
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
   await app.open("/settings/remote");
-  const edit = await screen.findByRole("button", { name: "Edit this machine" });
+  const edit = await screen.findByRole("button", {
+    name: /Actions for (Fake machine|Workshop Mac)/,
+  });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const dialog = await screen.findByRole("dialog");
   await userEvent.clear(within(dialog).getByRole("textbox", { name: "Machine name" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));

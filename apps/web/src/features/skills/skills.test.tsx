@@ -8,6 +8,8 @@ const catalog = () => screen.getByRole("navigation", { name: "Skills catalog" })
 
 afterEach(() => localStorage.clear());
 
+await import("./skill-page.tsx");
+
 /** The design's daemon: two plugins installed, and a third its marketplace offers. */
 async function open(path: string) {
   const app = harness();
@@ -40,8 +42,11 @@ async function installed(app: ReturnType<typeof harness>): Promise<string[]> {
 test("Skills opens on the first skill with its source from the plugin", async () => {
   await open("/skills");
 
-  expect(await screen.findByRole("heading", { level: 1, name: "Code Review" })).toBeTruthy();
-  expect(screen.getByText("skills/code-review/SKILL.md")).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: "Code Review" })).toBeTruthy();
+  const source = await screen.findByText("Source file", { exact: true });
+  await userEvent.hover(source);
+  expect(await screen.findByRole("tooltip", { name: "skills/code-review/SKILL.md" })).toBeTruthy();
+  await userEvent.click(screen.getByText("Read source", { exact: true }));
   expect(await screen.findByText(/Review the changes since a fixed point/)).toBeTruthy();
 });
 
@@ -65,21 +70,21 @@ test("searching matches the plugin a skill ships with, and a miss offers to clea
   await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
   expect(within(catalog()).getByText("Release Notes")).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Plugin: All plugins" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "release" }));
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  await userEvent.click(await screen.findByRole("combobox", { name: "Plugin" }));
+  await userEvent.click(await screen.findByRole("option", { name: "release" }));
+  await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(within(catalog()).queryByText("Code Review")).toBeNull());
   expect(within(catalog()).getByText("Standup")).toBeTruthy();
 });
 
 test("arrow keys move through the catalog as one Tab stop", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
   const first = within(catalog()).getByRole("link", { name: /^Code Review/ });
   // A route lands focus on its heading; take it from there into the list.
   await waitFor(() =>
-    expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 1, name: "Code Review" }),
-    ),
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Skills" })),
   );
   first.focus();
 
@@ -91,7 +96,7 @@ test("arrow keys move through the catalog as one Tab stop", async () => {
 
 test("a plugin's page lists what it ships and its pin, with the switch labelled", async () => {
   await open("/skills/plugin~engineering");
-  await screen.findByRole("heading", { level: 1, name: "Engineering" });
+  await screen.findByRole("heading", { level: 2, name: "Engineering" });
 
   expect(screen.getByRole("switch", { name: "Enabled" })).toBeTruthy();
   expect(screen.getByText(/^Version 2\.3\.0 · installed /)).toBeTruthy();
@@ -107,13 +112,13 @@ test("a plugin's page lists what it ships and its pin, with the switch labelled"
 
   await userEvent.click(contents.getByRole("link", { name: /^Engineering Reviewer/ }));
   expect(
-    await screen.findByRole("heading", { level: 1, name: "Engineering Reviewer" }),
+    await screen.findByRole("heading", { level: 2, name: "Engineering Reviewer" }),
   ).toBeTruthy();
 });
 
 test("ticking providers is one change and one toast, sent when the menu closes", async () => {
   const app = await open("/skills/plugin~release");
-  await screen.findByRole("heading", { level: 1, name: "Release" });
+  await screen.findByRole("heading", { level: 2, name: "Release" });
   expect(screen.getByText("Claude Code only")).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Change" }));
@@ -137,7 +142,7 @@ test("ticking providers is one change and one toast, sent when the menu closes",
 
 test("installing lists the marketplace, shows what a plugin runs, and Back keeps the form", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
 
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   const dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
@@ -175,7 +180,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
   expect(runs.getByText("npx -y @sentry/mcp-server@0.9.0")).toBeTruthy();
   await userEvent.click(within(review).getByRole("button", { name: "Install" }));
 
-  expect(await screen.findByRole("heading", { level: 1, name: "Sentry" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: "Sentry" })).toBeTruthy();
   expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
   const plugins = within(catalog()).getByRole("region", { name: "Plugins" });
   expect(await within(plugins).findByText("Sentry")).toBeTruthy();
@@ -184,7 +189,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
 
 test("the install form can be cancelled, and closing a review installs nothing", async () => {
   await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
   await userEvent.click(screen.getByRole("button", { name: "Install plugin" }));
   let dialog = await screen.findByRole("dialog", { name: "Install a plugin" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -204,7 +209,7 @@ test("the install form can be cancelled, and closing a review installs nothing",
 
 test("Update re-reads the plugin and says when nothing changed", async () => {
   await open("/skills/plugin~engineering");
-  await screen.findByRole("heading", { level: 1, name: "Engineering" });
+  await screen.findByRole("heading", { level: 2, name: "Engineering" });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Update…" }));
@@ -217,7 +222,7 @@ test("Update re-reads the plugin and says when nothing changed", async () => {
 
 test("removing a plugin from a skill's page asks first, names the plugin and can be undone", async () => {
   const app = await open("/skills/engineering~skill~tdd");
-  await screen.findByRole("heading", { level: 1, name: "Test Driven Development" });
+  await screen.findByRole("heading", { level: 2, name: "Test Driven Development" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Remove plugin engineering…" }),
@@ -259,7 +264,7 @@ test("removing a plugin from a skill's page asks first, names the plugin and can
 
 test("a removal reaches the daemon once its Undo has gone", async () => {
   const app = await open("/skills/plugin~release");
-  await screen.findByRole("heading", { level: 1, name: "Release" });
+  await screen.findByRole("heading", { level: 2, name: "Release" });
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove release…" }));
@@ -285,7 +290,7 @@ test("a removal confirmed before a reload is finished when Skills next connects"
     JSON.stringify([{ daemon: "memory://fake-daemon", plugin: "release", deadline: 0 }]),
   );
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
   // Hidden from the first paint, then removed on the daemon.
   expect(within(catalog()).queryByText("Release Notes")).toBeNull();
   await waitFor(async () => expect(await installed(app)).not.toContain("release"));
@@ -299,14 +304,14 @@ test("a pending removal for another daemon is left alone", async () => {
     JSON.stringify([{ daemon: "wss://elsewhere:7417", plugin: "release", deadline: 0 }]),
   );
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
   expect(within(catalog()).getByText("Release Notes")).toBeTruthy();
   expect(await installed(app)).toContain("release");
 });
 
 test("Stop while a review is being made cancels that review once the daemon makes it", async () => {
   const app = await open("/skills");
-  await screen.findByRole("heading", { level: 1, name: "Code Review" });
+  await screen.findByRole("heading", { level: 2, name: "Code Review" });
   // Hold the daemon's answer to plugins.prepare until after Stop.
   const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const request = app.client.request.bind(app.client);
@@ -346,7 +351,7 @@ test("a skill that isn't installed offers the way back", async () => {
 
   expect(await screen.findByRole("heading", { name: "This isn't installed" })).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Back to Skills" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "Code Review" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: "Code Review" })).toBeTruthy();
 });
 
 test("when the daemon can't list plugins, Skills says so once and reads them again on Try again", async () => {
@@ -387,10 +392,13 @@ test("Skills and a thread offer the same discovered skills for a project and pro
     title: "Catalog parity",
   });
   await app.open("/skills");
+  await screen.findByRole("heading", { name: "Code Review", level: 2 });
+  await userEvent.click(await screen.findByRole("button", { name: "Filter skills" }));
   const project = await screen.findByRole("combobox", { name: "Skills project" });
   await userEvent.click(project);
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));
-  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  await userEvent.click(await screen.findByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
   const list = within(await screen.findByRole("navigation", { name: "Skills catalog" }));
   expect(await list.findByText("Review")).toBeTruthy();
@@ -398,9 +406,9 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   expect(await list.findByText("Explain")).toBeTruthy();
   for (const name of ["Quality Tools", "Search Docs", "Branch Checks"])
     expect(await list.findByText(name)).toBeTruthy();
-  expect(list.getByRole("link", { name: "Reviewer Global" })).toBeTruthy();
-  await userEvent.click(list.getByRole("link", { name: "Writing Global" }));
-  expect(await screen.findByRole("heading", { level: 1, name: "Writing" })).toBeTruthy();
+  expect(list.getByRole("link", { name: /^Reviewer Global/ })).toBeTruthy();
+  await userEvent.click(list.getByRole("link", { name: /^Writing Global/ }));
+  expect(await screen.findByRole("heading", { level: 2, name: "Writing" })).toBeTruthy();
   expect(screen.getAllByRole("heading", { name: "Source" })).toHaveLength(1);
   await app.open("/t/catalog-parity");
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "/");
@@ -429,6 +437,8 @@ test("Skills follows the New thread provider until a different provider is selec
     settings: { "providers.default": "codex" },
   });
   await app.open("/skills");
+  await screen.findByRole("heading", { name: "Code Review", level: 2 });
+  await userEvent.click(await screen.findByRole("button", { name: "Filter skills" }));
   const provider = await screen.findByRole("combobox", { name: "Skills provider" });
   await waitFor(() => expect(provider.textContent).toBe("Codex"));
   const selectDefault = (value: string) =>
@@ -439,11 +449,16 @@ test("Skills follows the New thread provider until a different provider is selec
       layer: { kind: "global" },
     });
   await selectDefault("claude");
-  await waitFor(() => expect(provider.textContent).toBe("Claude Code"));
-  expect(await within(catalog()).findByText("Fix")).toBeTruthy();
-  await userEvent.click(provider);
+  await waitFor(() => expect(within(catalog()).getByText("Fix")).toBeTruthy());
+  if (!screen.queryByRole("combobox", { name: "Skills provider" }))
+    await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  const currentProvider = screen.getByRole("combobox", { name: "Skills provider" });
+  expect(currentProvider.textContent).toBe("Claude Code");
+  await userEvent.click(currentProvider);
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
   await selectDefault("cursor");
-  await waitFor(() => expect(provider.textContent).toBe("Codex"));
-  expect(await within(catalog()).findByText("Google Drive")).toBeTruthy();
+  await waitFor(() => expect(within(catalog()).getByText("Google Drive")).toBeTruthy());
+  if (!screen.queryByRole("combobox", { name: "Skills provider" }))
+    await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  expect(screen.getByRole("combobox", { name: "Skills provider" }).textContent).toBe("Codex");
 });

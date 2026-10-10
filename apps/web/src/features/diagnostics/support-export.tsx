@@ -78,14 +78,14 @@ export function SupportExport() {
         <span>Support bundle</span>
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           disabled={!ready || running}
           onClick={() => {
             setError(undefined);
             setOpen(true);
           }}
         >
-          Export support bundle…
+          Export
         </Button>
       </div>
       <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>

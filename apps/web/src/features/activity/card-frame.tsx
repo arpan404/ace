@@ -63,7 +63,9 @@ export function CardFrame(props: {
         if (event.shiftKey) togglePicked(props.cardKey);
         focusCard(props.cardKey);
       }}
-      className={cn("border-b outline-none focus-visible:ring-1 focus-visible:ring-ring")}
+      className={cn(
+        "group/setting border-b outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      )}
     >
       <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
         <button
@@ -117,6 +119,7 @@ function CardMenu(props: { threadId: string; focused: boolean }) {
             icon={DotsThreeIcon}
             size="sm"
             label="Card actions"
+            className="opacity-0 group-hover/setting:opacity-100 group-focus-within/setting:opacity-100 data-popup-open:opacity-100 pointer-coarse:opacity-100"
             keys="h"
             resolve={false}
           />

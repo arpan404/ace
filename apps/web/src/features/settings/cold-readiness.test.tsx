@@ -61,9 +61,6 @@ test("Pi General permissions reports its unavailable modes before the native ada
   const permissions = await screen.findByRole("combobox", { name: "Pi permissions" });
   expect(await within(permissions).findByText("Permissions unavailable")).toBeTruthy();
   expect(permissions.hasAttribute("disabled")).toBe(true);
-  const row = screen.getByText("Pi", { exact: true }).parentElement;
-  if (!row) throw new Error("Missing Pi permission setting");
-  expect(within(row).getByText("No supported permission mode is available.")).toBeTruthy();
   expect(screen.queryByText("Use provider default")).toBeNull();
   expect(screen.queryByText("Couldn't load permission modes. Reconnect and try again.")).toBeNull();
 });
