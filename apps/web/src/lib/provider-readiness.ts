@@ -78,7 +78,6 @@ function watchProviders(client: ClientApi, queryClient: QueryClient): () => void
               ? known.map((entry) => (entry.id === account.id ? account : entry))
               : [...known, account];
           });
-          void queryClient.invalidateQueries({ queryKey: ["usage"] });
           void queryClient.invalidateQueries({ queryKey: ["providers", "statuses"] });
           return;
         }

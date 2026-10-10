@@ -113,3 +113,27 @@ test("Mark all read quiets every feed row and then has nothing left to do", asyn
   // Requests that still need you stay prominent.
   expect(row("Allow a force push to fix/restart-retry?").getByText("Needs you")).toBeTruthy();
 });
+
+test("a busy pull-request read offers Retry instead of hiding its events", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  const original = app.daemon.services.handle.bind(app.daemon.services);
+  let busy = true;
+  app.daemon.services.handle = (message, push, device) => {
+    if (busy && message.type === "workspace.request" && message.operation.op === "pr.status") {
+      push({
+        type: "workspace.result",
+        requestId: message.requestId,
+        result: { kind: "error", code: "busy" },
+      });
+      return true;
+    }
+    return original(message, push, device);
+  };
+  await app.open("/activity");
+  const retry = await screen.findByRole("button", { name: "Try again" }, { timeout: 4000 });
+  busy = false;
+  await userEvent.click(retry);
+  expect(await screen.findByText("Checks failed on #74")).toBeTruthy();
+});

@@ -322,3 +322,16 @@ test("an empty inventory stays accessible while scanning and retrying instead of
   ).toBeTruthy();
   expect(within(dialog).queryByRole("button", { name: /^Retry$/ })).toBeNull();
 });
+
+test("a missed ready push during reconnect cannot leave the scanning label stuck", async () => {
+  const made = app();
+  await openHistory(made);
+  const stats = { files: 1, reads: 1, bytes: 100, skipped: 0 };
+  made.daemon.seedServices({ historyScan: { state: "scanning", stats, unsupported: [] } });
+  expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
+  made.client.networkOnline(false);
+  made.daemon.seedServices({ historyScan: { state: "ready", stats, unsupported: [] } });
+  made.client.networkOnline(true);
+  await waitFor(() => expect(screen.queryByText("Looking for saved conversations…")).toBeNull());
+  expect(await screen.findByText("Fix the old retry loop")).toBeTruthy();
+});
