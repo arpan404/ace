@@ -97,7 +97,7 @@ export function ProviderSetupRow({
     <div className="flex min-w-0 flex-col">
       <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
         {!props.heading && (
-          <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} decorative />
+          <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />
         )}
         {!props.heading && (
           <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>

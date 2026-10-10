@@ -5,6 +5,7 @@ import { providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
+import { Tip } from "./tooltip.tsx";
 import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
@@ -94,27 +95,31 @@ export function AccountBadge(props: {
   className?: string | undefined;
   decorative?: boolean | undefined;
   tooltip?: boolean | undefined;
+  focusable?: boolean | undefined;
 }) {
   const { account } = props;
-  return (
+  const mark = (
     <span
       className={cn(
         "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+        props.focusable && "focus-ring",
         props.className,
       )}
+      tabIndex={props.focusable ? 0 : undefined}
       style={{
         background: accountColors[account.badgeColor ?? "neutral"],
         color: "var(--background)",
       }}
-      title={props.tooltip === false ? undefined : account.label}
       {...(props.decorative
         ? { "aria-hidden": true }
         : { role: "img", "aria-label": `${account.label} account` })}
     >
-      {accountBadge(
-        account.label,
-        account.shortLabel ?? [...account.label.trim()][0]?.toLocaleUpperCase(),
-      )}
+      {accountBadge(account.label, account.shortLabel)}
     </span>
+  );
+  return props.tooltip === false || props.decorative ? (
+    mark
+  ) : (
+    <Tip label={account.label}>{mark}</Tip>
   );
 }

@@ -5,6 +5,8 @@ import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { SettingSection } from "@/components/setting-row.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
@@ -21,7 +23,10 @@ export function ProviderSettings() {
   if (!entries)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
-        Couldn't check providers. Try again.
+        Couldn't check providers.{" "}
+        <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
+          Retry
+        </Button>
       </p>
     );
   const installed = entries.filter((entry) => !isMissing(entry));
@@ -79,17 +84,19 @@ function ProviderRow(props: { entry: ProviderEntry }) {
             <>
               <span className="flex items-center gap-1">
                 {own?.map((account) => (
-                  <AccountBadge key={account.id} account={account} />
+                  <AccountBadge key={account.id} account={account} focusable />
                 ))}
               </span>
-              <Link
-                to="/settings/providers/$provider"
-                params={{ provider: props.entry.id }}
-                aria-label={`Open ${install.name}`}
-                className="rounded-xs text-subtle-foreground focus-ring"
-              >
-                <CaretRightIcon aria-hidden size={14} />
-              </Link>
+              <Tip label={`Open ${install.name}`}>
+                <Link
+                  to="/settings/providers/$provider"
+                  params={{ provider: props.entry.id }}
+                  aria-label={`Open ${install.name}`}
+                  className="rounded-xs text-subtle-foreground focus-ring"
+                >
+                  <CaretRightIcon aria-hidden size={14} />
+                </Link>
+              </Tip>
             </>
           )
         }

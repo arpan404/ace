@@ -222,24 +222,20 @@
     -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
   }
+  /* Floating surfaces and the sidebar share the same blur. */
+  .glass,
+  .vibrancy {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  }
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
     background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
     border: 1px solid var(--glass-border);
     box-shadow:
       var(--glass-highlight),
       0 0 0 0.5px var(--glass-edge),
       var(--glass-shadow);
-  }
-  /* A card attached behind the composer's top edge: one step back from the composer's glass. */
-  .glass-behind {
-    background: color-mix(in oklab, var(--glass-bg) 80%, var(--background));
-    box-shadow:
-      var(--glass-highlight),
-      0 0 0 0.5px var(--glass-edge),
-      0 -12px 32px -20px rgb(0 0 0 / 0.5);
   }
   /* Search keeps the screen's colours behind it, without a heavy modal dimmer. The same
      Appearance intensity and OS preference still make the surface fully opaque when needed. */
@@ -249,11 +245,6 @@
       saturate(calc(100% + 50% * var(--glass-k)));
     backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
       saturate(calc(100% + 50% * var(--glass-k)));
-  }
-  /* The sidebar and reading column blur the wallpaper behind them. */
-  .vibrancy {
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
   }
   @media (prefers-reduced-transparency: reduce) {
     .glass,
@@ -458,12 +449,6 @@ body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] 
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .step-slider-convergence::before,
-  .step-slider-convergence > span {
-    animation: none;
-    transform: none;
-    filter: none;
-  }
   .step-slider-convergence::before {
     opacity: 0.45;
   }
@@ -481,12 +466,6 @@ body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] 
     opacity: 0.68;
   }
   to {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .step-slider-ace {
-    animation: none;
     opacity: 1;
   }
 }

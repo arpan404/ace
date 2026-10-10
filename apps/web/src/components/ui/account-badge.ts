@@ -1,3 +1,4 @@
+import { accountShortLabel } from "@ace/ui-core";
 const graphemes = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 export const accountBadgeStyle =
@@ -12,12 +13,5 @@ export function accountBadge(label: string, shortLabel?: string | null): string 
       .slice(0, 2)
       .map((part) => part.segment)
       .join("");
-  return (
-    label
-      .trim()
-      .split(/\s+/u)
-      .slice(0, 2)
-      .map((word) => [...graphemes.segment(word)][0]?.segment.toLocaleUpperCase() ?? "")
-      .join("") || "?"
-  );
+  return accountShortLabel({ label }) ?? "?";
 }

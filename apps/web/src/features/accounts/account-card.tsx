@@ -1,9 +1,9 @@
 import { accountLimit } from "@ace/ui-core";
-import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
 import type { Account } from "./accounts-source.ts";
 import { CompactWindow } from "./window-bar.tsx";
+import { AccountIdentity } from "./account-identity.tsx";
 import { formatResets } from "./format.ts";
 
 /** Usage is read-only; running thread counts belong in the row's tooltip. */
@@ -24,19 +24,13 @@ export function AccountCard(props: { account: Account }) {
   return (
     <article
       aria-label={`${account.providerLabel} ${account.label}`}
-      className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 py-1 text-sm"
+      className="grid min-h-9 grid-cols-1 items-center gap-2 rounded-xs py-1 text-sm hover:bg-accent sm:grid-cols-[minmax(0,1fr)_auto]"
     >
-      <AccountBadge account={account} />
-      <Tip label={tip}>
-        <span
-          tabIndex={0}
-          style={{ minWidth: 160 }}
-          className="flex-1 truncate rounded-xs focus-ring"
-        >
-          {account.providerLabel} · {account.label}
-        </span>
-      </Tip>
-      <div className="flex max-w-full flex-wrap items-center gap-x-4 gap-y-1 pl-8">
+      <AccountIdentity account={account} tooltip={tip} />
+      <div
+        className="flex max-w-full flex-wrap items-center gap-x-4 gap-y-1 pl-12 sm:pl-0"
+        style={{ width: 464 }}
+      >
         {account.windows.length ? (
           account.windows.map((window) => (
             <CompactWindow key={window.id} window={window} now={now} />
@@ -51,12 +45,26 @@ export function AccountCard(props: { account: Account }) {
               : "Not reported yet"}
           </span>
         )}
-        {reset !== undefined && reset !== null && (
-          <span className="text-xs text-subtle-foreground">{formatResets(reset, now)}</span>
-        )}
-        {limit.level === "reached" && (
-          <span className="text-xs text-status-failed">Limit reached</span>
-        )}
+        {(reset !== undefined && reset !== null) || limit.level === "reached" ? (
+          <Tip
+            label={
+              limit.level === "reached"
+                ? `Limit reached · ${reset != null ? formatResets(reset, now) : "Reset time not reported"}`
+                : formatResets(reset ?? now, now)
+            }
+          >
+            <span
+              tabIndex={0}
+              className={
+                limit.level === "reached"
+                  ? "rounded-xs text-xs text-status-failed focus-ring sm:ml-auto"
+                  : "rounded-xs text-xs text-subtle-foreground focus-ring sm:ml-auto"
+              }
+            >
+              {reset != null ? formatResets(reset, now) : "Limit reached"}
+            </span>
+          </Tip>
+        ) : null}
       </div>
     </article>
   );

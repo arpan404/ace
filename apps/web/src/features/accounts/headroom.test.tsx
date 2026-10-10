@@ -59,27 +59,29 @@ test("usage puts limited accounts first and exposes each provider reset time", a
   ).toMatch(/^57% used, Resets \w+ · in 2d$/);
 });
 
-/** A table row's cells: who, which provider, how many tokens. */
-const cells = (row: HTMLElement) =>
-  within(row)
-    .getAllByRole("cell")
-    .slice(0, 3)
-    .map((cell) => cell.textContent);
-
 test("usage by account lists each account's tokens under its name", async () => {
   await harness().open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "By account" }));
 
   const table = await screen.findByRole("table", { name: "Usage by account" });
   const rows = await within(table).findAllByRole("row");
-  // Busiest first; an account ace doesn't list keeps its id.
-  expect(rows.slice(1).map(cells)).toEqual([
-    ["Personal", "Claude Code", "50.8M"],
-    ["Personal", "Codex", "37.0M"],
-    ["Work", "Claude Code", "31.7M"],
-    ["OpenRouter API", "OpenCode", "9.4M"],
-    ["API key", "Pi", "3.0M"],
-  ]);
+  const expected = [
+    ["Claude Code", "Personal", "50.8M"],
+    ["Codex", "Personal", "37.0M"],
+    ["Claude Code", "Work", "31.7M"],
+    ["OpenCode", "OpenRouter API", "9.4M"],
+    ["Pi", "API key", "3.0M"],
+  ] as const;
+  expect(rows).toHaveLength(expected.length + 1);
+  for (const [index, [provider, account, tokens]] of expected.entries()) {
+    const row = rows[index + 1];
+    if (!row) throw new Error("Missing usage account row");
+    const shown = within(row);
+    expect(shown.getByRole("img", { name: provider })).toBeTruthy();
+    expect(shown.getByRole("img", { name: `${account} account` })).toBeTruthy();
+    expect(shown.getByText(`${provider} · ${account}`, { exact: true })).toBeTruthy();
+    expect(shown.getByRole("cell", { name: tokens })).toBeTruthy();
+  }
 });
 
 test("when usage can't be read, each grouping says so with its own retry and the other stays reachable", async () => {

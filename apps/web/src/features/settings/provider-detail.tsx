@@ -11,7 +11,6 @@ import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { ProviderSetupRow, type ProviderSetupActions } from "@/features/provider-setup/index.ts";
 import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
-import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -70,7 +69,10 @@ export function ProviderDetail(props: { id: string }) {
           <p role="alert" className="mt-4 text-muted-foreground">
             {query.isError ? (
               <>
-                Couldn't check providers. Try again. <RediscoverButton />
+                Couldn't check providers.{" "}
+                <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
+                  Retry
+                </Button>
               </>
             ) : (
               "This provider isn't on this computer."
@@ -148,7 +150,13 @@ function ProviderPage(props: { entry: ProviderEntry }) {
         )}
         {!missing && (
           <>
-            <Suspense fallback={null}>
+            <Suspense
+              fallback={
+                <SettingSection label="Accounts">
+                  <ListSkeleton label="accounts" shape="row" rows={3} />
+                </SettingSection>
+              }
+            >
               <DeferredProviderAccounts.Component
                 provider={install.kind}
                 acpAgentId={install.acpAgentId}
@@ -182,7 +190,9 @@ function ProviderPage(props: { entry: ProviderEntry }) {
           className="mt-7 text-sm"
           onToggle={(event) => setAdvanced(event.currentTarget.open)}
         >
-          <summary className="cursor-pointer text-muted-foreground">Advanced</summary>
+          <summary className="cursor-pointer rounded-xs text-muted-foreground focus-ring hover:text-foreground">
+            Advanced
+          </summary>
           {advanced && row && (
             <Suspense fallback={null}>
               <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />

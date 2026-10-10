@@ -1,3 +1,4 @@
+import { accountShortLabel } from "@ace/accounts/labels";
 import { NativeAccountProvider } from "@ace/protocol/accounts";
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { z } from "zod";
@@ -65,7 +66,10 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     id,
     provider: id,
     installationVersion: version,
-    label: "Your CLI login",
+    label: id === "cursor" ? "Your Cursor login" : "Your CLI login",
+    shortLabel: "Y",
+    badgeUsesInitial: true,
+    badgeColor: "neutral" as const,
     authMethod: "unknown",
     implicit: true,
     cliHome: `/Users/ada/.${id}`,
@@ -106,6 +110,9 @@ export function accountSummaries(now: number): AccountSummary[] {
         installationVersion: registered.find((account) => account.provider === provider)
           ?.cliVersion,
         label: "Your CLI login",
+        shortLabel: "Y",
+        badgeUsesInitial: true,
+        badgeColor: "neutral" as const,
         implicit: true,
         cliHome: `/Users/ada/.${provider}`,
         isDefault: true,
@@ -153,4 +160,25 @@ export function accountSummaries(now: number): AccountSummary[] {
   return accounts.map((account) =>
     Object.assign(account, { blockedUntil: blockedUntil(account.quota, now) }),
   );
+}
+
+/** Both fake mutation commands follow the same badge semantics as account summaries. */
+export function renameAccount(
+  account: AccountSummary,
+  request: {
+    label: string;
+    shortLabel?: string | undefined;
+    badgeUsesInitial?: boolean | undefined;
+    badgeColor?: AccountSummary["badgeColor"] | null | undefined;
+  },
+): void {
+  account.label = request.label;
+  account.badgeUsesInitial =
+    request.badgeUsesInitial ??
+    (request.shortLabel !== undefined ? false : account.badgeUsesInitial);
+  account.shortLabel = account.badgeUsesInitial
+    ? accountShortLabel({ label: account.label })
+    : (request.shortLabel ?? account.shortLabel);
+  account.badgeColor =
+    request.badgeColor === null ? undefined : (request.badgeColor ?? account.badgeColor);
 }

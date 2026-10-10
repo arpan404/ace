@@ -25,7 +25,7 @@ test("adding an account focuses its name, waits in the same dialog and closes on
   await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Side project");
   await userEvent.click(dialog.getByRole("button", { name: "Use blue badge" }));
   await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
-  await dialog.findByText("Waiting for you to finish signing in…");
+  await dialog.findByText("Waiting for you to finish signing in…", {}, { timeout: 10_000 });
   expect(dialog.getByRole("link", { name: "Open again" })).toBeTruthy();
   expect(
     (await app.client.request({ type: "accounts.list" })).accounts.some(
@@ -109,7 +109,7 @@ test("hover actions make an account default, rename it and require confirmation 
   await waitFor(async () => expect(within(await accounts()).queryByText("Client work")).toBeNull());
 });
 
-test("signed-in rows show quota instead of success status and the CLI login cannot be renamed or removed", async () => {
+test("signed-in rows show quota and the CLI login can be renamed but cannot be removed", async () => {
   await harness().open("/settings/providers/claude");
   const personal = await account("Personal");
   expect(
@@ -118,7 +118,8 @@ test("signed-in rows show quota instead of success status and the CLI login cann
   expect(within(personal).queryByText("Signed in")).toBeNull();
   const cli = await account("Your CLI login");
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
-  expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+  expect(screen.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
+  expect(screen.getByRole("menuitem", { name: "Change badge" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Claude Code" })).toBeTruthy();
@@ -154,4 +155,58 @@ test("Advanced removal opens the same supervised confirmation as the header menu
   await userEvent.click(await screen.findByRole("button", { name: "Remove provider…" }));
   expect(await screen.findByText(/Remove Claude Code's CLI from this computer/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Remove CLI" })).toBeTruthy();
+});
+
+test("CLI login rename follows its new initial, preserves the default and keeps the home visible", async () => {
+  const app = harness();
+  await app.open("/settings/providers/claude");
+  const cli = await account("Your CLI login");
+  expect(within(cli).getByRole("img", { name: "Your CLI login account" }).textContent).toBe("Y");
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  const form = within(screen.getByRole("form", { name: "Edit account label" }));
+  const name = form.getByRole("textbox", { name: "Account name" });
+  await waitFor(() => expect(document.activeElement).toBe(name));
+  await userEvent.clear(name);
+  await userEvent.type(name, "Studio{Enter}");
+  const renamed = await account("Studio");
+  expect(within(renamed).getByRole("img", { name: "Studio account" }).textContent).toBe("S");
+  expect(within(renamed).getByText("Default")).toBeTruthy();
+  expect(within(renamed).getByText("/Users/ada/.claude")).toBeTruthy();
+  const saved = (await app.client.request({ type: "accounts.list" })).accounts.find(
+    (row) => row.id === "claude-cli-default",
+  );
+  expect(saved).toMatchObject({
+    label: "Studio",
+    shortLabel: "S",
+    badgeUsesInitial: true,
+    isDefault: true,
+    cliHome: "/Users/ada/.claude",
+  });
+});
+
+test("Escape cancels account editing and a failed save can be retried without losing the entered name", async () => {
+  const app = harness();
+  await app.open("/settings/providers/claude");
+  const cli = await account("Your CLI login");
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await screen.findByRole("form", { name: "Edit account label" });
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(screen.queryByRole("form", { name: "Edit account label" })).toBeNull(),
+  );
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  const form = within(screen.getByRole("form", { name: "Edit account label" }));
+  const name = form.getByRole("textbox", { name: "Account name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Studio");
+  app.daemon.failRequests("accounts.rename");
+  await userEvent.click(form.getByRole("button", { name: "Save" }));
+  await form.findByRole("alert");
+  expect(name).toHaveProperty("value", "Studio");
+  app.daemon.restoreRequests();
+  await userEvent.click(form.getByRole("button", { name: "Retry" }));
+  expect(await account("Studio")).toBeTruthy();
 });

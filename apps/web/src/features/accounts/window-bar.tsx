@@ -68,7 +68,7 @@ export function CompactWindow(props: { window: QuotaWindowView; now: number }) {
       className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
       title={formatResetCountdown(window.resetsAt, props.now)}
     >
-      <span className="shrink-0">{window.label}</span>
+      <span className="w-10 shrink-0">{window.label}</span>
       <span
         role="meter"
         aria-label={`${window.label} window`}

@@ -4,10 +4,12 @@ import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { accountStatus, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useLocation } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
 import { StatusLine } from "@/components/provider-tile.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -51,7 +53,7 @@ export function ProviderAccounts(props: {
       (props.provider !== "acp" || account.acpAgentId === props.acpAgentId),
   );
   const manageable = canAddAccounts(props.provider);
-  if (!own.length && !manageable) return null;
+  if (!own.length && !manageable && !accounts.isPending && !accounts.isError) return null;
   return (
     <SettingSection
       label="Accounts"
@@ -64,6 +66,10 @@ export function ProviderAccounts(props: {
             Retry
           </Button>
         </p>
+      )}
+      {accounts.isPending ? <ListSkeleton label="accounts" shape="row" rows={3} /> : null}
+      {!accounts.isPending && !accounts.isError && !own.length && (
+        <p className="py-2 text-sm text-muted-foreground">No accounts yet. Add an account below.</p>
       )}
       <ul aria-label={`${props.name} accounts`}>
         {own.map((account) => (
@@ -99,9 +105,10 @@ function AccountItem(props: {
   const keyLogin = useInlineSignIn();
   const actions = useAccountActions();
   const toast = useToast();
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const [renaming, setRenaming] = useState(false);
   const [removing, setRemoving] = useState(false);
-  // Named accounts keep the casing entered by the person.
+  // Keep the casing entered by the person.
   const label = account.label;
 
   const state = accountStatus(account, now);
@@ -117,42 +124,130 @@ function AccountItem(props: {
       style={highlighted ? { background: "var(--accent)" } : undefined}
       className="group rounded-md py-0.5 focus-ring hover:bg-accent"
     >
-      <div className="flex min-h-8 flex-wrap items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {renaming ? (
-            <AccountLabelEditor
-              account={account}
-              onCancel={() => setRenaming(false)}
-              onSave={(name, badge) => {
-                actions
-                  .rename(account.id, name, badge)
-                  .then(() => setRenaming(false))
-                  .catch(fail(`Couldn't update ${account.label}`));
-              }}
-            />
-          ) : (
-            <span className="flex min-w-0 items-center gap-2">
-              <AccountBadge account={account} />
-              <span className="truncate font-medium">{label}</span>
-              <AccountKeyMark method={account.authMethod} />
-              {account.isDefault && (
-                <span className="shrink-0 text-xs text-muted-foreground">Default</span>
-              )}
-            </span>
-          )}
+      <div className="grid min-h-9 grid-cols-[1fr_auto] items-center gap-2 sm:grid-cols-[1fr_12rem_8rem]">
+        <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+          <span className="flex min-w-0 items-center gap-2">
+            <AccountBadge account={account} tooltip={false} />
+            <Tip label={label}>
+              <span tabIndex={0} className="truncate rounded-xs font-medium focus-ring">
+                {label}
+              </span>
+            </Tip>
+            <AccountKeyMark method={account.authMethod} />
+            {account.isDefault && (
+              <span className="shrink-0 text-xs text-muted-foreground">Default</span>
+            )}
+          </span>
           {account.implicit && account.cliHome && (
             <span
-              className="hidden truncate text-xs text-subtle-foreground sm:flex"
+              className="max-w-full truncate pl-7 text-xs text-subtle-foreground sm:pl-0"
               title={account.cliHome}
             >
               {account.cliHome}
             </span>
           )}
         </div>
-        {!renaming &&
-          (state.canRun ? (
+        <div className="flex w-32 items-center justify-end gap-2 sm:order-1">
+          {!account.isDefault && native && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
+              onClick={() =>
+                actions
+                  .setDefault(native, account.id)
+                  .catch(fail(`Couldn't make ${label} the default`))
+              }
+            >
+              Make default
+            </Button>
+          )}
+          {signIn && props.manageable && (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <IconButton
+                    ref={menuTrigger}
+                    icon={DotsThreeIcon}
+                    label={`Manage ${label}`}
+                    size="sm"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
+                    onPointerEnter={() => void preloadSignIn()}
+                  />
+                }
+              />
+              <MenuContent align="end" finalFocus={renaming ? false : undefined}>
+                <MenuItem
+                  onClick={() =>
+                    signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
+                  }
+                >
+                  Sign in again
+                </MenuItem>
+                {support.data?.supported &&
+                  (provider === "opencode" ? (
+                    (support.data.upstreams ?? []).flatMap((upstream) => {
+                      const parsed = ApiKeyUpstream.safeParse(upstream);
+                      return parsed.success
+                        ? [
+                            <MenuItem
+                              key={upstream}
+                              onClick={() =>
+                                keyLogin.start({
+                                  provider,
+                                  ...(account.implicit ? {} : { instance: account.id }),
+                                  method: "api_key",
+                                  upstream: parsed.data,
+                                })
+                              }
+                            >
+                              Use {apiKeyUpstreamLabel(parsed.data)} API key
+                            </MenuItem>,
+                          ]
+                        : [];
+                    })
+                  ) : (
+                    <MenuItem
+                      onClick={() =>
+                        keyLogin.start({
+                          provider,
+                          ...(account.implicit ? {} : { instance: account.id }),
+                          method: "api_key",
+                        })
+                      }
+                    >
+                      Use API key
+                    </MenuItem>
+                  ))}
+                <MenuItem
+                  onClick={() =>
+                    signIn({
+                      provider,
+                      action: "logout",
+                      ...(account.implicit ? {} : { instance: account.id }),
+                    })
+                  }
+                >
+                  Sign out
+                </MenuItem>
+                <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
+                <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
+                {!account.implicit && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
+                      Remove
+                    </MenuItem>
+                  </>
+                )}
+              </MenuContent>
+            </Menu>
+          )}
+        </div>
+        <div className="col-span-2 flex flex-wrap items-center gap-2 pl-7 sm:col-span-1 sm:pl-0">
+          {state.canRun ? (
             account.windows[0] && (
-              <span className="inline-flex group-hover:hidden group-focus-within:hidden">
+              <span className="inline-flex">
                 <CompactWindow
                   window={
                     account.windows.find((window) => window.label === "5-hour") ??
@@ -171,122 +266,39 @@ function AccountItem(props: {
                   : state.text
               }
             />
-          ))}
-        {!renaming &&
-          signIn &&
-          props.manageable &&
-          (state.text === "Signed out" ||
-            state.text === "Not signed in yet" ||
-            (state.text !== "Limit reached" &&
-              !state.canRun &&
-              !account.quota.blockers.homeUnavailable)) && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() =>
-                signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
-              }
-            >
-              {state.text === "Signed out" || state.text === "Not signed in yet"
-                ? "Sign in"
-                : "Reconnect"}
-            </Button>
           )}
-        {!renaming && !account.isDefault && native && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="hidden group-hover:inline-flex group-focus-within:inline-flex pointer-coarse:inline-flex"
-            onClick={() =>
-              actions
-                .setDefault(native, account.id)
-                .catch(fail(`Couldn't make ${label} the default`))
-            }
-          >
-            Make default
-          </Button>
-        )}
-        {!renaming && signIn && props.manageable && (
-          <Menu>
-            <MenuTrigger
-              render={
-                <IconButton
-                  icon={DotsThreeIcon}
-                  label={`Manage ${label}`}
-                  size="sm"
-                  className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
-                  onPointerEnter={() => void preloadSignIn()}
-                />
-              }
-            />
-            <MenuContent align="end">
-              <MenuItem
+          {signIn &&
+            props.manageable &&
+            (state.text === "Signed out" ||
+              state.text === "Not signed in yet" ||
+              (state.text !== "Limit reached" &&
+                !state.canRun &&
+                !account.quota.blockers.homeUnavailable)) && (
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={() =>
                   signIn({ provider, ...(account.implicit ? {} : { instance: account.id }) })
                 }
               >
-                Sign in again
-              </MenuItem>
-              {support.data?.supported &&
-                (provider === "opencode" ? (
-                  (support.data.upstreams ?? []).flatMap((upstream) => {
-                    const parsed = ApiKeyUpstream.safeParse(upstream);
-                    return parsed.success
-                      ? [
-                          <MenuItem
-                            key={upstream}
-                            onClick={() =>
-                              keyLogin.start({
-                                provider,
-                                ...(account.implicit ? {} : { instance: account.id }),
-                                method: "api_key",
-                                upstream: parsed.data,
-                              })
-                            }
-                          >
-                            Use {apiKeyUpstreamLabel(parsed.data)} API key
-                          </MenuItem>,
-                        ]
-                      : [];
-                  })
-                ) : (
-                  <MenuItem
-                    onClick={() =>
-                      keyLogin.start({
-                        provider,
-                        ...(account.implicit ? {} : { instance: account.id }),
-                        method: "api_key",
-                      })
-                    }
-                  >
-                    Use API key
-                  </MenuItem>
-                ))}
-              <MenuItem
-                onClick={() =>
-                  signIn({
-                    provider,
-                    action: "logout",
-                    ...(account.implicit ? {} : { instance: account.id }),
-                  })
-                }
-              >
-                Sign out
-              </MenuItem>
-              {!account.implicit && (
-                <>
-                  <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
-                  <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
-                  <MenuSeparator />
-                  <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
-                    Remove
-                  </MenuItem>
-                </>
-              )}
-            </MenuContent>
-          </Menu>
-        )}
+                {state.text === "Signed out" || state.text === "Not signed in yet"
+                  ? "Sign in"
+                  : "Reconnect"}
+              </Button>
+            )}
+        </div>
       </div>
+      {renaming && (
+        <AccountLabelEditor
+          account={account}
+          returnFocus={menuTrigger}
+          onCancel={() => setRenaming(false)}
+          onSave={async (name, badge) => {
+            await actions.rename(account.id, name, badge);
+            setRenaming(false);
+          }}
+        />
+      )}
       {keyLogin.content}
       <RemoveAccount
         open={removing}

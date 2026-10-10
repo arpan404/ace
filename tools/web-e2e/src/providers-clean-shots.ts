@@ -2,7 +2,7 @@ import { chromium, expect as playwrightExpect, type Page } from "@playwright/tes
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const expect = playwrightExpect.configure({ timeout: 30_000 });
-const out = "/tmp/ace-orch/shots/ui-providers-clean";
+const out = process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean";
 const base = process.env.ACE_PROVIDER_SHOTS_URL ?? "http://127.0.0.1:5228";
 const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
 const browser = await chromium.launch();
@@ -86,6 +86,14 @@ try {
         const target = targets.get(`${mode}-${index}`);
         if (!target) throw new Error("Missing target screenshot");
         await capture(page, `${surface}-${theme}-${width}`, target);
+        if (index === 3) {
+          await page.getByRole("region", { name: "Usage", exact: true }).scrollIntoViewIfNeeded();
+          await expect(page.getByRole("table", { name: "Usage by model" })).toBeVisible();
+          await capture(page, `usage-detail-${theme}-${width}`, target);
+          await page.getByRole("button", { name: "By account", exact: true }).click();
+          await expect(page.getByRole("table", { name: "Usage by account" })).toBeVisible();
+          await capture(page, `usage-by-account-${theme}-${width}`, target);
+        }
         if (index === 2) {
           await page.getByRole("button", { name: "Add and sign in" }).click();
           await expect(page.getByLabel("Sign-in code")).toBeVisible();
@@ -144,6 +152,89 @@ try {
         await expect(page.getByRole("textbox", { name: "CLI path" })).toBeVisible();
         await capture(page, `advanced-${theme}-${width}`, target);
       }
+      {
+        const target = targets.get(`${mode}-1`);
+        if (!target) throw new Error("Missing provider target");
+        for (const [id, name] of [
+          ["claude", "Claude Code"],
+          ["opencode", "OpenCode"],
+          ["cursor", "Cursor"],
+          ["pi", "Pi"],
+          ["acp:Gemini CLI", "Gemini CLI"],
+          ["antigravity", "Antigravity"],
+        ]) {
+          await page.goto(`${base}/settings/providers/${encodeURIComponent(id ?? "")}`, {
+            timeout: 180_000,
+          });
+          await expect(page.getByRole("heading", { level: 2, name: name ?? "" })).toBeVisible();
+          if (id !== "antigravity" && id !== "acp:Gemini CLI")
+            await expect(
+              page
+                .getByRole("list", { name: `${name} accounts` })
+                .getByRole("listitem")
+                .first(),
+            ).toBeVisible();
+          await capture(page, `provider-${id?.split(":")[0]}-${theme}-${width}`, target);
+          await expect
+            .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+            .toBe(true);
+        }
+        await page.goto(`${base}/settings/providers/claude`, { timeout: 180_000 });
+        const accounts = page.getByRole("list", { name: "Claude Code accounts" });
+        await accounts.getByRole("button", { name: "Manage Your CLI login" }).click();
+        await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+        const editor = page.getByRole("dialog", { name: "Edit Your CLI login" });
+        await expect(editor.getByRole("textbox", { name: "Account name" })).toBeFocused();
+        await editor.getByRole("textbox", { name: "Account name" }).fill("Studio");
+        await capture(page, `cli-edit-${theme}-${width}`, target);
+        await editor.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(editor).toHaveCount(0);
+        await expect(accounts.getByRole("img", { name: "Studio account" })).toHaveText("S");
+        await capture(page, `cli-initial-${theme}-${width}`, target);
+        await accounts.getByRole("button", { name: "Manage Studio" }).click();
+        await page.getByRole("menuitem", { name: "Change badge" }).click();
+        const badge = page.getByRole("dialog", { name: "Edit Studio" });
+        await badge.getByRole("button", { name: "Use violet badge" }).click();
+        await badge.getByRole("button", { name: "Use 🧪 badge" }).click();
+        await page.evaluate(() => new Function("ace.daemon.failRequests('accounts.rename')")());
+        await badge.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(badge.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+        await capture(page, `cli-edit-failure-${theme}-${width}`, target);
+        await page.evaluate(() => new Function("ace.daemon.restoreRequests()")());
+        await badge.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect(badge).toHaveCount(0);
+        await expect(accounts.getByRole("img", { name: "Studio account" })).toHaveText("🧪");
+        await capture(page, `cli-badge-${theme}-${width}`, target);
+        await page.getByRole("link", { name: "Back to Providers" }).click();
+        const stack = page
+          .getByRole("group", { name: "Claude Code", exact: true })
+          .getByRole("img", { name: "Studio account" });
+        await stack.focus();
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Shift+Tab");
+        await expect(page.getByRole("tooltip", { name: "Studio", exact: true })).toBeVisible();
+        await capture(
+          page,
+          `providers-badge-${theme}-${width}`,
+          targets.get(`${mode}-0`) ?? target,
+        );
+        const backApp = page.getByRole("link", { name: "Back to app" });
+        if (width === 390) await page.getByRole("button", { name: "Back to threads" }).click();
+        await backApp.click();
+        await expect(
+          page.getByRole("heading", { name: "New thread", level: 1, exact: true }),
+        ).toBeVisible();
+        const profile = page.getByRole("button", { name: /, account$/ });
+        if (width === 390) {
+          await expect(page.getByRole("dialog", { name: "Sidebar", exact: true })).toHaveCount(0);
+          await page.getByRole("button", { name: "Back to threads" }).click();
+        }
+        await expect(profile).toBeVisible();
+        await profile.click();
+        await page.getByRole("menuitem", { name: "Usage", exact: true }).click();
+        await expect(page.getByRole("article", { name: "Claude Code Studio" })).toBeVisible();
+        await capture(page, `usage-badge-${theme}-${width}`, targets.get(`${mode}-3`) ?? target);
+      }
       await page.close();
       process.stdout.write(`Captured ${theme} ${width}\n`);
     }
@@ -153,6 +244,8 @@ try {
     "provider",
     "add-account",
     "usage",
+    "usage-detail",
+    "usage-by-account",
     "add-waiting",
     "add-failure",
     "add-success",
@@ -161,9 +254,23 @@ try {
     "account-remove",
     "models",
     "advanced",
+    "provider-claude",
+    "provider-opencode",
+    "provider-cursor",
+    "provider-pi",
+    "provider-acp",
+    "provider-antigravity",
+    "cli-edit",
+    "cli-initial",
+    "cli-edit-failure",
+    "cli-badge",
+    "providers-badge",
+    "usage-badge",
   ]) {
     const names = files.filter(
-      (file) => file.startsWith(`${surface}-`) && !file.includes("comparison"),
+      (file) =>
+        themes.some((theme) => file.startsWith(`${surface}-${theme}-`)) &&
+        !file.includes("comparison"),
     );
     const entries = await Promise.all(
       names.map(

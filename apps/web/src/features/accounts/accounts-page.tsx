@@ -65,7 +65,7 @@ export function AccountsPage() {
               description={describeDaemonError(daemonErrorCode(accounts.error))}
               action={
                 <Button size="sm" onClick={() => void accounts.refetch()}>
-                  Try again
+                  Retry
                 </Button>
               }
             />
@@ -74,8 +74,13 @@ export function AccountsPage() {
           ) : !accounts.data.length ? (
             <EmptyState
               icon={ChartBarIcon}
-              title="No accounts found yet"
-              description="Add an account in Settings › Providers to see its usage."
+              title="No accounts yet"
+              description="Add an account to see its usage."
+              action={
+                <Button size="sm" render={<Link to="/settings/providers" />}>
+                  Add account
+                </Button>
+              }
             />
           ) : (
             groups

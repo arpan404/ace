@@ -50,7 +50,8 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
       if (!progress.instance) return;
       await actions
         .rename(progress.instance, label.trim(), {
-          shortLabel: accountBadge(label, badge),
+          shortLabel: badge.trim() || undefined,
+          badgeUsesInitial: !badge.trim(),
           badgeColor: color,
         })
         .catch(() =>

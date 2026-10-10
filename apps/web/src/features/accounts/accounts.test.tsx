@@ -1,3 +1,4 @@
+import { providerDisplayName } from "@ace/ui-core";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -83,13 +84,13 @@ test("usage keeps daily totals and models available below the limits", async () 
   ).toBeTruthy();
 });
 
-test("failed usage reads explain what happened and Try again recovers", async () => {
+test("failed usage reads explain what happened and Retry recovers", async () => {
   const app = harness();
   app.daemon.failRequests("accounts.list");
   await app.open("/accounts");
   await screen.findByText("Couldn't load usage", {}, { timeout: 4000 });
   app.daemon.restoreRequests();
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(await card("Claude Code Personal")).toBeTruthy();
 });
 
@@ -139,4 +140,17 @@ test("a near-limit weekly window with an unknown reset does not show the five-ho
     within(row).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuenow"),
   ).toBe("90");
   expect(within(row).queryByText(/^Resets/)).toBeNull();
+});
+
+test("every Usage row names its provider and account alongside the provider mark and account badge", async () => {
+  const app = harness();
+  await app.open("/accounts");
+  await card("Codex Personal");
+  for (const account of app.daemon.services.accounts) {
+    const provider = providerDisplayName(account.provider, account.acpAgentId);
+    const row = within(await card(`${provider} ${account.label}`));
+    expect(row.getByRole("img", { name: provider })).toBeTruthy();
+    expect(row.getByRole("img", { name: `${account.label} account` })).toBeTruthy();
+    expect(row.getByText(`${provider} · ${account.label}`)).toBeTruthy();
+  }
 });

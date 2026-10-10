@@ -18,19 +18,19 @@ test("Providers still lists installed CLIs when account reads fail", async () =>
   made.daemon.refuseRequests("accounts_failed", "accounts.list");
   await made.open("/settings/providers");
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
-  expect(screen.queryByText("Couldn't check providers. Try again.")).toBeNull();
+  expect(screen.queryByText("Couldn't check providers.")).toBeNull();
   await waitFor(() =>
     expect(screen.getByRole("group", { name: "Claude Code" }).textContent).toContain("2.1.4"),
   );
 });
 
-test("a failed provider read offers Check again and recovers without reconnecting", async () => {
+test("a failed provider read offers Retry and recovers without reconnecting", async () => {
   const made = app();
   made.daemon.failRequests("providers.request");
   await made.open("/settings/providers");
-  await screen.findByText("Couldn't check providers. Try again.");
+  await screen.findByText("Couldn't check providers.");
   made.daemon.restoreRequests();
-  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
 });
 
@@ -161,7 +161,7 @@ test("a failed live provider refetch preserves the discovered rows", async () =>
     await failed.promise;
   });
   expect(screen.getByRole("link", { name: "Claude Code" })).toBeTruthy();
-  expect(screen.queryByText("Couldn't check providers. Try again.")).toBeNull();
+  expect(screen.queryByText("Couldn't check providers.")).toBeNull();
 });
 
 test("a committed account limit push updates Usage without reading its history again", async () => {

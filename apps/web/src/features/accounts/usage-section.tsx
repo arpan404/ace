@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
+  type AccountView,
   catalogModelNames,
   catalogModelIds,
   formatApiPrice,
@@ -30,6 +31,7 @@ import {
   useAccountUsage,
 } from "./usage-source.ts";
 import { useAccountViews } from "./accounts-source.ts";
+import { AccountIdentity } from "./account-identity.tsx";
 import { DailyBars } from "./daily-bars.tsx";
 
 type Range = "7" | "14" | "30";
@@ -44,6 +46,7 @@ const tokens = (totals: UsageTotals) => totals.inputTokens + totals.outputTokens
 interface ModelRow {
   /** The model, or the account when grouped by account. */
   model: string;
+  account?: AccountView | undefined;
   provider: string;
   providerId: string | null;
   tokens: string;
@@ -57,22 +60,35 @@ const groups = [
   { value: "account", label: "By account" },
 ] as const satisfies readonly { value: Group; label: string }[];
 const columnsFor = (group: Group): DataColumns<ModelRow> => [
-  { accessorKey: "model", header: group === "model" ? "Model" : "Account" },
   {
-    accessorKey: "provider",
-    header: "Provider",
-    cell: ({ row }) => {
-      const provider = ProviderKind.safeParse(row.original.providerId);
-      return (
-        <span className="inline-flex items-center gap-2">
-          {provider.success && (
-            <ProviderIcon provider={provider.data} label={row.original.provider} size={14} />
-          )}
-          <span aria-hidden={provider.success}>{row.original.provider}</span>
-        </span>
-      );
-    },
+    accessorKey: "model",
+    header: group === "model" ? "Model" : "Account",
+    cell: ({ row }) =>
+      row.original.account ? (
+        <AccountIdentity account={row.original.account} />
+      ) : (
+        row.original.model
+      ),
   },
+  ...(group === "model"
+    ? ([
+        {
+          accessorKey: "provider",
+          header: "Provider",
+          cell: ({ row }) => {
+            const provider = ProviderKind.safeParse(row.original.providerId);
+            return (
+              <span className="inline-flex items-center gap-2">
+                {provider.success && (
+                  <ProviderIcon provider={provider.data} label={row.original.provider} size={14} />
+                )}
+                <span aria-hidden={provider.success}>{row.original.provider}</span>
+              </span>
+            );
+          },
+        },
+      ] satisfies DataColumns<ModelRow>)
+    : []),
   { accessorKey: "tokens", header: "Tokens" },
   { accessorKey: "reported", header: "Reported" },
   { accessorKey: "apiPrice", header: "At API prices" },
@@ -141,7 +157,7 @@ export function UsageSection() {
   const sessionCosts = reported.data?.sessions.byProvider;
   const grouped = group === "model" ? byModel : byAccount;
   const models = useMemo<ModelRow[]>(() => {
-    const labels = new Map(accounts.data?.map((account) => [account.id, account.label]));
+    const labels = new Map(accounts.data?.map((account) => [account.id, account]));
     const groupedRows = new Map<string, NonNullable<typeof grouped.data>["rows"]>();
     for (const row of grouped.data?.rows ?? []) {
       const id =
@@ -165,8 +181,9 @@ export function UsageSection() {
             group === "model"
               ? modelName(provider ?? "", row.dimensions.model)
               : account
-                ? (labels.get(account) ?? "Other account")
+                ? (labels.get(account)?.label ?? "Other account")
                 : "Not attributed",
+          account: group === "account" && account ? labels.get(account) : undefined,
           provider: providerLabel(provider),
           providerId: provider,
           tokens: formatTokens(cost.tokens),

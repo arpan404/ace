@@ -1,6 +1,7 @@
 import { AccountBadgeInput, AccountBadgeColor } from "@ace/protocol/accounts";
 import type { ProviderKind } from "@ace/protocol";
 import { useId } from "react";
+import { Tip } from "./tooltip.tsx";
 import { Input } from "./input.tsx";
 import { Button } from "./button.tsx";
 import { AccountBadge, accountColors } from "./provider-account-icon.tsx";
@@ -57,16 +58,17 @@ export function AccountBadgeField(props: {
       <BadgeColours {...props} />
       <div role="group" aria-label="Badge icons" className="flex flex-wrap gap-1">
         {symbols.map((symbol) => (
-          <Button
-            key={symbol}
-            size="sm"
-            variant="ghost"
-            aria-label={`Use ${symbol} badge`}
-            aria-pressed={props.value === symbol}
-            onClick={() => props.onChange(symbol)}
-          >
-            {symbol}
-          </Button>
+          <Tip key={symbol} label={`Use ${symbol} badge`}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Use ${symbol} badge`}
+              aria-pressed={props.value === symbol}
+              onClick={() => props.onChange(symbol)}
+            >
+              {symbol}
+            </Button>
+          </Tip>
         ))}
       </div>
     </div>
@@ -83,27 +85,28 @@ function BadgeColours(props: {
     props.onColorChange && (
       <div role="group" aria-label="Badge colours" className="flex gap-2">
         {AccountBadgeColor.options.map((color) => (
-          <button
-            type="button"
-            key={color}
-            aria-label={`Use ${color} badge`}
-            aria-pressed={props.color === color}
-            onClick={() => props.onColorChange?.(color)}
-            className="rounded-full p-1 focus-ring"
-            style={{
-              color: accountColors[color],
-              outline: props.color === color ? "1px solid currentColor" : undefined,
-            }}
-          >
-            <AccountBadge
-              decorative
-              account={{
-                label: props.name ?? "Account",
-                shortLabel: props.value,
-                badgeColor: color,
+          <Tip key={color} label={`Use ${color} badge`}>
+            <button
+              type="button"
+              aria-label={`Use ${color} badge`}
+              aria-pressed={props.color === color}
+              onClick={() => props.onColorChange?.(color)}
+              className="rounded-full p-1 focus-ring hover:bg-accent active:bg-accent"
+              style={{
+                color: accountColors[color],
+                outline: props.color === color ? "1px solid currentColor" : undefined,
               }}
-            />
-          </button>
+            >
+              <AccountBadge
+                decorative
+                account={{
+                  label: props.name ?? "Account",
+                  shortLabel: props.value,
+                  badgeColor: color,
+                }}
+              />
+            </button>
+          </Tip>
         ))}
       </div>
     )
