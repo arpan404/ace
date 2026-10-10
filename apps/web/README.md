@@ -73,8 +73,9 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
 
 - **Top** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
   pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
-  palette's "Search all threads for …" opens it too) and the Activity bell (`g a`, with the
-  needs-you count). Then New thread (⌘N; Add project while there is none), Automations (`g u`) and Skills (`g s`), listed in `features/shell/views.ts`.
+  palette's "Search all threads for …" opens it too). Then New thread (⌘N; Add project while
+  there is none), Automations (`g u`) and Skills (`g s`), listed in `features/shell/views.ts`.
+  Activity is available through the command palette and its `g a` shortcut.
 - **Body**: the thread list (`ThreadsSidebar`), the only part that scrolls. A view's list is the
   `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
   keep the thread list), `sidebar` (Settings' pages take the body, through a portal, so they keep

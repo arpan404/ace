@@ -90,8 +90,7 @@ test("while the window is in the background no toast is raised", async () => {
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
   try {
     checkout.runThrough("approval-requested");
-    const views = screen.getByRole("navigation", { name: "App" });
-    await within(views).findByLabelText("1 needs you");
+    await waitFor(() => expect(document.title).toMatch(/^\(1\)/));
     expect(within(toasts()).queryByText(request)).toBeNull();
     expect(within(toasts()).queryByText(/needs you/)).toBeNull();
   } finally {
@@ -159,8 +158,7 @@ test("turning a toast off in Settings silences it", async () => {
 
   checkout.runThrough("approval-requested");
 
-  const views = screen.getByRole("navigation", { name: "App" });
-  await within(views).findByLabelText("1 needs you");
+  await waitFor(() => expect(document.title).toMatch(/^\(1\)/));
   expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,

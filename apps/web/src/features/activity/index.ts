@@ -4,4 +4,3 @@ export { ActivityScreen } from "./activity-screen.tsx";
 export { ActivitySidebar } from "./activity-sidebar.tsx";
 export { ActivityProvider } from "./activity-state.tsx";
 export { NotificationPreferences } from "./notification-preferences.tsx";
-export { useNeedsYouCount } from "./use-needs-you.ts";

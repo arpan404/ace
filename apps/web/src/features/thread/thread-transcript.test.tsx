@@ -164,10 +164,10 @@ test("returning to a thread marks where the new activity starts", async () => {
     { timeout: 3_000 },
   );
 
-  // The sidebar's bell: Activity's way in.
+  // Leave the thread while more activity arrives.
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: /^Activity/,
+      name: "Automations",
     }),
   );
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());

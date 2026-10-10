@@ -74,11 +74,13 @@ test("an approval answers in the same verbs in the thread and on Activity's card
   // None of the provider's own labels reach the buttons.
   expect(within(inThread).queryByText(/Approve once|Decline/)).toBeNull();
 
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("link", {
-      name: /^Activity/,
-    }),
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }),
+    "Activity",
   );
+  await userEvent.click(await screen.findByRole("option", { name: /^Activity/ }));
+  await screen.findByRole("heading", { level: 1, name: "Activity" });
   const inActivity = await within(screen.getByRole("main")).findByRole("article", {
     name: title,
   });

@@ -15,21 +15,21 @@ function workbenchApp() {
   return app;
 }
 
-test("answering an approval in Activity resolves it and takes it off the sidebar's needs-you count", async () => {
+test("answering an approval in Activity resolves it and updates the pending request count", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("approval-requested");
   app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
 
   const approval = await card(approvalTitle);
-  const views = screen.getByRole("navigation", { name: "App" });
+  const header = screen.getByRole("banner");
   // This fixture has one ordinary thread approval.
-  expect(await within(views).findByLabelText("1 needs you")).toBeTruthy();
+  expect(await within(header).findByText("1 needs you")).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Allow once" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
-  expect(within(views).queryByLabelText(/need.*you/)).toBeNull();
+  expect(within(header).queryByText("1 needs you")).toBeNull();
   expect(await screen.findByText("Approved · the agent continues")).toBeTruthy();
 
   // The daemon's interaction.closed event, not the click, is what the store now holds.

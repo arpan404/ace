@@ -38,8 +38,8 @@ export const navViews: readonly NavView[] = [
 ];
 
 /**
- * Every view, in the palette's order. Home is the thread list the sidebar always shows; Activity
- * is the sidebar's bell, with its needs-you count.
+ * Every view, in the palette's order. Home is the thread list the sidebar always shows;
+ * Activity is available through the palette and its keyboard shortcut.
  */
 export const views: readonly View[] = [
   { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
