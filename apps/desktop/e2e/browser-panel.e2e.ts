@@ -36,14 +36,24 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       const suggestionBox = await suggestions.boundingBox();
       const pageBox = await p.locator("[data-browser-page]").boundingBox();
       if (!suggestionBox || !pageBox) throw new Error("Suggestion geometry missing");
-      const covered = suggestionBox.y + suggestionBox.height > pageBox.y;
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(!covered);
+      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await address.press("ArrowDown");
       await p.getByRole("option", { selected: true }).waitFor();
       await address.press("Escape");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
+      await expect
+        .poll(async () => {
+          const native = (await geometry()).native;
+          const menu = await p.getByRole("menu").boundingBox();
+          return (
+            !!native?.visible &&
+            !!menu &&
+            (native.bounds.y >= menu.y + menu.height ||
+              native.bounds.x + native.bounds.width <= menu.x)
+          );
+        })
+        .toBe(true);
       await p.keyboard.press("Escape");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await p.getByRole("button", { name: "Hide sidebar" }).click();
@@ -54,10 +64,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         })
         .toBe(true);
       const nativeRead = pageView.read;
-      expect(await nativeRead("typeof window.__aceDialog")).toBe("function");
-      expect(
-        await nativeRead("typeof document.querySelector('iframe').contentWindow.__aceDialog"),
-      ).toBe("function");
       expect(
         await nativeRead(
           "({root:typeof require,frame:typeof document.querySelector('iframe').contentWindow.require})",
@@ -170,30 +176,19 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Find in page" }).click();
       await p.getByRole("textbox", { name: "Find text" }).fill("needle");
-      await expect.poll(() => p.getByRole("search").innerText()).toMatch(/matches/);
+      await expect.poll(() => p.getByRole("search").innerText()).toMatch(/matches|\d+ of \d+/);
       await p.getByRole("button", { name: "Close find" }).click();
-      // One page per browser tab: a new browser tab's address opens a page of its own, and
-      // closing that tab closes its page.
+      // Browser chords and ordinary target=_blank links reuse the main page.
       const panel = p.getByRole("region", { name: "Thread panel" });
-      const browserTabs = () =>
-        panel.getByRole("tab", { name: new URL(s.url).host, exact: true }).count();
-      await p.getByRole("button", { name: "Browser options" }).click();
-      await p.getByRole("menuitem", { name: "New browser tab" }).click();
-      await panel.getByRole("tab", { name: "New page", selected: true }).waitFor();
-      await address.fill(new URL("/second", s.url).href);
-      await address.press("Enter");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await expect.poll(browserTabs).toBe(2);
-      await p.keyboard.press("ControlOrMeta+Alt+w");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
-      await expect.poll(browserTabs).toBe(1);
-      // A page's window.open opens in a browser tab of its own, which the panel shows.
-      await click("button[onclick*='window.open']");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(2);
-      await expect.poll(browserTabs, { timeout: 10000 }).toBe(2);
+      await nativeChord("T");
+      expect(s.daemon.browser.state(s.thread.id)?.tabs).toHaveLength(1);
+      await nativeRead(
+        "(()=>{const a=document.createElement('a');a.href='/popup';a.target='_blank';document.body.append(a);a.click()})()",
+      );
       await expect.poll(() => address.inputValue()).toContain("/popup");
-      await p.keyboard.press("ControlOrMeta+Alt+w");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
+      expect(s.daemon.browser.state(s.thread.id)?.tabs).toHaveLength(1);
+      await panel.getByRole("button", { name: "Back", exact: true }).click();
+      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.url).toBe(s.url);
       await click("button[onclick*=alert]");
       await p.getByRole("alertdialog").getByRole("button", { name: "OK", exact: true }).click();
       await p.getByRole("alertdialog").waitFor({ state: "hidden" });
@@ -278,7 +273,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       expect(await readFile(file, "utf8")).toBe("sandbox download\n");
       await p.getByRole("button", { name: "Site access" }).click();
       await p.getByText("Site access in this thread", { exact: true }).waitFor();
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
+      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await p.keyboard.press("Escape");
       const pageSize = async (name: string | RegExp) => {
         await p.getByRole("button", { name: "Browser options" }).click();
@@ -412,7 +407,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       // The same live page, never reloaded: the agent's click is still on it.
       expect(await native.contentsId()).toBe(page);
       expect(await native.read("document.querySelector('#click').textContent")).toBe("Clicked 1");
-      // Leave the button's tooltip, which covers (and so hides) the native view.
+      // Leave the button tooltip before native input.
       await p.mouse.move(0, 0);
       await expect.poll(native.placed).toBe(true);
       await native.personClicks("#click");

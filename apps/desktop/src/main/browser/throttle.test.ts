@@ -39,13 +39,12 @@ it("does not render an unseen view a person drives, though it stays at full spee
   ).toEqual({ presence: "hidden", throttle: false, recheckInMs: 29_000 });
 });
 
-it("never throttles a view under the person's control or being screencast", () => {
-  for (const activity of [
-    { ...hiddenIdle, nativeInput: true },
-    { ...hiddenIdle, screencasting: true },
-  ])
-    expect(throttleDecision(activity, 600_000, idleMs)).toEqual({
-      presence: "hidden",
-      throttle: false,
-    });
+it("keeps a remote viewer's human-controlled page rendering offscreen", () => {
+  expect(
+    throttleDecision({ ...hiddenIdle, agentControl: false, screencasting: true }, 600_000, idleMs),
+  ).toEqual({ presence: "parked", throttle: false });
+  expect(throttleDecision({ ...hiddenIdle, nativeInput: true }, 600_000, idleMs)).toEqual({
+    presence: "hidden",
+    throttle: false,
+  });
 });

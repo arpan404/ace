@@ -5,6 +5,12 @@ const Decision = z.object({ id: z.string().max(256), allowed: z.boolean() });
 export class WebSocketGate {
   private pending = new Map<string, { finish(allowed: boolean): void }>();
   private sequence = 0;
+  private schemes: ReadonlySet<string>;
+  private prefix: string;
+  constructor(schemes: ReadonlySet<string> = new Set(["ws:", "wss:"]), prefix = "") {
+    this.schemes = schemes;
+    this.prefix = prefix;
+  }
   request(
     url: string,
     emit: (method: string, params: unknown) => void,
@@ -13,23 +19,23 @@ export class WebSocketGate {
     try {
       const parsed = new URL(url);
       if (
-        !["ws:", "wss:"].includes(parsed.protocol) ||
+        !this.schemes.has(parsed.protocol) ||
         parsed.username ||
         parsed.password ||
         url.length > 8192 ||
-        this.pending.size >= 32
+        this.pending.size >= 1024
       )
         return reply(false);
     } catch {
       return reply(false);
     }
-    const id = String(++this.sequence);
+    const id = `${this.prefix}${++this.sequence}`;
     const finish = (allowed: boolean) => {
       clearTimeout(timer);
       this.pending.delete(id);
       reply(allowed);
     };
-    const timer = setTimeout(() => finish(false), 10_000);
+    const timer = setTimeout(() => finish(false), 95_000);
     this.pending.set(id, { finish });
     emit("ace.webSocketRequested", { id, url });
   }

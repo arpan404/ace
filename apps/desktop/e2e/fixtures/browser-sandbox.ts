@@ -75,6 +75,11 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
       },
     });
     server = createServer((req, res) => {
+      if (req.url === "/auth" && req.headers.authorization !== "Basic Zml4dHVyZTpmaXh0dXJl") {
+        res.writeHead(401, { "www-authenticate": 'Basic realm="Browser fixture"' });
+        res.end("Sign in required");
+        return;
+      }
       if (req.url === "/download") {
         res.writeHead(200, {
           "content-type": "text/plain",
@@ -89,7 +94,7 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
 <h1>Fixture needle</h1><a href="/second">Second page</a><a href="/">First page</a><a href="/download" download>Download fixture</a>
 <button id="click" onmouseenter="window.hovered=true" onclick="this.textContent='Clicked '+(++window.clicks)">Click marker</button><input id="name" aria-label="Name" oninput="window.inputs++"><span id="result"></span>
 <button onclick="window.open('/popup')">Popup</button><button onclick="alert('Fixture alert')">Alert</button><button onclick="result.textContent=confirm('Fixture confirm')">Confirm</button><button onclick="result.textContent=prompt('Fixture prompt','seed')">Prompt</button>
-<div id="motion"></div>${req.url === "/frame" ? "Iframe needle" : `<iframe src="/frame" title="Fixture frame"></iframe><iframe src="http://localhost:${fixturePort}/frame" title="Cross-origin frame"></iframe>`}<canvas id="canvas" width="200" height="100" hidden></canvas><video id="video" autoplay muted playsinline></video><div id="long">Long scroll needle</div>
+<input type="file" id="file" aria-label="File"><button id="spa" onclick="history.pushState({},'','/spa')">SPA route</button><div id="motion"></div>${req.url === "/frame" ? "Iframe needle" : `<iframe src="/frame" title="Fixture frame"></iframe><iframe src="http://localhost:${fixturePort}/frame" title="Cross-origin frame"></iframe>`}<canvas id="canvas" width="200" height="100" hidden></canvas><video id="video" autoplay muted playsinline></video><div id="long">Long scroll needle</div>
 <script>window.clicks=0;window.inputs=0;let frames=0;function paint(){const c=canvas.getContext('2d');c.fillStyle=frames++%2?'red':'blue';c.fillRect(0,0,200,100);requestAnimationFrame(paint)}paint();video.srcObject=canvas.captureStream(30);</script>`);
     });
     server.listen(0, "127.0.0.1");

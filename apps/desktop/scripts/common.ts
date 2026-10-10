@@ -74,8 +74,12 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
     },
     {
       ...shared,
-      entryPoints: [join(desktop, "src/preload/browser.ts")],
-      outfile: join(outdir, "browser-preload.cjs"),
+      entryPoints: {
+        "browser-preload": join(desktop, "src/preload/browser.ts"),
+        "browser-auth-preload": join(desktop, "src/preload/browser-auth.ts"),
+      },
+      outdir,
+      outExtension: { ".js": ".cjs" },
       format: "cjs",
       platform: "browser",
       target: "chrome140",
