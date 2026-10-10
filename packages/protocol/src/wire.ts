@@ -152,6 +152,7 @@ import {
 import {
   SettingsGet,
   SettingsSet,
+  SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
   SettingsResult,
@@ -198,6 +199,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ContextRequest,
   SettingsGet,
   SettingsSet,
+  SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
   HistoryListRequest,

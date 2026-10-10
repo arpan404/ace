@@ -45,7 +45,7 @@ export function BootFailure(props: {
       await navigator.clipboard.writeText(message);
       toast.add({ title: "Copied" });
     } catch {
-      toast.add({ title: "Couldn't copy. Select the message and copy it yourself." });
+      toast.error({ title: "Couldn't copy. Select the message and copy it yourself." });
     }
   };
   return (

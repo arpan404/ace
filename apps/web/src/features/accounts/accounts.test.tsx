@@ -5,6 +5,13 @@ import { expect, test } from "vitest";
 import { ScenarioPlayer, devWorld, teamAtLimit } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 
+// Transform the lazy destination before behavioural test deadlines begin.
+await Promise.all([
+  import("@/features/settings/provider-detail.tsx"),
+  import("@/features/settings/provider-accounts.tsx"),
+  import("@/features/account-management/add-account-form.tsx"),
+]);
+
 const card = (name: string) => screen.findByRole("article", { name });
 
 test("each account shows its quota windows, and one with threads at its limit says when it resets", async () => {
@@ -141,7 +148,7 @@ test("usage shows a bar per day of the chosen range and totals by model", async 
 test("accounts are managed from their provider page", async () => {
   await harness().open("/accounts");
   await userEvent.click(await screen.findByRole("link", { name: "Codex" }));
-  const accounts = await screen.findByRole("list", { name: "Codex accounts" });
+  const accounts = await screen.findByRole("list", { name: "Codex accounts" }, { timeout: 5000 });
   await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
   expect(await screen.findByRole("form", { name: "Add account" })).toBeTruthy();
 });
@@ -177,4 +184,19 @@ test("in the development world each account counts the threads running on it", a
   expect(await within(personal).findByText(/^\d+ running threads?$/)).toBeTruthy();
   const work = await card("Claude Code Work");
   expect(await within(work).findByText(/^\d+ running threads?$/)).toBeTruthy();
+});
+
+test("an ACP account link opens the installed provider even when its catalog name differs", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((entry) => entry.provider === "acp");
+  const agent = app.daemon.services.registry.entries.find(
+    (entry) => entry.agent.acpAgentId === "official:gemini",
+  );
+  if (!account || !agent) throw new Error("Missing ACP fixture");
+  account.acpAgentId = "official:gemini";
+  agent.agent.name = "Gemini Team CLI";
+  await app.open("/accounts");
+  await userEvent.click(await screen.findByRole("link", { name: "gemini" }));
+  expect(await screen.findByRole("heading", { name: "Gemini Team CLI" })).toBeTruthy();
+  expect(screen.queryByText("Provider not found")).toBeNull();
 });

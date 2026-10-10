@@ -81,7 +81,7 @@ export function BrowserActions(props: {
   const openOutside = () =>
     external &&
     void openExternal(external).catch((error: unknown) =>
-      toast.add({
+      toast.error({
         title: "Couldn't open the page",
         description: error instanceof Error ? error.message : undefined,
       }),
@@ -117,7 +117,7 @@ export function BrowserActions(props: {
               shownUrl &&
               void navigator.clipboard?.writeText(shownUrl).then(
                 () => toast.add({ title: "Address copied" }),
-                () => toast.add({ title: "Couldn't copy the address" }),
+                () => toast.error({ title: "Couldn't copy the address" }),
               )
             }
           >

@@ -54,6 +54,7 @@ interface ClientRequest {
 /** Where one client got to before its first welcome. */
 type Progress =
   | { kind: "connecting" }
+  | { kind: "starting" }
   | { kind: "unreachable"; offline: boolean }
   | { kind: "ready" };
 
@@ -163,6 +164,8 @@ export function ConnectionGate(props: {
         if (now === "ready") {
           welcomed = true;
           progress({ kind: "ready" });
+        } else if (!welcomed && now === "starting") {
+          progress({ kind: "starting" });
         } else if (now === "fatal") {
           // Before the first welcome every refusal is shown here; afterwards only a rejected
           // token is (the shell's notice says the rest), since the person must paste another.
@@ -176,7 +179,8 @@ export function ConnectionGate(props: {
       stops.push(states.subscribe(follow));
       stops.push(
         schedule(firstAttemptMs, () => {
-          if (!welcomed) progress({ kind: "unreachable", offline: false });
+          if (!welcomed && next.state !== "starting")
+            progress({ kind: "unreachable", offline: false });
         }),
       );
       follow();
@@ -299,11 +303,13 @@ export function ConnectionGate(props: {
 
   if (failure) throw failure.error;
   // Connecting behind the boot splash: nothing to show until the daemon answers or doesn't.
-  const behindSplash = status.kind === "connecting" && !state.shown;
+  const behindSplash = (status.kind === "connecting" || status.kind === "starting") && !state.shown;
   return (
     <DaemonConnectionContext.Provider value={connection}>
       {client && status.kind === "ready" ? (
         <Fragment key={client.key}>{props.children(client.client)}</Fragment>
+      ) : status.kind === "starting" ? (
+        <StartingScreen daemon={desktopDaemon()} onConnectManually={edit} />
       ) : behindSplash ? (
         props.desktop ? (
           <StartingScreen daemon={desktopDaemon()} onConnectManually={edit} />

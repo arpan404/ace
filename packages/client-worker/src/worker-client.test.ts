@@ -1262,3 +1262,23 @@ test("a worker refuses malformed file replies at the canonical boundary and neve
   ).rejects.toMatchObject({ code: "offline" });
   await vi.waitFor(() => expect(remote.error?.code).toBe("protocol"));
 });
+
+test("a hidden tab sees attention statuses without receiving transcript deltas", async () => {
+  const { daemon, tab } = world();
+  const script = new ScenarioPlayer(daemon, flakyCheckout());
+  const remote = tab();
+  await remote.start();
+  const threads = remote.threads();
+  const transcriptLease = remote.thread(script.threadId);
+  await vi.waitFor(() => expect(threads.store.ids).toContain(script.threadId));
+  remote.show(false);
+  await remote.request({ type: "diagnostics.health" });
+  const before = transcript(transcriptLease.store);
+  script.runUntilBlocked();
+  await vi.waitFor(() =>
+    expect(threads.store.thread(script.threadId)?.status.state).toBe("needs_you"),
+  );
+  expect(transcript(transcriptLease.store)).toEqual(before);
+  transcriptLease.release();
+  threads.release();
+});

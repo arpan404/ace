@@ -38,6 +38,12 @@ const ExternalUrl = z
 
 /** Renderer → main requests. Every request and result is parsed on both sides. */
 export const requests = {
+  "keymap.update": {
+    request: z
+      .record(z.string().max(64), z.string().max(64))
+      .refine((entries) => Object.keys(entries).length <= 128),
+    result: None,
+  },
   "app.info": { request: None, result: AppInfo },
   /** Quit ace (the daemon this app started stops with it). */
   "app.quit": { request: None, result: None },
@@ -85,6 +91,7 @@ export type ResultOf<C extends RequestChannel> = z.output<(typeof requests)[C]["
 export const events = {
   "daemon.status": DaemonStatus,
   "deep-link": DeepLink,
+  "keymap.action": z.string().min(1).max(64),
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,

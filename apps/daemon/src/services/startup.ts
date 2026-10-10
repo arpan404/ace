@@ -25,7 +25,7 @@ export interface StartupRuntime {
 }
 export const systemStartup: StartupRuntime = {
   timeoutMs: 15_000,
-  cleanupTimeoutMs: 8_000,
+  cleanupTimeoutMs: 4_000,
   schedule(_name, expire, milliseconds) {
     const timer = setTimeout(expire, milliseconds);
     return () => clearTimeout(timer);
@@ -77,7 +77,7 @@ function boundedCleanup(
   return bounded(
     name,
     () => resources.close(),
-    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 8_000 },
+    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 4_000 },
     undefined,
     "cleanup",
   );
@@ -97,9 +97,17 @@ export class ServiceStartup {
   }[] = [];
   private readonly runtime: StartupRuntime;
   private deferred: readonly ServiceDefinition[] = [];
+  private readonly cleanups: (() => Promise<void>)[] = [];
   constructor(privateContext: ServiceContext, runtime: StartupRuntime = systemStartup) {
     this.context = privateContext;
     this.runtime = runtime;
+    privateContext.resources.own(async () => {
+      const results = await Promise.allSettled(this.cleanups.splice(0).map((close) => close()));
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length) throw new AggregateError(errors, "Service cleanup failed");
+    });
     if (!Number.isFinite(runtime.timeoutMs) || runtime.timeoutMs < 1)
       throw new Error("Invalid service startup deadline");
     if (
@@ -197,7 +205,7 @@ export class ServiceStartup {
     const onListen: ServiceContext["onListen"] = [];
     resources.onShutdown(() => controller.abort());
     this.context.resources.onShutdown(() => resources.beginShutdown());
-    this.context.resources.own(() => boundedCleanup(name, resources, this.runtime));
+    this.cleanups.push(() => boundedCleanup(name, resources, this.runtime));
     try {
       await bounded(
         name,

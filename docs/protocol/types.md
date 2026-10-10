@@ -6051,6 +6051,20 @@ Example:
 
 [JSON Schema](schema/CoreServerMessage.json), input validation.
 
+### starting
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"starting"` |  |
+
+Example:
+
+```json
+{
+  "type": "starting"
+}
+```
+
 ### threads.patch
 
 | Field | Required | Type | Constraints |
@@ -21559,6 +21573,22 @@ Example:
 }
 ```
 
+### settings.reset
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"settings.reset"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "settings.reset"
+}
+```
+
 ### settings.subscribe
 
 | Field | Required | Type | Constraints |
@@ -21598,6 +21628,24 @@ Example:
   "requestId": "example",
   "subscriptionId": "example",
   "type": "settings.unsubscribe"
+}
+```
+
+## SettingsReset
+
+[JSON Schema](schema/SettingsReset.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"settings.reset"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "settings.reset"
 }
 ```
 

@@ -1,5 +1,7 @@
+import { progressReporter } from "./progress-reporter.ts";
+import type { z } from "zod";
+import type { ScanResult } from "./contracts.ts";
 import { nativeReference } from "./native-reference.ts";
-import { z } from "zod";
 import { parentPort, workerData } from "node:worker_threads";
 import { mkdir, chmod, open } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -24,21 +26,11 @@ let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
 let scanning = false;
-let progressId = 0;
-const progressWaiters = new Map<number, () => void>();
 const port = parentPort;
 if (!port) throw new Error("History worker needs a parent port");
 port.on("message", async (value: unknown) => {
   if (value === "cancel") {
     controller.abort();
-    for (const resolve of progressWaiters.values()) resolve();
-    progressWaiters.clear();
-    return;
-  }
-  const ack = z.object({ progressAck: z.number().int() }).safeParse(value).data;
-  if (ack) {
-    progressWaiters.get(ack.progressAck)?.();
-    progressWaiters.delete(ack.progressAck);
     return;
   }
   const parsed = Envelope.safeParse(value);
@@ -90,18 +82,20 @@ port.on("message", async (value: unknown) => {
     else if (request.op === "scan") {
       controller = new AbortController();
       scanning = true;
-      result = await scan(
+      const progress = progressReporter(
+        () => performance.now(),
+        (report: { progress: number; result: z.infer<typeof ScanResult> }) =>
+          port.postMessage(report),
+      );
+      const inventory = await scan(
         catalog,
         options.instances,
         controller.signal,
-        (files, scanProgress) =>
-          new Promise<void>((resolve) => {
-            const nextProgressId = ++progressId;
-            progressWaiters.set(nextProgressId, resolve);
-            port.postMessage({ progress: files, result: scanProgress, progressId: nextProgressId });
-          }),
+        (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
         request.changes,
       );
+      result = inventory;
+      progress.finish({ progress: inventory.files, result: inventory });
     } else if (request.op === "list") result = catalog.list(request.request);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;
     else if (request.op === "reference") {

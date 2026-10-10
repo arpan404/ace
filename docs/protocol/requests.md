@@ -1180,6 +1180,22 @@ Example:
 }
 ```
 
+### settings.reset
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"settings.reset"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "settings.reset"
+}
+```
+
 ### settings.subscribe
 
 | Field | Required | Type | Constraints |
@@ -1307,7 +1323,7 @@ Example:
 }
 ```
 
-### Variant 61
+### Variant 62
 
 Type: union. See JSON Schema for constraints.
 

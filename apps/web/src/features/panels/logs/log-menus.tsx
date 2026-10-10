@@ -61,13 +61,14 @@ const noAgents: readonly AgentEntry[] = [];
 
 /** The thread's agents with names and nesting depth, for the scope picker. */
 export function useThreadAgents(threadId: string): readonly AgentEntry[] {
-  const ids = useThread(threadId, ["agents"], (reader) => reader.agentIds(), sameIds);
+  const ids = useThread(threadId, ["agents"], readAgentIds, sameIds);
   const keys = useMemo<ThreadKey[]>(
     () => ["thread", "agents", ...(ids ?? []).map((id): ThreadKey => `agent:${id}`)],
     [ids],
   );
   return useThread(threadId, keys, readAgents, sameAgents) ?? noAgents;
 }
+const readAgentIds = (reader: ThreadReader) => reader.agentIds();
 const sameIds = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 

@@ -1,3 +1,4 @@
+import { providerSettingsId } from "@/lib/provider-settings-id.ts";
 import { type ReadinessTone, type ReadinessView } from "@ace/ui-core";
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { useQuery } from "@tanstack/react-query";
@@ -20,7 +21,7 @@ export interface ProviderEntry {
 }
 
 export const providerPageId = (install: ProviderInstall): string =>
-  install.kind === "acp" ? `acp:${install.name}` : install.kind;
+  providerSettingsId(install.kind, install.name, install.acpAgentId);
 
 /** Not on this computer: listed apart, with how to get it. */
 export function isMissing(entry: ProviderEntry): boolean {

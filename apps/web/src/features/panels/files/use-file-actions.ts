@@ -55,7 +55,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
     } catch (error) {
       const failure = checkoutError(error);
       if (failure.code !== "aborted")
-        toast.add({
+        toast.error({
           title: "Couldn't download the file",
           description: error instanceof DownloadError ? error.message : failure.message,
         });
@@ -138,7 +138,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
       });
       choose(result.editor.editor.id);
     } catch {
-      toast.add({
+      toast.error({
         title: "Couldn't open the editor",
         description:
           "Check that the editor is installed on the checkout's computer, then try again.",
@@ -149,7 +149,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
   const copyPath = (path: string) => {
     void navigator.clipboard?.writeText(path).then(
       () => toast.add({ title: "Path copied" }),
-      () => toast.add({ title: "Couldn't copy. Select the path and copy it yourself." }),
+      () => toast.error({ title: "Couldn't copy. Select the path and copy it yourself." }),
     );
   };
 

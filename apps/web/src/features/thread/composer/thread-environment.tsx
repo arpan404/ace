@@ -34,7 +34,7 @@ export function ThreadEnvironmentCard(props: { thread: ThreadRef }) {
   const copy = (text: string) =>
     void navigator.clipboard?.writeText(text).then(
       () => toast.add({ title: "Path copied" }),
-      () => toast.add({ title: "Couldn't copy the path" }),
+      () => toast.error({ title: "Couldn't copy the path" }),
     );
   return (
     <section aria-label="Where this thread runs">

@@ -1,3 +1,4 @@
+import { SettingsKey } from "@ace/protocol";
 import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { SettingsService } from "@ace/settings";
 import type { ServiceContext } from "./types.ts";
@@ -21,6 +22,15 @@ export function createSettingsSession(context: SocketContext): SocketService {
     store: options.store,
     subscriptions,
     send,
+    resetKeys: () =>
+      SettingsKey.options.filter(
+        (key) =>
+          key !== "projects.roots" &&
+          key !== "clients.theme" &&
+          (!(key.startsWith("host.") || key.startsWith("remote.")) ||
+            (context.local === true && authorize("admin"))) &&
+          (key !== "providers.configuration" || authorize("admin")),
+      ),
     set: async (key, value, commit) => {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
       else await commit();
@@ -34,7 +44,11 @@ export function createSettingsSession(context: SocketContext): SocketService {
         ? request.layer.kind === "global" &&
           authorize("admin") &&
           (request.key !== "projects.roots" || authorize("projects"))
-        : authorize(request.type === "settings.set" ? "operate" : "read"),
+        : authorize(
+            request.type === "settings.set" || request.type === "settings.reset"
+              ? "operate"
+              : "read",
+          ),
   });
   return {
     close() {
@@ -54,6 +68,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
           }
           settings.accept(message);
           return true;
+        case "settings.reset":
         case "settings.set":
           if (!authorize("operate")) {
             fail("forbidden", "Operate scope required", false, { requestId: message.requestId });

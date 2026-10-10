@@ -1,3 +1,5 @@
+import { useToast } from "@/components/ui/toast.tsx";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useClient } from "@ace/client-react";
 import { useEffect, useState } from "react";
 import { WebPushSubscription } from "@ace/protocol/notifications";
@@ -7,40 +9,53 @@ import { browserPermission, requestBrowserPermission } from "@/lib/browser-notif
 
 export default function BrowserPushSettings() {
   const client = useClient();
-  const [key, setKey] = useState<string | null>(null);
+  const toast = useToast();
+  const config = useDaemonQuery({
+    queryKey: ["notification-config"],
+    read: (api, signal) => api.request({ type: "notification.config" }, { signal }),
+  });
+  const key = config.data?.publicKey;
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let stopped = false;
-    const read = () => {
-      void client
-        .request({ type: "notification.config" })
-        .then(async (reply) => {
-          if (stopped) return;
-          setKey(reply.publicKey);
-          if ("serviceWorker" in navigator) {
-            const registration = await navigator.serviceWorker.getRegistration("/");
-            const subscription = await registration?.pushManager.getSubscription();
-            if (!stopped) setOn(Boolean(subscription));
-          }
+    if (key && "serviceWorker" in navigator) {
+      void navigator.serviceWorker
+        .getRegistration("/")
+        .then(async (registration) => {
+          const subscription = await registration?.pushManager.getSubscription();
+          if (!stopped) setOn(Boolean(subscription));
         })
-        .catch(() => {});
-    };
-    read();
-    const stop = client.connectionState().subscribe(read);
+        .catch(() => {
+          if (!stopped) {
+            const message = "Couldn't check browser notifications. Try again.";
+            setError(message);
+            toast.error({ title: message });
+          }
+        });
+    }
     return () => {
-      stop();
       stopped = true;
     };
-  }, [client]);
+  }, [key, toast]);
   if (
-    !key ||
     browserPermission() === "unsupported" ||
     !("serviceWorker" in navigator) ||
     !("PushManager" in globalThis)
   )
     return null;
+  if (config.isError && !key)
+    return (
+      <SettingSection label="When ace is closed" scope="device">
+        <SettingRow title="Push notifications" description="Couldn't check push notifications.">
+          <Button size="sm" variant="ghost" onClick={() => void config.refetch()}>
+            Try again
+          </Button>
+        </SettingRow>
+      </SettingSection>
+    );
+  if (!key) return null;
   const blocked = browserPermission() === "denied";
   return (
     <SettingSection label="When ace is closed" scope="device">
@@ -98,11 +113,12 @@ export default function BrowserPushSettings() {
               });
               setOn(true);
             })()
-              .catch(() =>
-                setError(
-                  "Could not enable push. Check this browser’s notification permission and try again.",
-                ),
-              )
+              .catch(() => {
+                const message =
+                  "Couldn't change push notifications. Check this browser’s notification permission and try again.";
+                setError(message);
+                toast.error({ title: message });
+              })
               .finally(() => setBusy(false));
           }}
         >

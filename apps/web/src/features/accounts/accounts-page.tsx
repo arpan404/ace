@@ -1,3 +1,4 @@
+import { providerSettingsId } from "@/lib/provider-settings-id.ts";
 import { AddAccountInline } from "@/features/account-management/index.ts";
 import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
@@ -93,10 +94,11 @@ export function AccountsPage() {
                       <Link
                         to="/settings/providers/$provider"
                         params={{
-                          provider:
-                            first.provider === "acp"
-                              ? `acp:${first.providerLabel}`
-                              : first.provider,
+                          provider: providerSettingsId(
+                            first.provider,
+                            first.providerLabel,
+                            first.acpAgentId,
+                          ),
                         }}
                       >
                         {first.providerLabel}

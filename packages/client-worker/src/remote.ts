@@ -106,7 +106,14 @@ interface Mirrored {
   mirror: MirrorThread | MirrorSidebar;
 }
 
-const states = new Set<string>(["connecting", "ready", "reconnecting", "offline", "fatal"]);
+const states = new Set<string>([
+  "connecting",
+  "starting",
+  "ready",
+  "reconnecting",
+  "offline",
+  "fatal",
+]);
 const isState = (state: string): state is ConnectionState => states.has(state);
 
 export class RemoteClient implements ClientApi {
@@ -289,6 +296,9 @@ export class RemoteClient implements ClientApi {
   /** Hidden tabs receive nothing; on return they get everything that changed meanwhile. */
   private visible(visible: boolean): void {
     this.post({ t: "visible", visible });
+  }
+  reconnectNow(): void {
+    void this.call("reconnectNow", []).catch(() => {});
   }
   networkOnline(online: boolean): void {
     void this.call("networkOnline", [online]).catch(() => {});

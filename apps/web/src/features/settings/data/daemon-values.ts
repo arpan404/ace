@@ -1,3 +1,4 @@
+import { watchSettings } from "@/lib/settings-watch.ts";
 import type { ClientApi } from "@ace/client";
 import { SettingsKey, type SettingsEntry } from "@ace/protocol";
 import { z } from "zod";
@@ -23,11 +24,9 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
       return parsed.success ? [parsed.data] : [];
     })
     .slice(0, maxKeys);
-  const subscriptionId = "web-settings";
   const listeners = new Set<() => void>();
   let values: SettingsValuesMap = {};
   let started = false;
-  let subscribed = false;
 
   const emit = () => {
     for (const listener of listeners) listener();
@@ -39,30 +38,10 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
     values = next;
     emit();
   };
-  const subscribe = () => {
-    if (subscribed || client.state !== "ready" || !watched.length) return;
-    subscribed = true;
-    client
-      .request({ type: "settings.subscribe", subscriptionId, keys: watched, scope: {} })
-      .then((reply) => apply(reply.entries, true))
-      .catch(() => {
-        subscribed = false;
-      });
-  };
   const start = () => {
     if (started) return;
     started = true;
-    client.onMessage((message) => {
-      if (message.type === "settings.changed" && message.subscriptionId === subscriptionId)
-        apply(message.entries, false);
-    });
-    const connection = client.connectionState();
-    connection.subscribe(() => {
-      // A new socket has no subscriptions; ask again once it is ready.
-      if (connection.getSnapshot() !== "ready") subscribed = false;
-      else subscribe();
-    });
-    subscribe();
+    watchSettings(client, watched, {}, (entries) => apply(entries, false));
   };
 
   return {

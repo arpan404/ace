@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { receiveComposerMentions } from "@/lib/composer-insert.ts";
 import { ThreadId, type CatalogMention } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
@@ -80,7 +81,7 @@ const terseWidth = 640;
  * this device couldn't even save it. The unsent draft is kept per `draftKey` across navigation,
  * reloads and windows.
  */
-export function Composer({
+function ComposerContent({
   ref,
   ...props
 }: {
@@ -744,3 +745,11 @@ const emptyDraft: ComposerDraft = { text: "", mentions: [], attachments: [] };
 
 /** A list of files by what they are, to compare two drafts' files. */
 const shas = (list: readonly { sha256: string }[]) => list.map((file) => file.sha256).join();
+
+export function Composer(props: React.ComponentProps<typeof ComposerContent>) {
+  return (
+    <LocalBoundary key={props.draftKey ?? props.thread.id} label="the composer">
+      <ComposerContent {...props} />
+    </LocalBoundary>
+  );
+}

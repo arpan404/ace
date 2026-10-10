@@ -71,7 +71,7 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
                     commands.add(root).then(
                       (repository) => land(repository, "Added"),
                       (error: unknown) =>
-                        toast.add({
+                        toast.error({
                           title: `Couldn't add ${folderName(root)}`,
                           description: projectFailure(error).message,
                         }),

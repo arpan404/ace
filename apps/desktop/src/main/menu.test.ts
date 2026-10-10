@@ -47,8 +47,7 @@ function menu(platform: NodeJS.Platform) {
     platform,
     appName: "ace",
     developer: false,
-    trigger: (accelerator) =>
-      effects.push(`keys:${replayed(acceleratorToKey(accelerator, platform))}`),
+    trigger: (id) => effects.push(`action:${id}`),
     checkForUpdates: () => effects.push("updates"),
     openUrl: (url) => effects.push(`open:${url}`),
     showLogs: () => effects.push("logs"),
@@ -78,15 +77,15 @@ describe("native menu shortcuts", () => {
       }
   });
 
-  it("View › Agents replays the chord that opens Agents, not the terminal", () => {
+  it("View › Agents dispatches the Agents action", () => {
     for (const platform of platforms) {
       const view = menu(platform);
       const agents = view.top("View").find((entry) => entry.label === "Agents");
-      expect(view.choose(agents)).toBe(`keys:${pressed(keymap.agents.keys, platform)}`);
+      expect(view.choose(agents)).toBe("action:agents");
     }
   });
 
-  it("every menu item with a shortcut replays a chord the web binds to that item's action", () => {
+  it("every menu item dispatches its own action", () => {
     for (const platform of platforms) {
       const built = menu(platform);
       const withKeys = built.all.filter((entry) => entry.accelerator && entry.click);
@@ -96,7 +95,7 @@ describe("native menu shortcuts", () => {
         const keys = webKeys.get(shortcut?.keymapId ?? "");
         expect(keys, `${String(entry.label)} has no web shortcut`).toBeDefined();
         expect(built.choose(entry), `${String(entry.label)} on ${platform}`).toBe(
-          `keys:${pressed(keys ?? "", platform)}`,
+          `action:${shortcut?.keymapId}`,
         );
       }
     }
@@ -107,11 +106,7 @@ describe("native menu shortcuts", () => {
     const choices = ["Side Panel", "Full View", "Find"].map((label) =>
       view.choose(view.top("View").find((entry) => entry.label === label)),
     );
-    expect(choices).toEqual([
-      `keys:${pressed(keymap.rightPanel.keys, "darwin")}`,
-      `keys:${pressed(keymap.fullView.keys, "darwin")}`,
-      `keys:${pressed(keymap.findInThread.keys, "darwin")}`,
-    ]);
+    expect(choices).toEqual(["action:rightPanel", "action:fullView", "action:findInThread"]);
   });
 });
 
@@ -143,4 +138,23 @@ describe("Help menu", () => {
       "updates",
     );
   });
+});
+
+it("a rebound menu label shows the new shortcut and clicks still dispatch New Thread", () => {
+  const actions: string[] = [];
+  const template = applicationMenu({
+    platform: "darwin",
+    appName: "ace",
+    developer: false,
+    bindings: { newThread: "mod+shift+j" },
+    trigger: (id) => actions.push(id),
+    checkForUpdates() {},
+    openUrl() {},
+    showLogs() {},
+  });
+  const item = items(template).find((entry) => entry.label === "New Thread");
+  expect(item?.accelerator).toBe("CmdOrCtrl+Shift+J");
+  if (!item?.click) throw new Error("New Thread unavailable");
+  Reflect.apply(item.click, undefined, []);
+  expect(actions).toEqual(["newThread"]);
 });

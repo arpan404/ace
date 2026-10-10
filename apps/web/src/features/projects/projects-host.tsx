@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import {
   createContext,
   lazy,
@@ -60,9 +61,11 @@ export function ProjectsHost(props: { children: ReactNode }) {
     <ProjectsContext.Provider value={api}>
       {props.children}
       {request && (
-        <Suspense fallback={null}>
-          <ProjectDialogs request={request} open={open} onOpenChange={setOpen} onRequest={show} />
-        </Suspense>
+        <LocalBoundary label="project dialogs" fallback={null}>
+          <Suspense fallback={null}>
+            <ProjectDialogs request={request} open={open} onOpenChange={setOpen} onRequest={show} />
+          </Suspense>
+        </LocalBoundary>
       )}
     </ProjectsContext.Provider>
   );

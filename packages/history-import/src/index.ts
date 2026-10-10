@@ -38,7 +38,6 @@ export interface HistoryRuntime {
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 const Progress = z.object({
   progress: z.number().int().nonnegative(),
-  progressId: z.number().int(),
   result: ScanResult,
 });
 /** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
@@ -114,15 +113,14 @@ export class HistoryService {
     worker.on("message", (value: unknown) => {
       const progress = Progress.safeParse(value).data;
       if (progress) {
+        const listener = this.onProgress;
         void Promise.resolve()
-          .then(() => this.onProgress?.(progress.progress, progress.result))
+          .then(() => listener?.(progress.progress, progress.result))
           .then(
+            () => {},
             () => {
-              if (!this.closed && !this.closing)
-                this.worker.postMessage({ progressAck: progress.progressId });
-            },
-            () => {
-              if (!this.closed && !this.closing) this.worker.postMessage("cancel");
+              if (!this.closed && !this.closing && this.scanning && this.onProgress === listener)
+                this.worker.postMessage("cancel");
             },
           )
           .catch((error: unknown) => {

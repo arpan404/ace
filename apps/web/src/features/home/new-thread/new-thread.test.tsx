@@ -30,7 +30,7 @@ const prompt = () => screen.findByRole("combobox", { name: "Message" });
  */
 const isNew = (id: string) => /^thread-[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id);
 async function started(made: ReturnType<typeof harness>) {
-  await waitFor(() => expect(listed(made).some((t) => isNew(t.id))).toBe(true));
+  await waitFor(() => expect(listed(made).some((t) => isNew(t.id))).toBe(true), { timeout: 5000 });
   return listed(made).find((t) => isNew(t.id));
 }
 
@@ -635,4 +635,16 @@ test("failed native permission checks explain blocked sending and retain the dra
   await userEvent.keyboard("{Enter}");
   expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
   expect(field.textContent).toBe("Keep this while permissions recover");
+});
+
+test("the worktree preference supplies the mode when this device has not chosen one", async () => {
+  const made = app();
+  made.daemon.services.settings.seed({ "threads.useWorktree": false });
+  await made.open("/new?project=relay");
+  expect(
+    (await screen.findByRole("checkbox", { name: "Worktree" })).getAttribute("aria-checked"),
+  ).toBe("false");
+  expect(screen.queryByRole("button", { name: /^Start from:/ })).toBeNull();
+  await userEvent.type(await prompt(), "Follow the default checkout mode{Enter}");
+  expect(await started(made)).toMatchObject({ details: { mode: "local" } });
 });

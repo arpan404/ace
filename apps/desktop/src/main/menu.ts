@@ -1,18 +1,19 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { helpUrl, issuesUrl } from "./links.ts";
-import { shortcuts } from "./shortcuts.ts";
+import { keymapAccelerator, shortcuts } from "./shortcuts.ts";
 
 /**
  * Menu items show the shortcut but do not capture it (`registerAccelerator: false`): the key
  * still reaches the page, where the web keymap handles it, including while typing. Choosing
- * the item with the mouse replays the same chord into the page through `trigger`.
+ * the item with the mouse dispatches its keymap id through `trigger`.
  */
 export function applicationMenu(options: {
   platform: NodeJS.Platform;
   appName: string;
   /** Developer tools are for development builds only. */
   developer: boolean;
-  trigger(accelerator: string): void;
+  trigger(keymapId: string): void;
+  bindings?: Readonly<Record<string, string>> | undefined;
   checkForUpdates(): void;
   openUrl(url: string): void;
   showLogs(): void;
@@ -21,12 +22,13 @@ export function applicationMenu(options: {
   const item = (keymapId: string): MenuItemConstructorOptions => {
     const shortcut = shortcuts.find((entry) => entry.keymapId === keymapId);
     if (!shortcut?.label) throw new Error(`No menu shortcut for ${keymapId}`);
-    const { accelerator } = shortcut;
+    const bound = options.bindings?.[keymapId];
+    const accelerator = bound === undefined ? shortcut.accelerator : keymapAccelerator(bound);
     return {
       label: shortcut.label,
-      accelerator,
+      ...(accelerator ? { accelerator } : {}),
       registerAccelerator: false,
-      click: () => options.trigger(accelerator),
+      click: () => options.trigger(keymapId),
     };
   };
   const checkForUpdates: MenuItemConstructorOptions = {

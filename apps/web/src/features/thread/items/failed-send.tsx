@@ -108,10 +108,10 @@ export function useSendActions(threadId: string) {
                 replace: true,
               });
           },
-          () => toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+          () => toast.error({ title: "Couldn't send it again", description: "It is still here." }),
         );
       })().catch(() =>
-        toast.add({ title: "Couldn't send it again", description: "It is still here." }),
+        toast.error({ title: "Couldn't send it again", description: "It is still here." }),
       );
     },
     edit(commandId: string, payload: SendPayload) {
@@ -150,7 +150,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     void retryStaged(client, staged.commandId, (file) =>
       sources.context.upload(thread, file, () => {}),
     ).then((sent) => {
-      if (!sent) toast.add({ title: "It still didn't go", description: "It is still here." });
+      if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });
     });
   };
   const edit = () => {

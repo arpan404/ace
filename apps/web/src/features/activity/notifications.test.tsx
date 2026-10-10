@@ -80,8 +80,8 @@ test("a needs-you toast goes once the request is answered", async () => {
   await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
 });
 
-test("while the window is in the background no toast is raised", async () => {
-  const app = harness();
+test("a hidden worker-backed tab updates its needs-you title count without raising a toast", async () => {
+  const app = harness({ throughWorker: true });
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
   await app.open("/new");
@@ -89,6 +89,7 @@ test("while the window is in the background no toast is raised", async () => {
   const visibility = Object.getOwnPropertyDescriptor(Document.prototype, "visibilityState");
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
   try {
+    document.dispatchEvent(new Event("visibilitychange"));
     checkout.runThrough("approval-requested");
     await waitFor(() => expect(document.title).toMatch(/^\(1\)/));
     expect(within(toasts()).queryByText(request)).toBeNull();

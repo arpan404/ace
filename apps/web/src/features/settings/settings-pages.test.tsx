@@ -92,14 +92,14 @@ test("the default provider lists the installed CLIs and remembers the choice", a
   );
 });
 
-test("the unresponsive threshold lives with the other agent settings, and Reset restores it", async () => {
+test("Reset restores the follow-up behavior on every device", async () => {
   await harness().open("/settings/general");
   const section = await screen.findByRole("region", { name: "While agents work" });
   expect(within(section).getByText("All devices")).toBeTruthy();
-  await pick("Unresponsive after", "15 minutes");
-  expect(screen.getByRole("combobox", { name: "Unresponsive after" }).textContent).toContain(
-    "15 minutes",
-  );
+  await pick("Messages sent while the agent works", "Steer");
+  expect(
+    screen.getByRole("combobox", { name: "Messages sent while the agent works" }).textContent,
+  ).toContain("Steer");
 
   await goTo("Advanced");
   await userEvent.click(await screen.findByRole("button", { name: "Reset" }));
@@ -111,16 +111,16 @@ test("the unresponsive threshold lives with the other agent settings, and Reset 
   expect(await screen.findByText("Settings reset")).toBeTruthy();
   await goTo("General");
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Unresponsive after" }).textContent).toContain(
-      "5 minutes",
-    ),
+    expect(
+      screen.getByRole("combobox", { name: "Messages sent while the agent works" }).textContent,
+    ).toContain("Queue"),
   );
 });
 
 test("a reset the daemon refuses keeps the dialog open and says why", async () => {
   const app = harness();
   await app.open("/settings/advanced");
-  app.daemon.failRequests("settings.set");
+  app.daemon.failRequests("settings.reset");
   await userEvent.click(await screen.findByRole("button", { name: "Reset" }));
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));

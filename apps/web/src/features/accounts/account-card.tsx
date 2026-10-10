@@ -63,7 +63,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
                 { accounts: props.accounts, from: account.id, threadIds: limited },
                 {
                   onSuccess: (result) => toast.add({ title: describeMove(result) }),
-                  onError: (error) => toast.add({ title: error.message }),
+                  onError: (error) => toast.error({ title: error.message }),
                 },
               )
             }

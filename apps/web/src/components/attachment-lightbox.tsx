@@ -110,7 +110,7 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
           if (!url) return;
           copyImage(url).then(
             () => toast.add({ title: "Image copied" }),
-            () => toast.add({ title: "Couldn't copy the image" }),
+            () => toast.error({ title: "Couldn't copy the image" }),
           );
         }}
       >

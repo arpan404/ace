@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import {
   BrainIcon,
   EyeIcon,
@@ -81,7 +82,7 @@ export function WorkLogSteps(props: {
  * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
  * sits right under that step; a smoothness measurement opens to its card.
  */
-export function ToolStep(props: {
+export function ToolStepContent(props: {
   threadId: string;
   itemId: string;
   ace?: AceToolContext | undefined;
@@ -183,5 +184,13 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
         {step.note && <span className={cn(step.failed && "text-status-failed")}>{step.note}</span>}
       </span>
     </button>
+  );
+}
+
+function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
+  return (
+    <LocalBoundary label="this step">
+      <ToolStepContent {...props} />
+    </LocalBoundary>
   );
 }

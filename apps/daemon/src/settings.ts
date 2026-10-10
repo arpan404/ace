@@ -39,6 +39,7 @@ export function settingsSession(options: {
   subscriptions: Map<string, () => void>;
   send(message: ServerMessage): void;
   authorize?(request: SettingsRequest): boolean;
+  resetKeys?(): SettingsKey[];
   set?(key: string, value: unknown, commit: () => Promise<void>): Promise<void>;
 }) {
   let closed = false;
@@ -104,6 +105,17 @@ export function settingsSession(options: {
             throw new SettingsError("validation", "Device authority changed");
           const service = options.service;
           if (!service) throw new SettingsError("io", "Settings service is unavailable");
+          if (request.type === "settings.reset") {
+            await service.reset(options.resetKeys?.() ?? []);
+            options.send({
+              type: "settings.result",
+              requestId: request.requestId,
+              ok: true,
+              entries: [],
+              diagnostics: [],
+            });
+            return;
+          }
           const wireScope =
             request.type === "settings.set"
               ? request.layer.kind === "global"

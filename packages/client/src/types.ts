@@ -24,7 +24,13 @@ export interface Storage {
 export interface Scheduler {
   set(delayMs: number, callback: () => void): () => void;
 }
-export type ConnectionState = "connecting" | "ready" | "reconnecting" | "offline" | "fatal";
+export type ConnectionState =
+  | "connecting"
+  | "starting"
+  | "ready"
+  | "reconnecting"
+  | "offline"
+  | "fatal";
 /** The connection's state and retry schedule, for "retrying in 12s · Retry now". */
 export interface ConnectionInfo {
   state: ConnectionState;
@@ -67,6 +73,8 @@ export interface Limits {
   text: number;
   listeners: number;
   requestMs: number;
+  /** Cold startup may outlive an ordinary read; never extend this deadline on progress. */
+  handshakeMs: number;
   heartbeatMs: number;
   retryBaseMs: number;
   retryCapMs: number;
@@ -90,6 +98,7 @@ export const defaultLimits: Limits = {
   text: 65536,
   listeners: 4096,
   requestMs: 15000,
+  handshakeMs: 120_000,
   heartbeatMs: 15000,
   retryBaseMs: 250,
   retryCapMs: 30000,

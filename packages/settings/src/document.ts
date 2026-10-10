@@ -172,3 +172,13 @@ export function assign(source: DecodedDocument, key: SettingsKey, value: unknown
     document: { ...source.document, settings: { ...source.document.settings, [key]: parsed } },
   };
 }
+
+/** Remove known preferences without deleting unknown keys or document comments. */
+export function resetPreferences(
+  source: DecodedDocument,
+  keys: readonly SettingsKey[],
+): DecodedDocument {
+  let text = source.text;
+  for (const key of keys) text = edit(text, ["settings", key], undefined);
+  return decode(text);
+}

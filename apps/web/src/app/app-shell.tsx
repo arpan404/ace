@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter } from "@tanstack/react-router";
@@ -11,7 +12,6 @@ import { ThreadsSidebar } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
-import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { cn } from "@/lib/cn.ts";
 
@@ -25,7 +25,6 @@ export function AppShell() {
   const connection = useConnectionState();
   // The static boot shell from index.html fades into this one.
   useDismissBootSplash();
-  useDesktopUpdates();
   return (
     <ProjectsHost>
       <SignInHost>
@@ -47,14 +46,30 @@ export function AppShell() {
             >
               Skip to content
             </a>
-            <SidebarFrame sidebar={<ShellSidebar />}>
+            <SidebarFrame
+              sidebar={
+                <LocalBoundary label="the sidebar">
+                  <ShellSidebar />
+                </LocalBoundary>
+              }
+            >
               <Outlet />
             </SidebarFrame>
-            <CommandPalette />
-            <SearchHost />
-            <MoveToProjectHost />
-            <ShellHotkeys />
-            <ActivityNotifier />
+            <LocalBoundary label="the command palette" fallback={null}>
+              <CommandPalette />
+            </LocalBoundary>
+            <LocalBoundary label="search" fallback={null}>
+              <SearchHost />
+            </LocalBoundary>
+            <LocalBoundary label="the project picker" fallback={null}>
+              <MoveToProjectHost />
+            </LocalBoundary>
+            <LocalBoundary label="keyboard shortcuts" fallback={null}>
+              <ShellHotkeys />
+            </LocalBoundary>
+            <LocalBoundary label="notifications" fallback={null}>
+              <ActivityNotifier />
+            </LocalBoundary>
           </div>
         </AddAccountHost>
       </SignInHost>
