@@ -24,6 +24,6 @@
   "devDependencies": {
     "@ace/relay": "workspace:*",
     "@ace/secure-channel": "workspace:*",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.2"
   }
 }

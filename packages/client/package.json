@@ -36,7 +36,7 @@
     "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/relay": "workspace:*",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "ws": "^8.18.3"
   }
 }
