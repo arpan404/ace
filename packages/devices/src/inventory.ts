@@ -1,4 +1,5 @@
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
+import { deviceFailure } from "./failure.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 
 /** Where device failures go: the daemon's redacting log. */
@@ -100,6 +101,7 @@ export class InventoryWatch {
             if (message !== this.lastFailure)
               this.options.log?.("warn", "Device inventory read failed", { message });
             this.lastFailure = message;
+            this.update({ devices: this.last?.devices ?? [], issues: [deviceFailure(error)] });
           },
         )
         .finally(() => {

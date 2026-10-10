@@ -11,6 +11,7 @@ export type RecordingArtifact = {
 };
 export class Recording {
   private bytes = 0;
+  private reason: "limit" | "error" | undefined;
   private failure: Error | undefined;
   private closing: Promise<RecordingArtifact> | undefined;
   private pending: Frame | undefined;
@@ -20,14 +21,14 @@ export class Recording {
   private readonly path: string;
   private readonly id: string;
   private readonly limit: number;
-  private readonly captureDone: () => void;
+  private readonly captureDone: (reason?: "limit" | "error") => void;
   private readonly publish: (artifact: RecordingArtifact) => Promise<void>;
   private constructor(
     path: string,
     id: string,
     limit: number,
     publish: (artifact: RecordingArtifact) => Promise<void>,
-    captureDone: () => void,
+    captureDone: (reason?: "limit" | "error") => void,
   ) {
     this.path = path;
     this.id = id;
@@ -37,7 +38,7 @@ export class Recording {
     this.stream = createWriteStream(path, { flags: "wx", mode: 0o600, highWaterMark: 64 * 1024 });
     this.stream.on("error", (error) => {
       this.failure = error;
-      this.captureDone();
+      this.captureDone("error");
       this.pending = undefined;
       this.busy = false;
       this.drained?.();
@@ -48,7 +49,7 @@ export class Recording {
     id: string,
     publish: (artifact: RecordingArtifact) => Promise<void>,
     limit = 50 * 1024 * 1024,
-    captureDone: () => void = () => {},
+    captureDone: (reason?: "limit" | "error") => void = () => {},
   ): Promise<Recording> {
     ScreenId.parse(id);
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid recording limit");
@@ -76,6 +77,7 @@ export class Recording {
       this.pending = undefined;
       this.busy = false;
       this.drained?.();
+      this.reason = "limit";
       void this.stop().catch(() => {});
       return;
     }
@@ -92,7 +94,7 @@ export class Recording {
   }
   stop(): Promise<RecordingArtifact> {
     this.closing ??= (async () => {
-      this.captureDone();
+      this.captureDone(this.reason);
       if (this.busy)
         await new Promise<void>((resolve) => {
           this.drained = resolve;

@@ -27,6 +27,7 @@ export async function recordDevice(
       "Configure ACE_WORKSPACE_ROOT before recording devices.",
     );
   delete session.recordingArtifact;
+  delete session.recordingNotice;
   session.recordingStarting = true;
   const generation = session.generation;
   const threadId = session.threadId;
@@ -41,13 +42,23 @@ export async function recordDevice(
     return released;
   };
   try {
-    image = streams.acquireImage();
+    image = streams.acquireRecording();
     await image.ready;
     const opening = Recording.open(
       options.recordingDirectory,
       options.runtime.id(),
       async (artifact) => {
-        const result = await options.publishArtifact(artifact, threadId);
+        let result;
+        try {
+          result = await options.publishArtifact(artifact, threadId);
+        } catch (error) {
+          if (session.approvalEpoch === epoch) {
+            session.recordingNotice =
+              "The recording couldn't be saved. Check the recording tools and try again.";
+            changed();
+          }
+          throw error;
+        }
         if (result && session.approvalEpoch === epoch)
           session.recordingArtifact = {
             id: result.id,
@@ -55,8 +66,14 @@ export async function recordDevice(
             mimeType: result.mimeType,
           };
       },
-      options.recordingLimitBytes ?? 50 * 1024 * 1024,
-      () => {
+      options.recordingLimitBytes ?? 512 * 1024 * 1024,
+      (reason) => {
+        if (reason === "limit")
+          session.recordingNotice =
+            "Recording stopped at its size limit. The video is being saved to this thread.";
+        if (reason === "error")
+          session.recordingNotice =
+            "Recording stopped because it couldn't be written. Check free disk space and try again.";
         if (recording && session.recording === recording) {
           delete session.recording;
           session.completed = recording;

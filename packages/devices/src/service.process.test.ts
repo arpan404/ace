@@ -69,6 +69,9 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     await chmod(join(root, path), 0o700);
   }
   let now = 0;
+  let exists = true;
+  let firstFrame = true;
+  const frameDeadline = deferred<void>();
   let id = 0;
   const timers = new Map<() => void, number>();
   const files = withRegistry
@@ -135,20 +138,22 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     },
     async probe(_command, args) {
       const command = args.join(" ");
-      if (command === "-list-avds") return { stdout: "Pixel", stderr: "", code: 0 };
+      if (command === "-list-avds") return { stdout: exists ? "Pixel" : "", stderr: "", code: 0 };
       if (command === "devices -l") {
         if (inventoryGate) {
           inventoryEntered.resolve();
           await inventoryGate.promise;
         }
         return {
-          stdout: "List of devices attached\nemulator-5554 device model:Pixel",
+          stdout: exists
+            ? "List of devices attached\nemulator-5554 device model:Pixel"
+            : "List of devices attached\n",
           stderr: "",
           code: 0,
         };
       }
       if (command.endsWith("emu avd name")) return { stdout: "Pixel\nOK", stderr: "", code: 0 };
-      if (command.includes("input")) {
+      if (command.includes("input") || args.includes("install")) {
         effects.push(command);
         entered.resolve();
         if (inputGate) await inputGate.promise;
@@ -175,6 +180,11 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
       id: () => `device-stream-${++id}`,
       spawn: spawnRawSupervised,
       after(ms, run) {
+        if (ms === 100) {
+          const timer = setTimeout(run, ms);
+          return () => clearTimeout(timer);
+        }
+        if (ms === 10000) frameDeadline.resolve();
         timers.set(run, now + ms);
         return () => {
           timers.delete(run);
@@ -196,7 +206,7 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
         await owned.stop({ graceMs: 0 });
         throw new DOMException("Capture startup cancelled", "AbortError");
       }
-      options.publish(frame(options.streamId, 0));
+      if (firstFrame) options.publish(frame(options.streamId, 0));
       return {
         async releaseInput() {
           releaseEntered.resolve();
@@ -236,6 +246,13 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     service.request(DeviceOperation.parse(raw), actor);
   return {
     service,
+    frameDeadline,
+    skipFirstFrame() {
+      firstFrame = false;
+    },
+    removeDevice() {
+      exists = false;
+    },
     profiles,
     releaseEntered,
     blockRelease() {
@@ -380,19 +397,17 @@ describe("in-app device ownership", () => {
     expect(h.effects).toHaveLength(1);
     expect(h.service.states()[0]?.controller).toBe("human");
   });
-  it("expired or disconnected controllers cannot continue injecting input", async () => {
+  it("an agent resumes after a thinking pause, while a disconnected human cannot inject input", async () => {
     const h = await harness();
     await delegate(h);
     h.time(30001);
-    await expect(
-      h.request({ op: "input", deviceId, input: { kind: "key", key: "home" } }, agent),
-    ).rejects.toMatchObject({ code: "lease_required" });
+    await h.request({ op: "input", deviceId, input: { kind: "key", key: "home" } }, agent);
     await h.request({ op: "controller", deviceId, controller: "human" });
     h.service.disconnect(human.owner);
     await expect(
       h.request({ op: "input", deviceId, input: { kind: "key", key: "home" } }),
     ).rejects.toMatchObject({ code: "lease_required" });
-    expect(h.effects).toEqual([]);
+    expect(h.effects).toHaveLength(1);
   });
   it("a human can release a delegated agent without first taking control", async () => {
     const h = await harness();
@@ -555,18 +570,16 @@ describe("in-app device ownership", () => {
     expect((await h.nativeExit()).reason).toBe("stopped");
     expect(h.service.states()).toEqual([]);
   });
-  it("startup expiry during SDK lookup fails without dispatching native capture", async () => {
+  it("slow inventory discovery does not consume the first-frame timeout", async () => {
     const h = await harness();
     await approve(h);
     const gate = h.blockInventory();
     const starting = h.request({ op: "start", deviceId });
-    const failed = expect(starting).rejects.toMatchObject({ code: "timeout" });
     await h.inventoryEntered.promise;
     h.deadlines();
     gate.resolve();
-    await failed;
-    expect(h.nativeStarted()).toBe(false);
-    expect(h.service.states()[0]?.lifecycle).toBe("failed");
+    await starting;
+    expect((await h.service.screenshot(deviceId, human)).payload.toString()).toBe("jpeg-0");
   });
   it("reenabling during disable cannot lose ownership of a pending native capture", async () => {
     const h = await harness();
@@ -876,7 +889,7 @@ it("recording quota completion restores video without increasing a small viewer'
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   await h.request({ op: "record.start", deviceId });
-  expect(h.profiles.at(-1)).toEqual({ ...videoProfile, codec: "jpeg" });
+  expect(h.profiles.at(-1)).toEqual({ ...videoProfile, codec: "jpeg", fps: 15 });
   h.publish(1, 1024);
   await h.published.promise;
   await h.request({ op: "record.stop", deviceId });
@@ -1001,4 +1014,122 @@ it("a pending native control handoff cannot reclaim after a newer owner or disco
   gate2.resolve();
   await rejected;
   expect(h.service.states()[0]?.controller).toBe("none");
+});
+
+it("boot stays visibly booting and succeeds after the controller's idle deadline", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "controller", deviceId, controller: "human" });
+  const gate = h.blockInventory();
+  const booting = h.request({ op: "boot", deviceId });
+  await h.inventoryEntered.promise;
+  h.time(240000);
+  h.deadlines();
+  expect(h.service.states()[0]).toMatchObject({ booting: true, controller: "human" });
+  gate.resolve();
+  await booting;
+  expect(h.service.states()[0]).toMatchObject({ booting: false, device: { state: "booted" } });
+});
+it("a long installation succeeds without expiring its queued controller", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "controller", deviceId, controller: "human" });
+  const gate = h.blockInput();
+  const installing = h.request({ op: "install", deviceId, path: "/tmp/Example.apk" });
+  await h.entered.promise;
+  h.time(240000);
+  h.deadlines();
+  gate.resolve();
+  expect(await installing).toEqual({ completed: true });
+  expect(h.effects).toEqual(["-s emulator-5554 install -r /tmp/Example.apk"]);
+});
+it("agent-triggered approval restores the live view a person was watching", async () => {
+  const h = await harness();
+  await h.request({ op: "enable", enabled: true });
+  await h.request({ op: "start", deviceId });
+  await h.request({ op: "approve", deviceId, threadId: "thread-1", allowed: true });
+  expect((await h.service.screenshot(deviceId, human)).payload.toString()).toBe("jpeg-0");
+  expect(h.service.states()[0]?.lifecycle).toBe("live");
+});
+it("a failed capture stop exposes cleanup and retry permits a replacement live view", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId });
+  h.failStop();
+  await expect(h.request({ op: "stop", deviceId })).rejects.toThrow();
+  expect(h.service.states()[0]?.cleanupRequired).toBe(true);
+  h.clearStopFailure();
+  await h.request({ op: "stop", deviceId });
+  await h.request({ op: "start", deviceId });
+  expect((await h.service.screenshot(deviceId, human)).payload.toString()).toBe("jpeg-0");
+});
+it("a first-frame timeout explains how to repair the Android live view", async () => {
+  const h = await harness();
+  await approve(h);
+  h.skipFirstFrame();
+  const starting = h.request({ op: "start", deviceId });
+  const rejected = expect(starting).rejects.toMatchObject({
+    code: "timeout",
+    message: "The live view didn't send its first frame",
+    hint: expect.stringContaining("ffmpeg"),
+  });
+  await h.frameDeadline.promise;
+  h.deadlines();
+  await rejected;
+  expect(h.service.states()[0]?.error?.hint).not.toContain("Screen Recording");
+});
+it("reaching a recording limit reports why capture stopped and publishes its video", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "start", deviceId });
+  await h.request({ op: "record.start", deviceId });
+  h.publish(1, 600);
+  await h.published.promise;
+  expect(h.service.states()[0]).toMatchObject({
+    recording: false,
+    recordingNotice: expect.stringContaining("size limit"),
+  });
+  expect(await h.request({ op: "record.stop", deviceId })).toMatchObject({
+    bytes: expect.any(Number),
+  });
+});
+it("closing human logs preserves an agent's log stream", async () => {
+  const h = await harness();
+  await approve(h);
+  await h.request({ op: "logs", deviceId, limit: 10 }, agent);
+  await h.request({ op: "logs.start", deviceId });
+  await h.request({ op: "logs.stop", deviceId });
+  const received = deferred<void>();
+  const lines: string[] = [];
+  await h.service.subscribeLogs(deviceId, agent, async (batch) => {
+    lines.push(...batch.lines);
+    received.resolve();
+  });
+  h.log("agent still watching");
+  await received.promise;
+  expect(lines).toEqual(["agent still watching"]);
+  await h.request({ op: "logs.stop", deviceId }, agent);
+  await h.logExit();
+});
+it("deleted idle unapproved devices release their session slots", async () => {
+  const h = await harness();
+  await h.request({ op: "enable", enabled: true });
+  await h.request({ op: "controller", deviceId, controller: "none" });
+  h.removeDevice();
+  expect(await h.service.list()).toEqual([]);
+  expect(h.service.states()).toEqual([]);
+});
+it("excess log readers are refused while existing readers can still stop cleanly", async () => {
+  const h = await harness();
+  await approve(h);
+  const readers = Array.from({ length: 64 }, (_, index) => ({
+    kind: "human" as const,
+    owner: `reader-${index}`,
+  }));
+  for (const reader of readers) await h.request({ op: "logs.start", deviceId }, reader);
+  await expect(h.request({ op: "logs.start", deviceId })).rejects.toThrow(
+    "Too many device log readers",
+  );
+  for (const reader of readers) await h.request({ op: "logs.stop", deviceId }, reader);
+  await h.logExit();
 });

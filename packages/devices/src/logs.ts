@@ -1,3 +1,4 @@
+import { deviceLogLine } from "./log-line.ts";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 /** O(1) bounded ring and one replaceable batch per blocked consumer. */
 export class DeviceLogs {
@@ -6,6 +7,17 @@ export class DeviceLogs {
   private count = 0;
   private sequence = 0;
   private process: SupervisedProcess | undefined;
+  private batch: LogBatch | undefined;
+  private cancel: (() => void) | undefined;
+  constructor(
+    privateAfter: (ms: number, run: () => void) => () => void = (ms, run) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
+  ) {
+    this.after = privateAfter;
+  }
+  private readonly after: (ms: number, run: () => void) => () => void;
   get running(): boolean {
     return this.process !== undefined;
   }
@@ -33,20 +45,34 @@ export class DeviceLogs {
     });
   }
   push(line: string): void {
-    line = line.slice(0, 4096);
+    line = deviceLogLine(line);
     this.ring[this.cursor] = line;
     this.cursor = (this.cursor + 1) % 256;
     this.count = Math.min(256, this.count + 1);
-    const batch: LogBatch = { sequence: ++this.sequence, lines: [line], dropped: 0 };
+    const lines = this.batch?.lines ?? [];
+    const dropped = (this.batch?.dropped ?? 0) + (lines.length >= 64 ? 1 : 0);
+    if (lines.length >= 64) lines.shift();
+    lines.push(line);
+    this.batch = { sequence: ++this.sequence, lines, dropped };
+    this.cancel ??= this.after(100, () => {
+      this.cancel = undefined;
+      this.flush();
+    });
+  }
+  private flush(): void {
+    const batch = this.batch;
+    this.batch = undefined;
+    if (!batch) return;
     for (const subscriber of this.listeners) {
       if (!subscriber.busy) this.deliver(subscriber, batch);
       else {
-        const pending = subscriber.pending;
-        const lines = pending?.lines ?? [];
-        const dropped = (pending?.dropped ?? 0) + (lines.length >= 64 ? 1 : 0);
-        if (lines.length >= 64) lines.shift();
-        lines.push(line);
-        subscriber.pending = { sequence: batch.sequence, lines, dropped };
+        const old = subscriber.pending;
+        const combined = [...(old?.lines ?? []), ...batch.lines];
+        subscriber.pending = {
+          sequence: batch.sequence,
+          lines: combined.slice(-64),
+          dropped: (old?.dropped ?? 0) + batch.dropped + Math.max(0, combined.length - 64),
+        };
       }
     }
   }
@@ -100,6 +126,9 @@ export class DeviceLogs {
     await proc?.stop({ graceMs: 0 });
   }
   async close(): Promise<void> {
+    this.cancel?.();
+    this.cancel = undefined;
+    this.batch = undefined;
     for (const subscriber of this.listeners) subscriber.active = false;
     this.listeners.clear();
     this.ring.length = 0;
