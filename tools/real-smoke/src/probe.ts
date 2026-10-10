@@ -8,7 +8,15 @@ import {
 } from "@ace/protocol";
 import { smokeMessage } from "./policy.ts";
 
-export async function probe(url: string, token: string) {
+export async function probe(
+  url: string,
+  token: string,
+  every: (run: () => void, milliseconds: number) => () => void = (run, milliseconds) => {
+    const timer = setInterval(run, milliseconds);
+    timer.unref();
+    return () => clearInterval(timer);
+  },
+) {
   const socket = new WebSocket(url);
   const pending = new Map<string, { resolve(value: Reply): void; reject(error: Error): void }>();
   socket.on("message", (data) => {
@@ -21,9 +29,12 @@ export async function probe(url: string, token: string) {
       else waiter?.resolve(message);
     }
   });
-  socket.on("error", () => {
-    for (const waiter of pending.values()) waiter.reject(new Error("Probe connection failed"));
-  });
+  const rejectPending = () => {
+    for (const waiter of pending.values()) waiter.reject(new Error("Probe connection closed"));
+    pending.clear();
+  };
+  socket.on("error", rejectPending);
+  socket.on("close", rejectPending);
   await new Promise<void>((resolve, reject) => {
     socket.once("open", resolve);
     socket.once("error", reject);
@@ -33,8 +44,13 @@ export async function probe(url: string, token: string) {
       smokeMessage({ type: "hello", protocolVersion: 1, deviceId: "real-smoke-probe", token }),
     ),
   );
+  const stopHeartbeat = every(() => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
+  }, 20_000);
+  socket.once("close", stopHeartbeat);
   return {
     async request(raw: unknown, timeoutMs = 60_000): Promise<Reply> {
+      if (socket.readyState !== WebSocket.OPEN) throw new Error("Probe connection closed");
       const id = randomUUID();
       const request: Request = ClientMessage.parse({ ...Object(raw), requestId: id });
       smokeMessage(request);
@@ -54,6 +70,8 @@ export async function probe(url: string, token: string) {
       }
     },
     close() {
+      stopHeartbeat();
+      rejectPending();
       socket.close();
     },
   };
