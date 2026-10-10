@@ -149,7 +149,13 @@ export const AccountQuota = z.object({
     .refine((w) => Object.keys(w).length <= 32)
     .meta({ maxProperties: 32, "x-ace-constraint": "At most 32 quota windows." }),
   blockers: z
-    .object({ overflow: z.literal(true).optional(), limitError: QuotaWindow.optional() })
+    .object({
+      overflow: z.literal(true).optional(),
+      limitError: QuotaWindow.optional(),
+      homeUnavailable: z
+        .enum(["home_missing", "home_unreadable", "foreign_home", "home_conflict"])
+        .optional(),
+    })
     .default({}),
   usage: z
     .object({

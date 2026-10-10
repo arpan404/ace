@@ -178,3 +178,27 @@ test("a reported native sign-in keeps its name when the installation probe is un
   expect(model.view?.summary).toBe("Signed in as Ada");
   expect(model.accounts[0]?.label).toBe("Your CLI login");
 });
+
+test("failed readiness is a known unknown state that still exposes registered accounts", () => {
+  const model = providerAccountModel({
+    provider: "codex",
+    accounts: [account("Personal", "logged_in")],
+    readinessFailed: true,
+    now: 10,
+  });
+  expect(model.loaded).toBe(true);
+  expect(model.accounts.map((entry) => accountStatus(entry, 10).text)).toEqual(["Signed in"]);
+});
+
+test("a signed-in account with a missing home cannot advertise that it can run", () => {
+  const unavailable = account("Missing", "logged_in");
+  unavailable.quota.blockers.homeUnavailable = "home_missing";
+  expect(accountStatus(unavailable, 10)).toEqual({
+    tone: "problem",
+    text: "Account folder unavailable",
+    canRun: false,
+  });
+  expect(
+    providerAccountModel({ provider: "codex", accounts: [unavailable], row, now: 10 }).view,
+  ).toMatchObject({ ready: false, summary: "Account folder unavailable" });
+});
