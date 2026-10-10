@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { join } from "node:path";
 import { lstat, readFile, readdir, mkdir, writeFile } from "node:fs/promises";
+import { defaultAccountBadgeColor } from "@ace/accounts/labels";
 import { openRegistry } from "@ace/accounts";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { registerImplicitAccounts } from "./account-homes.ts";
@@ -17,7 +18,7 @@ test("renaming the CLI login over the socket survives reopening and rediscovery 
     expect(await f.status(id)).toMatchObject({
       label: "Your CLI login",
       shortLabel: "Y",
-      badgeColor: "neutral",
+      badgeColor: defaultAccountBadgeColor("codex-cli-default"),
       isDefault: true,
     });
     const other = await f.add();
@@ -79,7 +80,7 @@ test("renaming the CLI login over the socket survives reopening and rediscovery 
   }
 });
 
-test("older CLI login records acquire a neutral initial badge without creating their home", async () => {
+test("older CLI login records acquire a palette initial badge without creating their home", async () => {
   const f = await harness();
   const path = join(f.dataDir, "accounts.sqlite");
   const db = new DatabaseSync(path);
@@ -91,13 +92,45 @@ test("older CLI login records acquire a neutral initial badge without creating t
     try {
       expect(reopened.summary("codex-cli-default", 100)).toMatchObject({
         shortLabel: "Y",
-        badgeColor: "neutral",
+        badgeColor: defaultAccountBadgeColor("codex-cli-default"),
         badgeUsesInitial: true,
         isDefault: true,
       });
       await expect(lstat(join(f.normalHome, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       reopened.close();
+    }
+  } finally {
+    db.close();
+    await f.close();
+  }
+});
+
+test("old automatic neutral badges receive a palette colour once and later chosen colours survive", async () => {
+  const f = await harness();
+  const path = join(f.dataDir, "accounts.sqlite");
+  const db = new DatabaseSync(path);
+  try {
+    db.exec(`DELETE FROM account_metadata_migrations WHERE name='badge-palette';
+      UPDATE accounts SET instance=json_set(instance,'$.badgeColor','neutral') WHERE id='codex-cli-default';
+      UPDATE accounts SET instance=json_set(instance,'$.badgeColor','rose') WHERE id='claude-cli-default';`);
+    const reopened = await openRegistry(path);
+    try {
+      expect(reopened.summary("codex-cli-default", 100)?.badgeColor).toBe(
+        defaultAccountBadgeColor("codex-cli-default"),
+      );
+      expect(reopened.summary("claude-cli-default", 100)?.badgeColor).toBe("rose");
+      reopened.rename("codex-cli-default", "Studio", { badgeColor: "neutral" });
+    } finally {
+      reopened.close();
+    }
+    const again = await openRegistry(path);
+    try {
+      await registerImplicitAccounts(again, f.env);
+      expect(again.summary("codex-cli-default", 100)?.badgeColor).toBe("neutral");
+      await expect(lstat(join(f.normalHome, ".codex"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      again.close();
     }
   } finally {
     db.close();

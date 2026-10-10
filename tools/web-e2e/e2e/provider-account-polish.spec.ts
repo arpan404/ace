@@ -177,7 +177,7 @@ for (const theme of themes)
         .poll(() =>
           chip
             .getByRole("img", { name: "Studio account" })
-            .evaluate((element) => getComputedStyle(element).color),
+            .evaluate((element) => getComputedStyle(element).backgroundColor),
         )
         .toBe(
           await page.evaluate(() => {
@@ -200,7 +200,7 @@ for (const theme of themes)
 
 for (const theme of ["light", "dark"])
   for (const width of [1440, 390])
-    test(`default CLI initials are neutral and visible on every surface in ${theme} at ${width}`, async ({
+    test(`default CLI initials use stable theme colours on every surface in ${theme} at ${width}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -218,27 +218,34 @@ for (const theme of ["light", "dark"])
           ),
         });
       }, theme);
-      const neutral = async (badge: ReturnType<typeof page.getByRole>) => {
+      const palette = async (badge: ReturnType<typeof page.getByRole>) => {
         await expect(badge).toHaveText("Y");
-        const ink = await page.evaluate(() => getComputedStyle(document.body).color);
+        const ink = await page.evaluate(() => {
+          const probe = document.createElement("span");
+          probe.style.color = "var(--project-10)";
+          document.body.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        });
         await expect
           .poll(() => badge.evaluate((element) => getComputedStyle(element).backgroundColor))
           .toBe(ink);
       };
       await page.goto("/settings/providers/claude");
-      await neutral(
+      await palette(
         page
           .getByRole("list", { name: "Claude Code accounts" })
           .getByRole("img", { name: "Your CLI login account" }),
       );
       await page.goto("/settings/providers");
-      await neutral(
+      await palette(
         page
           .getByRole("group", { name: "Claude Code", exact: true })
           .getByRole("img", { name: "Your CLI login account" }),
       );
       await page.goto("/accounts");
-      await neutral(
+      await palette(
         page
           .getByRole("article", { name: "Claude Code Your CLI login" })
           .getByRole("img", { name: "Your CLI login account" }),
@@ -254,7 +261,7 @@ for (const theme of ["light", "dark"])
       const picker = page.getByRole("dialog", { name: "Model and effort" });
       const change = picker.getByRole("button", { name: /^Change model/ });
       if (await change.count()) await change.click();
-      await neutral(
+      await palette(
         picker
           .getByRole("tab", { name: "Claude Code · Your CLI login" })
           .getByRole("img", { name: "Your CLI login account" }),

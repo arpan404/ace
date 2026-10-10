@@ -1,4 +1,5 @@
 import { accountLimit } from "@ace/ui-core";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
 import type { Account } from "./accounts-source.ts";
@@ -6,7 +7,7 @@ import { CompactWindow } from "./window-bar.tsx";
 import { AccountIdentity } from "./account-identity.tsx";
 import { formatResets } from "./format.ts";
 
-/** Usage is read-only; running thread counts belong in the row's tooltip. */
+/** Usage is read-only; every row reserves the same meter, reset and status columns. */
 export function AccountCard(props: { account: Account }) {
   const { account } = props;
   const now = useNow();
@@ -21,50 +22,51 @@ export function AccountCard(props: { account: Account }) {
       ? `Last reported ${new Date(account.quota.observedAt).toLocaleString()}`
       : "Not reported yet",
   ].join(" · ");
+  const status =
+    limit.level === "reached"
+      ? "Limit reached"
+      : account.windows.length
+        ? undefined
+        : account.quota.auth === "logged_in" &&
+            account.quota.observedAt > 0 &&
+            ["opencode", "pi"].includes(account.provider)
+          ? "No limits"
+          : "Not reported yet";
+  // Weekly stays in the second slot even without a short window. Daily uses the first.
+  const windows = [
+    { id: "short", rows: account.windows.filter((window) => !window.label.startsWith("Weekly")) },
+    { id: "weekly", rows: account.windows.filter((window) => window.label.startsWith("Weekly")) },
+  ];
   return (
     <article
       aria-label={`${account.providerLabel} ${account.label}`}
-      className="grid min-h-9 grid-cols-1 items-center gap-2 rounded-xs py-1 text-sm hover:bg-accent sm:grid-cols-[minmax(0,1fr)_auto]"
+      className="usage-limit-row grid min-h-9 items-center gap-2 py-1 text-sm"
     >
-      <AccountIdentity account={account} tooltip={tip} />
-      <div
-        className="flex max-w-full flex-wrap items-center gap-x-4 gap-y-1 pl-12 sm:pl-0"
-        style={{ width: 464 }}
-      >
-        {account.windows.length ? (
-          account.windows.map((window) => (
+      <div className="col-span-2 min-w-0 xl:col-span-1">
+        <AccountIdentity account={account} tooltip={tip} />
+      </div>
+      {windows.map((slot) => (
+        <div key={slot.id} className={account.windows.length ? "grid gap-1" : "hidden xl:block"}>
+          {slot.rows.map((window) => (
             <CompactWindow key={window.id} window={window} now={now} />
-          ))
-        ) : (
-          <span className="text-xs text-subtle-foreground">
-            {limit.level !== "reached" &&
-            account.quota.auth === "logged_in" &&
-            account.quota.observedAt > 0 &&
-            ["opencode", "pi"].includes(account.provider)
-              ? "No limits"
-              : "Not reported yet"}
-          </span>
-        )}
-        {(reset !== undefined && reset !== null) || limit.level === "reached" ? (
-          <Tip
-            label={
-              limit.level === "reached"
-                ? `Limit reached · ${reset != null ? formatResets(reset, now) : "Reset time not reported"}`
-                : formatResets(reset ?? now, now)
-            }
-          >
-            <span
-              tabIndex={0}
-              className={
-                limit.level === "reached"
-                  ? "rounded-xs text-xs text-status-failed focus-ring sm:ml-auto"
-                  : "rounded-xs text-xs text-subtle-foreground focus-ring sm:ml-auto"
-              }
-            >
-              {reset != null ? formatResets(reset, now) : "Limit reached"}
+          ))}
+        </div>
+      ))}
+      <div className={reset != null ? "text-xs text-subtle-foreground" : "hidden xl:block"}>
+        {reset != null && (
+          <Tip label={formatResets(reset, now)}>
+            <span tabIndex={0} className="rounded-xs focus-ring">
+              {formatResets(reset, now)}
             </span>
           </Tip>
-        ) : null}
+        )}
+      </div>
+      <div
+        className={account.windows.length ? "text-right" : "col-span-2 text-right xl:col-span-1"}
+      >
+        {status && (
+          <StatusLabel tone={limit.level === "reached" ? "failed" : "idle"} label={status} />
+        )}
       </div>
     </article>
   );

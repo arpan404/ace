@@ -1,10 +1,14 @@
 import { chromium, expect as playwrightExpect, type Page } from "@playwright/test";
+import { expectBrandMark } from "./brand-mark-check.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const expect = playwrightExpect.configure({ timeout: 30_000 });
 const out = process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean";
 const base = process.env.ACE_PROVIDER_SHOTS_URL ?? "http://127.0.0.1:5228";
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const selectedThemes = process.env.ACE_PROVIDER_SHOTS_THEMES?.split(",");
+const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"].filter(
+  (theme) => !selectedThemes || selectedThemes.includes(theme),
+);
 const browser = await chromium.launch();
 await mkdir(out, { recursive: true });
 const files: string[] = [];
@@ -23,6 +27,29 @@ for (const mode of ["light", "dark"]) {
 await mock.close();
 const comparison = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 async function capture(page: Page, name: string, target: Buffer) {
+  if (name.startsWith("usage") && page.viewportSize()?.width === 1440) {
+    await expect
+      .poll(async () => (await page.getByRole("article").first().boundingBox())?.height)
+      .toBe(36);
+  }
+  // Readiness of the row alone can precede lazy brand artwork.
+  for (const [providerName, brand] of [
+    ["Claude Code", "claude"],
+    ["Codex", "openai"],
+    ["OpenCode", "opencode"],
+    ["Cursor", "cursor"],
+    ["Pi", "pi"],
+    ["Gemini CLI", "geminicli"],
+    ["Antigravity", "antigravity"],
+  ] as const) {
+    for (const mark of await page
+      .getByRole("img", { name: providerName, exact: true })
+      .and(page.locator("svg"))
+      .all()) {
+      if (await mark.isVisible())
+        await expectBrandMark(mark, brand, Number(await mark.getAttribute("width")));
+    }
+  }
   await page.evaluate(() => document.fonts.ready);
   const shot = await page.screenshot({ path: `${out}/${name}.png`, animations: "disabled" });
   files.push(`${name}.png`);
@@ -50,7 +77,7 @@ try {
       });
       await page.addInitScript((selected) => {
         localStorage.setItem("ace.appearance", JSON.stringify({ theme: selected }));
-        Object.assign(globalThis, { aceFakeWorld: "empty" });
+        Object.assign(globalThis, { aceFakeWorld: "idle" });
       }, theme);
       const mode = ["light", "paper"].includes(theme) ? "light" : "dark";
       for (const [index, surface, route] of [
@@ -66,13 +93,17 @@ try {
               .getByRole("group", { name: "Codex" })
               .getByRole("button", { name: "Update", exact: true }),
           ).toBeVisible();
-        else if (index === 3)
+        else if (index === 3) {
+          if (width === 1440)
+            await expect(
+              page.getByText("Dedupe thread events after reconnect", { exact: true }).first(),
+            ).toBeVisible();
           await expect(
             page
               .getByRole("article", { name: "Codex Personal" })
               .getByRole("meter", { name: "5-hour window" }),
           ).toBeVisible();
-        else {
+        } else {
           await expect(
             page.getByRole("button", { name: "+ Add account", exact: true }),
           ).toBeVisible();

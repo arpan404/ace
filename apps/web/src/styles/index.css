@@ -217,6 +217,14 @@
 }
 
 @layer components {
+  .usage-limit-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 1280px) {
+    .usage-limit-row {
+      grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
+    }
+  }
   /* One fixed blur avoids Tailwind's full backdrop-filter property set for sheet scrims. */
   .sheet-scrim {
     -webkit-backdrop-filter: blur(4px);
@@ -224,9 +232,12 @@
   }
   /* Floating surfaces and the sidebar share the same blur. */
   .glass,
-  .vibrancy {
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  .vibrancy,
+  .search-glass {
+    -webkit-backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
+      saturate(var(--material-saturation, 120%));
+    backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
+      saturate(var(--material-saturation, 120%));
   }
   /* Floating glass: popovers, menus, palette, composer, toasts. */
   .glass {
@@ -241,10 +252,8 @@
      Appearance intensity and OS preference still make the surface fully opaque when needed. */
   .search-glass {
     background: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * 1.16 * var(--glass-k)));
-    -webkit-backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
-      saturate(calc(100% + 50% * var(--glass-k)));
-    backdrop-filter: blur(calc(var(--glass-blur) * var(--glass-k)))
-      saturate(calc(100% + 50% * var(--glass-k)));
+    --material-blur: calc(var(--glass-blur) * var(--glass-k));
+    --material-saturation: calc(100% + 50% * var(--glass-k));
   }
   @media (prefers-reduced-transparency: reduce) {
     .glass,

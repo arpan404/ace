@@ -209,7 +209,10 @@ Accepted 2026-10-10. The provider page can rename and change the badge of the no
 CLI login through the existing account rename commands and validation. The registry
 stores the label and optional symbol or colour as metadata. Discovery preserves that
 metadata; it never moves, creates or writes the CLI home. Existing implicit records
-receive the neutral theme-aware badge. Removal and session migration remain refused.
+receive a deterministic palette colour derived from their account id. Theme tokens
+keep each colour readable in light and dark. Earlier automatic neutral metadata is
+converted once; chosen colours survive reopening and discovery, including an explicit
+neutral choice. Removal and session migration remain refused.
 Renaming does not change default selection.
 
 Optional `badgeUsesInitial` on summaries distinguishes a name-derived initial from an

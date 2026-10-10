@@ -1,4 +1,4 @@
-import { accountShortLabel } from "./labels.ts";
+import { accountShortLabel, defaultAccountBadgeColor } from "./labels.ts";
 import { cursorInstanceId, cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
@@ -26,10 +26,7 @@ const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanc
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
-  const parsed = ProviderInstance.parse({
-    ...input,
-    ...(input.implicit ? { badgeColor: input.badgeColor ?? "neutral" } : {}),
-  });
+  const parsed = ProviderInstance.parse(input);
   instanceEnv(parsed, {});
   if (parsed.implicit) return parsed;
   // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
@@ -56,7 +53,7 @@ function summarize(
     label: instance.label,
     shortLabel: accountShortLabel(instance),
     badgeUsesInitial: instance.shortLabel === undefined,
-    badgeColor: instance.badgeColor,
+    badgeColor: instance.badgeColor ?? defaultAccountBadgeColor(instance.id),
     authMethod: instance.authMethod ?? "unknown",
     ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
@@ -128,9 +125,30 @@ export class AccountRegistry {
     // Retire metadata before home canonicalization. Never inspect the old CLI home.
     db.exec(`DELETE FROM account_selection WHERE instance_id='cursor-cli-default';
       DELETE FROM accounts WHERE id='cursor-cli-default' AND json_extract(instance,'$.implicit')=1;`);
-    // Existing CLI logins acquire a neutral badge without inspecting their homes.
-    db.exec(`UPDATE accounts SET instance=json_set(instance,'$.badgeColor','neutral')
-      WHERE json_extract(instance,'$.implicit')=1 AND json_extract(instance,'$.badgeColor') IS NULL`);
+    // Earlier builds assigned neutral to every CLI login. Retire that automatic metadata once;
+    // later explicit choices, including neutral, survive reopening and rediscovery.
+    db.exec("CREATE TABLE IF NOT EXISTS account_metadata_migrations (name TEXT PRIMARY KEY)");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (
+        !db.prepare("SELECT name FROM account_metadata_migrations WHERE name='badge-palette'").get()
+      ) {
+        const update = db.prepare("UPDATE accounts SET instance=? WHERE id=?");
+        for (const value of db.prepare("SELECT instance, quota FROM accounts LIMIT 257").all()) {
+          const instance = ProviderInstance.parse(JSON.parse(row.parse(value).instance));
+          if (instance.implicit && instance.badgeColor === "neutral")
+            update.run(
+              JSON.stringify({ ...instance, badgeColor: defaultAccountBadgeColor(instance.id) }),
+              instance.id,
+            );
+        }
+        db.exec("INSERT INTO account_metadata_migrations VALUES ('badge-palette')");
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
@@ -275,7 +293,7 @@ export class AccountRegistry {
             ? {
                 label: current.instance.label,
                 shortLabel: current.instance.shortLabel,
-                badgeColor: current.instance.badgeColor ?? "neutral",
+                badgeColor: current.instance.badgeColor,
               }
             : {}),
           loginRevision: current?.instance.loginRevision ?? instance.loginRevision ?? "0",

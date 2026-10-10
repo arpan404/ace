@@ -43,7 +43,7 @@ export function AccountLabelEditor(props: {
       await props.onSave(name.trim(), {
         shortLabel: shortLabel.trim() || undefined,
         badgeUsesInitial: !shortLabel.trim(),
-        badgeColor: color === "neutral" ? null : color,
+        badgeColor: color,
       });
     } catch {
       setError("Couldn't save this account. Check your connection and retry.");

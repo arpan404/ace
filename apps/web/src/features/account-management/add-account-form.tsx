@@ -40,7 +40,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
 
   const [label, setLabel] = useState("");
   const [badge, setBadge] = useState("");
-  const [color, setColor] = useState<AccountBadgeColor>("violet");
+  const [color, setColor] = useState<AccountBadgeColor>();
   const actions = useAccountActions();
   const toast = useToast();
   const navigate = useNavigate();
@@ -52,7 +52,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         .rename(progress.instance, label.trim(), {
           shortLabel: badge.trim() || undefined,
           badgeUsesInitial: !badge.trim(),
-          badgeColor: color,
+          badgeColor: color ?? null,
         })
         .catch(() =>
           toast.error({

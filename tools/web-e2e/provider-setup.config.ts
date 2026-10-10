@@ -9,6 +9,7 @@ export default defineConfig({
     "provider-setup-screens.spec.ts",
     "provider-account-polish.spec.ts",
     "provider-content-states.spec.ts",
+    "usage-layout.spec.ts",
   ],
   workers: 1,
   timeout: 60_000,

@@ -25,7 +25,6 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
     installationVersion: account.cliVersion,
     label: account.label,
     shortLabel: account.label.charAt(0),
-    badgeColor: account.label === "Personal" ? "blue" : "green",
     authMethod: "browser",
     availability: account.availability,
     quota: {
@@ -69,7 +68,6 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     label: id === "cursor" ? "Your Cursor login" : "Your CLI login",
     shortLabel: "Y",
     badgeUsesInitial: true,
-    badgeColor: "neutral" as const,
     authMethod: "unknown",
     implicit: true,
     cliHome: `/Users/ada/.${id}`,
@@ -112,7 +110,6 @@ export function accountSummaries(now: number): AccountSummary[] {
         label: "Your CLI login",
         shortLabel: "Y",
         badgeUsesInitial: true,
-        badgeColor: "neutral" as const,
         implicit: true,
         cliHome: `/Users/ada/.${provider}`,
         isDefault: true,

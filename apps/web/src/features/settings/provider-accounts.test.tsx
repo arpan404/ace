@@ -210,3 +210,25 @@ test("Escape cancels account editing and a failed save can be retried without lo
   await userEvent.click(form.getByRole("button", { name: "Retry" }));
   expect(await account("Studio")).toBeTruthy();
 });
+
+test("new accounts get varied default badges and a chosen neutral colour still wins", async () => {
+  const app = harness();
+  await app.open("/settings/providers/claude");
+  const colours: string[] = [];
+  for (const [index, name] of ["Studio", "Research", "Client"].entries()) {
+    const dialog = await add();
+    await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), name);
+    if (name === "Client")
+      await userEvent.click(dialog.getByRole("button", { name: "Use neutral badge" }));
+    await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
+    await dialog.findByRole("link", { name: "Open again" });
+    app.daemon.services.providerLogin.complete(`fake-login-${index + 1}`);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add a Claude Code account" })).toBeNull(),
+    );
+    const badge = within(await account(name)).getByRole("img", { name: `${name} account` });
+    colours.push(badge.style.background);
+  }
+  expect(colours[0]).not.toBe(colours[1]);
+  expect(colours[2]).toBe("var(--foreground)");
+});

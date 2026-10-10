@@ -1,4 +1,4 @@
-import { accountShortLabel } from "@ace/accounts/labels";
+import { accountShortLabel, defaultAccountBadgeColor } from "@ace/accounts/labels";
 import { liveWindow } from "@ace/accounts/availability";
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountQuota, AccountSummary } from "@ace/protocol/accounts";
@@ -129,7 +129,7 @@ export function accountView(summary: Summary): AccountView {
       shortLabel: summary.badgeUsesInitial ? undefined : summary.shortLabel,
     }),
     badgeUsesInitial: summary.badgeUsesInitial ?? summary.shortLabel === undefined,
-    badgeColor: summary.badgeColor,
+    badgeColor: summary.badgeColor ?? defaultAccountBadgeColor(summary.id),
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
     ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),

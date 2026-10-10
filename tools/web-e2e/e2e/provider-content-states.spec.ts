@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
-const output = "/tmp/ace-orch/shots/ui-providers-clean/followup";
+const output =
+  process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean/followup2";
 mkdirSync(output, { recursive: true });
 
 for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
@@ -24,7 +25,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
           ({ theme: selectedTheme, request: selectedRequest }) => {
             localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
             Object.assign(globalThis, {
-              aceFakeWorld: "empty",
+              aceFakeWorld: "idle",
               aceFakeSetup: new Function(
                 "daemon",
                 localStorage.getItem("ace.providersReviewState") === "empty"
