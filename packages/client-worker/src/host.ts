@@ -379,7 +379,7 @@ class Tab {
       return;
     }
     this.leases.set(lease, held);
-    this.schedule();
+    if (this.visible || held.scope.kind !== "thread") this.schedule();
   }
   private release(lease: number): void {
     const held = this.leases.get(lease);
@@ -402,11 +402,6 @@ class Tab {
   }
   private schedule(): void {
     if (this.flushing) return;
-    if (
-      !this.visible &&
-      ![...this.leases.values()].some((held) => held.scope.kind !== "thread" && held.dirty)
-    )
-      return;
     this.flushing = this.options.scheduler.set(this.options.frameMs ?? 16, () => {
       this.flushing = undefined;
       this.flush();
@@ -443,11 +438,11 @@ class Tab {
             this.pendingReset = true;
           }
         }
-        this.schedule();
+        if (this.visible) this.schedule();
       });
     this.pendingDirty.clear();
     this.pendingReset = true;
-    this.schedule();
+    if (this.visible) this.schedule();
   }
   private flushPending(): void {
     const client = this.entry?.client;
