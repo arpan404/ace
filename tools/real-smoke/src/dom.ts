@@ -98,7 +98,12 @@ export function pageFacts(options: Pick<PageFacts, "catalogsReady" | "expected">
   };
 }
 /** Redact screenshot text in place, then restore it so the app's DOM stays usable. */
-export async function privateScreenshot(page: Page, path: string, scrub: (text: string) => string) {
+async function redactedScreenshot(
+  page: Page,
+  path: string,
+  scrub: (text: string) => string,
+  capture: () => Promise<unknown>,
+) {
   await refuseSymlink(path);
   const original = await page.evaluate(() => {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -119,8 +124,21 @@ export async function privateScreenshot(page: Page, path: string, scrub: (text: 
   };
   await page.evaluate(replace, redacted);
   try {
-    await page.screenshot({ path, animations: "disabled" });
+    await capture();
   } finally {
     await page.evaluate(replace, original);
   }
+}
+
+export function privateScreenshot(page: Page, path: string, scrub: (text: string) => string) {
+  return redactedScreenshot(page, path, scrub, () =>
+    page.screenshot({ path, animations: "disabled" }),
+  );
+}
+
+/** Usage evidence can be shared without publishing saved thread or project names in the sidebar. */
+export function usageScreenshot(page: Page, path: string, scrub: (text: string) => string) {
+  return redactedScreenshot(page, path, scrub, () =>
+    page.locator("main").first().screenshot({ path, animations: "disabled" }),
+  );
 }

@@ -19,7 +19,7 @@ The command exits 1 for a failed check or an incomplete journey. It writes
 The short summary groups repeated failures; JSON keeps every step and screenshot
 reference. Reports and screenshots stay local and can contain personal conversation
 content. Known credential patterns and the scratch daemon token are redacted,
-including in screenshots. No traces, storage dumps, provider output, or daemon
+including in screenshots. Usage captures contain only the main page, leaving saved thread and project names in the sidebar out of shareable evidence. No traces, storage dumps, provider output, or daemon
 logs are retained.
 
 ## Source isolation
@@ -80,7 +80,7 @@ The tour waits on catalog replies and UI readiness, then captures the sidebar an
 walks its virtual rows up to the thread cap. It opens each selected thread, chooses
 a stored project with importable history, visits New thread and Show all past
 sessions, waits for a fresh scan, and imports one session into scratch. It checks
-every model source tab, Providers and every linked provider page, Usage & accounts,
+every model source tab, Providers and every linked provider page, Usage,
 Skills and `/` in separate cold browser contexts, all Activity tabs, every Settings
 page including the theme editor, and a nonexistent thread URL representing a
 previously deleted thread. No thread is deleted for this journey.
