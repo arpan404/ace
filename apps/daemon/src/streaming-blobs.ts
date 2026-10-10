@@ -27,7 +27,7 @@ export class StreamingBlobs {
     const select = this.statement("SELECT * FROM streamed_blobs WHERE id=?");
     let row = select.get(part.id);
     if (!row) {
-      if (part.offset !== 0) throw new Error("Raw blob is missing its prefix");
+      if (part.offset !== 0 || part.done) return;
       if (
         Number(
           this.statement(
@@ -35,7 +35,7 @@ export class StreamingBlobs {
           ).get(threadId)?.count,
         ) >= 8
       )
-        throw new Error("Raw blob stream capacity reached");
+        return;
       this.statement(
         "INSERT INTO streamed_blobs(id,thread_id,size,sha256,storage_id) VALUES(?,?,0,NULL,?)",
       ).run(part.id, threadId, part.id);

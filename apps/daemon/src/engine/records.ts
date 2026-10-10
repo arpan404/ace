@@ -12,13 +12,42 @@ function parseRecord<T>(schema: z.ZodType<T>, value: unknown): T {
   return value;
 }
 
+interface CachedRecord<T> {
+  value: T;
+  json: string;
+  bytes: number;
+}
+/** Shared across every resident snapshot; keys never cross a section's typed owner. */
+export class RecordBudget {
+  readonly entries = new BoundedCache<string, CachedRecord<unknown>>(8192, 8_388_608);
+  private serial = 0;
+  section<T>() {
+    const prefix = `${++this.serial}:`;
+    const entries = this.entries;
+    return {
+      get(key: string): CachedRecord<T> | undefined {
+        // Values enter only through this section's T-typed set method.
+        return entries.get(prefix + key) as CachedRecord<T> | undefined;
+      },
+      set(key: string, value: CachedRecord<T>, bytes: number) {
+        // Charge decoded strings as well as the retained JSON.
+        entries.set(prefix + key, value, bytes * 4);
+      },
+      delete(key: string) {
+        entries.delete(prefix + key);
+      },
+    };
+  }
+}
+
 /** Disk-backed dictionaries return plain entities, so core can clone emitted events. */
 export class Records<T> {
   readonly values: Record<string, T>;
-  private cache = new BoundedCache<string, { value: T; json: string; bytes: number }>(
-    128,
-    1_048_576,
-  );
+  private cache: {
+    get(key: string): CachedRecord<T> | undefined;
+    set(key: string, value: CachedRecord<T>, bytes: number): void;
+    delete(key: string): void;
+  };
   private tracking = false;
   private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
@@ -41,7 +70,9 @@ export class Records<T> {
     initial: Record<string, T>,
     decorate: (key: string, value: T) => T = (_key, value) => value,
     encode: (key: string, value: T) => string = (_key, value) => JSON.stringify(value),
+    budget = new RecordBudget(),
   ) {
+    this.cache = budget.section<T>();
     this.db = db;
     this.thread = thread;
     this.group = group;
@@ -167,7 +198,10 @@ export class Records<T> {
     this.db
       .prepare("INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)")
       .run(this.thread, this.group, key, JSON.stringify(patch));
-    if (entry) entry.bytes += Buffer.byteLength(patch.text);
+    if (entry) {
+      entry.bytes += Buffer.byteLength(patch.text);
+      this.cache.set(key, entry, entry.bytes);
+    }
     this.appended.add(key);
   }
   begin(): void {

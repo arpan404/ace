@@ -63,10 +63,15 @@ export class LongThreadDatabase {
   sql(text: string): StatementSync {
     let statement = this.statements.get(text);
     if (!statement) {
-      if (this.statements.size >= 128) throw new Error("Long-thread statement capacity exceeded");
+      if (this.statements.size >= 128) {
+        const oldest = this.statements.keys().next().value;
+        if (oldest !== undefined) this.statements.delete(oldest);
+      }
       statement = this.db.prepare(text);
       this.statements.set(text, statement);
     }
+    this.statements.delete(text);
+    this.statements.set(text, statement);
     return statement;
   }
   run(text: string, ...values: SQLInputValue[]): void {

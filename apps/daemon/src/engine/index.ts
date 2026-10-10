@@ -312,7 +312,7 @@ export class Engine {
     if (options.recovery?.preferences || options.models) {
       this.readyPromise = (async () => {
         await recovery.prepare();
-        for (const state of repo.states()) await recovery.prepare(state.threadId);
+        for (const state of repo.recoveryStates()) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;
@@ -857,6 +857,11 @@ export class Engine {
       (!queue.paused && !queue.limited && this.repo.pending.message(id))
     )
       return;
+    if (actor && !actor.poisoned && !actor.backlog().frames) {
+      actor.stop();
+      this.actors.delete(id);
+      this.repo.evict(id);
+    }
     if (this.repo.reservedSlot(id)) {
       this.repo.release(id);
       this.wakeQueued();
@@ -921,9 +926,18 @@ export class Engine {
         if (["pending", "queued"].includes(intent.status))
           this.delivery.fail(
             intent,
-            "Thread stopped after a persistence failure; restart the daemon before retrying",
+            actor.persistenceFailed
+              ? "Thread stopped after a persistence failure; restart the daemon before retrying"
+              : "Provider stopped after an invalid response; resume the thread to retry",
           );
       this.syncQueue(actor);
+      if (!actor.persistenceFailed) {
+        actor.stop();
+        this.actors.delete(actor.id);
+        this.repo.evict(actor.id);
+        this.repo.release(actor.id);
+        this.wakeQueued();
+      }
       return;
     }
     if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;

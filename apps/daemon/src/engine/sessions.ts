@@ -173,7 +173,7 @@ export class Sessions {
         ...(identity ? { acpIdentity: identity } : {}),
       });
       if (backend === "cursor-sdk")
-        this.dependencies.repo.recovery.restore(actor.id, actor.translator);
+        await this.dependencies.repo.recovery.restore(actor.id, actor.translator);
       actor.apply([{ type: "process.started" }]);
       const rootAgent = state.agents[rootKey]?.agent;
       const aceMcp =

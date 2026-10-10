@@ -4,7 +4,7 @@ import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
 import { itemMetadata } from "./item-metadata.ts";
-import { Records } from "./records.ts";
+import { Records, RecordBudget } from "./records.ts";
 import { engineSchemaVersion } from "./schema-version.ts";
 const nativeRunId = z.custom<RunId>((value) => RunId.safeParse(value).success);
 
@@ -15,9 +15,18 @@ export class Snapshot {
   private items: Records<Item>;
   private metadata: Records<Item>;
   private sections: { flush(): void; begin(): void }[] = [];
-  constructor(db: Pick<DatabaseSync, "prepare">, state: ThreadState) {
+  constructor(db: Pick<DatabaseSync, "prepare">, state: ThreadState, budget = new RecordBudget()) {
     const segment = <T>(section: string, schema: z.ZodType<T>, initial: Record<string, T>) => {
-      const records = new Records(db, state.threadId, section, schema, initial);
+      const records = new Records(
+        db,
+        state.threadId,
+        section,
+        schema,
+        initial,
+        undefined,
+        undefined,
+        budget,
+      );
       this.sections.push(records);
       return records.values;
     };
@@ -45,13 +54,32 @@ export class Snapshot {
         const { nativeRuns: runs, ...agent } = record;
         return JSON.stringify({ ...agent, ...(runs === undefined ? {} : { nativeRuns: {} }) });
       },
+      budget,
     );
     this.sections.push(agents);
     state.agents = agents.values;
-    this.items = new Records(db, state.threadId, "items", recordSchemas.items, state.items);
+    this.items = new Records(
+      db,
+      state.threadId,
+      "items",
+      recordSchemas.items,
+      state.items,
+      undefined,
+      undefined,
+      budget,
+    );
     this.sections.push(this.items);
     state.items = this.items.values;
-    this.metadata = new Records(db, state.threadId, "itemMetadata", recordSchemas.items, {});
+    this.metadata = new Records(
+      db,
+      state.threadId,
+      "itemMetadata",
+      recordSchemas.items,
+      {},
+      undefined,
+      undefined,
+      budget,
+    );
     this.sections.push(this.metadata);
     state.runs = segment("runs", recordSchemas.runs, state.runs);
     state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);

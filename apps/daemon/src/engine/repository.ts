@@ -1,3 +1,4 @@
+import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
@@ -53,6 +54,7 @@ export class EngineRepository {
   private opening = new Set<ThreadId>();
   readonly transitions: TransitionState;
   private readiness: TransitionReadiness;
+  private recordBudget = new RecordBudget();
   private snapshots = new Map<ThreadId, Snapshot>();
   private admissionStatements: {
     has: StatementSync;
@@ -91,6 +93,11 @@ export class EngineRepository {
       this.store.statement("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
     );
     this.queue = new QueueStore(store);
+    store.atomic((db) =>
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS engine_queue_recovery ON engine_queue(thread_id) WHERE continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1",
+      ),
+    );
     this.pending = new IntentStore(store, this.queue);
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
@@ -148,6 +155,7 @@ export class EngineRepository {
         snapshot = new Snapshot(
           { prepare: (sql) => this.store.statement(sql) },
           decodeSnapshot(String(row.state)),
+          this.recordBudget,
         );
         this.snapshotSeq.set(snapshot, Number(row.seq));
       }
@@ -169,6 +177,28 @@ export class EngineRepository {
     if (!state) throw new Error("Missing engine state");
     return state;
   }
+  *recoveryStates(): Iterable<ThreadState> {
+    let after = "";
+    for (;;) {
+      const ids = this.store.atomic(() =>
+        this.store
+          .statement(`
+        SELECT thread_id FROM (
+          SELECT id AS thread_id FROM threads WHERE json_extract(status,'$.state') NOT IN ('new','done','failed')
+          UNION SELECT thread_id FROM intents WHERE status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1
+          UNION SELECT thread_id FROM engine_queue WHERE continuation IS NOT NULL OR trigger IS NOT NULL OR limited=1 OR paused=1
+        ) WHERE thread_id>? AND thread_id IN (SELECT thread_id FROM thread_state) ORDER BY thread_id LIMIT 64
+      `)
+          .all(after),
+      );
+      if (!ids.length) return;
+      for (const row of ids) {
+        const id = ThreadId.parse(row.thread_id);
+        after = id;
+        yield this.requireState(id);
+      }
+    }
+  }
   *states(): Iterable<ThreadState> {
     const ids = this.store.atomic((_db) =>
       this.store
@@ -182,7 +212,11 @@ export class EngineRepository {
     this.store.atomic((_db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state)
-        snapshot = new Snapshot({ prepare: (sql) => this.store.statement(sql) }, state);
+        snapshot = new Snapshot(
+          { prepare: (sql) => this.store.statement(sql) },
+          state,
+          this.recordBudget,
+        );
       if (
         payloads.some(
           (event) =>
@@ -441,6 +475,15 @@ export class EngineRepository {
   }
   backend(id: ThreadId): ProviderBackend | undefined {
     return this.metadata.backend(id);
+  }
+  clearIncompleteBlobs(id?: ThreadId): void {
+    this.store.atomic(() =>
+      id === undefined
+        ? this.store.statement("DELETE FROM streamed_blobs WHERE sha256 IS NULL").run()
+        : this.store
+            .statement("DELETE FROM streamed_blobs WHERE thread_id=? AND sha256 IS NULL")
+            .run(id),
+    );
   }
   captureFrame(id: ThreadId, frame: Frame): void {
     // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.

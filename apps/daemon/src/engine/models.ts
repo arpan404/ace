@@ -4,12 +4,7 @@ import {
   selectionModelFilter,
   type ModelCatalogApi,
 } from "@ace/models";
-import {
-  AcpIdentity,
-  type ExecutionSelection,
-  type ProviderKind,
-  type ThreadId,
-} from "@ace/protocol";
+import { AcpIdentity, type ExecutionSelection, type ProviderKind, ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import { cursorModelParams } from "@ace/provider-kit/cursor-selection";
 
@@ -170,7 +165,21 @@ export class EngineModels {
   migrateCachedDefaults(): void {
     const catalog = this.catalog;
     if (!catalog?.resolveCached) return;
-    for (const state of this.repo.states()) {
+    const rows = this.repo.store.atomic(() =>
+      this.repo.store
+        .statement(`
+      SELECT s.thread_id FROM engine_sessions s JOIN threads t ON t.id=s.thread_id
+      LEFT JOIN engine_transitions x ON x.thread_id=s.thread_id
+      WHERE lower(trim(s.model)) LIKE 'default%'
+        OR lower(trim(json_extract(x.value,'$.selection.model'))) LIKE 'default%'
+        OR (t.provider='opencode' AND (
+          (s.model IS NOT NULL AND instr(s.model,'/')=0)
+          OR (json_extract(x.value,'$.selection.model') IS NOT NULL AND instr(json_extract(x.value,'$.selection.model'),'/')=0)))
+    `)
+        .all(),
+    );
+    for (const row of rows) {
+      const state = this.repo.requireState(ThreadId.parse(row.thread_id));
       const metadata = this.repo.session(state.threadId);
       const selection = this.repo.transitions.get(state.threadId).selection;
       const legacyOpenCode =
