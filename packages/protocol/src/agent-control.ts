@@ -158,7 +158,10 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     .refine((input) => (input.url === undefined) !== (input.number === undefined), {
       message: "Provide a pull request URL or number.",
     })
-    .meta({ "x-ace-constraint": "Exactly one of url or number is required." }),
+    .meta({
+      "x-ace-constraint": "Exactly one of url or number is required.",
+      oneOf: [{ required: ["url"] }, { required: ["number"] }],
+    }),
   z
     .strictObject({
       op: z.literal("thread.unlink_pr"),
@@ -173,7 +176,10 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
         message: "Provide a pull request URL, number, or all: true.",
       },
     )
-    .meta({ "x-ace-constraint": "Exactly one of url, number, or all: true is required." }),
+    .meta({
+      "x-ace-constraint": "Exactly one of url, number, or all: true is required.",
+      oneOf: [{ required: ["url"] }, { required: ["number"] }, { required: ["all"] }],
+    }),
   z.strictObject({ op: z.literal("thread.list_prs") }),
   z.strictObject({ op: z.literal("thread.settle"), threadId: ThreadId }),
   z.strictObject({

@@ -571,6 +571,18 @@
     },
     {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "number"
+          ]
+        }
+      ],
       "properties": {
         "number": {
           "exclusiveMinimum": 0,
@@ -601,6 +613,23 @@
     },
     {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "number"
+          ]
+        },
+        {
+          "required": [
+            "all"
+          ]
+        }
+      ],
       "properties": {
         "all": {
           "const": true,

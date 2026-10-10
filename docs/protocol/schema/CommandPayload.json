@@ -1030,6 +1030,18 @@
       "type": "object"
     },
     {
+      "oneOf": [
+        {
+          "required": [
+            "number"
+          ]
+        },
+        {
+          "required": [
+            "all"
+          ]
+        }
+      ],
       "properties": {
         "all": {
           "const": true,

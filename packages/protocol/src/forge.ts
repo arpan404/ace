@@ -137,7 +137,10 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     .refine((value) => (value.number !== undefined) !== (value.all === true), {
       message: "Choose a pull request number or all",
     })
-    .meta({ "x-ace-constraint": "Exactly one of number or all is required" }),
+    .meta({
+      "x-ace-constraint": "Exactly one of number or all is required",
+      oneOf: [{ required: ["number"] }, { required: ["all"] }],
+    }),
   z.object({
     type: z.literal("forge.comment.reply"),
     link: ForgeThreadLink,

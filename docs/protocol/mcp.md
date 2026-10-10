@@ -988,11 +988,13 @@ Required capability: thread_control. Timeout: 10000 ms.
 
 [JSON Schema](schema/ace_thread_link_pr.input.json), input validation.
 
+### Variant 1
+
 Semantic rule: Exactly one of url or number is required.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
 | number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | repo | no | string | {"minLength":1,"maxLength":512} |
 
@@ -1000,8 +1002,25 @@ Example:
 
 ```json
 {
-  "repo": "example",
   "url": "https://example.invalid/"
+}
+```
+
+### Variant 2
+
+Semantic rule: Exactly one of url or number is required.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| repo | no | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "number": 2
 }
 ```
 
@@ -1034,11 +1053,13 @@ Required capability: thread_control. Timeout: 10000 ms.
 
 [JSON Schema](schema/ace_thread_unlink_pr.input.json), input validation.
 
+### Variant 1
+
 Semantic rule: Exactly one of url, number, or all: true is required.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
 | number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | all | no | `true` |  |
 
@@ -1047,6 +1068,42 @@ Example:
 ```json
 {
   "url": "https://example.invalid/"
+}
+```
+
+### Variant 2
+
+Semantic rule: Exactly one of url, number, or all: true is required.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| all | no | `true` |  |
+
+Example:
+
+```json
+{
+  "number": 5
+}
+```
+
+### Variant 3
+
+Semantic rule: Exactly one of url, number, or all: true is required.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| all | yes | `true` |  |
+
+Example:
+
+```json
+{
+  "all": true
 }
 ```
 
@@ -1100,8 +1157,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1141,7 +1197,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1165,7 +1221,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": 6
+  "until": null
 }
 ```
 
@@ -1183,8 +1239,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -1228,8 +1284,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -1269,8 +1325,7 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1312,6 +1367,8 @@ Example:
 
 ```json
 {
+  "code": "invalid",
+  "data": null,
   "ok": true
 }
 ```
@@ -1337,7 +1394,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "U58lkTPsxpP",
+  "requestId": "Px0s",
   "threadId": "example"
 }
 ```
@@ -1356,8 +1413,7 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1397,9 +1453,8 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
-  "ok": true
+  "code": "unavailable",
+  "ok": false
 }
 ```
 
@@ -1422,7 +1477,7 @@ Example:
 
 ```json
 {
-  "previewId": "Px0s",
+  "previewId": "1",
   "threadId": "example"
 }
 ```
@@ -1441,6 +1496,7 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
   "ok": false
 }
 ```
@@ -1465,7 +1521,6 @@ Example:
 
 ```json
 {
-  "limit": 9,
   "sourceThreadId": "example"
 }
 ```
@@ -1511,7 +1566,6 @@ Example:
 
 ```json
 {
-  "offset": 8,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1533,8 +1587,8 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-16le",
-  "eof": false,
+  "encoding": "utf-8",
+  "eof": true,
   "nextOffset": 6
 }
 ```

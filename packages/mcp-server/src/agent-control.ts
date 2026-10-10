@@ -36,7 +36,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
                 for (const issue of parsed.error.issues)
                   context.addIssue({ code: "custom", message: issue.message, path: issue.path });
             })
-            .meta({ "x-ace-constraint": schema.meta()?.["x-ace-constraint"] })
+            .meta({ ...schema.meta() })
         : z.strictObject(shape),
     output: AgentControlResult,
     capability:

@@ -2,6 +2,18 @@
   "$id": "https://ace.local/protocol/v1/ace_thread_link_pr.input.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "url"
+      ]
+    },
+    {
+      "required": [
+        "number"
+      ]
+    }
+  ],
   "properties": {
     "number": {
       "exclusiveMinimum": 0,
