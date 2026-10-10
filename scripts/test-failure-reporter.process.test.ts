@@ -41,13 +41,49 @@ test("real failed tests report nested cleanup causes with bounded output and ret
       const nested = depth => depth === 0 ? new Error('leaf') : new AggregateError(Array.from({length:12}, () => nested(depth - 1)), 'x'.repeat(20000));
       throw nested(3);
     });
+    for (const name of ['cyclic cause', 'throwing error index', 'throwing error length', 'revoked error array', 'throwing cause conversion'])
+      test(name, () => {throw new Error(name)});
   `,
   );
   await writeFile(
     config,
     `
     import {FailureDetailsReporter} from ${JSON.stringify(new URL("./test-failure-reporter.ts", import.meta.url).href)};
-    export default {root:${JSON.stringify(root)},test:{include:['failures.test.ts'],maxWorkers:1,reporters:[new FailureDetailsReporter()]}};
+    // Vitest serializes worker errors before reporter callbacks, so hostile getters are
+    // introduced on a result view here without altering the runner's stored result.
+    class DecoratedReporter {
+      reporter = new FailureDetailsReporter();
+      onTestCaseResult(test) {
+        const result = test.result();
+        if (result.state !== 'failed') return this.reporter.onTestCaseResult(test);
+        const error = {...result.errors[0]};
+        switch (test.fullName) {
+          case 'cyclic cause': error.cause = error; break;
+          case 'throwing error index': {
+            const errors = [{message:'unreadable'}, {message:'remaining cleanup failure'}];
+            Object.defineProperty(errors, '0', {get(){throw new Error('throwing index')}});
+            errors.slice = () => {throw new Error('throwing slice')};
+            error.errors = errors;
+            break;
+          }
+          case 'throwing error length':
+            error.errors = new Proxy([], {get(target,key,receiver){if(key === 'length') throw new Error('throwing length'); return Reflect.get(target,key,receiver)}});
+            break;
+          case 'revoked error array': {
+            const revoked = Proxy.revocable([], {}); revoked.revoke(); error.errors = revoked.proxy;
+            break;
+          }
+          case 'throwing cause conversion': {
+            const cause = () => {}; cause.toString = () => {throw new Error('throwing conversion')}; error.cause = cause;
+            break;
+          }
+          default: return this.reporter.onTestCaseResult(test);
+        }
+        const view = new Proxy(test, {get(target,key){return key === 'result' ? () => ({...result,errors:[error]}) : Reflect.get(target,key,target)}});
+        this.reporter.onTestCaseResult(view);
+      }
+    }
+    export default {root:${JSON.stringify(root)},test:{include:['failures.test.ts'],maxWorkers:1,reporters:[new DecoratedReporter()]}};
   `,
   );
   const execution = execute(
@@ -78,7 +114,7 @@ test("real failed tests report nested cleanup causes with bounded output and ret
     .split("\n")
     .filter((line) => line.startsWith('{"failure":'))
     .map((line) => Report.parse(JSON.parse(line)));
-  expect(reports).toHaveLength(3);
+  expect(reports).toHaveLength(8);
   const ordinary = reports.find((report) => report.failure === "ordinary assertion");
   expect(ordinary?.errors[0]).toMatchObject({
     name: "AssertionError",
@@ -99,4 +135,25 @@ test("real failed tests report nested cleanup causes with bounded output and ret
   expect(bounded?.errors[0]?.omittedErrors).toBe(8);
   expect(JSON.stringify(bounded)).toContain('"truncated":"capacity"');
   expect(JSON.stringify(bounded).length).toBeLessThan(800_000);
+  expect(reports.find((report) => report.failure === "cyclic cause")?.errors[0]).toMatchObject({
+    message: "cyclic cause",
+    cause: { truncated: "cycle" },
+  });
+  expect(
+    reports.find((report) => report.failure === "throwing error index")?.errors[0],
+  ).toMatchObject({
+    message: "throwing error index",
+    errors: [{ truncated: "unreadable" }, { message: "remaining cleanup failure" }],
+  });
+  for (const name of ["throwing error length", "revoked error array"])
+    expect(reports.find((report) => report.failure === name)?.errors[0]).toMatchObject({
+      message: name,
+      errors: [{ truncated: "unreadable" }],
+    });
+  expect(
+    reports.find((report) => report.failure === "throwing cause conversion")?.errors[0],
+  ).toMatchObject({
+    message: "throwing cause conversion",
+    cause: { truncated: "unreadable" },
+  });
 });

@@ -2,6 +2,31 @@ import type { Reporter, TestCase } from "vitest/node";
 
 const textLimit = 8_000;
 const nodeLimit = 20;
+function errorList(
+  value: unknown,
+  seen: Set<object>,
+  budget: { nodes: number },
+  depth: number,
+): object {
+  let length: unknown;
+  try {
+    if (!Array.isArray(value)) return {};
+    length = Reflect.get(value, "length");
+  } catch {
+    return { errors: [{ truncated: "unreadable" }] };
+  }
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0)
+    return { errors: [{ truncated: "unreadable" }] };
+  const errors: object[] = [];
+  for (let index = 0; index < Math.min(length, 4); index++) {
+    try {
+      errors.push(failureDetails(Reflect.get(value, String(index)), seen, budget, depth));
+    } catch {
+      errors.push({ truncated: "unreadable" });
+    }
+  }
+  return { errors, ...(length > 4 ? { omittedErrors: length - 4 } : {}) };
+}
 function failureDetails(
   value: unknown,
   seen: Set<object>,
@@ -10,8 +35,13 @@ function failureDetails(
 ): object {
   if (budget.nodes++ >= nodeLimit) return { truncated: "capacity" };
   if (depth >= 5) return { truncated: "depth" };
-  if (typeof value !== "object" || value === null)
-    return { message: String(value).slice(0, textLimit) };
+  if (typeof value !== "object" || value === null) {
+    try {
+      return { message: String(value).slice(0, textLimit) };
+    } catch {
+      return { truncated: "unreadable" };
+    }
+  }
   if (seen.has(value)) return { truncated: "cycle" };
   seen.add(value);
   const read = (key: string): unknown => {
@@ -33,14 +63,7 @@ function failureDetails(
     stack: text("stack"),
     diff: text("diff"),
     ...(cause !== undefined ? { cause: failureDetails(cause, seen, budget, depth + 1) } : {}),
-    ...(Array.isArray(errors)
-      ? {
-          errors: errors
-            .slice(0, 4)
-            .map((error: unknown) => failureDetails(error, seen, budget, depth + 1)),
-          ...(errors.length > 4 ? { omittedErrors: errors.length - 4 } : {}),
-        }
-      : {}),
+    ...errorList(errors, seen, budget, depth + 1),
   };
   seen.delete(value);
   return result;
@@ -57,7 +80,7 @@ export class FailureDetailsReporter implements Reporter {
         failure: test.fullName,
         project: test.project.name,
         file: test.module.relativeModuleId,
-        errors: result.errors.slice(0, 4).map((error) => failureDetails(error, new Set(), budget)),
+        ...errorList(result.errors, new Set(), budget, 0),
       })}\n`,
     );
   }
