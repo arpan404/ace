@@ -76,9 +76,10 @@ it("support export works before adding a project, redacts secrets, and includes 
     diagnostics: { doctor: async () => report, toolchains: async () => [] },
   });
   const client = new Client(daemon.url);
+  const opened = once(client.socket, "open");
   const token = await readFile(daemon.tokenPath, "utf8");
   try {
-    await once(client.socket, "open");
+    await opened;
     client.send({
       type: "hello",
       protocolVersion: 1,
