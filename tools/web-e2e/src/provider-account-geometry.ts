@@ -6,26 +6,30 @@ async function bounds(locator: Locator) {
   return box;
 }
 
-/** Check the painted controls, including reserved hover actions, against the page edge. */
-export async function expectProviderAccountGeometry(page: Page) {
+async function painted(locator: Locator) {
+  if (!(await locator.count())) return false;
+  return locator.evaluate((element) => {
+    for (let current: Element | null = element; current; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      if (style.opacity === "0" || style.visibility === "hidden" || style.display === "none")
+        return false;
+    }
+    return true;
+  });
+}
+
+/** Read the actual Update button, rather than an invisible account action or menu slot. */
+export async function providerActionEdge(page: Page) {
+  const update = await bounds(page.getByRole("button", { name: "Update", exact: true }));
+  return update.x + update.width;
+}
+
+/** Every account's last painted reading or action shares Update's right edge. */
+export async function expectProviderAccountGeometry(page: Page, edge: number) {
   const list = page.getByRole("list", { name: / accounts$/ });
   if (!(await list.count())) return;
   await page.evaluate(() => document.fonts.ready);
-  const model = page.getByRole("button", { name: /^Default model:/ });
-  const modelBox = await bounds(model);
-  const edge = modelBox.x + modelBox.width;
-  for (const control of [
-    page.getByRole("button", { name: "Manage", exact: true }),
-    page.getByRole("button", {
-      name: `Manage ${await page.getByRole("heading", { level: 2 }).textContent()}`,
-      exact: true,
-    }),
-  ]) {
-    if (await control.count()) {
-      const box = await bounds(control);
-      expect(box.x + box.width, "Provider controls share the content edge").toBeCloseTo(edge, 0);
-    }
-  }
+  await page.mouse.move(0, 0);
   for (const row of await list.getByRole("listitem").all()) {
     const badge = row.getByRole("img", { name: / account$/ });
     if (!(await badge.count())) continue;
@@ -38,36 +42,60 @@ export async function expectProviderAccountGeometry(page: Page) {
     const meter = row.getByRole("meter");
     const status = (await meter.count())
       ? row.getByText(`${await meter.getAttribute("aria-valuenow")}%`, { exact: true })
-      : row.locator("[data-tone]");
-    const trailing = [];
-    if (await status.count()) trailing.push(status.first());
-    if (await action.count()) trailing.push(action);
-    if (await menu.count()) trailing.push(menu);
-    const before = await Promise.all(trailing.map(bounds));
-    const last = before.at(-1);
-    if (last)
-      expect(last.x + last.width, "Every account ends at the page control edge").toBeCloseTo(
-        edge,
-        0,
-      );
-    for (let index = 1; index < before.length; index++) {
-      const previous = before[index - 1];
-      const current = before[index];
-      if (!previous || !current) throw new Error("Missing trailing account control");
+      : row.locator("[data-tone]").or(row.getByText(/ · Not reported yet$/));
+    const reading = status.first();
+    await expect(reading, "Every account reports a status or quota reading").toHaveCount(1);
+    const controls = [reading];
+    if (await action.count()) controls.push(action);
+    if (await menu.count()) controls.push(menu);
+    const before = await Promise.all(controls.map(bounds));
+    const aligned = async () => {
+      const last = (await painted(action)) ? action : reading;
+      expect(await painted(last), "The trailing element is painted").toBe(true);
+      const box = await bounds(last);
       expect(
-        current.x - previous.x - previous.width,
-        "Status, action and menu have one 8px gap",
-      ).toBeCloseTo(8, 0);
-      expect(current.y + current.height / 2, "Trailing controls share a line").toBeCloseTo(
-        previous.y + previous.height / 2,
-        0,
-      );
-    }
+        Math.abs(box.x + box.width - edge),
+        "Last visible account element ends at Update",
+      ).toBeLessThanOrEqual(2);
+      if (await menu.count()) {
+        const menuBox = await bounds(menu);
+        expect(
+          menuBox.x - box.x - box.width,
+          "Only the fixed menu slot follows the visible element",
+        ).toBeCloseTo(8, 0);
+        expect(menuBox.y + menuBox.height / 2, "Trailing controls share a line").toBeCloseTo(
+          box.y + box.height / 2,
+          0,
+        );
+      }
+    };
+    await aligned();
     if (page.viewportSize()?.width === 1440)
       expect((await bounds(row)).height, "Desktop accounts stay one 36px row").toBe(36);
     await row.hover();
-    const after = await Promise.all(trailing.map(bounds));
-    expect(after, "Revealing hover actions does not move the status or controls").toEqual(before);
+    await aligned();
+    expect(await Promise.all(controls.map(bounds)), "Hover changes no account geometry").toEqual(
+      before,
+    );
+    await page.mouse.move(0, 0);
+    if (await action.count()) {
+      await action.focus();
+      await aligned();
+      expect(
+        await Promise.all(controls.map(bounds)),
+        "Focusing an action changes no account geometry",
+      ).toEqual(before);
+      await action.evaluate((element) => element.blur());
+    }
+    if (await menu.count()) {
+      await menu.focus();
+      await aligned();
+      expect(
+        await Promise.all(controls.map(bounds)),
+        "Keyboard focus changes no account geometry",
+      ).toEqual(before);
+      await menu.evaluate((element) => element.blur());
+    }
+    await page.mouse.move(0, 0);
   }
-  await page.mouse.move(0, 0);
 }

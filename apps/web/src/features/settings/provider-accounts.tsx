@@ -121,6 +121,7 @@ function AccountItem(props: {
     state.text === "Signed out" ||
     state.text === "Not signed in yet" ||
     (state.text !== "Limit reached" && !state.canRun && !account.quota.blockers.homeUnavailable);
+  const showDefault = !needsSignIn && !account.isDefault && native !== undefined;
   const makeDefault = () => {
     if (native)
       void actions.setDefault(native, account.id).catch(fail(`Couldn't make ${label} the default`));
@@ -132,8 +133,8 @@ function AccountItem(props: {
       style={highlighted ? { background: "var(--accent)" } : undefined}
       className="group rounded-md focus-ring hover:bg-accent"
     >
-      <div className="grid min-h-9 items-center gap-2 sm:grid-cols-[1fr_auto]">
-        <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+      <div className="flex min-h-9 flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <AccountBadge account={account} tooltip={false} />
             <Tip label={label}>
@@ -155,10 +156,10 @@ function AccountItem(props: {
             </span>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2">
-          {state.canRun ? (
-            account.windows[0] && (
-              <span className="inline-flex">
+        <div className="flex items-center justify-end gap-2 ml-auto">
+          <span className="relative inline-flex items-center">
+            <span className={showDefault ? "inline-flex account-reading" : "inline-flex"}>
+              {state.canRun && account.windows[0] ? (
                 <CompactWindow
                   window={
                     account.windows.find((window) => window.label === "5-hour") ??
@@ -166,18 +167,29 @@ function AccountItem(props: {
                   }
                   now={now}
                 />
-              </span>
-            )
-          ) : (
-            <StatusLine
-              tone={state.tone}
-              text={
-                state.text === "Limit reached" && accountLimit(account, now).resetsAt !== undefined
-                  ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
-                  : state.text
-              }
-            />
-          )}
+              ) : (
+                <StatusLine
+                  tone={state.tone}
+                  text={
+                    state.text === "Limit reached" &&
+                    accountLimit(account, now).resetsAt !== undefined
+                      ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
+                      : state.text
+                  }
+                />
+              )}
+            </span>
+            {showDefault && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="absolute right-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+                onClick={makeDefault}
+              >
+                Make default
+              </Button>
+            )}
+          </span>
           {signIn && props.manageable && needsSignIn ? (
             <Button
               size="sm"
@@ -190,17 +202,8 @@ function AccountItem(props: {
                 ? "Sign in"
                 : "Reconnect"}
             </Button>
-          ) : !account.isDefault && native ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
-              onClick={makeDefault}
-            >
-              Make default
-            </Button>
           ) : null}
-          {signIn && props.manageable && (
+          {signIn && props.manageable ? (
             <Menu>
               <MenuTrigger
                 render={
@@ -209,7 +212,7 @@ function AccountItem(props: {
                     icon={DotsThreeIcon}
                     label={`Manage ${label}`}
                     size="sm"
-                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
+                    className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
                     onPointerEnter={() => void preloadSignIn()}
                   />
                 }
@@ -283,6 +286,8 @@ function AccountItem(props: {
                 )}
               </MenuContent>
             </Menu>
+          ) : (
+            <span aria-hidden className="size-6 shrink-0" />
           )}
         </div>
       </div>

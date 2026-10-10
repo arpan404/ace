@@ -1,6 +1,6 @@
 import { chromium, expect as playwrightExpect, type Page } from "@playwright/test";
 import { expectBrandMark } from "./brand-mark-check.ts";
-import { expectProviderAccountGeometry } from "./provider-account-geometry.ts";
+import { expectProviderAccountGeometry, providerActionEdge } from "./provider-account-geometry.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const expect = playwrightExpect.configure({ timeout: 30_000 });
@@ -14,6 +14,7 @@ const browser = await chromium.launch();
 await mkdir(out, { recursive: true });
 const files: string[] = [];
 const targets = new Map<string, Buffer>();
+const accountEdges = new Map<number, number>();
 const mock = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
 for (const mode of ["light", "dark"]) {
   await mock.goto(
@@ -28,7 +29,14 @@ for (const mode of ["light", "dark"]) {
 await mock.close();
 const comparison = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 async function capture(page: Page, name: string, target: Buffer) {
-  if (name.startsWith("provider-")) await expectProviderAccountGeometry(page);
+  if (name.startsWith("provider-")) {
+    const width = page.viewportSize()?.width ?? 1440;
+    if (await page.getByRole("button", { name: "Update", exact: true }).count())
+      accountEdges.set(width, await providerActionEdge(page));
+    const edge = accountEdges.get(width);
+    if (edge === undefined) throw new Error("Capture Update before checking account edges");
+    await expectProviderAccountGeometry(page, edge);
+  }
   if (name.startsWith("usage") && page.viewportSize()?.width === 1440) {
     await expect
       .poll(async () => (await page.getByRole("article").first().boundingBox())?.height)

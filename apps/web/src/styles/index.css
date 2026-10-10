@@ -217,6 +217,16 @@
 }
 
 @layer components {
+  /* Make default replaces a reading without taking its place in the row's layout. */
+  .group:hover .account-reading,
+  .account-reading:has(+ button:focus) {
+    opacity: 0;
+  }
+  @media (pointer: coarse) {
+    .account-reading {
+      opacity: 0;
+    }
+  }
   .usage-limit-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -276,11 +286,8 @@
   }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
-    display: inline-block;
-    flex: none;
     width: 11px;
     height: 11px;
-    border-radius: 9999px;
     border: 1.5px solid color-mix(in oklab, currentColor 25%, transparent);
     border-top-color: currentColor;
     animation: ace-spin 1s linear infinite;

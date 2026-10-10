@@ -8,6 +8,7 @@ export default defineConfig({
   testMatch: [
     "provider-setup-screens.spec.ts",
     "provider-account-polish.spec.ts",
+    "provider-account-alignment.spec.ts",
     "provider-content-states.spec.ts",
     "usage-layout.spec.ts",
   ],
