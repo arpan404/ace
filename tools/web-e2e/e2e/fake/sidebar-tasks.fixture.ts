@@ -27,12 +27,17 @@ export async function stageSidebarTasks(page: Page, theme = "dark") {
               workspaceId: "openforge",
               title,
               provider,
+              live: {
+                account: provider === "claude" ? "claude-personal" : "codex-personal",
+                model: provider === "claude" ? "claude-opus-5-5" : "gpt-5.5",
+              },
               details: {
                 workspace: { id: "openforge", name: "OpenForge", path: "/tmp/fake/openforge" },
                 machine: {
                   host: index === 2 ? "build-server" : daemon.hostId,
                   name: index === 2 ? "Build server" : "This Mac",
                 },
+                ...(index === 2 ? { branch: "release/build" } : {}),
                 ...(index === 3
                   ? {
                       branch: "console/consistency",

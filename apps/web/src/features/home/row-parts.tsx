@@ -223,10 +223,7 @@ export function RowIdentitySpace(props: { card: ThreadCard }) {
     <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-1.5">
       <span className="inline-flex items-center gap-0.5">
         {props.card.subagents > 0 && (
-          <span
-            data-count={`⑂ ${props.card.subagents}`}
-            className="text-2xs tabular-nums before:content-[attr(data-count)]"
-          />
+          <span className="text-2xs tabular-nums">⑂ {props.card.subagents}</span>
         )}
         <span className="size-4" />
       </span>
