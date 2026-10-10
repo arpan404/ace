@@ -100,22 +100,31 @@ it.skipIf(process.env["ACE_DEVICE_VIDEO_LIVE"] !== "1")(
           (frame) => Math.abs(frame.best_effort_timestamp_time - expected) < 0.041,
         ),
       ).toBe(true);
-    for (const [timestamp, dominant] of [
+    for (const [index, expected] of [
       [0, 0],
-      [0.3, 1],
-      [0.82, 2],
+      [1, 0.24],
+      [2, 0.8],
+    ] as const) {
+      const timestamp = metadata.frames[index]?.best_effort_timestamp_time;
+      if (timestamp === undefined) throw new Error("Missing real video frame");
+      expect(Math.abs(timestamp - expected)).toBeLessThan(0.041);
+    }
+    for (const [index, dominant] of [
+      [0, 0],
+      [1, 1],
+      [2, 2],
     ] as const) {
       const decoded = await execute(
         ffmpeg,
         [
           "-loglevel",
           "error",
-          "-ss",
-          String(timestamp),
           "-i",
           artifact.path,
           "-vf",
-          "crop=720:720:280:0,scale=1:1",
+          `select=eq(n\\,${index}),crop=720:720:280:0,scale=1:1`,
+          "-fps_mode",
+          "passthrough",
           "-frames:v",
           "1",
           "-f",
