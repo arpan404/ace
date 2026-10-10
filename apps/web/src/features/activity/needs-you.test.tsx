@@ -22,14 +22,14 @@ test("answering an approval in Activity resolves it and updates the pending requ
   await app.open("/activity");
 
   const approval = await card(approvalTitle);
-  const header = screen.getByRole("banner");
+  const count = await screen.findByRole("tab", { name: "Needs you 1" });
   // This fixture has one ordinary thread approval.
-  expect(await within(header).findByText("1 needs you")).toBeTruthy();
+  expect(count).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Allow once" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
-  expect(within(header).queryByText("1 needs you")).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("tab", { name: "Needs you 1" })).toBeNull());
   expect(await screen.findByText("Approved · the agent continues")).toBeTruthy();
 
   // The daemon's interaction.closed event, not the click, is what the store now holds.
@@ -70,13 +70,16 @@ test("J and K move between cards and A approves only the focused one", async () 
   const app = workbenchApp();
   await app.open("/activity");
   const push = await card("Allow a force push to fix/restart-retry?");
-  await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
+  await screen.findByRole("button", { name: /^Install @fontsource\/noto-sans-jp\?/ });
+  push.focus();
   await waitFor(() => expect(push.getAttribute("aria-current")).toBe("true"));
 
   await userEvent.keyboard("jj");
   const font = await card("Install @fontsource/noto-sans-jp?");
   expect(font.getAttribute("aria-current")).toBe("true");
-  expect(push.getAttribute("aria-current")).toBeNull();
+  expect(
+    screen.queryByRole("article", { name: "Allow a force push to fix/restart-retry?" }),
+  ).toBeNull();
   await userEvent.keyboard("k");
   expect(
     (await card("How should the sheet recover after rotate?")).getAttribute("aria-current"),
@@ -169,13 +172,14 @@ test("Needs you shows placeholder cards until the thread list arrives, never a f
   expect(screen.queryByRole("status", { name: "Loading requests" })).toBeNull();
 });
 
-test("Activity requests start folded and Enter reveals their decision before it can be answered", async () => {
+test("Activity shows one decision and Enter folds and reopens its detail", async () => {
   const app = workbenchApp();
   await app.open("/activity");
-  const row = await screen.findByRole("article", {
-    name: "Allow a force push to fix/restart-retry?",
-  });
-  expect(within(row).queryByRole("button", { name: "Allow once" })).toBeNull();
+  const row = await card("Allow a force push to fix/restart-retry?");
+  row.focus();
+  expect(within(row).getByRole("button", { name: "Deny" })).toBeTruthy();
+  await userEvent.keyboard("{Enter}");
+  expect(within(row).queryByRole("button", { name: "Deny" })).toBeNull();
   await userEvent.keyboard("{Enter}");
   expect(
     await within(row).findByText("git push --force-with-lease origin fix/restart-retry"),

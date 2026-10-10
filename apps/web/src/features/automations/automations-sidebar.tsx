@@ -65,6 +65,7 @@ export function AutomationsSidebar() {
   const keys = useViewListKeys<HTMLUListElement>();
   return (
     <ViewSidebar
+      title="Automations"
       actions={
         automations?.length ? (
           <Tip label="New automation">

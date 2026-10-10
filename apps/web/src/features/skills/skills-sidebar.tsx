@@ -1,5 +1,6 @@
 import { useSkillDiscovery } from "./discovered-skills.tsx";
 import {
+  FunnelSimpleIcon,
   ClockIcon,
   CommandIcon,
   PlugIcon,
@@ -11,11 +12,13 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Popover, PopoverContent, PopoverTrigger, PopoverTitle } from "@/components/ui/popover.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { SearchField } from "@/components/search-field.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import {
   useViewListKeys,
   CompactViewRowBody,
@@ -76,25 +79,35 @@ export function SkillsSidebar() {
     .filter((group) => group.members.length);
   return (
     <ViewSidebar
+      title="Skills"
       actions={
         skills.data?.length ? (
           <>
-            <FilterMenu
-              label="Plugin"
-              value={plugin}
-              options={[
-                { value: "all", label: "All plugins" },
-                ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
-              ]}
-              onValueChange={setPlugin}
-            />
+            <Popover>
+              <PopoverTrigger
+                render={<IconButton icon={FunnelSimpleIcon} label="Filter skills" />}
+              />
+              <PopoverContent align="end" className="flex w-64 flex-col gap-3">
+                <PopoverTitle className="text-sm font-medium">Filter skills</PopoverTitle>
+                <Select
+                  label="Plugin"
+                  value={plugin}
+                  options={[
+                    { value: "all", label: "All plugins" },
+                    ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
+                  ]}
+                  onValueChange={setPlugin}
+                  className="w-full"
+                />
+                {discovery.controls}
+              </PopoverContent>
+            </Popover>
             <InstallPluginButton />
           </>
         ) : undefined
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          {discovery.controls}
           <SearchField
             label="Search skills"
             placeholder="Search skills"
@@ -151,15 +164,7 @@ export function SkillsSidebar() {
                   <CompactViewRowBody
                     icon={group.icon}
                     title={skillTitle(skill)}
-                    status={
-                      !skill.enabled ? (
-                        <StatusLabel tone="idle" label="Off" />
-                      ) : skill.discovered && catalogSourceLabel(skill.discovered) ? (
-                        <span className="text-xs text-subtle-foreground">
-                          {catalogSourceLabel(skill.discovered)}
-                        </span>
-                      ) : undefined
-                    }
+                    status={!skill.enabled ? <StatusLabel tone="idle" label="Off" /> : undefined}
                   />
                 </Link>
               </li>

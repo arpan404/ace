@@ -72,11 +72,12 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   }
   // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
   const yielded = crowded && !overlay && rightPanelShown;
-  const inline = layout.sidebarOpen && !yielded;
+  const setup = pathname === "/setup";
+  const inline = !setup && layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
   const value = useMemo<FrameValue>(
     () => ({
-      hasSidebar: true,
+      hasSidebar: !setup,
       sheet: !wide,
       sidebarShown: shown,
       showSidebar: () => {
@@ -91,7 +92,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
       bodyClaimed: claims > 0,
       claimBody,
     }),
-    [shown, wide, yielded, body, claims, claimBody, setSidebarOpen, hideRightPanel],
+    [shown, wide, yielded, body, claims, claimBody, setSidebarOpen, hideRightPanel, setup],
   );
   // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
   // window's remembered choice alone), the sidebar beside the content elsewhere.
@@ -108,7 +109,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
         className="relative z-[1]"
       >
-        {wide ? (
+        {setup ? null : wide ? (
           <Sidebar>{props.sidebar}</Sidebar>
         ) : (
           <Suspense fallback={null}>

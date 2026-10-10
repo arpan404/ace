@@ -3,6 +3,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+await import("./skill-page.tsx");
+
 const path = "skills/code-review/SKILL.md";
 async function setup(text: string) {
   const app = harness({ throughWorker: true });
@@ -12,7 +14,8 @@ async function setup(text: string) {
   component.text = text;
   app.daemon.seedServices(seed);
   await app.open("/skills/engineering~skill~code-review");
-  await screen.findByRole("button", { name: "Edit" });
+  await screen.findByRole("heading", { name: "Code Review", level: 2 });
+  await screen.findByRole("button", { name: "Source actions" });
   return app;
 }
 async function acceptedSource(app: ReturnType<typeof harness>) {
@@ -28,8 +31,10 @@ async function acceptedSource(app: ReturnType<typeof harness>) {
 test("a source longer than 64 KiB opens and edits its final page without losing Unicode", async () => {
   const text = "# Review\n" + "é".repeat(40000) + "\nThe last page.";
   await setup(text);
+  await userEvent.click(screen.getByText("Read source", { exact: true }));
   expect(await screen.findByText(/The last page\./)).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "Source actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Source text" }).value).toBe(
     text,
   );
@@ -38,7 +43,8 @@ test("a source longer than 64 KiB opens and edits its final page without losing 
 });
 test("saved source stays unchanged until acceptance and Back keeps the draft", async () => {
   const app = await setup("# Before\nOriginal instructions");
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "Source actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   const textbox = screen.getByRole("textbox", { name: "Source text" });
   await userEvent.clear(textbox);
   await userEvent.type(textbox, "# After\nReviewed instructions");
@@ -63,7 +69,8 @@ test("saved source stays unchanged until acceptance and Back keeps the draft", a
 
 test("a changed source cannot overwrite the accepted file and the draft stays available", async () => {
   const app = await setup("# Original instructions");
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await userEvent.click(screen.getByRole("button", { name: "Source actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   const textbox = screen.getByRole("textbox", { name: "Source text" });
   await userEvent.clear(textbox);
   await userEvent.type(textbox, "My draft");
@@ -109,5 +116,6 @@ test("a changed source cannot overwrite the accepted file and the draft stays av
   );
   expect(await acceptedSource(app)).toBe("Changed elsewhere");
   await userEvent.click(screen.getByRole("button", { name: "Reload source" }));
+  await userEvent.click(screen.getByText("Read source", { exact: true }));
   expect(await screen.findByText("Changed elsewhere")).toBeTruthy();
 });

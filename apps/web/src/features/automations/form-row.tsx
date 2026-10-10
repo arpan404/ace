@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cn } from "@/lib/cn.ts";
+import { SettingRow } from "@/components/setting-row.tsx";
 
 /** Errors once the person has touched the field or tried to save. */
 export function visible(meta: {
@@ -41,24 +41,19 @@ export function Row(props: {
   className?: string;
   children: ReactNode;
 }) {
-  const Label = props.htmlFor ? "label" : "span";
   return (
-    <div className={cn("mb-4 flex min-w-0 flex-col items-stretch gap-1.5", props.className)}>
-      <Label
-        {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-        className="text-sm font-medium text-muted-foreground"
-      >
-        {props.label}
-      </Label>
-      {props.children}
-      {props.errors && (
-        <p
-          {...(props.htmlFor ? { id: errorId(props.htmlFor) } : {})}
-          className="text-sm text-destructive"
-        >
-          {props.errors}
-        </p>
-      )}
-    </div>
+    <SettingRow title={props.label} htmlFor={props.htmlFor} inline>
+      <div className="flex min-w-0 w-60 max-w-full flex-col gap-1">
+        {props.children}
+        {props.errors && (
+          <p
+            {...(props.htmlFor ? { id: errorId(props.htmlFor) } : {})}
+            className="text-sm text-destructive"
+          >
+            {props.errors}
+          </p>
+        )}
+      </div>
+    </SettingRow>
   );
 }
