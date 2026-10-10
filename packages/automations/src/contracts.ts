@@ -37,6 +37,8 @@ export interface WorkspaceChanges {
   ): () => void;
 }
 export interface Dependencies {
+  /** Default one hour; persisted start time includes downtime. */
+  maxRunMs?: number;
   now: () => number;
   random: () => number;
   id: () => string;

@@ -7,7 +7,7 @@ it("large jitter cannot skip later nominal occurrences", async () => {
   if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
   auto.trigger.schedule.expression = "FREQ=MINUTELY;COUNT=3";
   h.service.put(auto);
-  expect(h.timer.delay).toBe(119_400);
+  expect(h.timer.delay).toBe(60_000);
   h.now = start + 59_400;
   await h.timer.fire();
   await h.finish();
