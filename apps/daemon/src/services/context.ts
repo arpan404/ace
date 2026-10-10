@@ -26,6 +26,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
         owner !== undefined &&
         owner.deletedAt === undefined &&
         (store.nativeImages.retains(thread, hash) ||
+          services.agentControl?.remote.retains(thread, hash) ||
           store.toolResults.retains(thread, hash) ||
           store.measurements.retains(thread, hash) ||
           (services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false))

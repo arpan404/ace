@@ -37,104 +37,63 @@ Example:
 ```json
 {
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": true,
-        "planMode": true,
-        "resume": true
-      },
-      "coverage": "legacy",
-      "mcp": "stdio",
-      "modeSelection": false,
-      "modelSelection": false,
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "subagentSessions": true,
-      "visibility": "limited"
-    },
-    "activityAt": 0,
-    "activitySeq": 1,
-    "archivedAt": 0,
-    "backend": "cursor-sdk",
-    "capabilities": {
-      "approvals": "sandbox-only",
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "none",
-      "childControls": "read-only",
-      "childFidelity": "placeholder",
-      "fork": false,
-      "forkPoints": [],
-      "forkSubagents": false,
-      "imageInput": true,
-      "interruptCascades": false,
-      "permissions": {
-        "modes": [],
-        "nativeAutoReview": false,
-        "toolGate": false
-      },
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": false,
-      "sessionOptions": true,
-      "steer": false,
-      "steeringMode": "queue",
-      "subagentTranscripts": false,
-      "tokenUsage": true
-    },
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
-    },
-    "createdAt": 3,
-    "deletedAt": 4,
+    "activityAt": 3,
+    "activitySeq": 9,
+    "autoSettleAt": 5,
+    "createdAt": 4,
     "details": {
-      "ahead": 5,
-      "base": {
-        "head": "6c064cadd602faada9c805c045499325f3e1c79945",
-        "ref": "example"
-      },
       "baseBranch": "example",
+      "behind": 9,
+      "branch": null,
       "diff": {
-        "additions": 2,
-        "deletions": 7,
-        "files": 5
+        "additions": 4,
+        "deletions": 8,
+        "files": 9
       },
-      "head": "25b5c8074394f44576d7526c4014803a897fab424f8fd7af07",
-      "linkedPr": null,
-      "worktree": "example"
-    },
-    "handoff": {
-      "bytes": 6,
-      "sourceThreadId": "example",
-      "truncated": true
-    },
-    "hasSentMessage": false,
-    "id": "example",
-    "installationId": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "portable",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
+      "machine": {
+        "host": "example",
+        "name": "example"
+      },
+      "repository": {
+        "forge": "github",
+        "host": "ijuGl",
+        "name": "zH",
+        "owner": "F2VfX"
+      },
+      "workspace": {
+        "defaultIcon": null,
+        "id": "example",
+        "name": "example",
+        "path": "example"
+      },
+      "workspaceChange": {
+        "at": 8,
+        "commandId": "example",
+        "lossy": true,
+        "state": "preparing"
       }
     },
+    "id": "example",
+    "installationId": "example",
     "pinned": false,
-    "provider": "opencode",
-    "readAt": 6,
-    "snoozedUntil": 9,
+    "provider": "antigravity",
+    "readAt": 0,
     "status": {
-      "on": "rate_limit",
-      "state": "waiting"
+      "agents": 7,
+      "state": "working"
+    },
+    "switch": {
+      "at": 5,
+      "lossy": true,
+      "recommendation": "delegate_task",
+      "selection": {
+        "options": {},
+        "provider": "pi"
+      },
+      "state": "applied"
     },
     "title": "example",
-    "titleSource": "provisional",
-    "updatedAt": 0,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -158,9 +117,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{
-  "cursor": "example"
-}
+{}
 ```
 
 ## ace_list_agents.output
@@ -177,7 +134,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": "example"
+  "nextCursor": null
 }
 ```
 
@@ -200,7 +157,6 @@ Example:
 
 ```json
 {
-  "level": "info",
   "text": "example"
 }
 ```
@@ -244,6 +200,7 @@ Example:
 ```json
 {
   "name": "example",
+  "provider": "acp",
   "task": "example"
 }
 ```
@@ -263,6 +220,234 @@ Example:
 {
   "accepted": true,
   "intentId": "example"
+}
+```
+
+## ace_device_list
+
+List connected paired execution devices, their projects and available agents. Credentials and paths remain on their device.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_device_list.input
+
+[JSON Schema](schema/ace_device_list.input.json), input validation.
+
+Type: object. See JSON Schema for constraints.
+
+Example:
+
+```json
+{}
+```
+
+## ace_device_list.output
+
+[JSON Schema](schema/ace_device_list.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_device_delegate
+
+Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Files are not copied or merged.
+
+Required capability: agents. Timeout: 10000 ms.
+
+## ace_device_delegate.input
+
+[JSON Schema](schema/ace_device_delegate.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| context | no | [RemoteContextSelection.json](schema/RemoteContextSelection.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| hostId | yes | [HostId.json](schema/HostId.json) |  |
+| mode | no | ["worktree","local"] | {"default":"worktree"} |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| task | yes | string | {"minLength":1,"maxLength":16384} |
+| role | yes | string | {"minLength":1,"maxLength":256} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| permissionMode | no | [PermissionMode.json](schema/PermissionMode.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
+| model | no | string | {"minLength":1,"maxLength":256} |
+| accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
+| options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
+
+Example:
+
+```json
+{
+  "accountId": "example",
+  "acpAgentId": "example",
+  "context": {
+    "threadBudgetBytes": 1026
+  },
+  "hostId": "example",
+  "installationId": "example",
+  "instanceId": "example",
+  "model": "example",
+  "provider": "opencode",
+  "requestId": "fYiyZQiapn",
+  "role": "example",
+  "task": "example",
+  "workspaceId": "example"
+}
+```
+
+## ace_device_delegate.output
+
+[JSON Schema](schema/ace_device_delegate.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_device_task_status
+
+Read an owned remote task's status, host/thread identity and bounded result.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_device_task_status.input
+
+[JSON Schema](schema/ace_device_task_status.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "taskId": "jzRVO99MJ"
+}
+```
+
+## ace_device_task_status.output
+
+[JSON Schema](schema/ace_device_task_status.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "not_ready",
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_device_task_wait
+
+Wait for an owned remote task and its descendants to settle. Offline devices remain pending.
+
+Required capability: none beyond session authentication. Timeout: 300000 ms.
+
+## ace_device_task_wait.input
+
+[JSON Schema](schema/ace_device_task_wait.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "taskId": "l1-.QW"
+}
+```
+
+## ace_device_task_wait.output
+
+[JSON Schema](schema/ace_device_task_wait.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_device_task_cancel
+
+Cancel an owned remote task and its descendants, preserving cancellation until its device reconnects.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_device_task_cancel.input
+
+[JSON Schema](schema/ace_device_task_cancel.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "taskId": "zoHrUyVjc"
+}
+```
+
+## ace_device_task_cancel.output
+
+[JSON Schema](schema/ace_device_task_cancel.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "limit",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -297,12 +482,14 @@ Example:
 ```json
 {
   "accountId": "example",
-  "instanceId": "example",
+  "estimatedLoad": 9,
   "model": "example",
-  "provider": "acp",
-  "requestId": "0Y_v",
+  "options": {},
+  "provider": "cursor",
+  "requestId": "d",
   "role": "example",
-  "task": "example"
+  "task": "example",
+  "wait": false
 }
 ```
 
@@ -351,10 +538,11 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "installationId": "example",
+  "accountId": "example",
+  "model": "example",
+  "permissionMode": "example",
   "provider": "codex",
-  "requestId": "gojP8t",
+  "requestId": "5bWlheTUSw",
   "title": "example"
 }
 ```
@@ -373,6 +561,7 @@ Example:
 
 ```json
 {
+  "code": "not_found",
   "ok": false
 }
 ```
@@ -397,7 +586,7 @@ Example:
 
 ```json
 {
-  "requestId": "0FMQ-",
+  "requestId": "ecex",
   "text": "example",
   "threadId": "example"
 }
@@ -417,9 +606,8 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -444,7 +632,7 @@ Example:
 
 ```json
 {
-  "requestId": "jb.lPM4S",
+  "requestId": "nMtpuepa",
   "text": "example",
   "threadId": "example"
 }
@@ -464,8 +652,9 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "code": "unavailable",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -505,7 +694,6 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
   "ok": false
 }
@@ -531,7 +719,7 @@ Example:
 
 ```json
 {
-  "before": 2,
+  "limit": 4,
   "threadId": "example"
 }
 ```
@@ -551,7 +739,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -576,7 +764,7 @@ Example:
 
 ```json
 {
-  "offset": 0,
+  "offset": 3,
   "streamId": "example",
   "threadId": "example"
 }
@@ -596,7 +784,6 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
   "ok": false
 }
@@ -642,7 +829,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -665,7 +853,7 @@ Example:
 
 ```json
 {
-  "requestId": "0s9yjFz",
+  "requestId": "cIHG",
   "threadId": "example"
 }
 ```
@@ -684,7 +872,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -708,7 +896,8 @@ Example:
 
 ```json
 {
-  "requestId": "9KV5JJbj",
+  "requestId": "gojP8t",
+  "runId": "pfA9EC3UFA",
   "threadId": "example"
 }
 ```
@@ -727,8 +916,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -751,7 +939,7 @@ Example:
 
 ```json
 {
-  "requestId": "Y",
+  "requestId": "-FnumQjb",
   "threadId": "example"
 }
 ```
@@ -770,7 +958,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "ok": false
 }
 ```
 
@@ -795,8 +984,8 @@ Example:
 
 ```json
 {
-  "entryId": "0B",
-  "requestId": "aXqiaw1y",
+  "entryId": "jW",
+  "requestId": "SA3cIKHtwa",
   "text": "example",
   "threadId": "example"
 }
@@ -816,7 +1005,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
+  "data": null,
   "ok": false
 }
 ```
@@ -842,9 +1031,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "U-VvP7NCo"
+    "fzsXZrY"
   ],
-  "requestId": "ecQ",
+  "requestId": "X",
   "threadId": "example"
 }
 ```
@@ -863,7 +1052,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -893,7 +1082,7 @@ Example:
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "1ngB6MwuC",
+  "requestId": "9yjF",
   "threadId": "example"
 }
 ```
@@ -995,6 +1184,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -1037,7 +1227,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -1078,7 +1267,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -1103,7 +1291,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": null
+  "until": 7
 }
 ```
 
@@ -1121,8 +1309,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1145,9 +1332,8 @@ Example:
 ```json
 {
   "request": {
-    "id": "example",
     "requestId": "example",
-    "type": "automation.remove"
+    "type": "automation.list"
   }
 }
 ```
@@ -1166,7 +1352,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
+  "data": null,
   "ok": true
 }
 ```
@@ -1207,7 +1393,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_found",
+  "ok": true
 }
 ```
 
@@ -1249,8 +1436,8 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "ok": false
+  "code": "invalid",
+  "ok": true
 }
 ```
 
@@ -1275,7 +1462,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "jp",
+  "requestId": "jGUnecQX",
   "threadId": "example"
 }
 ```
@@ -1294,9 +1481,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1336,7 +1521,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1359,7 +1544,7 @@ Example:
 
 ```json
 {
-  "previewId": "nHcNOQn3",
+  "previewId": "Cox3D11",
   "threadId": "example"
 }
 ```
@@ -1378,6 +1563,7 @@ Example:
 
 ```json
 {
+  "code": "not_found",
   "ok": true
 }
 ```
@@ -1402,6 +1588,7 @@ Example:
 
 ```json
 {
+  "limit": 4,
   "sourceThreadId": "example"
 }
 ```
@@ -1421,7 +1608,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 8,
   "threadId": "example"
 }
 ```
@@ -1447,7 +1634,6 @@ Example:
 
 ```json
 {
-  "offset": 2,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1470,8 +1656,8 @@ Example:
 {
   "bytes": "example",
   "encoding": "utf-8",
-  "eof": false,
-  "nextOffset": 1
+  "eof": true,
+  "nextOffset": 5
 }
 ```
 

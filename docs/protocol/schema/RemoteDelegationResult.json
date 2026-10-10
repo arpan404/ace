@@ -1,0 +1,281 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteDelegationResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "context": {
+      "oneOf": [
+        {
+          "properties": {
+            "draftId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[\\w-]+$",
+              "type": "string"
+            },
+            "kind": {
+              "const": "draft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "draftId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "$ref": "https://ace.local/protocol/v1/ContextErrorCode.json"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "upload",
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "uploadId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[\\w-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "uploadId",
+            "offset",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attachment": {
+              "$ref": "https://ace.local/protocol/v1/Attachment.json"
+            },
+            "kind": {
+              "const": "attachment",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "attachment"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "data": {
+              "maxLength": 87384,
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "attachment.data",
+              "type": "string"
+            },
+            "mimeType": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sha256": {
+              "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+            },
+            "variant": {
+              "enum": [
+                "original",
+                "thumbnail"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sha256",
+            "variant",
+            "mimeType",
+            "offset",
+            "bytes",
+            "data",
+            "eof"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attachments": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Attachment.json"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "kind": {
+              "const": "attachments",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "attachments"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "diagnostics": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ContextDiagnostic.json"
+              },
+              "type": "array"
+            },
+            "entries": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ResolvedMention.json"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "mentions",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "entries",
+            "diagnostics"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "completion",
+              "type": "string"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "error": {
+      "enum": [
+        "forbidden",
+        "busy",
+        "not_ready",
+        "invalid",
+        "not_found"
+      ],
+      "type": "string"
+    },
+    "lease": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/RemoteTaskPhase.json"
+    },
+    "relay": {
+      "$ref": "https://ace.local/protocol/v1/RemoteRelayTarget.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RemoteTask.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "delegation.broker.result",
+      "type": "string"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/RemoteTaskUsage.json"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

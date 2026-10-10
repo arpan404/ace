@@ -601,12 +601,12 @@ Example:
 {
   "task": {
     "agentId": "example",
+    "endedAt": 4,
     "id": "example",
-    "kind": "subagent",
-    "raw": [],
-    "startedAt": 2,
+    "kind": "monitor",
+    "startedAt": 6,
     "status": "failed",
-    "stoppable": false,
+    "stoppable": true,
     "title": "example"
   },
   "type": "background_task.started"
@@ -648,9 +648,9 @@ Example:
 ```json
 {
   "paused": false,
-  "reason": "not_sent",
-  "resumeAt": 6,
-  "revision": 6,
+  "reason": "stopped",
+  "resumeAt": 3,
+  "revision": 4,
   "type": "queue.updated"
 }
 ```
@@ -668,10 +668,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 2,
+    "epoch": 3,
     "source": "catalog",
-    "usedTokens": 3,
-    "windowTokens": 3
+    "usedTokens": 2,
+    "windowTokens": null
   },
   "type": "context_meter.updated"
 }
@@ -693,10 +693,10 @@ Example:
 ```json
 {
   "agentId": "example",
-  "model": "example",
   "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 5
+  "usedTokens": 5,
+  "windowTokens": 1
 }
 ```
 
@@ -729,13 +729,15 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "agentId": "example",
-  "cacheWrite1hTokens": 2,
-  "cachedInputTokens": 4,
+  "billingMode": "api",
+  "cacheWrite1hTokens": 3,
+  "cachedInputTokens": 7,
+  "contextWindow": 5,
   "counterMode": "cumulative",
-  "inputTokens": 8,
-  "outputTokens": 2,
+  "inputTokens": 9,
+  "model": "example",
+  "outputTokens": 4,
   "type": "usage.updated"
 }
 ```
@@ -756,6 +758,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
+    "trashId": "example",
     "version": null
   },
   "type": "workspace.files_changed",

@@ -7,6 +7,8 @@ export const BackgroundTask = z.object({
   id: BackgroundTaskId,
   /** Agent that owns the task; its status is `blocked{background_task}` while this runs. */
   agentId: AgentId,
+  /** Host-owned execution survives a provider session restarting. */
+  owner: z.literal("ace").optional(),
   kind: z.enum(["shell", "monitor", "subagent", "other"]),
   title: z.string(),
   /**

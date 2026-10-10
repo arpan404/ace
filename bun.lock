@@ -74,6 +74,7 @@
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/client-worker": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/perf-kit": "workspace:*",
         "@cursor/sdk": "1.0.35",
@@ -130,6 +131,7 @@
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
         "@noble/hashes": "2.0.1",

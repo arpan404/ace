@@ -1,0 +1,96 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteAgentHost.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agents": {
+      "items": {
+        "properties": {
+          "accountId": {
+            "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+          },
+          "acpAgentId": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installationId": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instanceId": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "options": {
+            "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+          },
+          "permissionMode": {
+            "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          },
+          "permissionModes": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "provider": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "permissionModes"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "projects": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "workspaceId": {
+            "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    }
+  },
+  "required": [
+    "hostId",
+    "name",
+    "projects",
+    "agents"
+  ],
+  "type": "object"
+}

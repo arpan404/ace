@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteDelegationRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accountId": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "context": {
+      "$ref": "https://ace.local/protocol/v1/RemoteContextSelection.json"
+    },
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "default": "worktree",
+      "enum": [
+        "worktree",
+        "local"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "permissionMode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "role": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "task": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "requestId",
+    "hostId",
+    "workspaceId",
+    "task",
+    "role",
+    "provider"
+  ],
+  "type": "object"
+}

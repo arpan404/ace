@@ -55,3 +55,40 @@ Canonical client thread and Forge owners can register `AgentControlExtensions.th
 After fork/switch #69, prepared children use the canonical engine creation/selection owner. A switch preserves the ace thread and delegation edges, waits for its whole tree, and retains scoped MCP authority when a native session reopens. A fork records historical lineage while owning an independent delegation tree. Cancelling one tree does not cancel its lineage peers. Cancellation also rejects queued provider switches and releases queued transition guards.
 
 MCP fork/merge operations still need a registered host bridge: their existing schemas lack the continuation and authored citation inputs required by the new engine commands. A bridge must also authorize the merge's source and account for agent-started fork work. Editable queue ports remain explicit integrations.
+
+## Delegate to another connected device
+
+`ace_device_list` returns available paired hosts, their projects, models/accounts
+and native permission modes. Use those exact identities in `ace_device_delegate`:
+
+```json
+{
+  "requestId": "review-api-on-build-box",
+  "hostId": "<host ID from ace_device_list>",
+  "workspaceId": "<project ID on that host>",
+  "provider": "codex",
+  "model": "<advertised model>",
+  "accountId": "<advertised account>",
+  "role": "Review API",
+  "task": "Review the API against the attached design and report findings.",
+  "context": {
+    "attachments": ["<source thread image SHA-256>"],
+    "files": ["docs/api-design.md"],
+    "threadBudgetBytes": 4096
+  }
+}
+```
+
+The target receives a parent transcript snapshot and immutable selected files
+through the encrypted files relay. Paths in `context.files` are relative to the
+source thread environment; they are never interpreted on the target. Selected
+attachments must already belong to the source thread. Use `ace_device_task_status`,
+`ace_device_task_wait` and `ace_device_task_cancel` with the returned `id` as `taskId`.
+Only the originating parent agent can inspect or control that task.
+
+A connected client brokers the existing paired-host workers, so client or device
+disconnection shows unavailable until recovery. A target files relay must be
+configured for context transfer. Status and bounded text results return to the
+originating agent; output artifacts remain on the producing device. This does
+not copy workspaces or merge remote changes. Cross-device descendants cannot
+recursively delegate to a third host. See [ADR0071](adr/0071-cross-device-agent-delegation.md).

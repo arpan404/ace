@@ -1,3 +1,4 @@
+import { RemoteDelegationClient, RemoteDelegationResult } from "./remote-delegation.ts";
 import { PromptFilesRequest, PromptFilesResponse } from "./prompt-files.ts";
 import { ProviderAccountsRequest, ProviderAccountsResult } from "./provider-accounts.ts";
 import {
@@ -166,6 +167,7 @@ import {
 } from "./search.ts";
 
 export const ClientMessage = z.discriminatedUnion("type", [
+  ...RemoteDelegationClient.options,
   WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
@@ -233,6 +235,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  RemoteDelegationResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,
   TurnsPageResponse,

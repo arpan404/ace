@@ -1,0 +1,163 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteAgentOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "device.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "accountId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "context": {
+          "$ref": "https://ace.local/protocol/v1/RemoteContextSelection.json"
+        },
+        "hostId": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mode": {
+          "default": "worktree",
+          "enum": [
+            "worktree",
+            "local"
+          ],
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "device.delegate",
+          "type": "string"
+        },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+        },
+        "permissionMode": {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "requestId",
+        "hostId",
+        "workspaceId",
+        "task",
+        "role",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "device.task_status",
+          "type": "string"
+        },
+        "taskId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "taskId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "device.task_wait",
+          "type": "string"
+        },
+        "taskId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "taskId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "device.task_cancel",
+          "type": "string"
+        },
+        "taskId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "taskId"
+      ],
+      "type": "object"
+    }
+  ]
+}

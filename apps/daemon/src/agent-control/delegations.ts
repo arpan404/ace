@@ -42,6 +42,10 @@ export interface DelegationDependencies {
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
+  externalCapacity?(
+    parent: ThreadId,
+    root: ThreadId,
+  ): { concurrent: number; children: number; usage: { tokens: number; cost: number } };
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
@@ -287,8 +291,10 @@ export class DelegationService {
       this.suspending.delete(thread);
     }
   }
+  onRemoteCancel: ((thread: ThreadId) => void) | undefined;
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
+      this.onRemoteCancel?.(thread);
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);

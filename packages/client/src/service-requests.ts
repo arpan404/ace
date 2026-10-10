@@ -14,8 +14,11 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> =
-  Q["type"] extends `provider.accounts.${string}`
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends
+  | `delegation.broker.${string}`
+  | `delegation.remote.${string}`
+  ? Replies<"delegation.broker.result">
+  : Q["type"] extends `provider.accounts.${string}`
     ? Replies<"provider.accounts.result">
     : Q["type"] extends `provider.install.${string}`
       ? Replies<"provider.install.result">
@@ -134,6 +137,14 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                               : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "delegation.remote.transport": ["delegation.broker.result"],
+  "delegation.remote.context": ["delegation.broker.result"],
+  "delegation.remote.start": ["delegation.broker.result"],
+  "delegation.remote.status": ["delegation.broker.result"],
+  "delegation.remote.cancel": ["delegation.broker.result"],
+  "delegation.broker.register": ["delegation.broker.result"],
+  "delegation.broker.poll": ["delegation.broker.result"],
+  "delegation.broker.report": ["delegation.broker.result"],
   "notification.config": ["notification.config.result"],
   "notification.register": ["notification.register.result"],
   "prompts.request": ["prompts.result"],
@@ -219,7 +230,7 @@ function isServiceResponse<Q extends ServiceRequest>(
   query: Q,
   id: string,
   response: ServerMessage,
-): response is ServiceResponse<Q> {
+): response is ServerMessage & ServiceResponse<Q> {
   const types: readonly string[] =
     replyTypes[query.type] ??
     (query.type.startsWith("automation.")
@@ -251,5 +262,5 @@ export function decodeServiceResponse<Q extends ServiceRequest>(
     throw new ClientError("protocol", "Unexpected entity page owner");
   if (!isServiceResponse(query, id, response))
     throw new ClientError("protocol", "Unexpected service response");
-  return response;
+  return response as ServiceResponse<Q>;
 }

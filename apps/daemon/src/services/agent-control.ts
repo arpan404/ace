@@ -1,3 +1,6 @@
+import { prepareRemoteContext } from "../agent-control/remote-context-source.ts";
+import { loadHostId } from "../local-files.ts";
+import { RemoteDelegations } from "../agent-control/remote.ts";
 import { logError } from "@ace/diagnostics";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
@@ -14,7 +17,14 @@ export function startAgentControl(context: ServiceContext): void {
   onListen.push((server) => {
     maintenance = server.maintenance;
   });
+  let remote: RemoteDelegations | undefined;
   const delegations = new DelegationService({
+    externalCapacity: (parent, root) => ({
+      concurrent:
+        remote?.journal.active().filter((task) => task.parentThreadId === parent).length ?? 0,
+      children: remote?.journal.root(root).children ?? 0,
+      usage: remote?.journal.root(root).usage ?? { tokens: 0, cost: 0 },
+    }),
     store,
     engine,
     clock: options.engine?.clock ?? { ...systemClock, now },
@@ -54,9 +64,32 @@ export function startAgentControl(context: ServiceContext): void {
   });
   resources.own(() => delegations.close());
   resources.onShutdown(() => delegations.close());
+  remote = new RemoteDelegations({
+    clock: options.engine?.clock ?? { ...systemClock, now },
+    onError: (error) => log.log("error", "Remote delegation failure", logError(error)),
+    prepareContext: (task, signal) =>
+      prepareRemoteContext(
+        { store, context: services.context, files: services.threadFiles },
+        task,
+        signal,
+      ),
+    hostId: loadHostId(context.config.dataDir),
+    store,
+    engine,
+    local: delegations,
+    now,
+    id,
+    admit: () => maintenance?.admit() ?? false,
+  });
+  resources.own(() => remote?.close());
+  resources.onShutdown(() => remote?.close());
+  delegations.onRemoteCancel = (thread) => remote?.cancelTree(thread);
   const owners = createAgentOwners(context, delegations);
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
+    remote: (caller, operation, signal) =>
+      remote?.execute(caller, operation, signal) ??
+      Promise.resolve({ ok: false, code: "not_ready" as const }),
     execute: async (caller, operation, signal) => {
       const result = await owners.execute(caller, operation, signal);
       return result.code === "unsupported" && options.agentControl?.extensions?.execute
@@ -71,6 +104,7 @@ export function startAgentControl(context: ServiceContext): void {
       : {}),
   });
   services.agentControl = {
+    remote,
     delegations,
     port: {
       execute: (caller, operation, signal) =>

@@ -10,6 +10,7 @@ export type DeviceConnectionTarget =
   | { kind: "relay"; url: string; pinnedFingerprint: string };
 export interface AuthenticatedChannelOptions {
   target: DeviceConnectionTarget;
+  expectedHostId?: string;
   deviceId: string;
   credential(): Promise<Credential>;
   /** Forward native close events, including their code, so 4013 can back off. */
@@ -86,7 +87,10 @@ export function authenticatedChannel(
     if (!ready) {
       if (frame instanceof Uint8Array || frame.type !== "welcome")
         throw new Error("Authenticated welcome required");
-      if (options.target.kind === "relay" && frame.hostId !== options.target.pinnedFingerprint)
+      if (
+        options.target.kind === "relay" &&
+        frame.hostId !== (options.expectedHostId ?? options.target.pinnedFingerprint)
+      )
         throw new Error("Unexpected relay host");
       limitAttempts = 0;
       ready = true;

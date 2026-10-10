@@ -1,7 +1,8 @@
+import { RemoteContextSelection } from "./remote-context.ts";
 import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { WorktreeBase } from "./worktree-base.ts";
-import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
+import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId, HostId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
@@ -72,7 +73,27 @@ export const DelegationRecord = z.object({
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
 export type ControlThreadInput = z.infer<typeof ControlThreadInput>;
+export const RemoteDelegationRequest = z.strictObject({
+  context: RemoteContextSelection.optional(),
+  requestId: key,
+  hostId: HostId,
+  mode: z.enum(["worktree", "local"]).default("worktree"),
+  workspaceId: WorkspaceId,
+  task: z.string().min(1).max(16384),
+  role: z.string().min(1).max(256),
+  ...AgentSelection.shape,
+});
+export type RemoteDelegationRequest = z.infer<typeof RemoteDelegationRequest>;
+export const RemoteAgentOperation = z.discriminatedUnion("op", [
+  z.strictObject({ op: z.literal("device.list") }),
+  z.strictObject({ op: z.literal("device.delegate"), ...RemoteDelegationRequest.shape }),
+  z.strictObject({ op: z.literal("device.task_status"), taskId: key }),
+  z.strictObject({ op: z.literal("device.task_wait"), taskId: key }),
+  z.strictObject({ op: z.literal("device.task_cancel"), taskId: key }),
+]);
+export type RemoteAgentOperation = z.infer<typeof RemoteAgentOperation>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
+  ...RemoteAgentOperation.options,
   z.strictObject({ op: z.literal("delegate_task"), ...DelegationRequest.shape }),
   z.strictObject({
     op: z.literal("thread.create"),
