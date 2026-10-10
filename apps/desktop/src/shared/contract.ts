@@ -209,7 +209,6 @@ export const BrowserPlacement = z.object({
       deviceScaleFactor: z.number().min(0.5).max(4).optional(),
     })
     .optional(),
-  dpr: z.number().positive().max(8).optional(),
   threadId: z.string().min(1).max(256),
   bounds: z.object({
     x: z.number().min(0),

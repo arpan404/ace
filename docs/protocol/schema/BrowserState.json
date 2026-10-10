@@ -35,6 +35,13 @@
       "maxItems": 128,
       "type": "array"
     },
+    "loadError": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "loading": {
+      "type": "boolean"
+    },
     "owner": {
       "maxLength": 256,
       "minLength": 1,
@@ -45,6 +52,23 @@
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+    },
+    "permissionDenied": {
+      "properties": {
+        "origin": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "permission": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "permission",
+        "origin"
+      ],
+      "type": "object"
     },
     "reason": {
       "maxLength": 2048,

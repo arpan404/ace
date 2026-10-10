@@ -27,12 +27,21 @@ export class NativePlacement {
     if (this.key && key !== this.key) this.retries = 0;
     this.key = key;
     const generation = ++this.generation;
+    const previous = this.requested;
+    const retain =
+      this.acknowledged &&
+      previous?.visible &&
+      next.visible &&
+      previous.threadId === next.threadId &&
+      previous.bounds.width === next.bounds.width &&
+      previous.bounds.height === next.bounds.height &&
+      JSON.stringify(previous.device) === JSON.stringify(next.device);
     this.requested = next;
-    this.acknowledged = false;
+    this.acknowledged = !!retain;
     this.superseded = false;
     this.cancelRetry?.();
     this.cancelRetry = undefined;
-    this.ports.changed(false);
+    if (!retain) this.ports.changed(false);
     const failed = () => {
       if (!this.alive || this.generation !== generation) return;
       this.ports.changed(false);

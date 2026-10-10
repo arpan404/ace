@@ -180,40 +180,6 @@ export function LoadFailed(props: {
 }
 
 /**
- * This tab's page is open, but another of the thread's pages is the live one (the one the agent
- * works in). Showing it here makes it the live page, taking control from an agent if one drives.
- */
-export function Background(props: {
-  url: string;
-  agent: boolean;
-  disabled?: string | undefined;
-  onShow(): void;
-}) {
-  const address = displayAddress(props.url) || "A blank page";
-  return (
-    <EmptyState
-      icon={GlobeSimpleIcon}
-      title={addressHost(props.url) ?? address}
-      description={
-        props.agent
-          ? `An agent is using another page of this thread. Show ${address} to take over and switch to it.`
-          : `${address} is open in the background.`
-      }
-      action={
-        <Button
-          size="sm"
-          disabled={props.disabled !== undefined}
-          title={props.disabled}
-          onClick={props.onShow}
-        >
-          Show this page
-        </Button>
-      }
-    />
-  );
-}
-
-/**
  * A tab kept from before (a restart, or the thread's page was closed) whose page isn't open
  * now: its address, its title and this card all name the same page, which opens again in one
  * click. Nothing opens by itself, since opening starts a browser.

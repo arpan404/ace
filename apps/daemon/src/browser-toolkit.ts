@@ -35,15 +35,6 @@ export function browserToolkit(browser: BrowserService, store: Store): Toolkit {
           signal.throwIfAborted();
           if (browser.state(caller.threadId).takeoverMode === "private")
             throw new PublicToolError("human_private");
-          if (input.newTab)
-            return content(
-              await browser.execute(
-                caller.threadId,
-                { action: "tabs", operation: "open", ...(input.url ? { url: input.url } : {}) },
-                { kind: "agent" },
-                signal,
-              ),
-            );
           return content(
             input.url === undefined
               ? browser.state(caller.threadId)

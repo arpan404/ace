@@ -238,6 +238,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   services.browser = browser;
 }
 
+import { sendBrowserMessage } from "./browser-transport.ts";
 import { connectBrowser } from "@ace/browser";
 import { WebSocket } from "ws";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -260,14 +261,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
         (workspaceId === undefined || thread.workspaceId === workspaceId)
       );
     },
-    send: (message, serialized) => {
-      if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 256 * 1024) {
-        if (message.type !== "browser.frame") socket.close(4009, "Browser transport backpressure");
-        return false;
-      }
-      socket.send(serialized ?? JSON.stringify(message));
-      return true;
-    },
+    send: (message, serialized) => sendBrowserMessage(socket, message, serialized),
   });
   return {
     close() {

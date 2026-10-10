@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { pageHistory, traverseHistory, findPageText } from "./page-navigation.ts";
 import {
   BrowserCommand,
@@ -78,6 +79,19 @@ export async function executeBrowserCommand(
         },
         signal,
       );
+    case "selection": {
+      context.read();
+      const result = await cdp.send("Runtime.evaluate", {
+        expression:
+          "(()=>{const e=document.activeElement;return (e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) && e.selectionStart!==null ? e.value.slice(e.selectionStart,Math.min(e.selectionEnd??e.selectionStart,e.selectionStart+65536)) : String(getSelection()??'').slice(0,65536)})()",
+        returnByValue: true,
+      });
+      context.read();
+      return {
+        text: z.object({ result: z.object({ value: z.string().max(65536) }) }).parse(result).result
+          .value,
+      };
+    }
     case "navigation_history":
       return pageHistory(cdp);
     case "history":
@@ -86,7 +100,7 @@ export async function executeBrowserCommand(
         context.check(actor, signal, generation),
       );
     case "find_text":
-      context.check(actor, signal, generation);
+      context.read();
       return page.findText
         ? page.findText(command.text, command.forward)
         : findPageText(cdp, command.text, command.forward);
@@ -165,15 +179,11 @@ export async function executeBrowserCommand(
       if (!tabs) throw new BrowserActionError("not_supported");
       if (command.operation === "list") return { activeTabId: tabs.active(), tabs: tabs.list() };
       context.check(actor, signal, generation);
-      if (command.operation === "open") {
-        const tabId = await tabs.open();
-        context.check(actor, signal, generation);
-        await tabs.switch(tabId);
-      } else {
-        if (!command.tabId) throw new BrowserActionError("invalid_arguments");
-        if (command.operation === "switch") await tabs.switch(command.tabId);
-        else await tabs.close(command.tabId);
-      }
+      // Keep legacy open callers compatible: the main browser has one page.
+      if (command.operation === "close")
+        throw new BrowserActionError("not_supported", "Close the browser to close its page");
+      if (command.operation === "switch" && command.tabId !== tabs.active())
+        throw new BrowserActionError("invalid_arguments");
       await context.syncTab();
       context.check(actor, signal, generation);
       if (command.url)

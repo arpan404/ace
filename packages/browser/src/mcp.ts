@@ -39,6 +39,10 @@ const actions = {
     description:
       "Scroll by x horizontal and y vertical pixel deltas; these are distances, not a target point.",
   },
+  selection: {
+    riskClass: "read-only",
+    description: "Read the currently selected page text without running user-supplied scripts.",
+  },
   navigation_history: {
     riskClass: "read-only",
     description: "Read whether the current page can go back or forward in Chromium history.",
@@ -49,7 +53,7 @@ const actions = {
       "Go back, forward or reload the page in this thread's ace browser using its real browser history.",
   },
   find_text: {
-    riskClass: "external-effect",
+    riskClass: "read-only",
     description:
       "Find visible text in the page in this thread's ace browser without executing user-supplied scripts.",
   },
@@ -87,7 +91,7 @@ const actions = {
   tabs: {
     riskClass: "external-effect",
     description:
-      "List, open, switch or close this thread's background tabs. Use operation and tabId. Tab ids are stable; take a fresh snapshot after switching.",
+      "List this thread's single browser page. Legacy open reuses it; switch accepts its current id. Close the page with ace_browser_close.",
   },
   upload: {
     riskClass: "external-effect",

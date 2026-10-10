@@ -46,6 +46,7 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   new ScenarioPlayer(daemon, failingSubagent()).step();
   const client = fakeClient(daemon);
   await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
   const timers = manualTimers();
   const window = page();
   const preview = daemonPreview(client, { schedule: timers.schedule, visibility: window });
@@ -63,12 +64,35 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   });
   // The retry comes due while hidden: nothing is asked.
   timers.fire();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
   expect(preview.servers("thread-settings")).toEqual([]);
 
   window.set(true);
   await waitFor(() =>
     expect(preview.servers("thread-settings").map((server) => server.port)).toEqual([3000]),
   );
+  stop();
+});
+
+test("native visibility holds the fallback frame until screencast viewing resumes", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  daemon.browser.drive("thread-settings", { url: "http://localhost:5173", backend: "embedded" });
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const timers = manualTimers();
+  const preview = daemonPreview(client, { schedule: timers.schedule, visibility: page() });
+  const stop = preview.watch("thread-settings");
+  await preview.open("thread-settings", failingSubagent().thread.workspaceId);
+  await waitFor(() => expect(preview.frame("thread-settings")).toBeDefined());
+  const before = preview.frame("thread-settings")?.src;
+  preview.nativeShown?.("thread-settings", true);
+  daemon.browser.type("thread-settings", "native-only-edit");
+  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
+  expect(preview.frame("thread-settings")?.src).toBe(before);
+  preview.nativeShown?.("thread-settings", false);
+  daemon.browser.type("thread-settings", "remote-edit");
+  await waitFor(() => expect(preview.frame("thread-settings")?.src).not.toBe(before));
   stop();
 });

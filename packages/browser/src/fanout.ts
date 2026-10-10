@@ -104,6 +104,7 @@ export function captureSettings(
   viewers: readonly CaptureViewer[] = [],
 ): {
   fps: number;
+  everyNthFrame: number;
   quality: number;
   maxWidth: number;
   maxHeight: number;
@@ -119,8 +120,10 @@ export function captureSettings(
     maxWidth = Math.max(maxWidth, Math.round(width * scale));
     maxHeight = Math.max(maxHeight, Math.round(height * scale));
   }
+  const native = viewers.length > 0 && viewers.every((viewer) => viewer.viewport.nativeShown);
   return {
-    fps: pressured ? 6 : local ? 30 : 15,
+    fps: native ? 1 : pressured ? 6 : local ? 30 : 15,
+    everyNthFrame: native ? 60 : 1,
     quality: pressured ? 40 : local ? 90 : 80,
     maxWidth: Math.min(cap, maxWidth),
     maxHeight: Math.min(cap, maxHeight),

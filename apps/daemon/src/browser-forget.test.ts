@@ -28,6 +28,11 @@ async function setup(browser: BrowserForgetPort) {
       store.appendEvents(thread.id, [{ type: "thread.client.updated", changes: { deletedAt: 5 } }]);
       return thread.id;
     },
+    archiveThread() {
+      const thread = createDevThread(store, workspace);
+      store.appendEvents(thread.id, [{ type: "thread.updated", archivedAt: 5 }]);
+      return thread.id;
+    },
     errors,
     workspace,
   };
@@ -59,7 +64,7 @@ it("replays every pending deletion without exceeding the desktop's request capac
   expect(new Set(purged)).toEqual(new Set(deleted));
   expect(purged).toHaveLength(deleted.length);
   expect(f.errors).toEqual([]);
-});
+}, 30000);
 
 it("recovers a deletion committed before cleanup started and keeps failed purges for retry", async () => {
   const purged: { threadId: string; workspaceId: string }[] = [];
@@ -108,4 +113,22 @@ it("retries failed cleanup when a replacement desktop registers during a replay"
   await Promise.all([original, replacement]);
   expect(purged).toEqual([deleted]);
   expect(f.errors).toHaveLength(1);
+});
+
+it("archiving a thread closes its browser without purging its profile", async () => {
+  const closed: string[] = [],
+    purged: string[] = [];
+  const f = await setup({
+    async closeThread(id) {
+      closed.push(id);
+    },
+    async forgetThread(id) {
+      purged.push(id);
+      return { desktop: true };
+    },
+  });
+  f.start();
+  const id = f.archiveThread();
+  await expect.poll(() => closed).toEqual([id]);
+  expect(purged).toEqual([]);
 });

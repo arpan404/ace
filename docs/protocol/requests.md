@@ -2392,11 +2392,8 @@ Example:
 ```json
 {
   "command": {
-    "action": "emulate",
-    "colorScheme": "no-preference",
+    "action": "resize",
     "height": 100,
-    "mobile": true,
-    "touch": true,
     "width": 106
   },
   "requestId": "example",
@@ -2419,7 +2416,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.subscribe"
 }
@@ -2443,8 +2439,9 @@ Example:
   "type": "browser.capture",
   "viewport": {
     "devicePixelRatio": 1,
-    "height": 102,
-    "width": 101
+    "height": 101,
+    "nativeShown": true,
+    "width": 103
   }
 }
 ```
@@ -2482,7 +2479,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 8,
+  "sequence": 2,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -2501,6 +2498,7 @@ Example:
 
 ```json
 {
+  "mode": "shared",
   "requestId": "example",
   "threadId": "example",
   "type": "browser.takeover"
@@ -2539,11 +2537,10 @@ Example:
 ```json
 {
   "input": {
-    "deltaX": 1,
-    "deltaY": 2,
-    "kind": "scroll",
-    "x": 4,
-    "y": 8
+    "event": "mousePressed",
+    "kind": "mouse",
+    "x": 8,
+    "y": 7
   },
   "requestId": "example",
   "threadId": "example",
@@ -2599,11 +2596,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "provider": "opencode"
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -2623,7 +2615,10 @@ Example:
 {
   "filter": {
     "acpAgentId": "example",
-    "instance": "example"
+    "installationId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "provider": "antigravity"
   },
   "requestId": "example",
   "type": "models.refresh"
@@ -2645,9 +2640,9 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "effort": "example",
-    "instanceId": "example",
-    "role": "example",
-    "tier": "example"
+    "instance": "example",
+    "model": "example",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -2665,8 +2660,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 1,
-  "threadId": null,
+  "inputAgeMs": 2,
+  "threadId": "example",
   "type": "presence.update"
 }
 ```
@@ -2684,9 +2679,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "fcm",
+    "channel": "apns",
     "platform": "phone",
-    "token": "example"
+    "token": "2CAe29d976d3d4aEDEd3C5F15ecf3c3Bc9Fbd0b7aC9a4BcDEE12BcD3B2b4D30e"
   },
   "type": "notification.register"
 }
@@ -2719,10 +2714,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "agentSays": false,
-    "includePreview": false
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -2762,10 +2754,9 @@ Example:
 
 ```json
 {
-  "channel": "files",
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2784,9 +2775,11 @@ Example:
 
 ```json
 {
+  "afterSeq": 9,
   "paced": true,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2824,9 +2817,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "name": "#",
-      "type": "workspace.update",
-      "workspaceId": "example"
+      "threadId": "example",
+      "type": "thread.delete"
     }
   },
   "type": "command"
@@ -2847,8 +2839,8 @@ Example:
 
 ```json
 {
-  "limit": 10,
-  "offset": 0,
+  "limit": 2,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2869,8 +2861,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 4,
+  "before": 9,
+  "limit": 9,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2892,9 +2884,9 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "collection": "backgroundTasks",
-  "limit": 8,
+  "before": 3,
+  "collection": "agents",
+  "limit": 2,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2915,7 +2907,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 3,
+    "at": 5,
     "id": "example"
   },
   "requestId": "example",

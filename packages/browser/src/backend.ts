@@ -35,6 +35,7 @@ export interface BackendOpen {
   /** Initiating actor of active work, otherwise the current lease owner. */
   initiator?(): boolean;
   navigation(): void;
+  restarted?(): void;
   log(entry: BackendLog): void;
   lost(reason: string): void;
   /** Version 1 backends deny natively before reporting these hooks. */
@@ -55,6 +56,11 @@ export interface BrowserBackendSession {
   };
   findText?(text: string, forward: boolean): Promise<unknown>;
   privateMode?(enabled: boolean): void;
+  pageStatus?(): {
+    loading: boolean;
+    loadError?: string | undefined;
+    permissionDenied?: { origin: string; permission: string } | undefined;
+  };
   networkBody?(requestId: string): Promise<unknown>;
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;

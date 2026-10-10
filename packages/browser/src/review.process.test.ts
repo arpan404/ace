@@ -59,33 +59,32 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     ).toBe("Save");
   }, 60_000);
 
-  it("bounds approval admission during repeated WebSocket floods and shuts down pending hooks", async () => {
+  it("queues a socket burst and cancels queued approvals on shutdown", async () => {
+    const full = Promise.withResolvers<void>();
     let approvals = 0;
-    const { promise: pending } = Promise.withResolvers<boolean>();
-    const f = await fixture({ originPolicy: () => (++approvals <= 32 ? pending : false) });
+    const pending = Promise.withResolvers<boolean>();
+    const f = await fixture({
+      originPolicy: () => {
+        if (++approvals === 32) full.resolve();
+        return pending.promise;
+      },
+    });
     await f.navigate();
     const socketUrl = JSON.stringify(
       f.url.replace("http:", "ws:").replace("127.0.0.1", "127.0.0.2"),
     );
-    expect(
-      await f.evaluate(
-        `(async()=>{function flood(target){return new Promise(resolve=>{let closed=0;for(let i=0;i<256;i++){const ws=new WebSocket(${socketUrl}+'/'+i);ws.onclose=()=>{if(++closed===target)resolve(closed)}}})}return [await flood(224),await flood(256)]})()`,
-      ),
-    ).toEqual([224, 256]);
-    expect(approvals).toBe(32);
+    await f.evaluate(`for(let i=0;i<40;i++) new WebSocket(${socketUrl}+'/'+i); void 0`);
+    await full.promise;
     await f.service.open({ threadId: "other", workspaceId: "other" });
-    const otherNavigation = () =>
-      f.service.execute("other", { action: "navigate", url: "https://example.invalid" });
-    await expect(otherNavigation()).rejects.toThrow("admission limit");
-    await expect(f.evaluate("1")).rejects.toThrow("admission limit");
-    await expect(f.execute({ action: "navigate", url: "https://example.invalid" })).rejects.toThrow(
-      "admission limit",
-    );
-    expect(approvals).toBe(32);
-    await f.service.closeThread("thread");
-    await expect(otherNavigation()).rejects.toThrow("admission limit");
-    expect(approvals).toBe(32);
+    const navigation = f.service.execute("other", {
+      action: "navigate",
+      url: "https://example.invalid",
+    });
+    const cancelled = expect(navigation).rejects.toThrow(/shutting down|abort|closed/i);
     await f.service.close();
+    await cancelled;
+    expect(approvals).toBe(32);
+    pending.resolve(false);
     expect(() => f.service.state("thread")).toThrow("not open");
   });
 

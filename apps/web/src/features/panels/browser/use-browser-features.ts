@@ -41,21 +41,6 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   return {
     features,
     origins,
-    openTab: () =>
-      attempt("Couldn't open a tab", async () => {
-        await withControl();
-        return features.openTab(threadId);
-      }),
-    switchTab: (tabId: string) =>
-      attempt("Couldn't switch tabs", async () => {
-        await withControl();
-        return features.switchTab(threadId, tabId);
-      }),
-    closeTab: (tabId: string) =>
-      attempt("Couldn't close the tab", async () => {
-        await withControl();
-        return features.closeTab(threadId, tabId);
-      }),
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
       attempt("Couldn't answer the page", async () => {
         await withControl();

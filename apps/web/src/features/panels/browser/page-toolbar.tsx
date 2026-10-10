@@ -1,5 +1,6 @@
 import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { TooltipSide } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
 const tool = "size-7 rounded-sm";
@@ -28,6 +29,7 @@ export function PageNav(props: {
   back: NavControl;
   forward: NavControl;
   reload: NavControl;
+  stop?: NavControl;
   loading?: boolean;
 }) {
   const control = (
@@ -52,9 +54,7 @@ export function PageNav(props: {
       {/* A narrow toolbar keeps the address's room: Forward stays on ⌘]. */}
       {control("Forward", ArrowRightIcon, props.forward, narrowHidden)}
       {props.loading
-        ? control("Stop", XIcon, {
-            reason: "the browser relay can't cancel a load yet; it gives up after 30 seconds",
-          })
+        ? control("Stop", XIcon, props.stop ?? {})
         : control("Reload", ArrowClockwiseIcon, props.reload)}
     </div>
   );
@@ -75,29 +75,31 @@ export function PageToolbar(props: {
   agent?: boolean;
 }) {
   return (
-    <div
-      style={columns}
-      className="@container relative grid h-10 shrink-0 items-center gap-1 border-b px-2"
-    >
-      {props.nav}
-      {props.address}
-      <div className="flex shrink-0 items-center justify-end gap-0.5">{props.actions}</div>
-      {props.agent && props.progress === undefined && (
-        <span
-          aria-hidden
-          className="absolute inset-x-0 -bottom-px h-px animate-pulse bg-status-working"
-        />
-      )}
-      {props.progress !== undefined && (
-        <span
-          role="progressbar"
-          aria-label={props.progress}
-          className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
-        >
-          <span className="fx-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-foreground/70" />
-        </span>
-      )}
-    </div>
+    <TooltipSide value="top">
+      <div
+        style={columns}
+        className="@container relative grid h-10 shrink-0 items-center gap-1 border-b px-2"
+      >
+        {props.nav}
+        {props.address}
+        <div className="flex shrink-0 items-center justify-end gap-0.5">{props.actions}</div>
+        {props.agent && props.progress === undefined && (
+          <span
+            aria-hidden
+            className="absolute inset-x-0 -bottom-px h-px animate-pulse bg-status-working"
+          />
+        )}
+        {props.progress !== undefined && (
+          <span
+            role="progressbar"
+            aria-label={props.progress}
+            className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
+          >
+            <span className="fx-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-foreground/70" />
+          </span>
+        )}
+      </div>
+    </TooltipSide>
   );
 }
 

@@ -44,6 +44,7 @@ export function throttleDecision(
   idleMs: number,
 ): ThrottleDecision {
   if (activity.visible) return { presence: "placed", throttle: false };
+  if (activity.screencasting) return { presence: "parked", throttle: false };
   const idleFor = now - activity.lastDrivenAt;
   if (idleFor < idleMs)
     return {

@@ -47,13 +47,17 @@ const view = (state: BrowserState): BrowserView => ({
     pendingDialog: tab.pending_dialog,
   })),
   activeTabId: state.activeTabId,
+  loading: state.loading,
+  loadError: state.loadError,
+  permissionDenied: state.permissionDenied,
   downloads: state.downloads,
   pendingDialog: state.pending_dialog,
   takeoverMode: state.takeoverMode,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
-  if (input.kind === "mouse") return { ...input, button: input.button ?? "left", clickCount: 1 };
+  if (input.kind === "mouse")
+    return { ...input, button: input.button ?? "left", clickCount: input.clickCount ?? 1 };
   if (input.kind === "scroll") return input;
   return {
     kind: "key",
@@ -102,7 +106,7 @@ export interface PreviewOptions {
  * the preview gateway. Frames are ACKed one at a time once decoded, so the daemon never sends a
  * viewer more than it can draw; while the page is hidden nothing is ACKed or polled, so the
  * stream pauses until it is shown. Taking control is a lease on this connection; leaving the
- * view (or losing the connection) hands it back.
+ * thread workspace (or losing the connection) hands it back.
  */
 export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): PreviewSource {
   const later = options.schedule ?? defaultSchedule;
@@ -263,6 +267,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const watch = watches.get(threadId);
     if (!watch) return;
     watch.latest = frame.sequence;
+    if (watch.capture?.nativeShown) {
+      watch.owed = frame.sequence;
+      return;
+    }
     void decode(frame.data).then(
       (decoded) =>
         show(threadId, frame.sequence, {
@@ -346,12 +354,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           release(oldest);
         }
         if (client.state !== "ready") return;
-        // A shared hold ends with the view; a private one never does: only the person's own
-        // Hand back (or closing the browser) may show the page to agents again.
-        const privately =
-          privateHolds.has(threadId) || views.get(threadId)?.takeoverMode === "private";
-        if (!privately && held.delete(threadId))
-          void call("browser.handback", threadId).catch(() => {});
         if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
       }
     },
@@ -465,18 +467,48 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       await call("browser.handback", threadId);
     },
     input(threadId, input) {
-      void client
+      return client
         .request({
           type: "browser.input",
           threadId: ThreadId.parse(threadId),
           input: wireInput(input),
         })
+        .then(() => {})
         .catch(() => {});
+    },
+    async selection(threadId) {
+      const reply = await client.request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "selection" },
+      });
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      const result = reply.result;
+      return typeof result === "object" &&
+        result !== null &&
+        "text" in result &&
+        typeof result.text === "string"
+        ? result.text
+        : "";
+    },
+    nativeShown(threadId, shown) {
+      const watch = watches.get(threadId);
+      if (!watch) return;
+      watch.capture = {
+        ...(watch.capture ?? { width: 1280, height: 720, devicePixelRatio: 1 }),
+        nativeShown: shown,
+      };
+      sendCapture(threadId, watch);
+      if (!shown && watch.owed !== undefined) {
+        ack(threadId, watch.owed);
+        watch.owed = undefined;
+      }
     },
     capture(threadId, width, height, devicePixelRatio) {
       const watch = watches.get(threadId);
       if (!watch) return;
       watch.capture = {
+        nativeShown: watch.capture?.nativeShown,
         width: clamp(width),
         height: clamp(height),
         devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),

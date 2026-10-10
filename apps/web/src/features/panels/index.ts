@@ -19,3 +19,5 @@ export { fileTab } from "./files/tab-id.ts";
 /** A provider's sign-in terminal, outside any thread (the sign-in dialog shows it). */
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
+
+export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");

@@ -3,7 +3,6 @@ import { BrowserActionError } from "./action-error.ts";
 
 const inputActions = new Set([
   "history",
-  "find_text",
   "navigate",
   "click",
   "type",
@@ -39,6 +38,9 @@ export class SessionQueue {
   private dialog: () => BrowserDialog | undefined;
   constructor(dialog: () => BrowserDialog | undefined) {
     this.dialog = dialog;
+  }
+  get idle(): boolean {
+    return this.pending === 0 && !this.dialogWork;
   }
   settled(): Promise<unknown> {
     return this.tail;

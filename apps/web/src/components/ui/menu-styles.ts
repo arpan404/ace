@@ -1,13 +1,13 @@
 /**
  * The stacking order, one scale for every floating layer: dialog and sheet backdrops, their
- * cards and popups (menus, selects, popovers), then tooltips. Toasts sit above the transcript
- * but below the composer and its inline menus, and below every floating card.
+ * cards and popups (menus, selects, popovers), then notifications and tooltips.
+ * Notifications stay readable when a sheet or dialog is open.
  */
 export const layers = {
   overlay: "z-[100]",
   modal: "z-[101]",
   popup: "z-[110]",
-  toast: "z-[8]",
+  toast: "z-[115]",
   tooltip: "z-[120]",
 } as const;
 
