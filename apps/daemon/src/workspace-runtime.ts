@@ -75,17 +75,10 @@ export class WorkspaceRuntime {
     this.options = options;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
-    this.roots = new WorkspaceRoots(
-      store,
-      this.git,
-      directory,
-      now,
-      this.machine,
-      {
-        ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
-        ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
-      },
-    );
+    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
+      ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
+      ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
+    });
     this.forge = new WorkspaceForge(
       store,
       this.git,

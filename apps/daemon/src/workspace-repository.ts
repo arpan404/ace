@@ -12,9 +12,12 @@ export function workspaceRepository(
   )?.fetchUrls[0];
   if (!remote) return undefined;
   try {
-    return repositoryFromRemote(remote, preferences
-      ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
-      : {});
+    return repositoryFromRemote(
+      remote,
+      preferences
+        ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
+        : {},
+    );
   } catch {
     return undefined;
   }

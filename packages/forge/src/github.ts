@@ -1,5 +1,10 @@
 import { ForgeMutationOutcome } from "./mutation.ts";
-import { replyIntent, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
+import {
+  replyIntent,
+  replyCutoff,
+  reconcileReply,
+  type ReplyReceipts,
+} from "./reply-receipts.ts";
 import { z } from "zod";
 import {
   ForgeRepository,
@@ -114,21 +119,49 @@ export class GitHubForge implements Forge {
     positive.parse(commentId);
     z.string().min(1).max(65_536).parse(body);
     const intent = replyIntent(this.repository, number, commentId, body);
+    const reconcile = async (receipt: NonNullable<ReturnType<ReplyReceipts["get"]>>) => {
+      const id = await reconcileReply(
+        this.#api,
+        this.#root,
+        receipt,
+        { account: this.#replyReceipts?.account ?? "", body, commentId, number },
+        signal,
+      );
+      this.#replyReceipts?.put(intent, id);
+    };
     const receipt = this.#replyReceipts?.get(intent);
-    if (receipt) {
-      await reconcileReply(this.#api, this.#root, receipt, { account: this.#replyReceipts?.account ?? "", body, commentId }, signal);
-      return;
+    if (receipt) return reconcile(receipt);
+    if (this.#replyReceipts) {
+      const before = await replyCutoff(this.#api, this.#root, number, signal);
+      if (!this.#replyReceipts.reserve(intent, before)) {
+        const pending = this.#replyReceipts.get(intent);
+        if (!pending) throw new ForgeError("conflict");
+        return reconcile(pending);
+      }
     }
-    const response = await this.#api.request(
-      `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
-      signal,
-      { body },
-    );
+    let response: import("./http.ts").Page;
+    try {
+      response = await this.#api.request(
+        `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
+        signal,
+        { body },
+      );
+    } catch (error) {
+      if (
+        error instanceof ForgeError &&
+        ["forbidden", "preferences_changed", "not_found", "conflict", "rate_limit"].includes(error.kind)
+      ) {
+        this.#replyReceipts?.remove(intent);
+        throw error;
+      }
+      throw new ForgeMutationOutcome({ id: null });
+    }
     const parsed = z.object({ id: positive }).safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ id: null });
     this.#replyReceipts?.put(intent, parsed.data.id);
     if (response.identityChanged) throw new ForgeMutationOutcome({ id: parsed.data.id });
   }
+
   async requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void> {
     this.#ref(number);
     const names = z

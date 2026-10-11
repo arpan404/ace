@@ -26,3 +26,14 @@ is checked by a push. API identity and Git's SSH/credential-helper identity can 
 Process tests replace only gh, keep real child processes and settings files, and cover old
 CLIs, missing CLI, login changes, mismatches, concurrent identity guards, malformed identity,
 Enterprise URLs, cancellation, authenticated sockets and restart persistence.
+
+Preferences have a daemon-local revision. Saving a different host, remote or expected account
+invalidates cached forge backends. Operations check that revision after identity probes, before
+later CLI commands, and before publishing results. A settings change therefore cannot authorize
+an already-admitted request to continue under the previous account.
+
+A successful remote write followed by an identity or preference change reports an uncertain
+outcome instead of a sign-in rejection. Reply receipts persist the remote comment ID and account
+in the daemon database. Retrying the same reply with a new command first reads that comment and
+verifies its author, body and parent; it does not post another reply. Restore the intended account
+before retrying. If the comment was changed or removed, reconciliation stops for human review.

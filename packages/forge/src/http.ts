@@ -139,7 +139,13 @@ export class GhApi {
     } catch {
       throw new ForgeError("invalid_data");
     }
-    const page: Page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders, ...(output.identityChanged ? { identityChanged: true } : {}) };
+    const page: Page = {
+      version,
+      bytes: Buffer.byteLength(text),
+      body: data,
+      headers: safeHeaders,
+      ...(output.identityChanged ? { identityChanged: true } : {}),
+    };
     if (!reusable) {
       this.#cache.clear();
       this.#cacheBytes = 0;

@@ -18,16 +18,21 @@ export class SourceControl {
   private closed = false;
   private stop: () => void;
   private listeners = new Set<() => void>();
-  get revision(): number { return this.currentRevision; }
+  get revision(): number {
+    return this.currentRevision;
+  }
   listen(listener: () => void): () => void {
     this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
   async guard(): Promise<() => void> {
     await this.preferences();
     const revision = this.currentRevision;
     return () => {
-      if (this.closed || this.currentRevision !== revision) throw new ForgeError("preferences_changed");
+      if (this.closed || this.currentRevision !== revision)
+        throw new ForgeError("preferences_changed");
     };
   }
   close(): void {
@@ -61,16 +66,25 @@ export class SourceControl {
     const preferences = await this.preferences();
     const revision = this.currentRevision;
     const check = () => {
-      if (this.closed || this.currentRevision !== revision) throw new ForgeError("preferences_changed");
+      if (this.closed || this.currentRevision !== revision)
+        throw new ForgeError("preferences_changed");
     };
-    const assertCurrent = async () => { await this.preferences(); check(); };
+    const assertCurrent = async () => {
+      await this.preferences();
+      check();
+    };
     const configured = preferences.hosts.find((entry) => entry.host === host);
     if (!configured) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
     const account = await githubIdentity(runner, host, signal);
     await assertCurrent();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
-    return { account, revision, check, runner: identityRunner(runner, host, account, assertCurrent) };
+    return {
+      account,
+      revision,
+      check,
+      runner: identityRunner(runner, host, account, assertCurrent),
+    };
   }
   async readiness(
     cwd: string,

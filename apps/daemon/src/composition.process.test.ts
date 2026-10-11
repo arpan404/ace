@@ -51,13 +51,16 @@ it("normal startup accepts a socket connection with settings available to source
     key: "sourceControl.preferences",
     scope: {},
   });
-  const result = await until(client, (message) =>
-    message.type === "settings.result" && message.requestId === "startup-preferences",
+  const result = await until(
+    client,
+    (message) => message.type === "settings.result" && message.requestId === "startup-preferences",
   );
   expect(result).toMatchObject({
     type: "settings.result",
     ok: true,
-    entries: [{ key: "sourceControl.preferences", value: { host: "github.com", remote: "origin" } }],
+    entries: [
+      { key: "sourceControl.preferences", value: { host: "github.com", remote: "origin" } },
+    ],
   });
 });
 

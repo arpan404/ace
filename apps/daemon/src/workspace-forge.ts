@@ -66,7 +66,12 @@ export class WorkspaceForge {
 
   private async backend(cwd: string, repository: ForgeRepository): Promise<Forge> {
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
-    const key = JSON.stringify({ repository, cwd, account: identity?.account, revision: identity?.revision });
+    const key = JSON.stringify({
+      repository,
+      cwd,
+      account: identity?.account,
+      revision: identity?.revision,
+    });
     let backend = this.backends.get(key);
     if (!backend)
       backend = new GitHubForge({
@@ -91,7 +96,10 @@ export class WorkspaceForge {
     signal = this.lifetime.signal,
   ): Promise<ForgePrStatus> {
     const check = await this.sourceControl?.guard();
-    const allowed = () => { check?.(); return permitted(); };
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const pr = ForgePrRef.parse(input);
     signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
@@ -301,7 +309,10 @@ export class WorkspaceForge {
     permitted: () => boolean,
   ): Promise<ForgePrStatus> {
     const check = await this.sourceControl?.guard();
-    const allowed = () => { check?.(); return permitted(); };
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const value = ForgeCreatePrInput.parse(input);
     const backend = await this.backend(cwd, await this.repository(cwd));
     if (!allowed()) throw new Error("forbidden");
@@ -325,7 +336,10 @@ export class WorkspaceForge {
     permitted: () => boolean,
   ): Promise<Omit<CommandResult, "commandId">> {
     const check = await this.sourceControl?.guard();
-    const allowed = () => { check?.(); return permitted(); };
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const p = ForgeCommand.parse(input);
     const id = ThreadId.parse("threadId" in p ? p.threadId : p.link.threadId);
     if (!allowed()) return { ok: false, error: "forbidden" };
@@ -364,11 +378,12 @@ export class WorkspaceForge {
       if (!allowed()) throw new Error("forbidden");
       this.projection.update(id, status, generation);
     } catch (error) {
-      if (p.type === "forge.comment.reply") throw new ForgeMutationOutcome({ replied: true });
-      throw error;
+      throw new ForgeMutationOutcome({ dispatched: true });
     }
     if (p.type === "forge.comment.reply")
-      this.replyReceipts.scope(cwd, p.link.pr.repository, "").remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
+      this.replyReceipts
+        .scope(cwd, p.link.pr.repository, "")
+        .remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
     return { ok: true, pr: status.ref, prStatus: status };
   }
   close(): void {

@@ -86,3 +86,45 @@ it("host preferences survive restart and a rescan observes the machine's current
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("only an administrator can save global source control preferences", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-source-control-scope-"));
+  const settings = new SettingsService({ dataDir: root });
+  const socket = await fixture({ settings });
+  try {
+    for (const admin of [false, true]) {
+      const issued = socket.store.devices.create(
+        admin ? "Administrator" : "Operator",
+        admin ? ["read", "operate", "admin"] : ["read", "operate"],
+        1000,
+      );
+      const client = await socket.open();
+      client.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: issued.device.id,
+        token: issued.token,
+      });
+      expect(await client.next()).toMatchObject({ type: "welcome" });
+      client.send({
+        type: "settings.set",
+        requestId: "preferences",
+        key: "sourceControl.preferences",
+        layer: { kind: "global" },
+        value: {
+          hosts: [{ host: "github.com", account: "octo" }],
+          host: "github.com",
+          remote: "upstream",
+        },
+      });
+      expect(await client.next()).toMatchObject({ type: "settings.result", ok: admin });
+      expect((await settings.get("sourceControl.preferences")).value.remote).toBe(
+        admin ? "upstream" : "origin",
+      );
+    }
+  } finally {
+    await socket.close();
+    await settings.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
