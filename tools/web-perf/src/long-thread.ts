@@ -102,12 +102,11 @@ async function measureLongThread(): Promise<void> {
         await expect(feed).toHaveAttribute("aria-busy", "false");
         await expect(feed.locator("[data-hit]").first()).toBeVisible();
       }
-      await bar.getByRole("button", { name: "Errors" }).click();
+      const scope = bar.getByRole("combobox", { name: "Search in" });
+      await scope.click();
+      await page.getByRole("option", { name: "Errors", exact: true }).click();
       await page.waitForTimeout(300);
-      await expect(bar.getByRole("button", { name: "Errors" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
+      await expect(scope).toHaveText("Errors");
       await expect(bar.locator("[aria-live]")).not.toHaveText(/^\d+ of /);
       // Empty searches render a zero-height listbox and a separate explanation.
       // Its presence acknowledges the result list opening, including no hits.
