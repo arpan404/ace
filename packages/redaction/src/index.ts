@@ -91,6 +91,17 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function environmentPattern(ctx: RedactionContext): RegExp | undefined {
+  const values = [
+    ...new Set(
+      sensitiveEnvironment(ctx)
+        .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
+        .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]),
+    ),
+  ].toSorted((a, b) => b.length - a.length);
+  return values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
+}
+
 /** Lexical rules are shared by literal diagnostics and recursive JSON redaction. */
 function createLexicalRedactor(ctx: RedactionContext): (text: string) => string {
   const home = ctx.home ?? "";
@@ -112,14 +123,7 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
   const shortValues = new Set(
     environmentValues.map(([, value]) => value).filter((value) => value.length < 4),
   );
-  const values = [
-    ...new Set(
-      environmentValues
-        .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
-        .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]),
-    ),
-  ].toSorted((a, b) => b.length - a.length);
-  const environment = values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
+  const environment = environmentPattern(ctx);
   return (line: string): string => {
     if (shortValues.has(line)) return "<ENV>";
     let out = line;
@@ -172,10 +176,12 @@ export function createRedactor(
     text: string,
     scrubPlain: (text: string) => string,
     scrubRecord: (record: string) => string,
+    environment?: RegExp,
   ) => string,
 ): (line: string) => string {
   const literalFields = new Set(literalTextFields);
   const scrub = createLexicalRedactor(ctx);
+  const environment = redactText ? environmentPattern(ctx) : undefined;
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
   return (line) => {
@@ -185,6 +191,13 @@ export function createRedactor(
       if (--remaining < 0 || depth > 32) return "<OMITTED>";
       if (typeof value === "string") {
         if (field !== undefined && literalFields.has(field)) return scrub(value);
+        if (redactText)
+          return redactText(
+            value,
+            scrub,
+            (record) => JSON.stringify(clean(JSON.parse(record), depth + 1)),
+            environment,
+          );
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
@@ -194,11 +207,7 @@ export function createRedactor(
             return "<INVALID STRUCTURED DATA OMITTED>";
           }
         }
-        return redactText
-          ? redactText(value, scrub, (record) =>
-              JSON.stringify(clean(JSON.parse(record), depth + 1)),
-            )
-          : scrub(value);
+        return scrub(value);
       }
       if (Array.isArray(value))
         return value.slice(0, remaining).map((item) => clean(item, depth + 1));
@@ -221,6 +230,18 @@ export function createRedactor(
         return result;
       }
       return value;
+    }
+    if (redactText) {
+      try {
+        return redactText(
+          line,
+          scrub,
+          (record) => JSON.stringify(clean(JSON.parse(record), 0)),
+          environment,
+        );
+      } catch {
+        return '"<REDACTION FAILED: RECORD OMITTED>"';
+      }
     }
     let value: unknown;
     try {

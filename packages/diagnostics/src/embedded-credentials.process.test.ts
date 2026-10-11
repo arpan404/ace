@@ -13,6 +13,46 @@ const diagnostics = [
   `request failed: {"credentials":{"login":"${secret}"`,
 ];
 
+it.each([false, true])(
+  "file logging removes configured JSON-fragment secrets with worker=%s",
+  async (worker) => {
+    const directory = await temporary();
+    const values = [
+      'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right',
+      'left{ "value": "OPAQUE\\u005fENV_CREDENTIAL" }right',
+    ];
+    const sink = await createFileSink(
+      {
+        directory,
+        fileBytes: 65536,
+        totalBytes: 131072,
+        context: { env: { CUSTOM: values[0], ESCAPED: values[1] } },
+      },
+      worker ? controlledWorker : undefined,
+    );
+    try {
+      await sink.write(
+        values
+          .flatMap((value) => [value, JSON.stringify(value)])
+          .map((value) => ({
+            at: 1,
+            level: "warn",
+            component: "provider",
+            message: `request failed: ${value}`,
+            data: { stderr: `request failed: ${value}` },
+          })),
+      );
+      const saved = await readFile(join(directory, "ace.jsonl"), "utf8");
+      expect(saved).not.toContain("OPAQUE_ENV_CREDENTIAL");
+      expect(saved).not.toContain("OPAQUE");
+      expect(saved).toContain("request failed");
+      expect(saved).toContain("<ENV>");
+    } finally {
+      await sink.close();
+    }
+  },
+);
+
 it("provider stderr credentials disappear before recent diagnostic evidence is returned", async () => {
   const logger = createLogger({
     sink: { async write() {}, async close() {} },

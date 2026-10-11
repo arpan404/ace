@@ -5,12 +5,31 @@ export function redactEmbeddedText(
   text: string,
   scrubPlain: (text: string) => string,
   scrubRecord: (record: string) => string,
+  environment?: RegExp,
 ): string {
   const omitted = "<INVALID STRUCTURED DATA OMITTED>";
-  text = text.replace(QUOTED_SECRET_ASSIGNMENT, "<SECRET>");
+  // Match original prose before JSON serialization changes whitespace or escapes.
+  // Records are still decoded from their original bytes so environment values
+  // matching a key cannot hide its credential-container classification.
+  const scans = [
+    ...(environment ? [{ pattern: environment, replacement: "<ENV>" }] : []),
+    { pattern: QUOTED_SECRET_ASSIGNMENT, replacement: "<SECRET>" },
+  ].map(({ pattern, replacement }) => {
+    const regex = new RegExp(pattern.source, pattern.flags);
+    return { regex, replacement, match: regex.exec(text) };
+  });
   const parts: string[] = [];
   let plain = 0;
   for (let start = 0; start < text.length; start++) {
+    for (const scan of scans)
+      while (scan.match && scan.match.index < start) scan.match = scan.regex.exec(text);
+    const sensitive = scans.find((scan) => scan.match?.index === start);
+    if (sensitive?.match) {
+      parts.push(scrubPlain(text.slice(plain, start)), sensitive.replacement);
+      start += sensitive.match[0].length - 1;
+      plain = start + 1;
+      continue;
+    }
     const first = text[start];
     if (first !== "{" && first !== "[" && first !== '"') continue;
     parts.push(scrubPlain(text.slice(plain, start)));
