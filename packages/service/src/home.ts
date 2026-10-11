@@ -4,6 +4,7 @@ import { z } from "zod";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { renderLauncher } from "./launcher.ts";
+import { installableVersion } from "./version.ts";
 import { selectDefaultHome, type HomeLayout } from "./home-policy.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 
@@ -51,7 +52,7 @@ export function installedVersion(root: string): string {
     const release = InstalledRelease.parse(
       JSON.parse(generation.readText("release.json", 16 * 1024)),
     );
-    if (release.version.startsWith("0.")) throw new Error("legacy version");
+    installableVersion(release.version);
     if (target !== `releases/${release.version}-${release.target}`)
       throw new Error("Release metadata does not match its directory");
     const bin = home.child("bin");

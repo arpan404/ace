@@ -61,11 +61,20 @@ jobs:
       - name: Format check
         run: bun run fmt:check
 
+      - name: Generated protocol reference
+        run: bun run docs:protocol --check
+
       - name: Lint
         run: bun run lint
 
       - name: File size limit
         run: bun run check:size
+
+      - name: UI value conventions
+        run: bun run check:ui
+
+      - name: Browser module boundaries
+        run: bun run check:deps
 
       - name: Typecheck
         run: bun run typecheck
@@ -89,6 +98,13 @@ jobs:
 
       - name: Web performance budgets (bundle per route, month-long soak)
         run: bun run --filter @ace/web-perf check:static
+
+      - name: Daemon performance budgets
+        run: node apps/daemon/bench/check.ts
+
+      - name: Device performance budgets (when a supported simulator is available)
+        if: runner.os == 'macOS'
+        run: node tools/web-perf/device/check.ts
 
       - name: PTY throughput (informational)
         continue-on-error: true
@@ -120,5 +136,7 @@ jobs:
         run: cd tools/web-perf && bunx playwright install --with-deps chromium && bun run browser
       - name: Web memory budgets (flat heaps while streaming, a 1M-item thread, DOM size)
         run: cd tools/web-perf && bun run memory
+      - name: Web long-thread budgets (paging, turn jumps, search and live tail)
+        run: cd tools/web-perf && bun run long-thread
       - name: Web markdown streaming budgets (a 40 KB answer, worker time per update, remounts)
         run: cd tools/web-perf && bun run markdown-stream
