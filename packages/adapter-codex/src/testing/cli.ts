@@ -243,6 +243,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "oversized-execution") {
+      respond({ turn: { id: "turn" } });
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      item(
+        "native",
+        "turn",
+        { type: "commandExecution", id: "large-shell", command: "offline", status: "inProgress" },
+        false,
+      );
+      item("native", "turn", {
+        type: "commandExecution",
+        id: "large-shell",
+        command: "offline",
+        status: "completed",
+        aggregatedOutput: "x".repeat(1_100_000),
+      });
+      end();
+      continue;
+    }
     if (text === "native-permissions-proof") {
       respond({ turn: { id: "turn" } });
       active.set("native", "turn");

@@ -4,7 +4,9 @@ export const CodexExitDiagnostic = z.object({
   event: z.literal("codex-session-exit"),
   generation: z.string().min(1).max(1024),
   deliberate: z.boolean(),
-  retirement: z.enum(["idle", "user", "shutdown", "aborted", "open_failed"]).nullable(),
+  retirement: z
+    .enum(["idle", "user", "shutdown", "aborted", "open_failed", "rpc_failed"])
+    .nullable(),
   reason: z.enum(["exit", "signal", "stopped", "spawn-error", "output-limit"]),
   code: z.number().int().nullable(),
   signal: z.string().max(32).nullable(),

@@ -3,7 +3,7 @@ import { createTextRedactor } from "@ace/redaction";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
 import type { CodexSessionContext } from "./session-context.ts";
 
-type Retirement = "idle" | "user" | "shutdown" | "aborted" | "open_failed";
+type Retirement = "idle" | "user" | "shutdown" | "aborted" | "open_failed" | "rpc_failed";
 /** Process I/O and exit evidence stay outside translation and policy decision logic. */
 export function sessionLifetime(config: {
   proc: SupervisedProcess;
@@ -52,7 +52,8 @@ export function sessionLifetime(config: {
     closed = true;
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
-    const deliberate = retirement !== null && retirement !== "open_failed";
+    const deliberate =
+      retirement !== null && retirement !== "open_failed" && retirement !== "rpc_failed";
     const diagnostic = CodexExitDiagnostic.parse({
       event: "codex-session-exit",
       generation: config.generation,
@@ -74,6 +75,7 @@ export function sessionLifetime(config: {
   return {
     close: (reason: "idle" | "user" | "shutdown") => stop(reason),
     failOpen: () => stop("open_failed"),
+    failTransport: () => stop("rpc_failed"),
     isClosed: () => closed,
   };
 }

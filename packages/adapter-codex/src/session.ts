@@ -109,7 +109,11 @@ export async function openCodexSession(
     try {
       payload = new ProviderPayload(encoded);
     } catch (error) {
-      if (!optionalMethod || !(error instanceof RangeError)) throw error;
+      if (!optionalMethod || !(error instanceof RangeError)) {
+        // A rejected incoming execution frame makes the peer detach. Its process is ours.
+        if (dir === "recv") void lifetime.failTransport();
+        throw error;
+      }
       emit("note", {
         event: "optional-catalog-frame-omitted",
         method: optionalMethod,
