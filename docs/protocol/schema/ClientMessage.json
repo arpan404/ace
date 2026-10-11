@@ -321,6 +321,14 @@
           "minLength": 1,
           "type": "string"
         },
+        "trackedTaskIds": {
+          "items": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
         "type": {
           "const": "delegation.broker.poll",
           "type": "string"

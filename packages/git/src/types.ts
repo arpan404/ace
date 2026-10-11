@@ -48,6 +48,7 @@ export type GitErrorCode =
   | "not_a_repo"
   | "invalid_argument"
   | "invalid_ref"
+  | "pr_base_mismatch"
   | "branch_exists"
   | "dirty_worktree"
   | "worktree_not_found"
@@ -121,6 +122,13 @@ export interface Checkpoint {
   sequence: number;
   label: string;
   createdAt: string;
+}
+
+/** Selected immutable file lines, with EOF facts for review admission. */
+export interface RevisionLines {
+  lines: string[];
+  atEof: boolean;
+  noFinalNewline: boolean;
 }
 
 export type DiffSide =

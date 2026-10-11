@@ -191,24 +191,34 @@ test("a missing CLI at reply dispatch releases its reservation and a restored CL
   const f = await forgeIdentityFixture();
   try {
     await f.update({ removeOnUser: 4 });
-    expect(await f.runtime.execute(reply("missing-write-binary"))).toMatchObject({ ok: false, error: "forge_cli" });
+    expect(await f.runtime.execute(reply("missing-write-binary"))).toMatchObject({
+      ok: false,
+      error: "forge_cli",
+    });
     expect((await f.facts()).replies).toHaveLength(0);
     await f.restoreBinary();
     expect(await f.runtime.execute(reply("retry-installed-binary"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 });
 
 test("a definite reply refusal releases its reservation and a permitted retry posts once", async () => {
   const f = await forgeIdentityFixture();
   try {
     await f.update({ refuseReply: true });
-    expect(await f.runtime.execute(reply("forbidden-write"))).toMatchObject({ ok: false, error: "forge_forbidden" });
+    expect(await f.runtime.execute(reply("forbidden-write"))).toMatchObject({
+      ok: false,
+      error: "forge_forbidden",
+    });
     expect((await f.facts()).replies).toHaveLength(0);
     await f.update({ refuseReply: false });
     expect(await f.runtime.execute(reply("permitted-write"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 });
 
 test("a GraphQL refusal during refresh preserves a successful reply receipt so a restart retry cannot duplicate it", async () => {
@@ -216,11 +226,16 @@ test("a GraphQL refusal during refresh preserves a successful reply receipt so a
   let restarted: WorkspaceRuntime | undefined;
   try {
     await f.update({ graphqlError: "RATE_LIMITED" });
-    expect(await f.runtime.execute(reply("refused-refresh"))).toMatchObject({ ok: false, error: "forge_rate_limit" });
+    expect(await f.runtime.execute(reply("refused-refresh"))).toMatchObject({
+      ok: false,
+      error: "forge_rate_limit",
+    });
     expect((await f.facts()).replies).toHaveLength(1);
     await f.runtime.close();
     await f.update({ graphqlError: "" });
-    restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, { sourceControl: f.sourceControl });
+    restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, {
+      sourceControl: f.sourceControl,
+    });
     expect(await restarted.execute(reply("retry-refused-refresh"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
   } finally {

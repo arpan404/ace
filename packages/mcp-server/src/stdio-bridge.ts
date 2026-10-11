@@ -5,6 +5,7 @@ import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
 import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
+import { maxBridgeResponseBytes, maxBridgeQueuedBytes } from "./result-budgets.ts";
 const Message = z
   .object({
     jsonrpc: z.literal("2.0"),
@@ -25,7 +26,8 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
   const connection = AceMcpConnectionSchema.parse(options.connection);
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
-  const writer = new RpcWriter(options.output, 8 * 1024 * 1024);
+  const writer = new RpcWriter(options.output, maxBridgeQueuedBytes);
+  let responseBytes = 0;
   const active = new Map<string | number, AbortController>();
   const tasks = new Set<Promise<void>>();
   let failure: Error | undefined;
@@ -39,7 +41,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
   const write = async (value: unknown, writeSignal = signal) => {
     const line = `${JSON.stringify(value)}\n`;
     const bytes = Buffer.byteLength(line);
-    if (bytes > 256 * 1024) throw new Error("MCP bridge response exceeds budget");
+    if (bytes > maxBridgeResponseBytes) throw new Error("MCP bridge response exceeds budget");
     await writer.send(line, bytes, writeSignal);
   };
   // ACP stdio clients can receive unsolicited notifications even though the
@@ -116,7 +118,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
       let reply: unknown;
       const sse = response.headers.get("content-type")?.includes("text/event-stream");
       const decoder = new TextDecoder("utf-8", { fatal: true });
-      const body = sse ? undefined : Buffer.allocUnsafe(256 * 1024);
+      const chunks: Uint8Array[] = [];
       const parser = new SseParser(
         (event) => {
           const value: unknown = JSON.parse(event.data);
@@ -127,21 +129,23 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
           if (envelope.id === message.id) reply = value;
         },
         "",
-        { maxLineBytes: 256 * 1024, maxEventBytes: 256 * 1024 },
+        { maxLineBytes: maxBridgeResponseBytes, maxEventBytes: maxBridgeResponseBytes },
       );
       try {
         for (;;) {
           const part = await reader.read();
           if (part.done) break;
           bytes += part.value.byteLength;
-          if (bytes > 256 * 1024) throw new Error("MCP reply budget exceeded");
+          responseBytes += part.value.byteLength;
+          if (bytes > maxBridgeResponseBytes || responseBytes > maxBridgeQueuedBytes)
+            throw new Error("MCP reply budget exceeded");
           if (sse) {
             parser.feed(decoder.decode(part.value, { stream: true }));
             if (reply !== undefined) break;
-          } else body?.set(part.value, bytes - part.value.byteLength);
+          } else chunks.push(part.value);
         }
         if (sse) parser.feed(decoder.decode());
-        else reply = JSON.parse(decoder.decode(body?.subarray(0, bytes)));
+        else reply = JSON.parse(decoder.decode(Buffer.concat(chunks, bytes)));
         if (reply === undefined) throw new Error("MCP reply did not settle request");
         const envelope = z
           .object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]) })
@@ -151,6 +155,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
         cancelTimer();
         await write(reply, requestSignal);
       } finally {
+        responseBytes -= bytes;
         await reader.cancel().catch(() => {});
         reader.releaseLock();
       }

@@ -214,6 +214,10 @@ class Tab {
   #entry: Entry | undefined;
   #leases = new Map<number, Held>();
   #calls = new Map<number, AbortController>();
+  #collection: ReturnType<Client["threadsCollection"]> | undefined;
+  #sidebar(client: Client) {
+    return (this.#collection ??= client.threadsCollection());
+  }
   #iterators = new Map<number, AsyncGenerator<unknown>>();
   #intents = new Map<string, () => void>();
   #stopPending: (() => void) | undefined;
@@ -266,7 +270,7 @@ class Tab {
     if (!parsed.success) return;
     const message = parsed.data;
     if (message.t === "connect") return this.#connect(message.config);
-    if (message.t === "ping") return;
+    if (message.t === "ping") return this.#post({ t: "pong" });
     if (message.t === "alive") return this.#alive(message.lock);
     if (message.t === "bye") return this.drop();
     if (message.t === "watchMessages") {
@@ -371,7 +375,7 @@ class Tab {
         };
         held.unobserve = store.observe((keys) => this.#dirty(held, keys));
       } else {
-        const subscription = client.threads();
+        const subscription = this.#sidebar(client).threads();
         const store = subscription.store;
         held = {
           scope,
@@ -510,7 +514,15 @@ class Tab {
       const value =
         method === "request" && isChannelRequest(args[0])
           ? await this.#channelRequest(client, call, controller, args)
-          : await callArgs(client, method, args, controller.signal);
+          : await callArgs(
+              client,
+              method,
+              args,
+              controller.signal,
+              method === "threadsWindow" || method === "threadsMore"
+                ? this.#sidebar(client)
+                : client,
+            );
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });
@@ -601,6 +613,8 @@ class Tab {
     this.#calls.delete(call);
   }
   #detach(): void {
+    this.#collection?.close();
+    this.#collection = undefined;
     this.#channels?.detach(this.#entry?.client);
     for (const lease of this.#leases.keys()) this.#release(lease);
     for (const stop of this.#intents.values()) stop();

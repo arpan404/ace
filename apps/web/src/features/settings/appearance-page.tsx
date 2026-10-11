@@ -1,7 +1,9 @@
+import { ThemeChooser } from "./theme-chooser.tsx";
+import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -23,56 +25,13 @@ const densityOptions: { value: Density; label: string }[] = [
 
 const capitalised = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
-/**
- * Arrow keys for a radio group of buttons: one Tab stop (the checked one), ←/→ and ↑/↓ move
- * and choose, Home/End jump to the ends. Spread on the element with `role="radiogroup"`.
- */
-function onRadioKeys(event: KeyboardEvent<HTMLElement>) {
-  const radios = [
-    ...event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not([disabled])'),
-  ];
-  const current = radios.indexOf(document.activeElement as HTMLElement);
-  if (current === -1) return;
-  const last = radios.length - 1;
-  const next =
-    event.key === "ArrowRight" || event.key === "ArrowDown"
-      ? current === last
-        ? 0
-        : current + 1
-      : event.key === "ArrowLeft" || event.key === "ArrowUp"
-        ? current === 0
-          ? last
-          : current - 1
-        : event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? last
-            : undefined;
-  if (next === undefined) return;
-  event.preventDefault();
-  const target = radios[next];
-  target?.focus();
-  // A colour input opens its picker on click; it's chosen with Enter or Space instead.
-  if (target && !(target instanceof HTMLInputElement)) target.click();
-}
-
 /** Theme, glass, accent, density and transcript size. Every change applies immediately. */
 export function AppearanceSettings() {
-  const { appearance, update, themes } = useTheme();
+  const { appearance, update } = useTheme();
   return (
     <>
       <SettingSection label={settingRow("appearance.theme").title} scope="device">
-        <SettingRow {...settingRow("appearance.theme")}>
-          <Select
-            label="Theme"
-            value={appearance.theme}
-            options={[
-              { value: "system", label: "System" },
-              ...themes.map((theme) => ({ value: theme.id, label: theme.name })),
-            ]}
-            onValueChange={(theme) => update({ theme })}
-          />
-        </SettingRow>
+        <ThemeChooser />
       </SettingSection>
       <SettingSection label="Display" card scope="device">
         <SettingRow {...settingRow("appearance.glass")} description={undefined}>
@@ -93,7 +52,10 @@ export function AppearanceSettings() {
         <SettingRow {...settingRow("appearance.accent")} description={undefined}>
           <AccentPicker />
         </SettingRow>
-        <SettingRow {...settingRow("appearance.density")} description={undefined}>
+        <SettingRow
+          {...settingRow("appearance.density")}
+          description="Spacing in settings, lists and Work details."
+        >
           <SegmentedControl
             label="Density"
             value={appearance.density}
@@ -130,7 +92,7 @@ export function AppearanceSettings() {
 }
 
 const swatch =
-  "size-5 shrink-0 rounded-full transition-shadow duration-(--dur-1) focus-ring aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
+  "relative touch-hit touch-hit-lg size-5 pointer-coarse:size-11 shrink-0 rounded-full transition-shadow duration-(--dur-1) focus-ring aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
 
 function AccentPicker() {
   const { appearance, update } = useTheme();
@@ -183,7 +145,7 @@ function AccentPicker() {
               setInvalid(false);
               custom(event.target.value);
             }}
-            className="absolute -inset-1.5 size-10 cursor-pointer opacity-0"
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
           />
         </label>
       </Tip>

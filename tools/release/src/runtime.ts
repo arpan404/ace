@@ -27,6 +27,7 @@ import {
   withInstallLock,
   durableJson,
   renderLauncher,
+  installableVersion,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
@@ -160,13 +161,18 @@ export async function updateCli(args: string[]) {
     ports,
   });
 }
-export async function installArtifact(artifact: string) {
-  const root = dataDir();
+export async function installArtifact(
+  artifact: string,
+  installService: (root: string) => Promise<unknown> = (root) =>
+    localService(root).perform("install"),
+) {
   const manifest = InstalledRelease.parse(
     JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
   );
+  installableVersion(manifest.version);
   if (manifest.target !== `${process.platform}-${process.arch}`)
     throw new Error("Artifact target mismatch");
+  const root = dataDir();
   await withInstallLock(root, async () => {
     if (existsSync(join(root, "current")))
       throw new Error("Already installed. Use ace update apply.");
@@ -181,7 +187,7 @@ export async function installArtifact(artifact: string) {
     await syncDirectory(join(root, "releases"));
     await atomicPointer(join(root, "current"), target);
   });
-  await localService(dataDir()).perform("install");
+  await installService(root);
 }
 export async function supervise() {
   const root = dataDir();

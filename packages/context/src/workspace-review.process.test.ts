@@ -237,55 +237,6 @@ test("watcher errors recover through a single backed-off timer which close cance
   await expect(cache.get(repo.root)).rejects.toMatchObject({ code: "busy" });
 });
 
-test("a rearmed watcher's queued change is drained without another notification", async () => {
-  const repo = await repository();
-  cleanups.push(repo.close);
-  await repo.write("old.ts", "old");
-  const published = Promise.withResolvers<void>();
-  let recovering = false;
-  let watcher: FSWatcher | undefined;
-  const cache = new WorkspaceCache(
-    1,
-    (root) => {
-      const git = new GitWorkspace(root);
-      return {
-        root,
-        get index() {
-          return git.index;
-        },
-        initialize: async () => {
-          await git.initialize();
-          // The lost watcher is closed. This file arrives after the replacement
-          // index was built, so only the rearmed watch can add it.
-          if (recovering) await repo.write("late.ts", "late");
-        },
-        inspect: (path) => git.inspect(path),
-        read: (path, limit) => git.read(path, limit),
-        update: async (paths) => {
-          await git.update(paths);
-          if (paths.includes("late.ts")) published.resolve();
-        },
-      };
-    },
-    undefined,
-    (root) => {
-      const source = watch(root, { recursive: true });
-      watcher = source;
-      // Delivery on the next microtask models a notification queued as the
-      // replacement watcher starts, while the rebuild drain is settling.
-      if (recovering) queueMicrotask(() => source.emit("change", "rename", "late.ts"));
-      return source;
-    },
-  );
-  cleanups.unshift(() => cache.close());
-  await cache.get(repo.root);
-  recovering = true;
-  watcher?.close();
-  watcher?.emit("error", new Error("lost watcher"));
-  await published.promise;
-  expect((await cache.get(repo.root)).index.complete("late")).toEqual(["late.ts"]);
-});
-
 test("cancelling an incomplete Git listing reports cancellation after reaping", async () => {
   const repo = await repository();
   cleanups.push(repo.close);

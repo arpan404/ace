@@ -76,6 +76,15 @@ export function localOutbox(key: string, store: KeyValue = localStorage): Storag
     }
   };
   return {
+    hostBinding: {
+      load: async () => store.getItem(`${key}.host`),
+      save: async (hostId) => {
+        const previous = store.getItem(`${key}.host`);
+        if (previous !== null && previous !== hostId)
+          throw new Error("Outbox daemon identity mismatch");
+        store.setItem(`${key}.host`, hostId);
+      },
+    },
     records: {
       load: async () => {
         migrate();

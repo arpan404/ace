@@ -89,6 +89,32 @@ export function idbOutbox(
   let migrated: Promise<void> | undefined;
   const ready = () => (migrated ??= migrate());
   return {
+    hostBinding: {
+      load: () =>
+        transact<string | null>("readonly", (tx, done) => {
+          const request = tx.objectStore("migrated").get(["host", key]);
+          request.addEventListener("success", () => {
+            try {
+              done(request.result === undefined ? null : z.string().min(1).parse(request.result));
+            } catch {
+              tx.abort();
+            }
+          });
+        }),
+      save: (hostId) =>
+        transact<void>("readwrite", (tx, done) => {
+          const markers = tx.objectStore("migrated");
+          const read = markers.get(["host", key]);
+          read.addEventListener("success", () => {
+            if (read.result !== undefined && read.result !== hostId) {
+              tx.abort();
+              return;
+            }
+            markers.put(hostId, ["host", key]);
+            done(undefined);
+          });
+        }),
+    },
     records: {
       async load() {
         await ready();

@@ -276,7 +276,7 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "workspace.request") {
-            emit(this.workspace.read(message));
+            emit(await this.workspace.read(message));
             return;
           }
           if (message.type === "diagnostics.request") {

@@ -8,6 +8,15 @@ const route = (input: string) => {
 };
 
 describe("ace:// links", () => {
+  it("ignores malformed encoded links without interrupting valid launch arguments", () => {
+    for (const input of ["ace://thread/%", "ace://thread/%C0%AF", "ace://new/%E0%A4%A"]) {
+      expect(parseDeepLink(input)).toBeUndefined();
+    }
+    expect(
+      linksFromArgv(["ace://thread/%", "ace://thread/caf%C3%A9/item/a%25b"], () => false),
+    ).toEqual([{ kind: "thread", threadId: "café", itemId: "a%b" }]);
+  });
+
   it("opens New thread on the folder an ace://open link names", () => {
     expect(route("ace://open?folder=%2FUsers%2Fme%2FCode%2Fapp")).toBe(
       "/new?folder=%2FUsers%2Fme%2FCode%2Fapp",

@@ -161,6 +161,7 @@ export async function openPiSession(
     if (!d) return;
     d.cancel();
     dialogs.delete(id);
+    if (!dialogs.size) rpc.resumeDeadlines();
     note({ type: "dialog_expired", id });
   };
   const release = () => {
@@ -214,6 +215,7 @@ export async function openPiSession(
           dialog: d,
           cancel: d.timeout === undefined ? () => {} : io.schedule(() => expire(d.id), d.timeout),
         });
+        rpc.pauseDeadlines();
       }
     },
     fatal,
@@ -342,6 +344,7 @@ export async function openPiSession(
       entry.cancel();
       try {
         await rpc.write(response);
+        if (!dialogs.size) rpc.resumeDeadlines();
       } catch (error) {
         fatal();
         throw error;

@@ -32,7 +32,7 @@ export class WorkspaceForge {
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
   private intents = new ForgeIntents();
-  private git: Pick<GitService, "repositoryInfo">;
+  private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
@@ -43,7 +43,7 @@ export class WorkspaceForge {
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
   constructor(
     store: Store,
-    git: Pick<GitService, "repositoryInfo">,
+    git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>,
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
@@ -309,6 +309,7 @@ export class WorkspaceForge {
     cwd: string,
     input: ForgeCreatePrInput,
     permitted: () => boolean,
+    guard?: { fingerprint: string; baseRef?: string | undefined },
   ): Promise<ForgePrStatus> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
@@ -330,7 +331,28 @@ export class WorkspaceForge {
     const found = await backend.findPr(value.branch, value.base, this.lifetime.signal);
     await verifyHead();
     if (!allowed()) throw new Error("forbidden");
-    const pr = found ?? (await backend.createPr(id, value, this.lifetime.signal));
+    const publish = async () => {
+      this.lifetime.signal.throwIfAborted();
+      if (!allowed()) throw new Error("forbidden");
+      return backend.createPr(id, value, this.lifetime.signal);
+    };
+    let pr = found;
+    if (!pr) {
+      if (guard) {
+        if (!this.git.withWritingGuard) throw new Error("draft_guard_unavailable");
+        pr = await this.git.withWritingGuard(
+          cwd,
+          {
+            kind: "pr",
+            branch: value.branch,
+            base: value.base,
+            ...(guard.baseRef ? { baseRef: guard.baseRef } : {}),
+          },
+          guard.fingerprint,
+          publish,
+        );
+      } else pr = await publish();
+    }
     if (!allowed()) throw new Error("forbidden");
     // Persist the receipt even if the subsequent status read fails.
     this.links.link({ threadId: id, pr });
@@ -366,7 +388,15 @@ export class WorkspaceForge {
     if (p.type === "forge.pr.create") {
       if (repositoryKey(p.repository) !== repositoryKey(await this.repository(cwd)))
         throw new Error("repository_mismatch");
-      const status = await this.ensurePr(id, cwd, p.input, allowed);
+      const status = await this.ensurePr(
+        id,
+        cwd,
+        p.input,
+        allowed,
+        p.draftFingerprint
+          ? { fingerprint: p.draftFingerprint, baseRef: p.draftBaseRef }
+          : undefined,
+      );
       return { ok: true, pr: status.ref, prStatus: status };
     }
     if (p.type === "forge.pr.link") {

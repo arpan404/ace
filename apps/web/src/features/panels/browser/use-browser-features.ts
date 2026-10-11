@@ -23,7 +23,9 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   const features = new BrowserFeaturesClient(client);
   const origins = new BrowserOriginsClient(client);
   const withControl = async () => {
-    if (!source.heldAs(threadId)) await source.takeover(threadId);
+    if (source.heldAs(threadId)) return false;
+    await source.takeover(threadId);
+    return true;
   };
   const attempt = async <T>(title: string, run: () => Promise<T>): Promise<T | undefined> => {
     try {
@@ -38,13 +40,59 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
+  const answerDialog = async (
+    tabId: string,
+    dialogId: string,
+    accept: boolean,
+    promptText?: string,
+  ) => {
+    await withControl();
+    return features.answerDialog(threadId, tabId, dialogId, accept, promptText);
+  };
+  const returnControl = async (release: () => Promise<void>) => {
+    try {
+      await release();
+    } catch (error) {
+      const id = toast.error({
+        title: "Couldn't hand back the page",
+        description: reason(error),
+        timeout: 0,
+        actionProps: {
+          children: "Hand back",
+          onClick: async () => {
+            try {
+              await release();
+              toast.close(id);
+            } catch (retryError) {
+              toast.update(id, { description: reason(retryError) });
+            }
+          },
+        },
+      });
+    }
+  };
   return {
     features,
     origins,
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
+      attempt("Couldn't answer the page", () => answerDialog(tabId, dialogId, accept, promptText)),
+    answerBackgroundDialog: (
+      retainControl: () => boolean,
+      tabId: string,
+      dialogId: string,
+      accept: boolean,
+      promptText?: string,
+    ) =>
       attempt("Couldn't answer the page", async () => {
-        await withControl();
-        return features.answerDialog(threadId, tabId, dialogId, accept, promptText);
+        const control = source.temporaryControl(threadId);
+        let acquired = false;
+        try {
+          await control.ready;
+          acquired = true;
+          return await features.answerDialog(threadId, tabId, dialogId, accept, promptText);
+        } finally {
+          if (!acquired || !retainControl()) await returnControl(control.release);
+        }
       }),
     startRecording: () =>
       attempt("Couldn't start recording", async () => {

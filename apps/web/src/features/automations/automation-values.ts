@@ -23,14 +23,10 @@ export const AutomationForm = z
     model: z.string().trim().max(256),
     trigger: z.enum(["schedule", "github", "file", "manual"]),
     cadence: z.enum(["daily", "weekdays", "weekly", "hourly", "custom"]),
-    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Enter a time, like 09:30."),
+    time: z.string(),
     day: z.enum(weekdays),
-    every: z
-      .number("Enter whole hours from 1 to 23.")
-      .int("Enter whole hours from 1 to 23.")
-      .min(1, "Enter whole hours from 1 to 23.")
-      .max(23, "Enter whole hours from 1 to 23."),
-    timezone: z.string().refine(isTimeZone, "Choose a time zone from the list."),
+    every: z.number(),
+    timezone: z.string(),
     /** An existing schedule's DTSTART, which anchors its recurrence; new ones start now. */
     startAt: z.number().optional(),
     syntax: z.enum(["rrule", "cron"]),
@@ -44,6 +40,28 @@ export const AutomationForm = z
     missedRun: z.enum(["skip", "run_once"]),
   })
   .superRefine((form, ctx) => {
+    if (form.trigger === "schedule") {
+      if (!isTimeZone(form.timezone))
+        ctx.addIssue({
+          code: "custom",
+          path: ["timezone"],
+          message: "Choose a time zone from the list.",
+        });
+      if (
+        form.cadence === "hourly" &&
+        (!Number.isInteger(form.every) || form.every < 1 || form.every > 23)
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["every"],
+          message: "Enter whole hours from 1 to 23.",
+        });
+      if (
+        ["daily", "weekdays", "weekly"].includes(form.cadence) &&
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time)
+      )
+        ctx.addIssue({ code: "custom", path: ["time"], message: "Enter a time, like 09:30." });
+    }
     if (form.trigger === "schedule" && form.cadence === "custom") {
       if (!form.expression)
         ctx.addIssue({ code: "custom", path: ["expression"], message: "Enter a schedule." });

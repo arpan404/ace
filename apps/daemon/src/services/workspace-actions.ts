@@ -1,3 +1,4 @@
+import { createWritingCli } from "../source-control-cli.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
 import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
@@ -27,6 +28,12 @@ export async function startWorkspaceActions({
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
+    writingCli:
+      options.workspaceActions?.writingCli ??
+      createWritingCli({
+        configuration: (provider) => services.providerConfigurations?.for(provider),
+        ...(options.engine?.clock ? { clock: options.engine.clock } : {}),
+      }),
     machine: options.workspaceActions?.machine ?? {
       host: loadHostId(config.dataDir),
       name: await computerName(),
@@ -55,7 +62,12 @@ export async function startWorkspaceActions({
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
   let reads = 0;
+  const generations = new Map<string, { threadId: string; controller: AbortController }>();
   return {
+    close() {
+      for (const entry of generations.values()) entry.controller.abort();
+      generations.clear();
+    },
     command: {
       types: [
         ...WorkspaceCommands.map((schema) => schema.shape.type.value),
@@ -87,11 +99,34 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
     handle(message) {
       if (message.type !== "workspace.request") return false;
       const op = message.operation;
-      if (!authorize("read") || ("threadId" in op && !canReadThread(op.threadId))) {
+      const scope =
+        op.op === "git.draft.generate" || op.op === "git.draft.cancel" ? "operate" : "read";
+      if (!authorize(scope) || ("threadId" in op && !canReadThread(op.threadId))) {
         send({
           type: "workspace.result",
           requestId: message.requestId,
           result: { kind: "error", code: "forbidden" },
+        });
+        return true;
+      }
+      if (op.op === "git.draft.cancel") {
+        const entry = generations.get(op.generationId);
+        if (entry?.threadId === op.threadId) entry.controller.abort();
+        send({
+          type: "workspace.result",
+          requestId: message.requestId,
+          result: { kind: "draftCancelled" },
+        });
+        return true;
+      }
+      if (
+        op.op === "git.draft.generate" &&
+        (!context.maintenance.admit() || generations.has(op.input.generationId))
+      ) {
+        send({
+          type: "workspace.result",
+          requestId: message.requestId,
+          result: { kind: "error", code: "draft_busy" },
         });
         return true;
       }
@@ -104,12 +139,15 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         return true;
       }
       reads++;
+      const controller = new AbortController();
+      if (op.op === "git.draft.generate")
+        generations.set(op.input.generationId, { threadId: op.threadId, controller });
       const task = options.workspaceActions
-        .read(message)
+        .read(message, controller.signal)
         .then((result) => {
           if (
             connected() &&
-            authorize("read") &&
+            authorize(scope) &&
             (!("threadId" in op) || canReadThread(op.threadId))
           )
             send(WorkspaceActionResult.parse(result));
@@ -123,6 +161,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         )
         .finally(() => {
           reads--;
+          if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
         });
       tasks.add(task);
       void task.finally(() => tasks.delete(task));

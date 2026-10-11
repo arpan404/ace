@@ -296,3 +296,46 @@ test("ace MCP error details fail a Pi tool even when Pi reports normal execution
     call: { status: "failed", detail: { kind: "mcp", server: "ace", tool: "screen_click" } },
   });
 });
+
+test.each(["hello world", "revised answer", "hello"])(
+  "final assistant blocks replace partial streams with %s",
+  (text) => {
+    const h = replay();
+    h.recv(start);
+    h.recv({ type: "message_start", message: { role: "assistant", content: [] } });
+    h.recv({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "hello" },
+    });
+    h.recv({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "partial" },
+    });
+    h.recv({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text },
+          { type: "thinking", thinking: "final reasoning" },
+          { type: "text", text: "unstreamed" },
+        ],
+        stopReason: "stop",
+      },
+    });
+    h.recv(settled);
+    expect(h.state.items["pi:message:1:0"]).toMatchObject({
+      complete: true,
+      parts: [{ type: "text", text }],
+    });
+    expect(h.state.items["pi:message:1:1"]).toMatchObject({
+      complete: true,
+      text: "final reasoning",
+    });
+    expect(h.state.items["pi:message:1:2"]).toMatchObject({
+      complete: true,
+      parts: [{ type: "text", text: "unstreamed" }],
+    });
+    expect(h.state.status.state).toBe("done");
+  },
+);

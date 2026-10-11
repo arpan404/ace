@@ -117,6 +117,7 @@ export async function callArgs(
   method: string,
   args: unknown[],
   signal: AbortSignal,
+  collection: Pick<ClientCore, "threadsWindow" | "threadsMore"> = client,
 ): Promise<unknown> {
   switch (method) {
     case "threadsWindow": {
@@ -126,11 +127,11 @@ export async function callArgs(
         ]),
         args,
       );
-      return client.threadsWindow(input);
+      return collection.threadsWindow(input);
     }
     case "threadsMore": {
       const [parsed] = decode(z.tuple([Options]), args);
-      return client.threadsMore(options(parsed, signal));
+      return collection.threadsMore(options(parsed, signal));
     }
     case "enqueue": {
       const [payload, id] = decode(schemas.enqueue, args);

@@ -14,10 +14,14 @@ const envelope = z.object({
 });
 const graphqlResult = z.object({
   data: z.record(z.string(), z.unknown()).nullish(),
-  errors: z.array(z.looseObject({
-    type: z.string().optional(),
-    extensions: z.looseObject({ code: z.string().optional() }).optional(),
-  })).optional(),
+  errors: z
+    .array(
+      z.looseObject({
+        type: z.string().optional(),
+        extensions: z.looseObject({ code: z.string().optional() }).optional(),
+      }),
+    )
+    .optional(),
 });
 /** Successful fields or unknown errors cannot prove that a mutation was refused. */
 function assertGraphqlResult(body: unknown, dispatch: MutationDispatch, retryAt: number): void {
@@ -45,7 +49,9 @@ function rateLimitRetryAt(headers: Record<string, string>, now: number): number 
   const reset = Number(headers["x-ratelimit-reset"]) * 1_000;
   return Number.isFinite(seconds) && seconds >= 0
     ? now + seconds * 1_000
-    : Number.isFinite(reset) && reset > now ? reset : now + 60_000;
+    : Number.isFinite(reset) && reset > now
+      ? reset
+      : now + 60_000;
 }
 export type Page = {
   body: unknown;
@@ -112,7 +118,13 @@ export class GhApi {
       "Accept: application/vnd.github+json",
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
-    const reusable = !isForgeMutation({ args, ...(input === undefined ? {} : { input }), command: this.#command, signal, mode: "json" });
+    const reusable = !isForgeMutation({
+      args,
+      ...(input === undefined ? {} : { input }),
+      command: this.#command,
+      signal,
+      mode: "json",
+    });
     const cacheKey =
       method === "GET"
         ? path
@@ -177,10 +189,13 @@ export class GhApi {
     // before the CLI fallback, including before any cached representation is reused.
     if (path === "graphql") {
       if (output.truncated) throw new ForgeError("invalid_data");
-      let body: unknown;
-      try { body = JSON.parse(text); }
-      catch { throw new ForgeError("invalid_data"); }
-      assertGraphqlResult(body, dispatch, rateLimitRetryAt(headers, this.#now()));
+      let graphqlBody: unknown;
+      try {
+        graphqlBody = JSON.parse(text);
+      } catch {
+        throw new ForgeError("invalid_data");
+      }
+      assertGraphqlResult(graphqlBody, dispatch, rateLimitRetryAt(headers, this.#now()));
     }
     if (output.code !== 0) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");

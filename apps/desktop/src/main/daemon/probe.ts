@@ -85,3 +85,9 @@ export async function maintenanceBlockers(daemon: LocalDaemon): Promise<number> 
   const { MaintenanceStatus } = await protocol();
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance")).blockers;
 }
+
+/** Authoritative admission state of the daemon now serving this endpoint. */
+export async function maintenanceStatus(daemon: LocalDaemon) {
+  const { MaintenanceStatus } = await protocol();
+  return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance"));
+}

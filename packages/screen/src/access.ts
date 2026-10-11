@@ -1,13 +1,29 @@
 import type { ScreenAgentScope, ScreenGrant, ScreenState } from "@ace/protocol";
 
+/** A mutation remains owned only until another writer replaces its revision. */
+export interface ScreenAccessRevision {
+  current(): boolean;
+}
+export interface ScreenDeviceAccess {
+  enable(): Promise<void>;
+  approve(): Promise<void>;
+  commit(): void;
+  rollback(): Promise<void>;
+}
+
 /** Daemon-owned persistence and host approvals; screen has no SQLite or engine dependency. */
 export interface ScreenAccess {
   currentTurn?(threadId: string): string | undefined;
   enabled(): boolean;
-  enable(enabled: boolean): void;
+  enable(enabled: boolean): ScreenAccessRevision | void;
   list(threadId?: string): ScreenGrant[];
   allows(bundleId: string, scope?: ScreenAgentScope): boolean;
-  approve(bundleId: string, allowed: boolean, scope: ScreenGrant["scope"], threadId?: string): void;
+  approve(
+    bundleId: string,
+    allowed: boolean,
+    scope: ScreenGrant["scope"],
+    threadId?: string,
+  ): ScreenAccessRevision | void;
   request(
     bundleId: string,
     reason: string,

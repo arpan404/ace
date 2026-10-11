@@ -1,7 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { GitService } from "@ace/git";
+import { GitService, spawnGitProcess } from "@ace/git";
 import { ReviewService } from "./service.ts";
 import { WorkerInput } from "./worker-protocol.ts";
 const port = parentPort;
@@ -49,7 +49,20 @@ const service = new ReviewService({
   path: config.path,
   now: Date.now,
   id: randomUUID,
-  git: new GitService(config.gitBinary ? { gitBinary: config.gitBinary } : {}),
+  git: new GitService({
+    ...(config.gitBinary ? { gitBinary: config.gitBinary } : {}),
+    processRuntime: {
+      spawn(command, args, options) {
+        const child = spawnGitProcess(command, args, options);
+        if (child.pid !== undefined && options.detached) {
+          const pid = child.pid;
+          port.postMessage({ type: "git-group", pid, active: true });
+          child.once("close", () => port.postMessage({ type: "git-group", pid, active: false }));
+        }
+        return child;
+      },
+    },
+  }),
   ...(config.executor
     ? {
         executor: {

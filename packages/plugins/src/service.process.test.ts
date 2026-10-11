@@ -207,3 +207,41 @@ test("a repository's marketplace lists its plugins at the default branch, stagin
     "version",
   ]);
 });
+
+test.each(["accept", "edit"] as const)(
+  "shutdown drains an accepted %s before retiring the registry",
+  async (mutation) => {
+    const f = await fixture();
+    cleanups.push(f.close);
+    const review = await f.prepare();
+    if (mutation === "edit") await f.manager.accept(review);
+    const service = new PluginService(f.manager);
+    const request =
+      mutation === "accept"
+        ? { type: "plugins.accept", id: review.id, commit: review.commit, hash: review.hash }
+        : {
+            type: "plugins.edit",
+            name: "sample",
+            path: "rules/style.md",
+            expectedHash: (await f.manager.source("sample", "rules/style.md", 0, 100)).hash,
+            text: "Keep the behavior.",
+          };
+    const changing = service.handle(request);
+    const closing = service.close();
+    await expect(service.handle({ type: "plugins.list" })).rejects.toThrow("closed");
+    const result = await changing;
+    await closing;
+    await f.reopen();
+    if (mutation === "accept") expect(f.manager.list()).toMatchObject([{ hash: review.hash }]);
+    else {
+      expect(result.type).toBe("plugins.review");
+      expect(f.manager.pending()).toHaveLength(1);
+      const edited = f.manager.pending()[0];
+      if (!edited) throw new Error("Missing edited review");
+      await f.manager.accept(edited);
+      expect((await f.manager.source("sample", "rules/style.md", 0, 100)).text).toBe(
+        "Keep the behavior.",
+      );
+    }
+  },
+);

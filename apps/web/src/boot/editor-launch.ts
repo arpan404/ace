@@ -1,3 +1,4 @@
+import { editorFilePath } from "@ace/ui-core/editor-url";
 /**
  * Hands an editor launch (ADR 0057: the daemon validates and returns it, never launches an
  * editor on a client's machine) to this machine. The desktop app opens it through its bridge;
@@ -22,7 +23,7 @@ const desktopEditors: Record<string, string> = {
 
 /** The editor's own URL handler, so no CLI needs to be on this machine's PATH. */
 export function editorUrl(target: LaunchTarget): string | undefined {
-  const path = encodeURI(target.path);
+  const path = editorFilePath(target.path);
   const at = target.line ? `:${target.line}` : "";
   switch (target.editorId) {
     case "code":
@@ -32,7 +33,7 @@ export function editorUrl(target: LaunchTarget): string | undefined {
     case "zed":
       return `zed://file${path}${at}`;
     case "subl":
-      return `subl://open?url=${encodeURIComponent(`file://${target.path}`)}${target.line ? `&line=${target.line}` : ""}`;
+      return `subl://open?url=${encodeURIComponent(`file://${path}`)}${target.line ? `&line=${target.line}` : ""}`;
     case "idea":
       return `idea://open?file=${encodeURIComponent(target.path)}${target.line ? `&line=${target.line}` : ""}`;
     default:

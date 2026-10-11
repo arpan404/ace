@@ -722,6 +722,10 @@
     },
     {
       "properties": {
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "expectedHead": {
           "anyOf": [
             {
@@ -1020,6 +1024,15 @@
     },
     {
       "properties": {
+        "draftBaseRef": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "input": {
           "$ref": "https://ace.local/protocol/v1/ForgeCreatePrInput.json"
         },
@@ -1228,6 +1241,9 @@
     },
     {
       "properties": {
+        "expectedFingerprint": {
+          "$ref": "https://ace.local/protocol/v1/ReviewFingerprint.json"
+        },
         "position": {
           "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
         },

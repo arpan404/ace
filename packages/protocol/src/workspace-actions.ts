@@ -1,3 +1,9 @@
+import {
+  SourceControlSelection,
+  SourceControlContext,
+  SourceControlDraft,
+  SourceControlDraftInput,
+} from "./source-control-draft.ts";
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
@@ -58,6 +64,17 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
     z.object({ op: z.literal("git.diff"), threadId: ThreadId }),
     z.object({
+      op: z.literal("git.draft.context"),
+      threadId: ThreadId,
+      selection: SourceControlSelection,
+    }),
+    z.object({
+      op: z.literal("git.draft.generate"),
+      threadId: ThreadId,
+      input: SourceControlDraftInput,
+    }),
+    z.object({ op: z.literal("git.draft.cancel"), threadId: ThreadId, generationId: id }),
+    z.object({
       op: z.literal("runs.list"),
       threadId: ThreadId,
       before: z
@@ -110,6 +127,13 @@ export const WorkspaceActionResult = z.object({
       workspaces: z.array(Project).max(100),
       next: id.optional(),
     }),
+    z.object({ kind: z.literal("draftContext"), context: SourceControlContext }),
+    z.object({
+      kind: z.literal("draft"),
+      draft: SourceControlDraft,
+      context: SourceControlContext,
+    }),
+    z.object({ kind: z.literal("draftCancelled") }),
     z.object({ kind: z.literal("error"), code: z.string().max(128) }),
   ]),
 });
@@ -134,6 +158,7 @@ export const WorkspaceCommands = [
       .max(8192)
       .refine((value) => value.trim().length > 0)
       .meta({ "x-ace-constraint": "Must contain a non-whitespace commit message." }),
+    draftFingerprint: SourceControlContext.shape.fingerprint.optional(),
     expectedHead: z
       .string()
       .regex(/^[a-f0-9]{40,64}$/)

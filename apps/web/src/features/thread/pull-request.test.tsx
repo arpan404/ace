@@ -103,7 +103,8 @@ async function openPr(number = 42) {
 }
 
 async function linkField(card: HTMLElement) {
-  await userEvent.click(within(card).getByRole("button", { name: "Link a pull request" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Link a pull request" }));
   return within(card).getByRole("textbox", { name: "Link pull request…" });
 }
 async function unlink(card: HTMLElement, number: number, index = 0) {
@@ -295,7 +296,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Local");
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });
@@ -345,7 +346,7 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   await app.open("/t/thread-retry-budget");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await within(card).findByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   const files = await within(dialog).findByRole("list", { name: "Files to commit" });

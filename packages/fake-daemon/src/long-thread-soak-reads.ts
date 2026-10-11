@@ -192,7 +192,10 @@ export class LongThreadReads {
           return true;
         }
         const target =
-          this.from(turnStart ?? message.aroundSeq ?? 0, 1)[0] ?? this.before(Infinity, 1)[0];
+          message.itemId !== undefined
+            ? (this.live().items.find((entry) => entry.item.id === message.itemId) ??
+              this.history.itemById(message.itemId))
+            : (this.from(turnStart ?? message.aroundSeq ?? 0, 1)[0] ?? this.before(Infinity, 1)[0]);
         const older = target ? this.before(target.seq, message.before) : [];
         const newer = target ? this.from(target.seq + 1, message.after) : [];
         const shown = [...older, ...(target ? [target] : []), ...newer];

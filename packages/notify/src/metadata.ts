@@ -28,7 +28,11 @@ const interaction = z
   .strict();
 const Payload = z.discriminatedUnion("type", [
   z
-    .object({ type: z.literal("thread.client.updated"), snoozedUntil: Timestamp.nullable() })
+    .object({
+      type: z.literal("thread.client.updated"),
+      snoozedUntil: Timestamp.nullable().optional(),
+      deletedAt: Timestamp.nullable().optional(),
+    })
     .strict(),
   z
     .object({
@@ -38,6 +42,7 @@ const Payload = z.discriminatedUnion("type", [
           title: z.string().max(200),
           status: ThreadStatus,
           archivedAt: Timestamp.optional(),
+          deletedAt: Timestamp.optional(),
           snoozedUntil: Timestamp.optional(),
         })
         .strict(),
@@ -100,8 +105,13 @@ export function metadata(event: Event): MetadataEvent | undefined {
   let payload: unknown;
   switch (p.type) {
     case "thread.client.updated":
-      if (p.changes.snoozedUntil === undefined) return undefined;
-      payload = { type: p.type, snoozedUntil: p.changes.snoozedUntil };
+      if (p.changes.snoozedUntil === undefined && p.changes.deletedAt === undefined)
+        return undefined;
+      payload = {
+        type: p.type,
+        snoozedUntil: p.changes.snoozedUntil,
+        deletedAt: p.changes.deletedAt,
+      };
       break;
     case "thread.created":
       payload = {
@@ -110,6 +120,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
           title: p.thread.title.slice(0, 200),
           status: p.thread.status,
           archivedAt: p.thread.archivedAt,
+          deletedAt: p.thread.deletedAt,
           snoozedUntil: p.thread.snoozedUntil,
         },
       };

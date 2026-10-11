@@ -1,5 +1,6 @@
 import { retainToolRaw } from "./tool-raw.ts";
 import { finalizeTool } from "./tool-final.ts";
+import { retireTool } from "./completed-tools.ts";
 import type { Fact } from "@ace/core";
 import { object, raw, string, type Data } from "./data.ts";
 import { decodeResolution, interactionKey, interactionRequest } from "./interactions.ts";
@@ -116,6 +117,7 @@ export function answerRequest(
         call: { status: tool.status, ...(detail ? { detail } : {}), raw: [...tool.raw] },
       },
     });
+    retireTool(s, tool);
   }
   return true;
 }

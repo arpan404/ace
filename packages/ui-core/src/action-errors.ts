@@ -30,6 +30,18 @@ const copy: Record<string, string> = {
   pr_link_changed: "The linked pull request changed: refresh, then retry.",
   forge_recovery_unavailable:
     "This daemon can't find an existing PR: update the daemon, then retry.",
+  draft_provider_unavailable:
+    "The selected CLI is unavailable or signed out. Install it and sign in, then generate again.",
+  draft_provider_failed:
+    "The CLI couldn't generate a draft. Check its version and sign-in, then try again. Your text is unchanged.",
+  draft_invalid_output: "The CLI returned an invalid draft. Your text is unchanged.",
+  draft_timeout: "Draft generation timed out. Your text is unchanged.",
+  draft_cancelled: "Draft generation was cancelled. Your text is unchanged.",
+  draft_busy: "Draft generation is busy. Wait, then try again.",
+  draft_guard_unavailable:
+    "This daemon can't validate a draft before publication: update it, then retry.",
+  draft_changes_moved:
+    "The selected changes moved. Generate again, or discard the draft to use your own text.",
   // Git.
   git_missing: "Git isn't installed: install Git, then retry.",
   git_too_old: "This Git is too old: update Git, then retry.",
@@ -53,6 +65,8 @@ const copy: Record<string, string> = {
   git_not_a_repo: "This folder isn't a Git repository: run `git init` or open a cloned project.",
   git_invalid_argument: "Git refused the request: check the branch and file names.",
   git_invalid_ref: "That branch doesn't exist in the project: fetch it or pick another.",
+  git_pr_base_mismatch:
+    "The draft base doesn't match the PR destination. Choose the target branch on the publication remote; cross-remote PR drafts aren't supported.",
   git_branch_exists: "A branch with that name already exists: pick another name.",
   git_dirty_worktree:
     "The checkout has uncommitted changes: commit them, or bring them along to the branch.",
@@ -93,6 +107,8 @@ const copy: Record<string, string> = {
     "The agent couldn't take the comments: check the thread's queue and provider, then retry.",
   review_target_mismatch: "The thread's checkout moved: review its current changes instead.",
   review_target_unavailable: "The thread's checkout is moving: wait for it to settle, then retry.",
+  review_selection_mismatch:
+    "The selected lines differ from this review snapshot: select them again in the current diff.",
   review_suggestion_conflict:
     "The lines changed since the suggestion: check it against the new code first.",
   review_suggestion_unavailable:

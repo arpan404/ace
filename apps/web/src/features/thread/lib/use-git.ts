@@ -93,11 +93,13 @@ export type GitChange =
       push: boolean;
       /** The files picked (a rename names both paths); every change when absent. */
       paths?: readonly string[];
+      draftFingerprint?: string | undefined;
     }
   | { kind: "push" }
   | {
       kind: "create-pr";
       title: string;
+      draftFingerprint?: string | undefined;
       summary: string;
       draft: boolean;
       /** GitHub usernames to ask for review once it is open. */
@@ -122,7 +124,13 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     mutationFn: async (change: GitChange): Promise<ForgePrStatus | undefined> => {
       const workspace = sources.workspace;
       if (change.kind === "commit") {
-        await workspace.commit(thread, change.message, checkout?.head ?? null, change.paths);
+        await workspace.commit(
+          thread,
+          change.message,
+          checkout?.head ?? null,
+          change.paths,
+          change.draftFingerprint,
+        );
         if (change.push) await workspace.push(thread);
         return undefined;
       }
@@ -171,6 +179,16 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
       if (change.kind === "create-pr") {
         const branch = checkout.branch;
         if (!branch) throw new Error("This checkout can't open a pull request.");
+        if (change.draftFingerprint) {
+          const context = await workspace.draftContext(thread, {
+            kind: "pr",
+            branch,
+            base: checkout.baseBranch,
+            ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
+          });
+          if (context.fingerprint !== change.draftFingerprint)
+            throw new Error("The branch changes moved. Generate again or discard the draft.");
+        }
         // A branch without an upstream reports nothing ahead; pushing first is always safe.
         await workspace.push(thread, { repository, branch, head: checkout.head });
         const status = await workspace.createPr(thread, {
@@ -178,6 +196,8 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           branch,
           base: checkout.baseBranch,
           title: change.title,
+          draftFingerprint: change.draftFingerprint,
+          draftBaseRef: checkout.baseRef,
           summary: change.summary,
           draft: change.draft,
           ...(checkout.head ? { expectedHead: checkout.head } : {}),

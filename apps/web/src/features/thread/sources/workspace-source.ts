@@ -6,6 +6,10 @@ import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import {
   ThreadId,
   SourceControlPreferences,
+  type SourceControlContext,
+  type SourceControlDraftInput,
+  type SourceControlSelection,
+  type SourceControlDraft,
   type CommandPayload,
   type CommandResult,
   type ForgePrRef,
@@ -43,6 +47,8 @@ export interface PrInput {
   summary: string;
   draft: boolean;
   expectedHead?: string;
+  draftFingerprint?: string | undefined;
+  draftBaseRef?: string | undefined;
 }
 
 export class WorkspaceError extends Error {
@@ -58,6 +64,17 @@ type Operation = WorkspaceActionRequest["operation"];
 type Result = WorkspaceActionResult["result"];
 
 export interface WorkspaceSource {
+  draftContext(
+    thread: ThreadRef,
+    selection: SourceControlSelection,
+    signal?: AbortSignal,
+  ): Promise<SourceControlContext>;
+  generateDraft(
+    thread: ThreadRef,
+    input: SourceControlDraftInput,
+    signal: AbortSignal,
+  ): Promise<{ draft: SourceControlDraft; context: SourceControlContext }>;
+  cancelDraft(thread: ThreadRef, generationId: string): Promise<void>;
   /** Reads the checkout again; the daemon also publishes it to the thread's live details. */
   details(thread: ThreadRef, signal?: AbortSignal): Promise<ThreadDetails>;
   /** The linked PR as the forge reports it now, or null when none is linked. */
@@ -81,6 +98,7 @@ export interface WorkspaceSource {
     message: string,
     expectedHead: string | null,
     paths?: readonly string[],
+    draftFingerprint?: string,
   ): Promise<string>;
   push(
     thread: ThreadRef,
@@ -155,7 +173,10 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
   ): Promise<Extract<Result, { kind: K }>> => {
     const reply = await client.request(
       { type: "workspace.request", operation },
-      signal ? { signal } : {},
+      {
+        ...(signal ? { signal } : {}),
+        ...(operation.op === "git.draft.generate" ? { timeoutMs: 150_000 } : {}),
+      },
     );
     const result = reply.result;
     if (result.kind === "error") throw new WorkspaceError(result.code);
@@ -168,6 +189,25 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     return result;
   };
   return {
+    draftContext: async (thread, selection, signal) =>
+      (
+        await read(
+          { op: "git.draft.context", threadId: id(thread), selection },
+          "draftContext",
+          signal,
+        )
+      ).context,
+    generateDraft: async (thread, input, signal) => {
+      const { draft, context } = await read(
+        { op: "git.draft.generate", threadId: id(thread), input },
+        "draft",
+        signal,
+      );
+      return { draft, context };
+    },
+    cancelDraft: async (thread, generationId) => {
+      await read({ op: "git.draft.cancel", threadId: id(thread), generationId }, "draftCancelled");
+    },
     details: async (thread, signal) =>
       (await read({ op: "thread.details", threadId: id(thread) }, "details", signal)).details,
     prStatus: async (thread, signal) =>
@@ -196,13 +236,14 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       if (!result.editor) throw new WorkspaceError("unexpected");
       return result.editor;
     },
-    async commit(thread, message, expectedHead, paths) {
+    async commit(thread, message, expectedHead, paths, draftFingerprint) {
       const result = await run({
         type: "git.commit",
         threadId: id(thread),
         message,
         expectedHead,
         ...(paths ? { paths: [...paths] } : {}),
+        ...(draftFingerprint ? { draftFingerprint } : {}),
       });
       return result.commit ?? "";
     },
@@ -228,6 +269,8 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
           type: "forge.pr.create",
           threadId: thread.id,
           repository: input.repository,
+          ...(input.draftFingerprint ? { draftFingerprint: input.draftFingerprint } : {}),
+          ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
           input: {
             branch: input.branch,
             base: input.base,
