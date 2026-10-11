@@ -1,6 +1,7 @@
 import { AppWindowIcon } from "@phosphor-icons/react";
 import { folderName, parentFolder, projectProblem } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -53,7 +54,7 @@ export function OpenFolderTab(props: {
     setProblem(undefined);
   }
   const search = useFolderSearch({ machine, machines: props.machines, text, mode: "open" });
-  const native = useNativePicker();
+  const native = useNativePicker(machine.primary);
   const target = highlighted;
   const on = target?.machine ?? machine;
   const commandsOn = useProjectCommandsOn();
@@ -171,18 +172,29 @@ export function OpenFolderTab(props: {
 }
 
 /** The desktop app's folder picker, when the daemon runs on this computer. */
-function useNativePicker() {
+function useNativePicker(primary: boolean) {
   const [picker] = useState(() => desktopFolders());
-  const [local, setLocal] = useState(false);
+  const endpoint = useDaemonConnection().endpoint;
+  const target = endpoint?.kind === "daemon" ? endpoint.target : undefined;
+  const [confirmed, setConfirmed] = useState<typeof target>();
+  const generation = useRef(0);
   useEffect(() => {
-    if (!picker) return;
-    let current = true;
-    void picker.local().then((value) => {
-      if (current) setLocal(value);
-    });
+    const revision = ++generation.current;
+    if (picker && primary && target)
+      void picker.local(target).then((local) => {
+        if (generation.current === revision) setConfirmed(local ? target : undefined);
+      });
     return () => {
-      current = false;
+      generation.current = revision + 1;
     };
-  }, [picker]);
-  return picker && local ? picker : undefined;
+  }, [picker, primary, target]);
+  if (!picker || !primary || !target || confirmed !== target) return undefined;
+  return {
+    async choose() {
+      const revision = generation.current;
+      if (!(await picker.local(target))) return null;
+      const chosen = await picker.choose();
+      return generation.current === revision && (await picker.local(target)) ? chosen : null;
+    },
+  };
 }

@@ -1,3 +1,4 @@
+import type { DaemonTarget } from "@/boot/connection-settings.ts";
 /** The Add project dialog's tabs. */
 export type AddTab = "sources" | "open" | "create" | "clone";
 
@@ -16,7 +17,7 @@ export type ProjectRequest =
    * Add a folder known by path (dropped on the window, picked natively): it opens New thread
    * in it, or Add project with the reason when the daemon can't take it.
    */
-  | { kind: "folder"; path: string }
+  | { kind: "folder"; path: string; target: DaemonTarget }
   /** A folder dropped on the window: its path is read in the desktop app, else it's picked. */
   | { kind: "dropped"; file: File }
   | { kind: "permissions"; projectId: string }

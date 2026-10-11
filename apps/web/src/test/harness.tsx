@@ -11,7 +11,7 @@ import { memoryStorage } from "@/boot/client.ts";
 import { fakeMachinePool, type FakeMachines } from "@/boot/fake-machines.ts";
 
 type ClientStorage = ReturnType<typeof memoryStorage>;
-import { DaemonConnectionContext } from "@/boot/connection.tsx";
+import { type DaemonConnection, DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
 import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
@@ -77,6 +77,7 @@ export function fakeClient(
 export function harness(
   options: {
     snapshotItems?: number;
+    connection?: DaemonConnection;
     storage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
     /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
@@ -158,7 +159,7 @@ export function harness(
         : undefined;
       const machines = fake?.pool;
       if (machines) running.push(machines);
-      const connection = fakeConnection(daemon);
+      const connection = options.connection ?? fakeConnection(daemon);
       return render(
         <AppFrame
           environment={{ storage, root: document.documentElement, matchMedia: options.matchMedia }}
