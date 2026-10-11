@@ -56,9 +56,11 @@ const failure = (text: string): CallToolResult => ({
 export class ToolRegistry {
   private entries = new Map<string, Entry>();
   private active = 0;
+  private activeThreads = new Map<string, number>();
   private scheduler: Scheduler;
   private maxTools: number;
   private maxCalls: number;
+  private maxCallsPerThread: number;
   private availability:
     | ((caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean)
     | undefined;
@@ -67,12 +69,14 @@ export class ToolRegistry {
     scheduler: Scheduler;
     maxTools?: number;
     maxCalls?: number;
+    maxCallsPerThread?: number;
     observeCall?: CallObserver;
   }) {
     this.scheduler = options.scheduler;
     this.observeCall = options.observeCall;
     this.maxTools = options.maxTools ?? 128;
     this.maxCalls = options.maxCalls ?? 64;
+    this.maxCallsPerThread = options.maxCallsPerThread ?? 16;
   }
   register<I extends z.ZodObject, O extends z.ZodObject>(definition: ToolDefinition<I, O>): void {
     const { name, description, input, output, capability, timeoutMs } = definition;
@@ -260,13 +264,23 @@ export class ToolRegistry {
     const entry = this.entries.get(name);
     if (!entry || !this.allowed(name, entry, principal))
       return finish(failure("Tool unavailable or capability denied"));
-    if (this.active >= this.maxCalls) return finish(failure("Tool capacity reached"));
+    if (
+      this.active >= this.maxCalls ||
+      (this.activeThreads.get(threadId) ?? 0) >= this.maxCallsPerThread
+    )
+      return finish(failure("Tool capacity reached"));
     if (signal.aborted) return finish(failure("Tool cancelled"));
     this.active++;
+    this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
     let observationSettled = false;
     const release = () => {
-      if (executionSettled && observationSettled) this.active--;
+      if (executionSettled && observationSettled) {
+        this.active--;
+        const remaining = (this.activeThreads.get(threadId) ?? 1) - 1;
+        if (remaining) this.activeThreads.set(threadId, remaining);
+        else this.activeThreads.delete(threadId);
+      }
     };
     let reason = "Tool cancelled";
     let stopTimer: () => void = noop;

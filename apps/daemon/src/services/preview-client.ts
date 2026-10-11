@@ -3,8 +3,20 @@ import { PreviewClient } from "../preview-client.ts";
 import { hostPreviewIdentity } from "../preview.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function startPreviewClient({ services, resources, onListen }: ServiceContext): void {
-  const preview = new PreviewClient();
+export function startPreviewClient({ services, resources, onListen, store }: ServiceContext): void {
+  const preview = new PreviewClient((id) => {
+    const thread = store.getThread(id);
+    return !!thread && thread.deletedAt === undefined;
+  });
+  const unsubscribe = store.subscribe((events) => {
+    for (const event of events)
+      if (
+        event.payload.type === "thread.client.updated" &&
+        event.payload.changes.deletedAt !== undefined
+      )
+        preview.releaseThread(event.threadId);
+  });
+  resources.own(unsubscribe);
   services.previewClient = preview;
   resources.own(() => preview.close());
   onListen.push((server) => {

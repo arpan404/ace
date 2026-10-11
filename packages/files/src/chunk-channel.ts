@@ -10,9 +10,14 @@ const Upload = z.object({
   offset: z.number().int().nonnegative(),
   size: z.number().int().nonnegative(),
 });
-type Binding = { service: FilesService; allowed(access: "read" | "operate"): boolean };
+type Binding = {
+  service: FilesService;
+  release?(): void;
+  allowed(access: "read" | "operate"): boolean;
+};
 type Channel = {
   binding: Binding;
+  cancelIdle?: () => void;
   threadId: ThreadId | undefined;
   busy: boolean;
   requestId: string;
@@ -46,6 +51,7 @@ export function chunkFilesChannel(options: {
     const existing = closing.get(id);
     if (existing) return existing;
     const channel = channels.get(id);
+    channel?.cancelIdle?.();
     channels.delete(id);
     if (!channel) return Promise.resolve();
     const stopped = Promise.resolve()
@@ -58,6 +64,21 @@ export function chunkFilesChannel(options: {
       });
     closing.set(id, stopped);
     return stopped;
+  };
+  const armIdle = (id: number, channel: Channel) => {
+    channel.cancelIdle?.();
+    channel.cancelIdle = channel.binding.service.scheduleTransferTimeout(() => {
+      send({
+        type: "files.error",
+        channel: id,
+        code: "EXPIRED",
+        message: "Download paused too long; start it again",
+      });
+      void stop(id).then(
+        () => send({ type: "files.cancelled", channel: id }),
+        () => {},
+      );
+    });
   };
   const assert = (binding: Binding, access: "read" | "operate") => {
     if (closed || !binding.allowed(access)) throw new FileError("FORBIDDEN", "File access denied");
@@ -82,6 +103,7 @@ export function chunkFilesChannel(options: {
       if (!channel) throw new FileError("NOT_FOUND", "File channel unavailable");
       assert(channel.binding, message.type === "files.pull" ? "read" : "operate");
       if (channel.busy) throw new FileError("BUSY", "Wait for the previous chunk");
+      if (channel.kind === "download") armIdle(message.channel, channel);
       channel.busy = true;
       try {
         if (message.type === "files.pull") {
@@ -158,105 +180,113 @@ export function chunkFilesChannel(options: {
     if (!threadId && message.scope !== "support")
       throw new FileError("INVALID_MESSAGE", "Thread scope required");
     const binding = await options.resolve(threadId, message.scope);
-    assertOpening();
-    const op = message.operation;
-    const access = [
-      "list",
-      "stat",
-      "download",
-      "artifact.download",
-      "artifact.support",
-      "archive.download",
-      "archive.preview",
-      "artifacts.list",
-      "trash.list",
-    ].includes(op.op)
-      ? "read"
-      : "operate";
-    assert(binding, access);
-    if (op.op === "download" || op.op === "artifact.download" || op.op === "archive.download") {
-      const id = allocate();
-      const download = await binding.service.downloadForTransport(options.device, op);
-      try {
-        assert(binding, "read");
-        assertOpening();
-      } catch (error) {
-        await download.close();
-        throw error;
-      }
-      channels.set(id, {
-        binding,
-        requestId: message.requestId,
-        threadId,
-        busy: false,
-        kind: "download",
-        value: download,
-        hash: createHash("sha256"),
-        offset: download.offset,
-      });
-      send({
-        type: "files.ready",
-        requestId: message.requestId,
-        channel: id,
-        offset: download.offset,
-        size: download.size,
-        validator: download.validator,
-      });
-      return;
-    }
-    if (op.op === "upload.begin" || op.op === "upload.resume") {
-      const id = allocate();
-      const release = binding.service.reserve();
-      try {
-        const upload = Upload.parse(
-          await binding.service.request(options.device, op, () => assert(binding, "operate")),
-        );
-        assert(binding, "operate");
-        assertOpening();
-        for (const [old, channel] of channels)
-          if (
-            channel.kind === "upload" &&
-            channel.uploadId === upload.uploadId &&
-            channel.binding.service === binding.service
-          )
-            await stop(old);
+    try {
+      assertOpening();
+      const op = message.operation;
+      const access = [
+        "list",
+        "stat",
+        "download",
+        "artifact.download",
+        "artifact.support",
+        "archive.download",
+        "archive.preview",
+        "artifacts.list",
+        "trash.list",
+      ].includes(op.op)
+        ? "read"
+        : "operate";
+      assert(binding, access);
+      if (op.op === "download" || op.op === "artifact.download" || op.op === "archive.download") {
+        const id = allocate();
+        const download = await binding.service.downloadForTransport(options.device, op);
+        try {
+          assert(binding, "read");
+          assertOpening();
+        } catch (error) {
+          await download.close();
+          throw error;
+        }
         channels.set(id, {
           binding,
-          threadId,
           requestId: message.requestId,
+          threadId,
           busy: false,
-          kind: "upload",
-          ...upload,
-          release,
+          kind: "download",
+          value: download,
+          hash: createHash("sha256"),
+          offset: download.offset,
         });
-        send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
-      } catch (error) {
-        release();
-        throw error;
+        const opened = channels.get(id);
+        if (opened) armIdle(id, opened);
+        send({
+          type: "files.ready",
+          requestId: message.requestId,
+          channel: id,
+          offset: download.offset,
+          size: download.size,
+          validator: download.validator,
+        });
+        return;
       }
-      return;
+      if (op.op === "upload.begin" || op.op === "upload.resume") {
+        const id = allocate();
+        const release = binding.service.reserve();
+        try {
+          const upload = Upload.parse(
+            await binding.service.request(options.device, op, () => assert(binding, "operate")),
+          );
+          assert(binding, "operate");
+          assertOpening();
+          for (const [old, channel] of channels)
+            if (
+              channel.kind === "upload" &&
+              channel.uploadId === upload.uploadId &&
+              channel.binding.service === binding.service
+            )
+              await stop(old);
+          channels.set(id, {
+            binding,
+            threadId,
+            requestId: message.requestId,
+            busy: false,
+            kind: "upload",
+            ...upload,
+            release,
+          });
+          send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
+        } catch (error) {
+          release();
+          throw error;
+        }
+        return;
+      }
+      if (op.op === "upload.commit" || op.op === "upload.cancel") {
+        for (const channel of channels.values())
+          if (
+            channel.kind === "upload" &&
+            channel.uploadId === op.uploadId &&
+            channel.binding.service === binding.service &&
+            channel.busy
+          )
+            throw new FileError("BUSY", "Wait for upload acknowledgement");
+      }
+      const value = await binding.service.request(options.device, op, () =>
+        assert(binding, access),
+      );
+      assert(binding, access);
+      if (op.op === "upload.commit" || op.op === "upload.cancel")
+        for (const [id, channel] of channels)
+          if (
+            channel.kind === "upload" &&
+            channel.uploadId === op.uploadId &&
+            channel.binding.service === binding.service
+          )
+            await stop(id);
+      send({ type: "files.result", requestId: message.requestId, value });
+    } finally {
+      binding.release?.();
     }
-    if (op.op === "upload.commit" || op.op === "upload.cancel") {
-      for (const channel of channels.values())
-        if (
-          channel.kind === "upload" &&
-          channel.uploadId === op.uploadId &&
-          channel.binding.service === binding.service &&
-          channel.busy
-        )
-          throw new FileError("BUSY", "Wait for upload acknowledgement");
-    }
-    const value = await binding.service.request(options.device, op, () => assert(binding, access));
-    assert(binding, access);
-    if (op.op === "upload.commit" || op.op === "upload.cancel")
-      for (const [id, channel] of channels)
-        if (
-          channel.kind === "upload" &&
-          channel.uploadId === op.uploadId &&
-          channel.binding.service === binding.service
-        )
-          await stop(id);
-    send({ type: "files.result", requestId: message.requestId, value });
   };
   // Serialize control requests. Binary chunks still flow one at a time and never buffer a file.
   let serial = Promise.resolve();

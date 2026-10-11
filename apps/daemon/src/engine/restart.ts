@@ -14,8 +14,11 @@ export function recoverEngine(
 ): void {
   repo.store.atomic(() => {
     repo.transitions.pruneGuards();
-    for (const state of repo.states()) {
-      if (repo.cleaning(state.threadId)) continue;
+    repo.clearIncompleteBlobs();
+  });
+  for (const state of repo.recoveryStates()) {
+    repo.store.atomic(() => {
+      if (repo.cleaning(state.threadId)) return;
       const removedGates = Object.entries(state.interactions).flatMap(([key, interaction]) =>
         interaction.state === "pending" &&
         interaction.raw.some((raw) => raw.type === "ace.conductor.gate")
@@ -114,18 +117,20 @@ export function recoverEngine(
           ],
           clock.now(),
         );
-    }
-    for (const intent of repo.pending.headers()) {
+    });
+  }
+  for (const intent of repo.pending.headers()) {
+    repo.store.atomic(() => {
       if (repo.cleaning(intent.threadId)) {
         fail(intent, "Retired for thread deletion");
-        continue;
+        return;
       }
       if (repo.store.getThread(intent.threadId)?.continuation) {
         fail(
           intent,
           "This Cursor CLI thread is read-only. Continue in a new thread with its saved history.",
         );
-        continue;
+        return;
       }
       if (intent.status === "running" || intent.awaiting) {
         if (
@@ -134,7 +139,7 @@ export function recoverEngine(
           !intent.acknowledged
         ) {
           repo.pending.defer(intent);
-          continue;
+          return;
         }
         if (
           !intent.acknowledged &&
@@ -159,15 +164,17 @@ export function recoverEngine(
         ].includes(intent.kind)
       )
         fail(intent, "Control interrupted by daemon restart; retry explicitly");
-    }
-    for (const state of repo.states()) {
-      if (repo.cleaning(state.threadId)) continue;
+    });
+  }
+  for (const state of repo.recoveryStates()) {
+    repo.store.atomic(() => {
+      if (repo.cleaning(state.threadId)) return;
       const queue = repo.queue.get(state.threadId);
       const pending = Boolean(
         repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),
       );
       recovery.sync(state.threadId);
-      if (!pending && !queue.continuation && !repo.queue.count(state.threadId)) continue;
+      if (!pending && !queue.continuation && !repo.queue.count(state.threadId)) return;
       const uncertain = repo.queue.hasUncertain(state.threadId);
       repo.queue.set(
         state.threadId,
@@ -199,7 +206,7 @@ export function recoverEngine(
         repo.reserve(state.threadId)
       )
         wake(state.threadId);
-    }
-  });
+    });
+  }
   recovery.schedule();
 }

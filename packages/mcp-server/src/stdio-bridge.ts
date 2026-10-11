@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
 import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
+import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
 const Message = z
   .object({
@@ -16,6 +17,7 @@ export type BridgeOptions = {
   output: Writable;
   signal: AbortSignal;
   fetch?: typeof fetch;
+  scheduler?: Scheduler;
 };
 /** One supervised stdio child, bounded request admission and callback-plus-drain writes. */
 export async function runStdioBridge(options: BridgeOptions): Promise<void> {
@@ -33,7 +35,6 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     options.input.destroy();
   };
   const gate = outputGate(64 * 1024, () => true, fail);
-  const lines = createInterface({ input: options.input.pipe(gate), crlfDelay: Infinity });
   const write = async (value: unknown, writeSignal = signal) => {
     const line = `${JSON.stringify(value)}\n`;
     const bytes = Buffer.byteLength(line);
@@ -79,10 +80,13 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
       if (active.has(message.id)) throw new Error("Duplicate MCP request ID");
       active.set(message.id, controller);
     }
-    const timer = setTimeout(() => {
+    let timedOut = false;
+    // Registry tools may run for five minutes. A bridge deadline settles only
+    // this request, preserving the provider's connection for subsequent tools.
+    const cancelTimer = (options.scheduler ?? nodeScheduler).after(330_000, () => {
+      timedOut = true;
       controller.abort();
-      fail(new Error("MCP bridge request deadline exceeded"));
-    }, 120000);
+    });
     const requestSignal = AbortSignal.any([signal, controller.signal]);
     try {
       const response = await (options.fetch ?? fetch)(connection.url, {
@@ -140,23 +144,30 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
           .passthrough()
           .parse(reply);
         if (envelope.id !== message.id) throw new Error("MCP reply identity mismatch");
+        cancelTimer();
         await write(reply, requestSignal);
       } finally {
         await reader.cancel().catch(() => {});
         reader.releaseLock();
       }
     } catch {
-      if (message.id !== undefined && !requestSignal.aborted)
+      if (message.id !== undefined && !signal.aborted)
         await write({
           jsonrpc: "2.0",
           id: message.id,
-          error: { code: -32603, message: "ace MCP bridge request failed" },
+          error: {
+            code: -32603,
+            message: timedOut
+              ? "ace MCP bridge request timed out"
+              : "ace MCP bridge request failed",
+          },
         });
     } finally {
-      clearTimeout(timer);
+      cancelTimer();
       if (message.id !== undefined) active.delete(message.id);
     }
   };
+  const lines = createInterface({ input: options.input.pipe(gate), crlfDelay: Infinity });
   lines.on("line", (line) => {
     if (signal.aborted) return;
     if (tasks.size >= 64) {

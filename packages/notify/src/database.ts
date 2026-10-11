@@ -44,7 +44,7 @@ export class NotificationDatabase {
       CREATE TABLE IF NOT EXISTS tasks (thread TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(thread,id));
       CREATE TABLE IF NOT EXISTS pending (thread TEXT PRIMARY KEY, due INTEGER NOT NULL, body TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS pending_due ON pending(due);
-      CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS agent_notices_expiry ON agent_notices(expires);
@@ -57,6 +57,14 @@ export class NotificationDatabase {
       CREATE TRIGGER IF NOT EXISTS pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
       CREATE TRIGGER IF NOT EXISTS pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
       ${trackingTables}`);
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(devices)")
+        .all()
+        .some((row) => row.name === "last_seen")
+    )
+      this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0");
+    this.db.exec("CREATE INDEX IF NOT EXISTS devices_seen ON devices(revoked,last_seen)");
     const version = z
       .number()
       .int()
@@ -163,21 +171,39 @@ export class NotificationDatabase {
   private count(table: "pending" | "devices" | "jobs"): number {
     if (table === "pending")
       return Number(this.statement("SELECT n FROM queue_size WHERE id=1").get()?.n);
-    return Number(this.statement(`SELECT count(*) AS n FROM ${table}`).get()?.n);
+    return Number(
+      this.statement(
+        `SELECT count(*) AS n FROM ${table}${table === "devices" ? " WHERE revoked=0" : ""}`,
+      ).get()?.n,
+    );
   }
-  register(id: DeviceId, input: unknown): void {
+  register(id: DeviceId, input: unknown, now = 0, active: ReadonlySet<DeviceId> = new Set()): void {
     const address = NotificationAddress.parse(input);
     const old = this.statement("SELECT body,revoked FROM devices WHERE id=?").get(id);
     if (old?.revoked) throw new Error("Device revoked");
-    if (!old && this.count("devices") >= 128) throw new Error("Device capacity reached");
+    if (!old && this.count("devices") >= 128) {
+      const candidates = this.statement(
+        "SELECT id,body FROM devices WHERE revoked=0 ORDER BY last_seen,id",
+      ).all();
+      const stale = candidates.find((row) => {
+        const device = NotificationDevice.parse(JSON.parse(String(row.body)));
+        return device.address.channel === "websocket" && !active.has(device.id);
+      });
+      if (!stale) throw new Error("Device capacity reached");
+      this.statement("DELETE FROM jobs WHERE device=?").run(String(stale.id));
+      this.statement("DELETE FROM devices WHERE id=?").run(String(stale.id));
+    }
     const device = NotificationDevice.parse({
       id,
       address,
       preferences: old ? NotificationDevice.parse(JSON.parse(String(old.body))).preferences : {},
     });
     this.statement(
-      "INSERT INTO devices VALUES(?,?,0) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
-    ).run(id, JSON.stringify(device));
+      "INSERT INTO devices(id,body,revoked,last_seen) VALUES(?,?,0,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,last_seen=excluded.last_seen",
+    ).run(id, JSON.stringify(device), now);
+  }
+  touch(id: DeviceId, now: number): void {
+    this.statement("UPDATE devices SET last_seen=? WHERE id=? AND revoked=0").run(now, id);
   }
   device(id: DeviceId): NotificationDevice | undefined {
     const row = this.statement("SELECT body FROM devices WHERE id=? AND revoked=0").get(id);

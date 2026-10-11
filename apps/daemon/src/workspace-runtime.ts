@@ -96,7 +96,13 @@ export class WorkspaceRuntime {
     return this.roots.root(id);
   }
   async prepare(id: ThreadId): Promise<string> {
+    if (this.options.git?.processRuntime?.cleanupSupervisor) {
+      const thread = this.store.getThread(id);
+      const project = thread && this.store.getWorkspacePath(thread.workspaceId);
+      if (project) await this.git.recoverCleanup(project);
+    }
     const root = await this.roots.prepare(id);
+    if (this.options.git?.processRuntime?.cleanupSupervisor) await this.git.recoverCleanup(root);
     await this.git.assertMutationAvailable(root);
     return root;
   }
@@ -154,6 +160,11 @@ export class WorkspaceRuntime {
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
     if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    for (const [key, entry] of this.terminals)
+      if (!terminalAlive(entry.terminal)) {
+        await this.manager.release(entry.terminal);
+        this.terminals.delete(key);
+      }
     if (this.terminals.size + this.pendingOpens >= 64) throw new Error("terminal_limit");
     this.pendingOpens++;
     try {

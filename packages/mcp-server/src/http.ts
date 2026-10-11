@@ -2,7 +2,6 @@ import { legacySessions } from "./legacy-sessions.ts";
 import { createStatusRegistry, type StatusReader, aceInstructions } from "./status.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
-import { nodeScheduler } from "./registry.ts";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
 import type { ToolRegistry } from "./registry.ts";
 
@@ -32,11 +31,7 @@ export async function startMcpServer(options: McpServerOptions) {
   });
   const status = createStatusRegistry(options.registry, options.status);
   const credentials =
-    options.credentials ??
-    new CredentialRegistry(() => randomBytes(32).toString("hex"), 1024, {
-      scheduler: nodeScheduler,
-      maxAgeMs: 60 * 60 * 1000,
-    });
+    options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
   const load = () => (runtime ??= createHandler(options, credentials, status));
   let active = 0;

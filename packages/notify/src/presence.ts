@@ -31,6 +31,13 @@ export class PresenceIndex {
       viewers.set(session, presence);
     }
   }
+  activeDevices(now: number): ReadonlySet<DeviceId> {
+    return new Set(
+      [...this.sessions.values()]
+        .filter((value) => now - value.receivedAt <= 60_000)
+        .map((value) => value.device),
+    );
+  }
   remove(session: string): void {
     const previous = this.sessions.get(session);
     if (previous?.thread) {

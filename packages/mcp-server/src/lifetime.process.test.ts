@@ -1,7 +1,8 @@
+import { ThreadId } from "@ace/protocol";
 import { setImmediate } from "node:timers/promises";
 import { z } from "zod";
-import { afterEach, expect, it } from "vitest";
-import { CredentialRegistry, ToolRegistry, type Scheduler } from "./index.ts";
+import { afterEach, expect, it, vi } from "vitest";
+import { CredentialRegistry, ToolRegistry, startMcpServer, type Scheduler } from "./index.ts";
 import { deferred, harness, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -278,4 +279,68 @@ it("expiry revokes credentials and aborts an in-flight tool before a late result
   await aborted.promise;
   expect(await result).toMatchObject({ isError: true, content: [{ text: "Tool cancelled" }] });
   expect(credentials.authenticate(lease.bearer)).toBeUndefined();
+});
+
+it("a default lease stays usable beyond one hour and is revoked only when its provider session ends", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const server = await startMcpServer({ registry });
+  cleanups.push(() => server.close());
+  const lifetime = new AbortController();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const lease = server.credentials.issue(scope(), lifetime.signal);
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 1);
+    expect(lease.principal.signal.aborted).toBe(false);
+    expect(server.credentials.authenticate(lease.bearer)?.scope.agentId).toBe("root");
+    expect(await registry.call("missing", {}, lease.principal, lifetime.signal)).toMatchObject({
+      content: [{ text: "Tool unavailable or capability denied" }],
+    });
+    lifetime.abort();
+    expect(server.credentials.authenticate(lease.bearer)).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("one busy thread cannot consume another thread's tool slots, and its own slots recover after completion", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  let id = 0;
+  const credentials = new CredentialRegistry(() => (++id).toString(16).padStart(64, "0"));
+  const lifetime = new AbortController();
+  const busy = credentials.issue(scope(), lifetime.signal);
+  const other = credentials.issue(
+    { ...scope("other"), threadId: ThreadId.parse("other") },
+    lifetime.signal,
+  );
+  const released = deferred<void>();
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input: z.object({ wait: z.boolean() }),
+    output,
+    capability: null,
+    timeoutMs: 300_000,
+    async run(value) {
+      if (value.wait) await released.promise;
+      return { done: true };
+    },
+  });
+  const pending = Array.from({ length: 16 }, () =>
+    registry.call("ace_wait", { wait: true }, busy.principal, lifetime.signal),
+  );
+  try {
+    expect(
+      await registry.call("ace_wait", { wait: false }, busy.principal, lifetime.signal),
+    ).toMatchObject({ isError: true });
+    expect(
+      await registry.call("ace_wait", { wait: false }, other.principal, lifetime.signal),
+    ).toMatchObject({ structuredContent: { done: true } });
+  } finally {
+    released.resolve();
+    await Promise.all(pending);
+    expect(
+      await registry.call("ace_wait", { wait: false }, busy.principal, lifetime.signal),
+    ).toMatchObject({ structuredContent: { done: true } });
+    credentials.close();
+  }
 });

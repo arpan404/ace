@@ -1,11 +1,11 @@
 import type { ExclusiveRename } from "./exclusive-rename.ts";
-import { mkdir, rm } from "node:fs/promises";
+import { lstat, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { SafeRoot, GitIgnore, walkWorkspace } from "@ace/workspace";
 import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, TrashRecord } from "./catalog.ts";
 import { atomicWrite, checkedTarget, newId, observed } from "./filesystem.ts";
-import { codeOf, FileError, type FilesOptions } from "./types.ts";
+import { codeOf, FileError, version, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
   FileOperation,
@@ -22,8 +22,40 @@ export class Mutations {
     this.options = options;
     this.exclusive = exclusive;
   }
-  async apply(operation: Mutation): Promise<WorkspaceFileChange> {
-    const target = await checkedTarget(this.safe, operation.path, operation.expected);
+  async prepare(operation: Mutation, signal: AbortSignal) {
+    const target = await checkedTarget(this.safe, operation.path, operation.expected, signal);
+    const info = operation.expected === null ? undefined : await lstat(target.path);
+    let bytes = info?.isFile() ? info.size : 0;
+    const availableBytes =
+      (this.options.maxTrashBytes ?? 20 * 1024 ** 3) - this.catalog.total("trash").bytes;
+    if (operation.op === "delete" && info?.isDirectory()) {
+      const ignore = await GitIgnore.create(this.safe);
+      for await (const entry of walkWorkspace(this.safe, ignore, {
+        dir: operation.path,
+        depth: Number.MAX_SAFE_INTEGER,
+        includeIgnored: true,
+        exclude: () => false,
+        signal,
+        entryLimit: 1_000_000,
+      })) {
+        if (entry.type === "file") bytes += entry.size;
+        if (bytes > availableBytes) throw new FileError("QUOTA", "Trash quota exceeded");
+      }
+    }
+    return { target, fingerprint: info ? version(info) : null, bytes };
+  }
+  async apply(
+    operation: Mutation,
+    prepared: Awaited<ReturnType<Mutations["prepare"]>>,
+  ): Promise<WorkspaceFileChange> {
+    const { target } = prepared;
+    await target.verify();
+    const current = await lstat(target.path).catch((error: unknown) => {
+      if (codeOf(error) === "ENOENT") return undefined;
+      throw error;
+    });
+    if ((current ? version(current) : null) !== prepared.fingerprint)
+      throw new FileError("CONFLICT", "File version changed");
     const id = newId(this.options.id);
     let trashId: string | undefined;
     let destination: string | undefined;
@@ -74,36 +106,25 @@ export class Mutations {
         if (operation.expected === null)
           throw new FileError("NOT_FOUND", "Cannot delete an absent path");
         const total = this.catalog.total("trash");
-        const metadata = await this.safe.metadata(operation.path);
-        let bytes = metadata.info.isFile() ? metadata.info.size : 0;
-        if (metadata.info.isDirectory()) {
-          const ignore = await GitIgnore.create(this.safe);
-          for await (const entry of walkWorkspace(this.safe, ignore, {
-            dir: operation.path,
-            depth: Number.MAX_SAFE_INTEGER,
-            includeIgnored: true,
-            exclude: () => false,
-          }))
-            if (entry.type === "file") bytes += entry.size;
-        }
+        const bytes = prepared.bytes;
         if (
           total.count >= 128 ||
           total.bytes + bytes > (this.options.maxTrashBytes ?? 20 * 1024 ** 3)
         )
           throw new FileError("QUOTA", "Trash quota exceeded");
-        await checkedTarget(this.safe, operation.path, operation.expected);
         const record: TrashRecord = {
           kind: "trash",
           id,
           path: operation.path,
           bytes,
           version: operation.expected,
+          location: `.ace-upload-trash-${id}`,
           expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
         };
         this.catalog.put(record);
         try {
           await target.verify();
-          await this.exclusive.move(target.path, join(this.options.dataDir, "trash", id));
+          await this.exclusive.move(target.path, join(this.safe.root, `.ace-upload-trash-${id}`));
         } catch (error) {
           this.catalog.delete(id);
           throw error;
@@ -124,7 +145,12 @@ export class Mutations {
             await observed(this.safe, operation.path),
           );
         await target.verify();
-        await this.exclusive.move(join(this.options.dataDir, "trash", record.id), target.path);
+        await this.exclusive.move(
+          record.location
+            ? await this.safe.resolve(record.location)
+            : join(this.options.dataDir, "trash", record.id),
+          target.path,
+        );
         await target.verify();
         this.catalog.delete(record.id);
         break;
@@ -140,7 +166,12 @@ export class Mutations {
     };
   }
   async expire(record: TrashRecord): Promise<void> {
-    await rm(join(this.options.dataDir, "trash", record.id), { recursive: true, force: true });
+    await rm(
+      record.location
+        ? await this.safe.resolve(record.location)
+        : join(this.options.dataDir, "trash", record.id),
+      { recursive: true, force: true },
+    );
     this.catalog.delete(record.id);
   }
 }

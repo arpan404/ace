@@ -98,14 +98,8 @@ async function journal(root: string): Promise<string | undefined> {
 }
 
 async function scopeJournal(root: string): Promise<string> {
-  let path = root;
-  for (;;) {
-    const directory = await journal(path);
-    if (directory) return directory;
-    const parent = dirname(path);
-    if (parent === path) return standaloneJournal(root);
-    path = parent;
-  }
+  // A new repository owns its destination, even when created inside another repository.
+  return (await journal(root)) ?? standaloneJournal(root);
 }
 function standaloneJournal(root: string): string {
   return join(

@@ -22,6 +22,7 @@ export interface CreationWorkspace {
 export class WorkspaceCreations {
   private pending = new Map<ThreadId, Promise<CreationWorkspace>>();
   private closing = false;
+  private cleanupFailures = new Map<ThreadId, unknown>();
   private cleanups = new Map<ThreadId, Promise<void>>();
   private journal: CreationWorkspaceJournal;
   private recovery: Promise<void>;
@@ -100,6 +101,7 @@ export class WorkspaceCreations {
       base_head: head,
       cleanup_head: null,
       uncertain: 1,
+      ran_setup: 0,
     };
     this.journal.acquire(resource);
     let ranSetup = false;
@@ -125,10 +127,12 @@ export class WorkspaceCreations {
         progress?.controller.signal.throwIfAborted();
         progress?.update("setup");
         ranSetup = true;
+        this.journal.setup(id);
+        resource.ran_setup = 1;
         await this.git.setupWorktree({
           worktree: path,
           command: script.command,
-          ...(progress ? { stderr: progress.stderr } : {}),
+          ...(progress ? { stderr: progress.stderr, signal: progress.controller.signal } : {}),
         });
       }
       progress?.controller.signal.throwIfAborted();
@@ -170,9 +174,23 @@ export class WorkspaceCreations {
   private cleanup(resource: CreationResource, options: { force?: boolean } = {}): Promise<void> {
     const existing = this.cleanups.get(resource.id);
     if (existing) return existing;
-    const task = this.cleanupResource(resource, options).finally(() =>
-      this.cleanups.delete(resource.id),
-    );
+    const task = this.cleanupResource(resource, {
+      ...options,
+      ...(resource.ran_setup ? { force: true } : {}),
+    })
+      .then(
+        () => {
+          this.cleanupFailures.delete(resource.id);
+        },
+        (error: unknown) => {
+          this.cleanupFailures.set(resource.id, error);
+          throw error;
+        },
+      )
+      .finally(() => {
+        this.cleanups.delete(resource.id);
+        this.pending.delete(resource.id);
+      });
     this.cleanups.set(resource.id, task);
     return task;
   }
@@ -204,7 +222,7 @@ export class WorkspaceCreations {
   private async recover(): Promise<void> {
     const resources = this.journal.list();
     if (resources.length > 16) throw new Error("workspace_busy");
-    await Promise.all(resources.map((resource) => this.cleanup(resource)));
+    await Promise.allSettled(resources.map((resource) => this.cleanup(resource)));
   }
   async ready(id?: ThreadId): Promise<void> {
     await this.recovery;
@@ -220,5 +238,7 @@ export class WorkspaceCreations {
     );
     // Failed preparation drops its live promise, but its durable cleanup ownership remains.
     await this.recover();
+    if (this.cleanupFailures.size)
+      throw new AggregateError(this.cleanupFailures.values(), "Workspace creation cleanup failed");
   }
 }

@@ -8,7 +8,11 @@ import { z } from "zod";
 import { CHUNK_SIZE, codeOf, FileError, version, checkVersion } from "./types.ts";
 import type { UploadRecord } from "./catalog.ts";
 
-export async function observed(safe: SafeRoot, path: string): Promise<string | null> {
+export async function observed(
+  safe: SafeRoot,
+  path: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
   const target = await safe.target(path);
   try {
     const info = await lstat(target.path);
@@ -20,7 +24,9 @@ export async function observed(safe: SafeRoot, path: string): Promise<string | n
       dir: safe.path(path),
       depth: Number.MAX_SAFE_INTEGER,
       includeIgnored: true,
-      exclude: () => false,
+      exclude: isWorkspaceTransferTemporary,
+      entryLimit: 1_000_000,
+      ...(signal ? { signal } : {}),
     })) {
       if (isWorkspaceTransferTemporary(entry.path)) continue;
       const metadata = await safe.metadata(entry.path);
@@ -35,9 +41,14 @@ export async function observed(safe: SafeRoot, path: string): Promise<string | n
     throw error;
   }
 }
-export async function checkedTarget(safe: SafeRoot, path: string, expected: string | null) {
+export async function checkedTarget(
+  safe: SafeRoot,
+  path: string,
+  expected: string | null,
+  signal?: AbortSignal,
+) {
   const target = await safe.target(path);
-  checkVersion(await observed(safe, path), expected);
+  checkVersion(await observed(safe, path, signal), expected);
   await target.verify();
   return target;
 }

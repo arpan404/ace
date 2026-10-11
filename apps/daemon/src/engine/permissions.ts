@@ -110,7 +110,7 @@ export class Permissions {
     );
     const record = row ? Record.parse(row) : { override: null, effective: null, parent: null };
     const provider =
-      this.repo.state(id)?.config.provider ?? this.repo.store.getThread(id)?.provider;
+      this.repo.store.getThread(id)?.provider ?? this.repo.state(id)?.config.provider;
     if (!provider) return record;
     const thread = this.repo.store.getThread(id);
     const advertised = (thread?.effectiveCapabilities ?? thread?.capabilities)?.permissionModes;

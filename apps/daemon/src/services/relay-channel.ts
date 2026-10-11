@@ -187,9 +187,10 @@ export function attachRelayService(
             if (!threadId || !files || !threadAccess(threadId))
               throw new Error("File thread unavailable");
             const root = files.root(threadId);
-            const service = await files.get(threadId);
+            const { service, release } = await files.acquire(threadId);
             return {
               service,
+              release,
               allowed: (access) =>
                 authorize(access) && threadAccess(threadId) && files.matches(threadId, root),
             };

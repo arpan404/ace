@@ -206,6 +206,9 @@ export class ScreenApprovals {
         cancelTimer();
         signal.removeEventListener("abort", abort);
         this.waiters.delete(interactionId);
+        store.atomic((db) =>
+          db.prepare("DELETE FROM screen_pending WHERE interaction_id=?").run(interactionId),
+        );
         resolve();
       };
       const abort = () => {

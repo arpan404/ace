@@ -90,7 +90,16 @@ export async function pushBranch(
     await repository.cli.call(
       root,
       ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
-      { write: true, captureBytes: 65536, env: { GIT_TRACE2_EVENT: "1" } },
+      {
+        write: true,
+        timeoutMs: 600_000,
+        captureBytes: 65536,
+        env: {
+          GIT_TRACE2_EVENT: "1",
+          GCM_INTERACTIVE: "never",
+          GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+        },
+      },
     );
   });
 }

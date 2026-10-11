@@ -23,6 +23,10 @@ test("worker reads committed WAL snapshots and validates changed cursor generati
     if (!first.cursor) throw new Error("Expected cursor");
     const latest = message("workerword freshword");
     log.append([{ type: "item.created", item: latest }]);
+    expect(
+      (await queries.query({ text: "workerword", cursor: first.cursor })).hits.length,
+    ).toBeGreaterThan(0);
+    log.append([{ type: "item.deleted", itemId: first.hits[0]?.itemId ?? latest.id }]);
     await expect(queries.query({ text: "workerword", cursor: first.cursor })).rejects.toThrow(
       "search_cursor_stale",
     );

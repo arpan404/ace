@@ -132,6 +132,20 @@ export class InventoryWatch {
     this.uncertain = false;
     return full ? undefined : changes;
   }
+  retry(entries: { instanceId: string; path: string }[]): void {
+    for (const entry of entries) {
+      let paths = this.dirty.get(entry.instanceId);
+      if (!paths) {
+        paths = new Set();
+        this.dirty.set(entry.instanceId, paths);
+      }
+      if (!paths.has(entry.path) && this.dirtyCount < 4096) {
+        paths.add(entry.path);
+        this.dirtyCount++;
+      }
+    }
+    if (this.dirtyCount) this.notify();
+  }
   commit(): void {
     this.primed = true;
   }

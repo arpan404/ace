@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { McpProviderSessions } from "./mcp-provider-sessions.ts";
 import { setup } from "./remote-test-support.ts";
 
@@ -182,4 +182,139 @@ test("Settings reaches the provider's live MCP servers without a thread, and a s
   expect(await host.next()).toMatchObject({ type: "error", code: "mcp_failed", requestId: "idle" });
   lifetime.abort();
   expect(await sources(provider, "ended")).toMatchObject({ result: { live: false, servers: [] } });
+});
+
+test("a slow native MCP control leaves pings and other requests responsive", async () => {
+  const providers = new McpProviderSessions();
+  const f = await setup({ mcp: { providers } });
+  const started = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const lifetime = new AbortController();
+  providers.bind(
+    f.thread.id,
+    f.thread.provider,
+    {
+      async status() {
+        started.resolve();
+        await released.promise;
+        return [{ name: "slow", status: "connected" }];
+      },
+      async replace() {
+        return {};
+      },
+      async reconnect() {},
+      async enable() {},
+      async disable() {},
+    },
+    lifetime.signal,
+  );
+  const client = await f.connect();
+  await client.next();
+  try {
+    client.send({ type: "mcp.status", threadId: f.thread.id, requestId: "slow" });
+    await started.promise;
+    client.send({ type: "ping" });
+    expect(await client.next()).toMatchObject({ type: "pong" });
+    released.resolve();
+    expect(await client.next()).toMatchObject({
+      type: "mcp.result",
+      requestId: "slow",
+      result: [{ name: "slow" }],
+    });
+  } finally {
+    released.resolve();
+    lifetime.abort();
+  }
+});
+
+test("a native MCP control deadline reports one request error and keeps later requests usable", async () => {
+  const providers = new McpProviderSessions();
+  const f = await setup({ mcp: { providers } });
+  const started = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const lifetime = new AbortController();
+  const deadline = new AbortController();
+  providers.bind(
+    f.thread.id,
+    f.thread.provider,
+    {
+      async status() {
+        started.resolve();
+        await released.promise;
+        return [];
+      },
+      async replace() {
+        return {};
+      },
+      async reconnect() {},
+      async enable() {},
+      async disable() {},
+    },
+    lifetime.signal,
+  );
+  const client = await f.connect();
+  await client.next();
+  const timeout = AbortSignal.timeout.bind(AbortSignal);
+  const clock = vi
+    .spyOn(AbortSignal, "timeout")
+    .mockImplementation((ms) => (ms === 120_000 ? deadline.signal : timeout(ms)));
+  try {
+    client.send({ type: "mcp.status", threadId: f.thread.id, requestId: "expired" });
+    await started.promise;
+    deadline.abort();
+    expect(await client.next()).toMatchObject({
+      type: "error",
+      code: "mcp_failed",
+      requestId: "expired",
+    });
+    clock.mockRestore();
+    released.resolve();
+    client.send({ type: "mcp.status", threadId: f.thread.id, requestId: "recovered" });
+    expect(await client.next()).toMatchObject({
+      type: "mcp.result",
+      requestId: "recovered",
+      result: [],
+    });
+  } finally {
+    clock.mockRestore();
+    released.resolve();
+    lifetime.abort();
+  }
+});
+
+test("closing a socket detaches a stalled MCP control before draining server tasks", async () => {
+  const providers = new McpProviderSessions();
+  const f = await setup({ mcp: { providers } });
+  const started = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const lifetime = new AbortController();
+  providers.bind(
+    f.thread.id,
+    f.thread.provider,
+    {
+      async status() {
+        started.resolve();
+        await released.promise;
+        return [];
+      },
+      async replace() {
+        return {};
+      },
+      async reconnect() {},
+      async enable() {},
+      async disable() {},
+    },
+    lifetime.signal,
+  );
+  const client = await f.connect();
+  await client.next();
+  try {
+    client.send({ type: "mcp.status", threadId: f.thread.id, requestId: "closing" });
+    await started.promise;
+    await client.close();
+    await f.server.close();
+  } finally {
+    released.resolve();
+    lifetime.abort();
+  }
 });

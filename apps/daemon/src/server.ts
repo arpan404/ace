@@ -1,3 +1,4 @@
+import { shutdownDeadline } from "./shutdown.ts";
 import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
@@ -139,7 +140,7 @@ export async function startServer(options: ServerOptions): Promise<{
     : undefined;
   for (const listener of [local, remote])
     if (listener) {
-      listener.requestTimeout = 10_000;
+      listener.requestTimeout = 0;
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -194,7 +195,6 @@ export async function startServer(options: ServerOptions): Promise<{
   const input = new SocketInput();
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
-  let disconnectError: Error | undefined;
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
@@ -212,6 +212,9 @@ export async function startServer(options: ServerOptions): Promise<{
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
+    socket.on("message", () => {
+      lastActivity = auth.now();
+    });
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(
       socket,
@@ -281,13 +284,10 @@ export async function startServer(options: ServerOptions): Promise<{
         // sockets plus queued removals therefore remain bounded at 256 under churn.
         disconnects = disconnects
           .then(() => options.notifications?.disconnect(sessionId))
-          .then(() => {
-            cleanups.delete(socket);
-          })
           .catch((error: unknown) => {
-            disconnectError = error instanceof Error ? error : new Error("Presence cleanup failed");
-            options.log?.(disconnectError);
-          });
+            options.log?.(error);
+          })
+          .finally(() => cleanups.delete(socket));
       } else cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
@@ -367,7 +367,13 @@ export async function startServer(options: ServerOptions): Promise<{
           // HTTP discovery is available while listener features initialize. A
           // welcome promises the socket can use the published service registry.
           await options.ready;
-          if (authorize("read")) await options.notifications?.connectDevice(actor.id);
+          if (authorize("read") && options.notifications) {
+            const task = options.notifications
+              .connectDevice(actor.id)
+              .catch((error: unknown) => options.log?.(error));
+            serviceTasks.add(task);
+            void task.finally(() => serviceTasks.delete(task));
+          }
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
@@ -571,12 +577,6 @@ export async function startServer(options: ServerOptions): Promise<{
             refuse("forbidden", `${scope} scope required`);
             break;
           }
-          try {
-            if (authorize("read")) await options.notifications?.connectDevice(device);
-          } catch {
-            fail("device_unavailable", "Device unavailable", true);
-            break;
-          }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (!authorize(scope)) {
             refuse("forbidden", `${scope} scope required`);
@@ -736,9 +736,13 @@ export async function startServer(options: ServerOptions): Promise<{
         ]).then(
           () =>
             wss.close((error) => {
-              void Promise.all([Promise.allSettled(serviceTasks), disconnects]).then(() => {
+              void shutdownDeadline(
+                "Socket tasks",
+                Promise.all([Promise.allSettled(serviceTasks), disconnects]),
+                runtime.delay,
+                5_000,
+              ).then(() => {
                 if (error) reject(error);
-                else if (disconnectError) reject(disconnectError);
                 else resolve();
               }, reject);
             }),

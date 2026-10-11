@@ -29,8 +29,9 @@ writes and flushes a uniquely identified record in the repository's common Git
 metadata directory. It resolves `.git` files and linked-worktree `commondir`
 files without spawning Git. Records for repositories sharing metadata therefore
 fence their shared refs together. Clone/init before Git metadata exists use a
-hashed journal beside the selected directory. Clone holds its parent scope,
-which also fences its destination. Repository lookup checks enclosing scopes,
+hashed journal beside the selected directory. Clone holds its pre-created destination scope so cancellation fences that checkout
+without blocking unrelated sibling projects. The host retains a quarantined partial
+checkout until trusted cleanup evidence permits removing it. Repository lookup checks enclosing scopes,
 so root quarantine fences descendants even before they have Git metadata.
 
 Nested locking preserves the existing hierarchy and checkout ownership. Before

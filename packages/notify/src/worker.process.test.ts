@@ -1,3 +1,4 @@
+import { Worker } from "node:worker_threads";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -191,5 +192,78 @@ it("bounds cleanup admission independently of ordinary calls and recovers after 
     await expect(worker.close()).resolves.toBeUndefined();
   } finally {
     await worker.close();
+  }
+});
+
+it("a crashed notification worker restarts with backoff and resumes durable delivery", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-notify-restart-"));
+  const restart = Promise.withResolvers<() => void>();
+  const restarted = Promise.withResolvers<void>();
+  let owned: Worker | undefined;
+  let spawns = 0;
+  const delivered: Notification[] = [];
+  const worker = new NotificationWorker({
+    path: join(home, "notify.sqlite"),
+    windowMs: 0,
+    spawn(entry, options) {
+      owned = new Worker(entry, options);
+      if (++spawns === 2) restarted.resolve();
+      return owned;
+    },
+    schedule(delay, run) {
+      expect(delay).toBe(250);
+      restart.resolve(run);
+      return () => {};
+    },
+    transport: {
+      async send(_device, notification) {
+        delivered.push(notification);
+        return "accepted";
+      },
+    },
+  });
+  const now = Date.now();
+  try {
+    await worker.connectDevice(DeviceId.parse("device"));
+    await worker.ingest([
+      Event.parse({
+        seq: 1,
+        id: "e1",
+        threadId: "t",
+        at: now,
+        payload: {
+          type: "thread.created",
+          thread: {
+            id: "t",
+            workspaceId: "w",
+            provider: "codex",
+            title: "Recovered",
+            status: { state: "new" },
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      }),
+      Event.parse({
+        seq: 2,
+        id: "e2",
+        threadId: "t",
+        at: now,
+        payload: { type: "thread.updated", status: { state: "done" } },
+      }),
+    ]);
+    if (!owned) throw new Error("Worker not spawned");
+    await owned.terminate();
+    const resume = await restart.promise;
+    await expect(worker.cursor()).rejects.toThrow("exited");
+    resume();
+    await restarted.promise;
+    expect(await worker.cursor()).toBe(2);
+    await worker.drain();
+    expect(delivered).toMatchObject([{ threadId: "t", status: "done" }]);
+    await expect(worker.disconnect("recovered-session")).resolves.toBeUndefined();
+  } finally {
+    await worker.close();
+    rmSync(home, { recursive: true, force: true });
   }
 });

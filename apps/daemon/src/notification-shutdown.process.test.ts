@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 import { startDaemon, readConfig } from "./index.ts";
 import { Client, fixture } from "./socket-test-support.ts";
 
-it("finishes pending plugin persistence before reporting a presence shutdown failure", async () => {
+it("finishes pending plugin persistence even when presence shutdown fails", async () => {
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const completed = Promise.withResolvers<void>();
@@ -68,7 +68,7 @@ it("finishes pending plugin persistence before reporting a presence shutdown fai
     );
     await disconnected;
     release.resolve();
-    expect(await shutdown).toEqual({ persisted: true, error: "Presence removal failed" });
+    expect(await shutdown).toEqual({ persisted: true, error: undefined });
     expect(await readFile(marker, "utf8")).toBe("Plugin persisted");
   } finally {
     release.resolve();
@@ -218,8 +218,10 @@ it("refuses connection churn until stalled presence removals are acknowledged", 
   }
 });
 
-it("reports unacknowledged presence removal as a shutdown failure", async () => {
+it("logs failed presence removal and still finishes shutdown", async () => {
+  const errors: unknown[] = [];
   const f = await fixture({
+    log: (error) => errors.push(error),
     notifications: {
       async connectDevice() {},
       async register() {},
@@ -237,7 +239,10 @@ it("reports unacknowledged presence removal as a shutdown failure", async () => 
     client.send({ type: "presence.update", threadId: f.thread.id, inputAgeMs: 0 });
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
-    await expect(f.server.close()).rejects.toThrow("Removal unavailable");
+    await expect(f.server.close()).resolves.toBeUndefined();
+    expect(
+      errors.some((error) => error instanceof Error && error.message === "Removal unavailable"),
+    ).toBe(true);
   } finally {
     await f.close().catch(() => {});
     f.store.close();

@@ -23,6 +23,7 @@ export async function watch(
   }
   let timer: CancelTimer | undefined;
   let interval: CancelTimer | undefined;
+  let pollDelay = 1000;
   let mode: "native" | "polling" = "native";
   let previous = new VisibleTree([]);
   let full = false;
@@ -47,10 +48,12 @@ export async function watch(
       }
       const changes = previous.apply(plan.updates, plan.removed, changed);
       if (changes.length) options.onChange(changes);
+      if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
     } catch (error) {
       if (disposed) return;
       for (const path of changed) dirty.add(path);
       full ||= complete;
+      pollDelay = Math.min(30_000, pollDelay * 2);
       warning(`Workspace watch reconciliation failed: ${String(error)}`);
     }
   }
@@ -76,6 +79,14 @@ export async function watch(
       return reconcile();
     }, 100);
   }
+  function armPoll(): void {
+    if (disposed) return;
+    interval = safe.runtime.clock.after(async () => {
+      interval = undefined;
+      if (!initializing) await reconcile();
+      armPoll();
+    }, pollDelay);
+  }
   function polling(reason: string): void {
     if (disposed || mode === "polling") return;
     mode = "polling";
@@ -83,11 +94,9 @@ export async function watch(
     closeMetadata();
     native = undefined;
     warning(
-      `Workspace recursive watch unavailable; falling back to polling every 100 ms: ${reason}`,
+      `Workspace recursive watch unavailable; falling back to polling with backoff: ${reason}`,
     );
-    interval = safe.runtime.clock.every(() => {
-      if (!tail && !initializing && !disposed) void reconcile();
-    }, 100);
+    armPoll();
   }
   try {
     const root = await safe.resolve("");

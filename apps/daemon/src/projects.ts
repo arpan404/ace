@@ -55,6 +55,7 @@ export class Projects {
   private paths: ProjectPaths;
   private picker: ProjectPicker;
   private git: GitService;
+  private metadataGit: GitService;
   private store: Store;
   private options: ProjectsOptions;
   private home: string;
@@ -70,6 +71,7 @@ export class Projects {
     this.home = options.home ?? homedir();
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
+    this.metadataGit = new GitService({ ...options.git, timeoutMs: 10_000 });
     this.catalog = new ProjectStorage(store, now);
     this.picker = new ProjectPicker(
       this.paths,
@@ -151,10 +153,10 @@ export class Projects {
     if (this.closed) throw new ProjectError("projects_closed");
     if (!allowed()) throw new ProjectError("forbidden");
   }
-  async inspect(input: string) {
+  async inspect(input: string, signal?: AbortSignal) {
     const directory = await ProjectDirectory.open(this.paths, input);
     try {
-      return await this.inspectDirectory(directory);
+      return await this.inspectDirectory(directory, signal);
     } finally {
       await directory.close();
     }
@@ -164,13 +166,13 @@ export class Projects {
     let git = null;
     let gitUnavailable: "git_quarantined" | undefined;
     try {
-      const info = await this.git.projectInfo(path, directory.handle.fd, signal);
+      const info = await this.metadataGit.projectInfo(path, directory.handle.fd, signal);
       // A repository above the selected allowed root cannot be offered to the client.
       const root = await this.paths.directory(info.root);
       git = {
         root,
         branch: info.branch,
-        defaultBranch: await this.git.defaultBranch(path, directory.handle.fd, signal),
+        defaultBranch: await this.metadataGit.defaultBranch(path, directory.handle.fd, signal),
         remotes: projectRemotes(info.remotes),
       };
     } catch (error) {
@@ -401,14 +403,14 @@ export class Projects {
         await clone.finished;
         result = { kind: "cancelled", commandId: op.commandId };
       } else if (op.op === "workspace.inspect")
-        result = { kind: "inspection", ...(await this.inspect(op.path)) };
+        result = { kind: "inspection", ...(await this.inspect(op.path, signal)) };
       else if (op.op === "fs.home")
         result = {
           kind: "home",
           path: this.home,
           canonicalPath: await realpath(this.home),
           roots: await this.paths.roots(),
-          initialBranch: await this.git.initialBranch(this.home),
+          initialBranch: await this.metadataGit.initialBranch(this.home, undefined, signal),
         };
       else if (op.op === "fs.recentFolders") {
         const folders = [];
@@ -451,7 +453,12 @@ export class Projects {
     this.closed = true;
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();
-    await Promise.all([this.git.close(), this.commands.drained(), this.ready]);
+    await Promise.all([
+      this.git.close(),
+      this.metadataGit.close(),
+      this.commands.drained(),
+      this.ready,
+    ]);
   }
 }
 export function projectErrorCode(error: unknown): string {

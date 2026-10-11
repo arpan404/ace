@@ -153,11 +153,11 @@ export async function ignoredPaths(
     (
       await repository.cli.call(
         root,
-        ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+        ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
         { env },
       )
     ).stdout,
-  ).map((p) => decode(pathSchema, p, "ignored path"));
+  ).map((p) => decode(pathSchema, p.endsWith("/") ? p.slice(0, -1) : p, "ignored path"));
   const nested = ownership
     ? ownedChildren(ownership, root).map((child) => child.path)
     : await nestedPaths(

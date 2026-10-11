@@ -21,6 +21,10 @@ export type UploadRecord = z.infer<typeof UploadRecord>;
 export const TrashRecord = z.object({
   ...common,
   kind: z.literal("trash"),
+  location: z
+    .string()
+    .regex(/^\.ace-upload-trash-[a-zA-Z0-9_-]{1,128}$/)
+    .optional(),
   path: z.string(),
   version: z.string(),
 });

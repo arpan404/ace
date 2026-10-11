@@ -188,6 +188,13 @@ export class Catalog {
     ).run(instance);
     return Number(this.statement("SELECT epoch FROM scans WHERE instance=?").get(instance)?.epoch);
   }
+  matches(instance: string, path: string, fingerprint: string): boolean {
+    return Boolean(
+      this.statement(
+        "SELECT 1 FROM files WHERE instance=? AND path=? AND fingerprint=? AND EXISTS (SELECT 1 FROM registered_instances r WHERE r.id=files.instance AND r.home=files.home AND r.provider=files.provider)",
+      ).get(instance, path, fingerprint),
+    );
+  }
   touch(instance: string, path: string, fingerprint: string, epoch: number): boolean {
     const cached = this.statement(
       "UPDATE files SET epoch=? WHERE instance=? AND path=? AND fingerprint=? AND EXISTS (SELECT 1 FROM registered_instances r WHERE r.id=files.instance AND r.home=files.home AND r.provider=files.provider)",
@@ -233,6 +240,11 @@ export class Catalog {
     );
   }
   preservePath(instance: string, path: string, epoch: number): void {
+    this.statement("UPDATE files SET epoch=? WHERE instance=? AND path=?").run(
+      epoch,
+      instance,
+      path,
+    );
     this.statement("UPDATE sources SET epoch=? WHERE instance=? AND path=?").run(
       epoch,
       instance,

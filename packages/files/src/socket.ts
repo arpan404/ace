@@ -9,6 +9,7 @@ import { drainUpload } from "./upload-lifetime.ts";
 
 interface Outgoing {
   download: Download;
+  cancelIdle?: () => void;
   credits: number;
   pumping: boolean;
   cancelled: boolean;
@@ -89,6 +90,7 @@ export function attachFilesChannel(
   const stop = async (id: number) => {
     const state = outgoing.get(id);
     if (state) {
+      state.cancelIdle?.();
       state.cancelled = true;
       outgoing.delete(id);
       await state.download.close();
@@ -102,6 +104,18 @@ export function attachFilesChannel(
         incoming.delete(id);
       }
     }
+  };
+  const armIdle = (id: number, state: Outgoing) => {
+    state.cancelIdle?.();
+    state.cancelIdle = service.scheduleTransferTimeout(() => {
+      failure(new FileError("EXPIRED", "Download paused too long; start it again"), {
+        channel: id,
+      });
+      void stop(id).then(
+        () => send({ type: "files.cancelled", channel: id }),
+        (error: unknown) => failure(error, { channel: id }),
+      );
+    });
   };
   const pump = async (id: number, state: Outgoing) => {
     if (state.pumping || state.cancelled) return;
@@ -127,6 +141,7 @@ export function attachFilesChannel(
         state.digest.update(next.value);
         state.offset += next.value.length;
         await transport.sendBinary(frame);
+        if (!state.cancelled) armIdle(id, state);
         // A known-size file needs no extra credit to validate and send its trailer.
         if (state.download.size !== null && state.offset === state.download.size)
           state.credits = Math.max(1, state.credits);
@@ -158,6 +173,7 @@ export function attachFilesChannel(
       if (state.credits + message.credits > MAX_CREDITS)
         throw new FileError("QUOTA", "Credit window exceeded");
       state.credits += message.credits;
+      armIdle(message.channel, state);
       void pump(message.channel, state);
       return;
     }
@@ -191,6 +207,7 @@ export function attachFilesChannel(
         frame: Buffer.allocUnsafe(CHUNK_SIZE + 16),
       };
       outgoing.set(id, state);
+      armIdle(id, state);
       send({
         type: "files.ready",
         requestId: message.requestId,

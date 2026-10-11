@@ -75,7 +75,7 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         failure("Agent registry unavailable");
         return true;
       }
-      if (pending >= 8 || tasks.size >= 16) {
+      if (pending >= 8) {
         failure("Too many registry requests");
         return true;
       }

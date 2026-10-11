@@ -75,7 +75,7 @@ export async function probe(url: string, token: string, clock: ProbeClock = syst
       }
     },
     close() {
-      stopKeepalive?.();
+      fail(new Error("Probe closed: connection ended"));
       socket.close();
     },
   };

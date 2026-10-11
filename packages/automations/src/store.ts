@@ -196,6 +196,18 @@ export class AutomationStore {
   clearPollError(id: string): void {
     this.sql("DELETE FROM automation_poll_errors WHERE id=?").run(id);
   }
+  running(id: string): boolean {
+    return (
+      this.sql(
+        "SELECT 1 FROM automation_runs WHERE automation_id=? AND status='running' LIMIT 1",
+      ).get(id) !== undefined
+    );
+  }
+  private prune(id: string): void {
+    this.sql(
+      "DELETE FROM automation_runs WHERE automation_id=? AND status<>'running' AND seq NOT IN (SELECT seq FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1000)",
+    ).run(id, id);
+  }
   claim(
     automation: Automation,
     event: AutomationEvent,
@@ -238,6 +250,7 @@ export class AutomationStore {
       startedAt: now,
       ...(admitted ? {} : { finishedAt: now, result: failure ?? "Concurrency limit reached" }),
     });
+    if (trigger === "file" && status === "skipped") return { run, admitted: false, created: false };
     this.sql(
       "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input) VALUES(?,?,?,?,?,?)",
     ).run(
@@ -248,6 +261,7 @@ export class AutomationStore {
       JSON.stringify(run),
       input ? JSON.stringify(input) : null,
     );
+    this.prune(automation.id);
     return { run, admitted, created: true };
   }
   finish(
@@ -269,6 +283,7 @@ export class AutomationStore {
       JSON.stringify(run),
       id,
     );
+    this.prune(run.automationId);
     return run;
   }
   active(): { run: AutomationRun; input: ExecutionInput }[] {

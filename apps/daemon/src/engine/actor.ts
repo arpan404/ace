@@ -46,6 +46,7 @@ export class ThreadActor {
   lifetime: AbortController | undefined;
   generation = 0;
   poisoned = false;
+  persistenceFailed = false;
   idleSince: number | undefined;
   idleDue = false;
   private inputLeases = new Map<number, { release(): void; runId: string | undefined }>();
@@ -229,6 +230,10 @@ export class ThreadActor {
   }
   private fail(error: unknown): void {
     this.poisoned = true;
+    this.persistenceFailed =
+      error instanceof Error &&
+      (("errcode" in error && typeof error.errcode === "number") ||
+        ("code" in error && error.code === "ERR_SQLITE_ERROR"));
     this.repo.evict(this.id);
     this.lifetime?.abort();
     this.report(error);
@@ -368,6 +373,12 @@ export class ThreadActor {
   private translateFrame(decoded: Frame, cursorBackend: boolean): Fact[] {
     const cursorSdk = decoded.channel === "sdk" && cursorBackend;
     if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
+    if (
+      cursorSdk &&
+      z.object({ kind: z.literal("send") }).safeParse(decoded.data).success &&
+      this.repo.quiescent(this.repo.requireState(this.id))
+    )
+      this.repo.recovery.beginTurn(this.id);
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
     const raw = this.translator?.takeDiagnostics?.() ?? [];
     if (raw.length) this.diagnostic?.(this.id, raw);
@@ -410,6 +421,8 @@ export class ThreadActor {
   }
   apply(facts: Fact[]): void {
     this.repo.apply(this.id, facts, this.clock.now(), this.generation);
+    if (facts.some((fact) => fact.type === "process.exited"))
+      this.repo.clearIncompleteBlobs(this.id);
     if (facts.some((fact) => fact.type === "process.exited"))
       for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.schedule();
