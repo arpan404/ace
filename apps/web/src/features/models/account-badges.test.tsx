@@ -80,7 +80,7 @@ test("each account has a rail entry and selecting it switches the catalog", asyn
   await selectAccount(popover, "Team");
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
-  expect(within(list).getByText("NEW")).toBeTruthy();
+  expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol, New,/ })).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt-6");
   expect(within(list).getAllByRole("option", { name: /Codex · Team/ }).length).toBeGreaterThan(0);
   expect(within(list).getAllByRole("option", { name: /Codex · Personal/ }).length).toBeGreaterThan(
@@ -181,3 +181,35 @@ test("account badges accept a complete emoji and reject more than two text chara
   const saved = await app.client.request({ type: "accounts.list" });
   expect(saved.accounts.find((account) => account.id === "claude-personal")?.shortLabel).toBe("👩‍💻");
 });
+
+test.each([1, 2])(
+  "the composer's account marker appears only with multiple provider accounts (%s)",
+  async (count) => {
+    const app = harness();
+    if (count === 1) {
+      app.daemon.services.accounts = app.daemon.services.accounts.filter(
+        (account) => account.provider !== "claude" || account.id === "claude-personal",
+      );
+      app.daemon.services.models = app.daemon.services.models.filter(
+        (model) => model.provider !== "claude" || model.instance === "claude-personal",
+      );
+    }
+    const scenario = replayCursor();
+    app
+      .play({
+        ...scenario,
+        thread: {
+          ...scenario.thread,
+          live: { account: "claude-personal", model: "claude-opus-5-5" },
+        },
+      })
+      .runThrough("finding");
+    await app.open(`/t/${thread}`);
+    const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Personal/ });
+    await waitFor(() => {
+      const marker = within(chip).queryByText("P", { exact: true });
+      if (count === 1) expect(marker).toBeNull();
+      else expect(marker).toBeTruthy();
+    });
+  },
+);

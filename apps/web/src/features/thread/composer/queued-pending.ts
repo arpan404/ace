@@ -17,12 +17,13 @@ export type PendingQueued = Pick<QueuedMessage, "id" | "input" | "context" | "de
 export function useQueuedPending(
   threadId: string,
   page: Pick<QueuePage, "messages"> | undefined,
+  retained: readonly QueuedMessage[] | undefined = page?.messages,
 ): readonly PendingQueued[] {
   const pending = usePendingSends(threadId);
   const queued = useQueuedCommands(threadId);
   const dismissed = useDismissedSends();
   return useMemo(() => {
-    const listed = new Set<string>(page?.messages.map((message) => message.id));
+    const listed = new Set<string>(retained?.map((message) => message.id));
     return pending.flatMap((send): PendingQueued[] => {
       const payload = send.payload;
       if (payload.type !== "thread.send" || listed.has(send.commandId)) return [];
@@ -37,5 +38,5 @@ export function useQueuedPending(
         },
       ];
     });
-  }, [pending, page, queued, dismissed]);
+  }, [pending, retained, queued, dismissed]);
 }

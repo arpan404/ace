@@ -103,7 +103,7 @@ export function RequestStack(props: {
       </AttachedCard>
     );
   return (
-    <div ref={frame} tabIndex={-1} onKeyDownCapture={onKeyDown} className="outline-none">
+    <div ref={frame} tabIndex={-1} onKeyDownCapture={onKeyDown} className="focus-ring">
       {card}
     </div>
   );

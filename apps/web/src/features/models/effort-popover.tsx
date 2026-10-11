@@ -117,15 +117,6 @@ export function EffortPopover(props: {
           }}
         />
       )}
-      {view.canReset && view.fast && !view.fastReason && (
-        <button
-          type="button"
-          onClick={actions.onReset}
-          className="self-center rounded-sm px-2 py-1 text-xs text-muted-foreground hover:bg-accent focus-ring-inset"
-        >
-          Reset effort and speed
-        </button>
-      )}
       {steps.length > 0 && (
         <p id={description} className="sr-only">
           {view.effortReason ?? reasoningDescription(view.effort)}

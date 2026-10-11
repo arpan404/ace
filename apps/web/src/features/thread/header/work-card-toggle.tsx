@@ -7,17 +7,17 @@ import { ListBulletsIcon } from "@phosphor-icons/react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useWorkCardLive, agentNeedsYou, agentRunning } from "./work-card-live.ts";
+import { useWorkCardLive, agentNeedsYou } from "./work-card-live.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 
 /** The existing entry point, with a summary of pending checkout and thread work. */
 export function WorkCardToggle(props: { thread: ThreadRef; open: boolean; onClick(): void }) {
   const meta = useThreadMeta(props.thread.id);
-  const { agents, tasks } = useWorkCardLive(props.thread.id);
+  const { agents, tasks, work } = useWorkCardLive(props.thread.id);
   const live = useThreadLiveState(props.thread.id);
   const details = meta?.details;
   const changed = details?.diff?.files ?? 0;
-  const running = agents.filter(agentRunning).length;
+  const running = agents.filter((agent) => work.running.has(agent.id)).length;
   const failedPush =
     useMutationState({
       filters: { mutationKey: ["thread", props.thread.id, "git-change"] },
@@ -26,7 +26,7 @@ export function WorkCardToggle(props: { thread: ThreadRef; open: boolean; onClic
   const { status } = useCheckoutState(props.thread);
   const failedChecks = status?.ci === "failure";
   const needsYou =
-    agents.some(agentNeedsYou) ||
+    agents.some((agent) => agentNeedsYou(agent) || work.needsYou.has(agent.id)) ||
     meta?.status.state === "needs_you" ||
     meta?.status.state === "failed" ||
     failedPush ||

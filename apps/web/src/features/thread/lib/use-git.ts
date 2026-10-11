@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
+import type { ForgePrRef, ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 import { checkoutOf, type Checkout, type MergeMethod } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -108,7 +108,7 @@ export type GitChange =
   | { kind: "link-pr"; number: number; repository?: ForgeRepository }
   | { kind: "unlink-pr"; number?: number; repo?: ForgeRepository; all?: true }
   /** Merge the head the person saw (`headSha`): the forge refuses if the branch moved since. */
-  | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string }
+  | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string; pr?: ForgePrRef }
   | { kind: "request-review"; reviewers: readonly string[] };
 
 /**
@@ -154,7 +154,9 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
       const repository =
         change.kind === "link-pr"
           ? (change.repository ?? checkout?.repository)
-          : checkout?.repository;
+          : change.kind === "merge" && change.pr
+            ? change.pr.repository
+            : checkout?.repository;
       if (!repository) throw new Error("This checkout has no GitHub remote.");
       const published = (status: ForgePrStatus) => {
         queries.setQueryData(
@@ -207,10 +209,12 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           ? published(await workspace.requestReview(thread, status.ref, change.reviewers))
           : status;
       }
-      const pr = checkout.pr && {
-        repository: checkout.pr.repo ?? repository,
-        number: checkout.pr.number,
-      };
+      const pr =
+        (change.kind === "merge" && change.pr) ||
+        (checkout.pr && {
+          repository: checkout.pr.repo ?? repository,
+          number: checkout.pr.number,
+        });
       if (!pr) throw new Error("No pull request is linked to this thread.");
       if (change.kind === "request-review")
         return published(await workspace.requestReview(thread, pr, change.reviewers));
@@ -231,15 +235,16 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     },
   });
   /** Ask the forge for the linked PR's status now; failures leave the last one shown. */
-  const refreshPr = async () => {
-    const repository = checkout?.pr?.repo ?? checkout?.repository;
-    const number = checkout?.pr?.number;
+  const refreshPr = async (pr?: ForgePrRef) => {
+    const repository = pr?.repository ?? checkout?.pr?.repo ?? checkout?.repository;
+    const number = pr?.number ?? checkout?.pr?.number;
     if (!repository || number === undefined) return;
     const status = await sources.workspace.refreshPr(thread, { repository, number });
     queries.setQueryData(
       [...prKey(thread.id), ...repositoryKey(status.ref.repository), number, linkState(status)],
       status,
     );
+    return status;
   };
   return { change: mutation.mutateAsync, pending: mutation.isPending, refreshPr };
 }
