@@ -52,11 +52,10 @@ export function startProviderStatuses(context: ServiceContext): void {
         const account = registry?.get(selected);
         if (!account) return {};
         return {
+          instanceId: account.instance.id,
           ...(account.instance.authMethod ? { authMethod: account.instance.authMethod } : {}),
           ...(account.instance.signedInAs ? { accountLabel: account.instance.signedInAs } : {}),
-          ...(!account.instance.implicit && account.quota.auth !== "unknown"
-            ? { auth: account.quota.auth }
-            : {}),
+          ...(!account.instance.implicit ? { auth: account.quota.auth } : {}),
         };
       },
       async authInfo(row, signal) {
@@ -96,7 +95,7 @@ export function startProviderStatuses(context: ServiceContext): void {
         const selected =
           row.runtime === "cursor-sdk"
             ? (registry?.selectedCursorSdk() ?? cursor?.instance?.id ?? "cursor-sdk-default")
-            : `${row.provider}-cli-default`;
+            : (registry?.selectedProvider(row.provider) ?? `${row.provider}-cli-default`);
         return registry?.summary(selected, context.now())?.availability === "exhausted";
       },
       checked(rows) {

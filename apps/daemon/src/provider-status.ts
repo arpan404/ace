@@ -20,7 +20,7 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
   attention?(row: Status): boolean;
   account?(
     row: Status,
-  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail">>;
+  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail" | "instanceId">>;
   authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
   versions?(
     row: Status,
@@ -71,13 +71,24 @@ export class ProviderStatuses {
     return this.rows.map((row) => {
       const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
       const { state, actionId, ...observation } = row;
+      const account = this.options.account?.(row);
+      // Discovery describes the default home. Auth-derived actions must describe
+      // the selected account, while unrelated installation failures stay intact.
+      const authState = state === "not_configured" && actionId === "provider.sign_in";
+      const selectedAuth = account?.auth ?? row.auth;
+      const effectiveState =
+        account?.auth !== undefined && (authState || state === undefined)
+          ? selectedAuth === "logged_out" && row.installed && !row.error
+            ? { state: "not_configured" as const, actionId: "provider.sign_in" as const }
+            : {}
+          : { state, actionId };
       return providerReadiness({
         ...observation,
-        ...(available ? { modelsAvailable: true } : { state, actionId }),
+        ...(available ? { modelsAvailable: true } : effectiveState),
         instanceId:
           row.runtime === "cursor-sdk" ? "cursor-sdk-default" : `${row.provider}-cli-default`,
         permissionModes: nativePermissionModes(row.provider),
-        ...this.options.account?.(row),
+        ...account,
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
         enabled: this.options.configuration?.(row.provider).enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
