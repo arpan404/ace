@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogFooter,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog.tsx";
@@ -32,6 +33,7 @@ export function AddMachine(props: { onClose(): void }) {
         <PairingForm
           url=""
           submitLabel="Add machine"
+          renderActions={(actions) => <DialogFooter>{actions}</DialogFooter>}
           cancel={props.onClose}
           connect={async (target, remember, signal) => {
             const chosen: MachinePool | undefined = pool ?? (await ensure?.());
