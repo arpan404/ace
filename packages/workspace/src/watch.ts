@@ -143,7 +143,10 @@ export async function watch(
             if (!path || path.split("/").at(-1) === ".gitignore") full = true;
             if (dirty.size < 100_000) dirty.add(path);
             else full = true;
-          } else full = true;
+          } else {
+            full = true;
+            metadataDirty = true;
+          }
           schedule();
         });
         native.on("error", (error) => polling(error.message));
