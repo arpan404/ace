@@ -59,12 +59,13 @@ test.each(["manual", "stopped", "stopped-after-resend"] as const)(
     );
     expect(resume(h, h.engine, id).ok).toBe(true);
     await h.engine.flush();
-    const resend = () => h.command({
-      type: "queue.resend",
-      threadId: id,
-      messageId: CommandId.parse("recovery-command"),
-      expectedRevision: h.engine.queue(id).revision,
-    });
+    const resend = () =>
+      h.command({
+        type: "queue.resend",
+        threadId: id,
+        messageId: CommandId.parse("recovery-command"),
+        expectedRevision: h.engine.queue(id).revision,
+      });
     // Both receipts commit before any microtask can claim the replacement.
     if (hold === "stopped-after-resend") expect(resend().ok).toBe(true);
     expect(

@@ -422,7 +422,7 @@ export class EngineRepository {
           .statement(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
         AND status IN ('pending','queued','running')
         UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
-        AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
+        AND (awaiting=1 OR uncertain=1) AND status NOT IN ('pending','queued','running') LIMIT ?`)
           .all(id, id, limit).length < limit,
     );
   }
