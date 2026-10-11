@@ -32,16 +32,26 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const own = window.items.map((item) => item.id);
   const joined = window.joined === true;
   // A joined order follows the tail's; it is rebuilt only when the tail's order changes.
+  const deleted = new Set<string>();
+  const isDeleted = (id: string) => {
+    if (joined && live.deleted?.(id)) {
+      if (items.has(id)) deleted.add(id);
+      return true;
+    }
+    return deleted.has(id);
+  };
   let tailOrder: readonly string[] | undefined;
   let order: readonly string[] = own;
   const currentOrder = () => {
     if (!joined || live.order === tailOrder) return order;
     tailOrder = live.order;
     const newer = tailOrder.filter((id) => !items.has(id));
-    order = newer.length ? [...own, ...newer] : own;
+    const kept = own.filter((id) => !isDeleted(id));
+    order = newer.length ? [...kept, ...newer] : kept;
     return order;
   };
-  const item = (id: string) => (joined ? (live.item(id) ?? items.get(id)) : items.get(id));
+  const item = (id: string) =>
+    isDeleted(id) ? undefined : joined ? (live.item(id) ?? items.get(id)) : items.get(id);
   const source: ThreadSource = {
     get error() {
       return live.error;
@@ -67,6 +77,7 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     interactionIds: () => live.interactionIds(),
     taskIds: () => live.taskIds(),
     item,
+    deleted: isDeleted,
     agent: (id) => live.agent(id),
     run: (id) => live.run(id),
     interaction: (id) => live.interaction(id),

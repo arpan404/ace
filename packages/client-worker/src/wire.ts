@@ -79,6 +79,7 @@ const Patch = z.object({
   v: z.optional(z.unknown()),
   append: z.optional(z.string()),
   cut: z.optional(z.boolean()),
+  deleted: z.optional(z.boolean()),
 });
 export const LeaseChanges = z.object({
   lease: id,
