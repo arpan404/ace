@@ -21,6 +21,46 @@ afterEach(async () => {
   }
 });
 
+it("normal startup accepts a socket connection with settings available to source control", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
+  vi.stubEnv("ACE_MAINTENANCE", "0");
+  const registry = new AdapterRegistry();
+  cleanups.push(() => registry.close());
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    history: { instances: [] },
+    modelInstances: [],
+    engine: { registry, clock: new ManualClock() },
+  });
+  cleanups.push(() => daemon.close());
+  const client = new Client(daemon.url);
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("startup-test"),
+    token: await readFile(daemon.tokenPath, "utf8"),
+  });
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  client.send({
+    type: "settings.get",
+    requestId: "startup-preferences",
+    key: "sourceControl.preferences",
+    scope: {},
+  });
+  const result = await until(client, (message) =>
+    message.type === "settings.result" && message.requestId === "startup-preferences",
+  );
+  expect(result).toMatchObject({
+    type: "settings.result",
+    ok: true,
+    entries: [{ key: "sourceControl.preferences", value: { host: "github.com", remote: "origin" } }],
+  });
+});
+
 it("daemon composition applies a fork's patch through git and supplies browser MCP tools", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-composition-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));

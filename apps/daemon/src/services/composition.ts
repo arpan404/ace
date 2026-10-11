@@ -34,6 +34,8 @@ import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
+  { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
+  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   {
     name: "sourceControl",
     phase: "core",
@@ -41,8 +43,6 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     after: [],
     start: startSourceControl,
   },
-  { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
-  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
   {
     name: "providerStatuses",
