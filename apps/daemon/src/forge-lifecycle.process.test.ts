@@ -6,6 +6,7 @@ import { Command, Thread, WorkspaceActionRequest, type ForgeLifecycleAction } fr
 import { ForgeStore, lifecycleWriteMarker } from "@ace/forge";
 import { fakeGh, lifecycleFixtures, lifecycleRecord, repository, sha } from "@ace/forge/testing";
 import { Store } from "./store.ts";
+import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 async function setup(fixtures: import("@ace/forge/testing").Fixtures) {
   const root = await mkdtemp(join(tmpdir(), "ace-lifecycle-"));
@@ -31,8 +32,20 @@ async function setup(fixtures: import("@ace/forge/testing").Fixtures) {
       throw new Error("Missing lifecycle state");
     return result.result.data.value;
   };
+  const command = (id: string, action: ForgeLifecycleAction, expectedVersion: string) =>
+    Command.parse({
+      id,
+      deviceId: "device",
+      payload: {
+        type: "forge.hosted.lifecycle",
+        workspaceId,
+        pr,
+        operation: { kind: "apply", action, expectedVersion },
+      },
+    });
   return {
     gh,
+    command,
     root,
     workspaceId,
     get store() {
@@ -43,18 +56,7 @@ async function setup(fixtures: import("@ace/forge/testing").Fixtures) {
     },
     read,
     send(id: string, action: ForgeLifecycleAction, expectedVersion: string) {
-      return runtime.execute(
-        Command.parse({
-          id,
-          deviceId: "device",
-          payload: {
-            type: "forge.hosted.lifecycle",
-            workspaceId,
-            pr,
-            operation: { kind: "apply", action, expectedVersion },
-          },
-        }),
-      );
+      return runtime.execute(command(id, action, expectedVersion));
     },
     reconcile(operationId: string) {
       return runtime.execute(
@@ -191,6 +193,219 @@ test("a definite host refusal retains the original metadata and permits a later 
         initial.snapshot.version,
       ),
     ).toMatchObject({ ok: false, error: "forge_forbidden" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+const revert: ForgeLifecycleAction = { kind: "revert", title: "Revert", body: "Undo #7" };
+function mergedFixtures() {
+  const fixtures = lifecycleFixtures([
+    lifecycleRecord({ state: "MERGED", mergeCommit: { oid: sha } }),
+  ]);
+  fixtures["graphql:mutation($input:RevertPullRequestInput!"] = [
+    { body: { data: { revertPullRequest: { revertPullRequest: { number: 8 } } } } },
+  ];
+  return fixtures;
+}
+
+test("lifecycle preflight failures never reserve an uncertain write and allow retry after restart", async () => {
+  for (const failure of [
+    { status: 503 },
+    { status: 504 },
+    { status: 429 },
+    { raw: "offline", code: 1 },
+  ]) {
+    const fixtures = mergedFixtures();
+    const key = "graphql:query AceLifecycleSnapshot";
+    const valid = fixtures[key]?.[0];
+    if (!valid) throw new Error("Missing host fixture");
+    fixtures[key] = [valid, failure, valid];
+    const f = await setup(fixtures);
+    try {
+      const { snapshot } = await f.read();
+      expect(await f.send("failed", revert, snapshot.version)).toMatchObject({
+        ok: false,
+        error: "status" in failure && failure.status === 429 ? "forge_rate_limit" : "forge_cli",
+      });
+      expect(
+        (await f.gh.requests()).some((r) => JSON.stringify(r.body).includes("mutation($input:")),
+      ).toBe(false);
+      await f.restart();
+      expect((await f.read()).operations).toEqual([]);
+      expect(await f.send("retry", revert, snapshot.version)).toMatchObject({
+        ok: true,
+        forgeLifecycle: { revertPr: { number: 8 } },
+      });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("definite HTTP and GraphQL rate limits release lifecycle mutations for a later explicit retry", async () => {
+  for (const refusal of [
+    { status: 429 },
+    { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+    { body: { data: { revertPullRequest: null }, errors: [{ type: "RATE_LIMITED" }] } },
+  ]) {
+    const fixtures = mergedFixtures();
+    const key = "graphql:mutation($input:RevertPullRequestInput!";
+    fixtures[key] = [refusal, ...(fixtures[key] ?? [])];
+    const f = await setup(fixtures);
+    try {
+      const { snapshot } = await f.read();
+      expect(await f.send("limited", revert, snapshot.version)).toMatchObject({
+        ok: false,
+        error: "forge_rate_limit",
+      });
+      await f.restart();
+      expect((await f.read()).operations).toEqual([]);
+      expect(await f.send("retry", revert, snapshot.version)).toMatchObject({
+        ok: true,
+        forgeLifecycle: { revertPr: { number: 8 } },
+      });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("a revert journal completes its original receipt before the outer command runner resumes", async () => {
+  const f = await setup(mergedFixtures());
+  try {
+    const { snapshot } = await f.read();
+    const command = f.command("accepted", revert, snapshot.version);
+    f.store.recordCommand(command.id, command.deviceId, () => ({
+      commandId: command.id,
+      ok: false,
+      error: "client_action_pending",
+    }));
+    await new WorkspaceForgeLifecycle(f.store).execute(
+      command.payload,
+      command.id,
+      f.gh.forge,
+      new AbortController().signal,
+      () => true,
+    );
+    expect(f.store.commandReceipt(command.id, command.deviceId)).toMatchObject({
+      ok: true,
+      forgeLifecycle: { outcome: "accepted", revertPr: { number: 8 } },
+    });
+    await f.restart();
+    expect(await f.send("accepted", revert, snapshot.version)).toMatchObject({
+      ok: true,
+      forgeLifecycle: { revertPr: { number: 8 } },
+    });
+    expect(
+      (await f.gh.requests()).filter((r) =>
+        JSON.stringify(r.body).includes("mutation($input:RevertPullRequestInput!"),
+      ),
+    ).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("the old crash window recovers accepted, pending and changed-head lifecycle receipts without repeating mutations", async () => {
+  for (const outcome of ["accepted", "pending", "head_changed"] as const) {
+    const fixtures = outcome === "accepted" ? mergedFixtures() : lifecycleFixtures();
+    if (outcome !== "accepted")
+      fixtures["graphql:mutation($input:UpdatePullRequestBranchInput!"] = [
+        {
+          body: {
+            data: {
+              updatePullRequestBranch: {
+                pullRequest: { headRefOid: outcome === "pending" ? sha : "b".repeat(40) },
+              },
+            },
+          },
+        },
+      ];
+    const action: ForgeLifecycleAction = outcome === "accepted" ? revert : { kind: "update.merge" };
+    const f = await setup(fixtures);
+    try {
+      const { snapshot } = await f.read();
+      const result = await f.send("completed", action, snapshot.version);
+      expect(result).toMatchObject({ ok: true, forgeLifecycle: { outcome } });
+      // Persisted facts from the former gap after saving a journal receipt.
+      f.store.atomic((db) =>
+        db
+          .prepare("UPDATE command_receipts SET result=? WHERE command_id=?")
+          .run(
+            JSON.stringify({ commandId: "completed", ok: false, error: "client_action_pending" }),
+            "completed",
+          ),
+      );
+      await f.restart();
+      expect(await f.send("completed", action, snapshot.version)).toEqual(result);
+      expect(
+        (await f.gh.requests()).filter((r) => JSON.stringify(r.body).includes("mutation($input:")),
+      ).toHaveLength(1);
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("partial GraphQL acknowledgement keeps a lifecycle mutation uncertain until its host result is established", async () => {
+  const fixtures = mergedFixtures();
+  fixtures["graphql:mutation($input:RevertPullRequestInput!"] = [
+    {
+      body: {
+        data: { revertPullRequest: { revertPullRequest: { number: 8 } } },
+        errors: [{ type: "RATE_LIMITED" }],
+      },
+    },
+  ];
+  fixtures["repos/octo/ace/pulls?state=all&sort=created&direction=desc&per_page=100"] = [
+    { status: 503 },
+  ];
+  const f = await setup(fixtures);
+  try {
+    const { snapshot } = await f.read();
+    expect(await f.send("partial", revert, snapshot.version)).toMatchObject({
+      ok: false,
+      error: "action_outcome_uncertain",
+    });
+    expect((await f.read()).operations).toEqual([
+      { id: "partial", kind: "revert", state: "uncertain" },
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("rate-limited observation after a successful lifecycle dispatch never releases its uncertain journal", async () => {
+  const original = lifecycleRecord();
+  const closed = lifecycleRecord({ state: "CLOSED" });
+  const fixtures = lifecycleFixtures([original, original, original, original, closed]);
+  const key = "graphql:query AceLifecycleSnapshot";
+  const records = fixtures[key] ?? [];
+  fixtures[key] = [...records.slice(0, 4), { status: 429 }, { status: 429 }, ...records.slice(4)];
+  fixtures["graphql:mutation($input:ClosePullRequestInput!"] = [
+    { body: { data: { closePullRequest: { pullRequest: { headRefOid: sha } } } } },
+  ];
+  const f = await setup(fixtures);
+  try {
+    const { snapshot } = await f.read();
+    expect(await f.send("close", { kind: "close" }, snapshot.version)).toMatchObject({
+      ok: false,
+      error: "action_outcome_uncertain",
+    });
+    await f.restart();
+    expect((await f.read()).operations).toEqual([
+      { id: "close", kind: "close", state: "uncertain" },
+    ]);
+    expect(await f.reconcile("close")).toMatchObject({
+      ok: true,
+      forgeLifecycle: { outcome: "accepted" },
+    });
+    expect(
+      (await f.gh.requests()).filter((r) =>
+        JSON.stringify(r.body).includes("mutation($input:ClosePullRequestInput!"),
+      ),
+    ).toHaveLength(1);
   } finally {
     await f.cleanup();
   }

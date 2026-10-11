@@ -1,3 +1,4 @@
+import { assertGraphqlResult } from "./graphql-errors.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import {
@@ -21,16 +22,6 @@ import {
 } from "./github-lifecycle-schemas.ts";
 import { ReadBudget } from "./read-budget.ts";
 const text = z.string().max(65_536);
-const graphqlErrors = z.object({
-  errors: z
-    .array(
-      z.looseObject({
-        type: z.string().optional(),
-        extensions: z.looseObject({ code: z.string().optional() }).optional(),
-      }),
-    )
-    .optional(),
-});
 function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) throw new ForgeError("invalid_data");
@@ -49,18 +40,7 @@ export class GitHubLifecycle {
   }
   async #graphql(query: string, variables: Record<string, unknown>, signal: AbortSignal) {
     const response = await this.#api.request("graphql", signal, { query, variables });
-    const errors = decode(graphqlErrors, response.body).errors;
-    if (errors?.length) {
-      // Refusals with no mutation result are definite. Partial mutation results remain uncertain.
-      const data = z.object({ data: z.unknown().optional() }).parse(response.body).data;
-      const codes = errors.map((e) => e.type ?? e.extensions?.code);
-      if (
-        (data === null || data === undefined) &&
-        codes.every((c) => c === "FORBIDDEN" || c === "UNAUTHORIZED")
-      )
-        throw new ForgeError("forbidden");
-      throw new ForgeError("invalid_data");
-    }
+    assertGraphqlResult(response.body);
     return response;
   }
   async snapshot(number: number, signal: AbortSignal): Promise<ForgeLifecycleSnapshot> {
