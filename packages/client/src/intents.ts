@@ -5,6 +5,7 @@ import { ClientError, type Storage } from "./types.ts";
 
 const Intent = z.object({
   command: Command,
+  hostId: z.string().min(1).optional(),
   state: z.enum(["saving", "pending", "acked", "failed"]),
   error: z.string().optional(),
   result: CommandResult.optional(),
@@ -21,6 +22,7 @@ const maxRetries = 10;
 interface IntentsOptions {
   storage: Storage;
   device: DeviceId;
+  hostId?(): string | undefined;
   limit: number;
   bytes: number;
   frameBytes: number;
@@ -57,6 +59,14 @@ export class Intents {
         for (const intent of values.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
           this.#sequence = Math.max(this.#sequence, intent.order ?? 0);
           if (
+            this.#options.storage.hostBinding &&
+            (!intent.hostId || intent.hostId !== this.#options.hostId?.())
+          )
+            throw new ClientError(
+              "auth",
+              "Saved work has no matching verified daemon identity. Preserve this outbox and reconnect to its original daemon.",
+            );
+          if (
             intent.command.deviceId !== this.#options.device ||
             this.#records.has(intent.command.id)
           )
@@ -71,8 +81,8 @@ export class Intents {
           ]);
         for (const id of this.#records.keys()) this.#options.changed(id);
         this.#ready = true;
-      } catch {
-        throw new ClientError("storage");
+      } catch (error) {
+        throw error instanceof ClientError ? error : new ClientError("storage");
       }
     })();
     return this.#initializing;
@@ -124,7 +134,18 @@ export class Intents {
         else if (this.#connected) this.#options.send(stored.command);
         return;
       }
-      const intent: Intent = { command, state: "pending", order: ++this.#sequence };
+      const hostId = this.#options.hostId?.();
+      if (this.#options.storage.hostBinding && !hostId)
+        throw new ClientError(
+          "auth",
+          "Connect to verify the outbox's daemon identity before saving work",
+        );
+      const intent: Intent = {
+        command,
+        state: "pending",
+        order: ++this.#sequence,
+        ...(hostId ? { hostId } : {}),
+      };
       this.#saving.add(id);
       let evicted: string[];
       try {
@@ -186,14 +207,20 @@ export class Intents {
     let saved = false;
     return this.#serialize(async () => {
       const previous = this.#records.get(result.commandId);
-      if (!previous) { saved = true; return; }
-      const next: Intent = previous.state === "pending" ? {
-        ...previous,
-        state: result.ok ? "acked" : "failed",
-        error: result.error,
-        result,
-        threadId: result.threadId,
-      } : { ...previous, result };
+      if (!previous) {
+        saved = true;
+        return;
+      }
+      const next: Intent =
+        previous.state === "pending"
+          ? {
+              ...previous,
+              state: result.ok ? "acked" : "failed",
+              error: result.error,
+              result,
+              threadId: result.threadId,
+            }
+          : { ...previous, result };
       this.#put(result.commandId, next);
       try {
         const evicted = this.#evict(result.commandId);

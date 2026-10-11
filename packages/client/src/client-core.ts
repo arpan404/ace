@@ -1,3 +1,4 @@
+import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
 import { AttachmentStreams } from "./attachment-channel.ts";
 import { attachmentBudget, attachmentChunks } from "./attachment-reader.ts";
@@ -122,10 +123,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #readMarkers: ReadMarkers;
   #serviceListeners = new Set<(message: ServerMessage) => void>();
   #hostId: string | undefined;
+  #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
   constructor(options: ClientOptions) {
+    options = { ...options };
     this.options = options;
+    this.#hostId = options.expectedHostId;
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -168,10 +172,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#hostId = message.hostId;
             this.historyState = undefined;
             this.notifications.emit(["historyScan"]);
-            this.#subscriptions.reconnect();
-            for (const sidebar of this.#collections) sidebar.reconnect();
-            this.#intents.replay();
-            this.#readMarkers.reconnect();
+            if (options.storage.hostBinding) {
+              void this.#bindHost(message.hostId).then(
+                () => this.#replay(),
+                () => this.connection.fail(new ClientError("storage")),
+              );
+            } else this.#replay();
             break;
           case "commandResult":
             this.requests.resolve(message.commandId, message);
@@ -252,6 +258,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#intents = new Intents({
       storage: options.storage,
       device: options.deviceId,
+      hostId: () => this.#hostId,
       limit: limits.intents,
       bytes: limits.outboxBytes,
       frameBytes: limits.sendBytes,
@@ -267,7 +274,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           this.#waitingHints.delete(id);
         }
         if (intent?.state === "failed" && !intent.localFailure)
-          this.requests.resolve(id, intent.result ?? { commandId: id, ok: false, error: intent.error });
+          this.requests.resolve(
+            id,
+            intent.result ?? { commandId: id, ok: false, error: intent.error },
+          );
         const hadEntry = this.#pendingSendEntries.has(id);
         const entry = intent && pendingSend(intent);
         if (entry) this.#pendingSendEntries.set(id, entry);
@@ -331,6 +341,20 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           observe(event.payload.item);
       }
   }
+  #bindHost(hostId: string): Promise<void> {
+    return (this.#binding ??= (
+      this.options.storage.hostBinding?.save(hostId) ?? Promise.resolve()
+    ).catch(() => {
+      throw new ClientError("storage", "Could not persist the verified daemon identity");
+    }));
+  }
+  #replay(): void {
+    if (this.closed || this.state !== "ready") return;
+    this.#subscriptions.reconnect();
+    for (const sidebar of this.#collections) sidebar.reconnect();
+    this.#intents.replay();
+    this.#readMarkers.reconnect();
+  }
   get state(): ConnectionState {
     return this.connection.state;
   }
@@ -381,11 +405,24 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     // Usually loaded before the socket's welcome; a service frame that beats it waits for it.
     void this.#codec.load().catch(() => {});
     try {
+      const binding = this.options.storage.hostBinding;
+      if (binding) {
+        const stored = await binding.load();
+        if (stored !== null) {
+          const host = HostId.parse(stored);
+          if (this.#hostId && this.#hostId !== host)
+            throw new ClientError("auth", "Outbox belongs to another daemon");
+          this.#hostId = host;
+          this.options.expectedHostId = host;
+          this.#binding = Promise.resolve();
+        }
+      }
       await this.#intents.initialize();
       if (!this.closed) this.connection.start();
-    } catch {
-      this.connection.fail(new ClientError("storage"));
-      throw new ClientError("storage");
+    } catch (error) {
+      const failure = error instanceof ClientError ? error : new ClientError("storage");
+      this.connection.fail(failure);
+      throw failure;
     }
   }
   close(): Promise<void> {
@@ -461,6 +498,15 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   async enqueue(payload: CommandPayload, id = this.options.id()): Promise<string> {
     if (this.closed) throw new ClientError("offline");
+    if (this.options.storage.hostBinding) {
+      if (!this.#hostId)
+        throw new ClientError(
+          "auth",
+          "Connect to verify the outbox's daemon identity before saving work",
+        );
+      await this.#bindHost(this.#hostId);
+      if (this.closed) throw new ClientError("offline");
+    }
     await this.#intents.enqueue(id, payload);
     return id;
   }

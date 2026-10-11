@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { notificationOutbox } from "./link/notification-outbox.ts";
 import { join } from "node:path";
 import { webContents, type BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
@@ -115,7 +115,7 @@ export class Background {
       url: endpoint.url,
       token: endpoint.token,
       deviceId: this.deviceId(),
-      storage: this.outbox(),
+      storage: notificationOutbox(this.options.userData, endpoint.url, this.deviceId()),
       quietHours: () => {
         const hours = this.options.settings().notifications.quietHours;
         return hours
@@ -292,13 +292,5 @@ export class Background {
     const created = `desktop-${randomUUID()}`;
     writeFileSync(path, created, { mode: 0o600 });
     return created;
-  }
-
-  private outbox() {
-    const path = join(this.options.userData, "outbox.json");
-    return {
-      load: () => readFile(path, "utf8").catch(() => null),
-      save: (value: string) => writeFile(path, value, { mode: 0o600 }),
-    };
   }
 }
