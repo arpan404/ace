@@ -8,13 +8,17 @@ type Ports = {
   directory(): string;
   info(value: unknown): void;
   receive(value: unknown): void;
+  pending(id: string, value: unknown): void;
+  settled(id: string): void;
+  failed(value: unknown): void;
 };
 /** Unknown facts are bounded evidence until a GET chain proves ownership. */
 export class AncestryProbe {
   private p: Ports;
   private unknown = new Map<string, unknown[]>();
   private unknownBytes = 0;
-  private unknownFailures = new Set<string>();
+  private sequence = 0;
+  private deferred = new Map<string, string>();
   constructor(p: Ports) {
     this.p = p;
   }
@@ -25,7 +29,6 @@ export class AncestryProbe {
     if (
       !id ||
       this.p.ownership.sessions.has(id) ||
-      this.unknownFailures.has(id) ||
       e.data.location.directory !== this.p.directory() ||
       e.data.type === "session.created"
     )
@@ -36,15 +39,20 @@ export class AncestryProbe {
       this.unknownBytes + bytes > 1024 * 1024 ||
       (queued?.length ?? 0) >= 32 ||
       (!queued && this.unknown.size >= 8)
-    )
+    ) {
+      this.p.failed(data);
       return;
+    }
     this.unknownBytes += bytes;
     if (queued) {
       queued.push(data);
       return;
     }
     this.unknown.set(id, [data]);
+    const guard = `ancestry:${++this.sequence}`;
+    this.p.pending(guard, data);
     void (async () => {
+      let failed = false;
       try {
         const chain = [],
           visited = new Set<string>();
@@ -54,8 +62,8 @@ export class AncestryProbe {
             throw new Error("Unverified OpenCode ancestry");
           visited.add(cursor);
           const info = SessionInfo.parse(await this.p.client.session.get({ sessionID: cursor }));
-          if (info.fork || !info.parentID || info.id !== cursor)
-            throw new Error("Unowned OpenCode root/fork");
+          if (info.id !== cursor) throw new Error("Mismatched OpenCode ancestry identity");
+          if (info.fork || !info.parentID) return;
           chain.push(info);
           cursor = info.parentID;
         }
@@ -65,16 +73,26 @@ export class AncestryProbe {
         }
         for (const event of this.unknown.get(id) ?? []) this.p.receive(event);
       } catch {
-        this.unknownFailures.add(id);
-        if (this.unknownFailures.size > 128) {
-          const first = this.unknownFailures.values().next().value;
-          if (first) this.unknownFailures.delete(first);
-        }
+        failed = true;
+        this.deferred.set(id, guard);
+        this.p.failed(data);
       } finally {
-        for (const event of this.unknown.get(id) ?? [])
-          this.unknownBytes -= Buffer.byteLength(JSON.stringify(event));
-        this.unknown.delete(id);
+        if (!failed) this.finish(id, guard);
       }
     })();
+  }
+  reconciled(): void {
+    for (const [id, guard] of this.deferred) {
+      for (const event of this.unknown.get(id) ?? [])
+        if (this.p.ownership.accept(event)) this.p.receive(event);
+      this.finish(id, guard);
+    }
+    this.deferred.clear();
+  }
+  private finish(id: string, guard: string): void {
+    for (const event of this.unknown.get(id) ?? [])
+      this.unknownBytes -= Buffer.byteLength(JSON.stringify(event));
+    this.unknown.delete(id);
+    this.p.settled(guard);
   }
 }

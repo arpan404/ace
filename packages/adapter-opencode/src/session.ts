@@ -99,6 +99,18 @@ export class OpenCodeSession implements ProviderSession {
       directory: () => this.ownership.sessions.get(this.ownership.root)?.directory ?? this.ctx.cwd,
       info: (info) => this.emit("recv", "snapshot.info", { info }),
       receive: (data) => this.receive(data),
+      pending: (id, data) => this.emit("note", "lifecycle", { type: "ancestry.pending", id, data }),
+      settled: (id) => this.emit("note", "lifecycle", { type: "ancestry.settled", id }),
+      failed: (data) => {
+        if (this.closed) return;
+        this.recovering = true;
+        this.emit("note", "lifecycle", {
+          type: "disconnected",
+          reason: "ancestry verification incomplete",
+          data,
+        });
+        void this.server.reconcileNow();
+      },
     });
     this.abortListener = () => {
       void this.close("shutdown");
@@ -134,6 +146,7 @@ export class OpenCodeSession implements ProviderSession {
       resync: () => s.resync(),
       finalizeSnapshots: () => s.finalizeSnapshots(),
       recovered: () => {
+        s.ancestry.reconciled();
         s.recovering = false;
         s.evidence.reset();
         s.emit("note", "lifecycle", { type: "resynced" });
