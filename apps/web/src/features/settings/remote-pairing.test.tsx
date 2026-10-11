@@ -10,7 +10,7 @@ test("a device that scans the code turns the dialog into a confirmation with Don
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
   const app = harness({ clock: () => Date.now() });
   await app.open("/settings/remote");
-  await user.click(await screen.findByRole("button", { name: "Pair" }));
+  await user.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await user.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
   await within(dialog).findByRole("img", { name: "Pairing QR code" });
@@ -31,7 +31,7 @@ test("a device that scans the code turns the dialog into a confirmation with Don
 
 test("the chosen access shows above the code, and Change goes back to choose again", async () => {
   await harness({ clock: () => Date.now() }).open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("button", { name: "View only" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
@@ -43,7 +43,7 @@ test("the chosen access shows above the code, and Change goes back to choose aga
 
 test("pairing explains the actual Tailscale listener instead of asking to enable it again", async () => {
   await harness().open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   expect(
     await within(dialog).findByText(/Connect your device to your Tailscale network to pair/),
@@ -55,7 +55,7 @@ test("remote access off explains the missing listener and prevents making an unu
   const app = harness();
   app.daemon.services.settings.seed({ "remote.enabled": false });
   await app.open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   expect(await within(dialog).findByText(/Turn on LAN or Tailscale/)).toBeTruthy();
   expect(
@@ -69,7 +69,7 @@ test("turning remote access off changes pairing instructions on the same page", 
   await waitFor(() => expect(toggle.getAttribute("aria-disabled")).not.toBe("true"));
   await userEvent.click(toggle);
   await screen.findByRole("switch", { name: "Remote access", checked: false });
-  await userEvent.click(screen.getByRole("button", { name: "Pair" }));
+  await userEvent.click(screen.getByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   expect(await within(dialog).findByText(/Turn on LAN or Tailscale/)).toBeTruthy();
   expect(

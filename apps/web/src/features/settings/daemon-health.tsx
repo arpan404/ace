@@ -73,7 +73,7 @@ export function DaemonHealth() {
     return (
       <div role="alert" className="flex items-center gap-3 text-sm text-muted-foreground">
         Couldn't read ace health.
-        <Button size="sm" variant="ghost" onClick={() => void health.refetch()}>
+        <Button size="sm" variant="secondary" onClick={() => void health.refetch()}>
           Try again
         </Button>
       </div>
@@ -109,7 +109,7 @@ export function DaemonHealth() {
       </dl>
       <DataTable caption="Pending work" columns={columns} data={queues} empty="No queues." />
       <div>
-        <Button size="sm" variant="ghost" onClick={copy}>
+        <Button size="sm" variant="secondary" onClick={copy}>
           Copy diagnostics
         </Button>
       </div>

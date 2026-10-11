@@ -230,6 +230,15 @@ export async function runTour(options: Tour) {
     "theme-editor",
   ])
     await step(`settings-${path}`, () => visit(`/settings/${path}`));
+  await step("pair-view", async () => {
+    await visit("/pair");
+    await expect(page.getByRole("heading", { name: "Pair a device", level: 2 })).toBeVisible();
+    await expect(page.getByRole("feed", { name: "Transcript" })).toHaveCount(0);
+  });
+  await step("archived-view", async () => {
+    await visit("/archived");
+    await expect(page.getByRole("heading", { name: "Archived", level: 2 })).toBeVisible();
+  });
   await step("deleted-thread", async () => {
     await visit("/t/real-smoke-deleted-thread");
     await expect(

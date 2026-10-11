@@ -1,7 +1,7 @@
 import { cn } from "@/lib/cn.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { Fragment } from "react";
-import { formatKeyParts, type KeymapId } from "@/lib/keymap.ts";
+import { formatKeyParts, formatChordParts, type KeymapId } from "@/lib/keymap.ts";
 
 /**
  * A key hint. `shortcut` shows what a keymap id is bound to now. `keys` uses the keymap
@@ -14,6 +14,7 @@ function Kbd({
   shortcut,
   keys,
   resolve = true,
+  separate = false,
   variant = "default",
   children,
   ...props
@@ -22,6 +23,8 @@ function Kbd({
   keys?: string;
   /** False: `keys` are already final (Settings › Keyboard shows a stored binding). */
   resolve?: boolean;
+  /** Settings shows one keycap per chord key. */
+  separate?: boolean;
   /** `on-primary`: a plain dim key on an ink button, no box. */
   variant?: "default" | "bare" | "outline" | "on-primary";
 }) {
@@ -40,7 +43,12 @@ function Kbd({
     "in-data-[slot=tooltip-content]:bg-transparent in-data-[slot=tooltip-content]:px-0 in-data-[slot=tooltip-content]:text-current in-data-[slot=tooltip-content]:opacity-55",
     className,
   );
-  const parts = shown ? formatKeyParts(shown) : [];
+  const sequence = shown?.includes(" ") ?? false;
+  const parts = shown
+    ? separate && !sequence
+      ? formatChordParts(shown)
+      : formatKeyParts(shown)
+    : [];
   // A sequence ("g h") is keys pressed one after another, not together: one chip per key.
   if (parts.length > 1)
     return (
@@ -56,7 +64,10 @@ function Kbd({
           .map((part, position) => ({ part, id: `${position}:${part}`, first: position === 0 }))
           .map((step) => (
             <Fragment key={step.id}>
-              {!step.first && <span className="opacity-70">then</span>}
+              {!step.first && sequence && <span className="opacity-70">then</span>}
+              {!step.first && !sequence && shown && formatKeyParts(shown)[0]?.includes("+") && (
+                <span className="opacity-70">+</span>
+              )}
               <kbd className={chip}>{step.part}</kbd>
             </Fragment>
           ))}

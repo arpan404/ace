@@ -1,3 +1,5 @@
+import { SettingRow } from "@/components/setting-row.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { memo, useEffect, useRef, useState } from "react";
 import {
   isValidTokenValue,
@@ -12,7 +14,7 @@ import { isHexColor, longHex, swatchColor } from "./editor-model.ts";
 const settleMs = 150;
 
 const field =
-  "h-7 min-w-0 w-full rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
+  "h-7 min-w-0 w-40 max-w-full rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
 
 /**
  * One token: name, a swatch that is also the colour picker for hex values, and the value
@@ -46,21 +48,17 @@ export const TokenRow = memo(function TokenRow(props: {
   const inputId = `token-${token.slice(2)}`;
   const errorId = `${inputId}-error`;
   return (
-    <div className="border-t py-1">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,2fr)]">
-        <label htmlFor={inputId} className="min-w-0 flex-1 text-sm leading-4">
-          <span className="block truncate">{label}</span>
-          <span className="block truncate font-mono text-xs leading-3 text-muted-foreground">
-            {token}
+    <SettingRow
+      title={
+        <Tip label={token}>
+          <span tabIndex={0} className="rounded-sm focus-ring">
+            {label}
           </span>
-          {props.warning && (
-            <span
-              className="size-1.5 rounded-full bg-status-failed"
-              aria-label="Low contrast"
-              role="img"
-            />
-          )}
-        </label>
+        </Tip>
+      }
+      inline
+    >
+      <div className="flex flex-wrap justify-end gap-2">
         {isHexColor(value) ? (
           <input
             type="color"
@@ -72,9 +70,11 @@ export const TokenRow = memo(function TokenRow(props: {
         ) : (
           <span
             aria-hidden
-            className="size-7 shrink-0 rounded-sm border border-foreground/30"
-            style={swatch ? { background: swatch } : undefined}
-          />
+            className="size-7 shrink-0 overflow-hidden rounded-sm border border-foreground/30"
+            style={{ background: "repeating-conic-gradient(#ddd 0% 25%, #777 0% 50%) 0 / 8px 8px" }}
+          >
+            <span className="block size-full" style={swatch ? { background: swatch } : undefined} />
+          </span>
         )}
         <input
           id={inputId}
@@ -96,7 +96,7 @@ export const TokenRow = memo(function TokenRow(props: {
             timer.current = setTimeout(() => commit(next), settleMs);
           }}
           onBlur={() => commit(draft)}
-          className={`${field} col-span-2 sm:col-span-1`}
+          className={field}
         />
       </div>
       {!valid && (
@@ -104,6 +104,6 @@ export const TokenRow = memo(function TokenRow(props: {
           {tokenKindHints[kind]}
         </p>
       )}
-    </div>
+    </SettingRow>
   );
 });

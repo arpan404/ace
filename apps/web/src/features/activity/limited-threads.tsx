@@ -61,10 +61,6 @@ export function LimitedThreads(props: { threads: readonly LimitedThread[] }) {
       <h2 id="limited-title" className="text-md font-medium">
         Paused at a usage limit
       </h2>
-      <p className="mt-1 text-ui text-muted-foreground">
-        These wait for their account's window to reset. Move them to an account with room, or open
-        one to choose.
-      </p>
       {groups.map((group) => (
         <LimitedAccount key={group.accountId ?? ""} group={group} accounts={accounts.data ?? []} />
       ))}
@@ -77,16 +73,14 @@ function LimitedAccount(props: { group: LimitedGroup; accounts: readonly Account
   const now = useNow();
   const move = useMoveThreads();
   const toast = useToast();
-  const count = group.threads.length;
   const target = group.target;
   const from = group.accountId;
   return (
     <article aria-label={group.name} className="mt-3.5 border-b py-2">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{group.name}</p>
-          <p className="text-xs text-subtle-foreground">
-            {count} {count === 1 ? "thread" : "threads"} paused ·{" "}
+          <p className="text-sm text-muted-foreground">
+            {group.name} —{" "}
             {group.resetsAt === undefined
               ? "Reset time not reported"
               : formatResetCountdown(group.resetsAt, now)}
@@ -123,7 +117,7 @@ function LimitedAccount(props: { group: LimitedGroup; accounts: readonly Account
             <Link
               to="/t/$threadId"
               params={{ threadId: thread.id }}
-              className="block truncate rounded-sm py-1 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+              className="flex h-9 items-center gap-2 truncate rounded-sm text-ui text-muted-foreground focus-ring hover:text-foreground"
             >
               {thread.title}
             </Link>

@@ -23,10 +23,7 @@ export function RecoverySettings() {
   const send = useKeys("send");
   return (
     <SettingSection label="While agents work" card scope="daemon">
-      <SettingRow
-        {...followRow}
-        description={`Queue waits for the turn to finish; Steer adds it to the running turn. ${formatKeys(send)} does the other.`}
-      >
+      <SettingRow {...followRow} description={`Queue waits for the turn to finish; Steer adds it to the running turn. ${formatKeys(send)} does the other.`}>
         <DaemonSlot control={followUp}>
           <Select
             label={followRow.title}
@@ -40,7 +37,7 @@ export function RecoverySettings() {
       <SettingSwitch
         setting={settingKeys.continueAfterRestart}
         entry="threads.continueAfterRestart"
-        description="Work cut off by an update or reboot picks up again on its own. Off, it waits for you."
+        description="Resume work after an update or reboot."
       />
     </SettingSection>
   );

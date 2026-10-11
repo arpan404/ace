@@ -1,7 +1,3 @@
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { useMachineIdentity } from "@/lib/machine-identity.ts";
-import { useSidebarThread } from "@ace/client-react";
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { CheckIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -20,6 +16,7 @@ export function FeedRow(props: {
   icon: ReactNode;
   threadId?: string | undefined;
   title: string;
+  itemKey?: string;
   description: string;
   age: string;
   /** Waiting on you, or not yet read: foreground title and icon, and said aloud. */
@@ -35,13 +32,12 @@ export function FeedRow(props: {
   readId?: string;
 }) {
   const arrival = useArrival();
-  const thread = useSidebarThread(props.threadId ?? "");
-  const machine = useMachineIdentity(thread?.details?.machine);
   const button = (
     <button
       type="button"
       title={props.description}
       data-view-row=""
+      data-activity-key={props.itemKey}
       data-read-id={props.readId}
       aria-current={props.selected ? "page" : undefined}
       onClick={(event) => {
@@ -70,24 +66,6 @@ export function FeedRow(props: {
       >
         {props.picked ? <Icon icon={CheckIcon} size={14} /> : props.icon}
       </span>
-      {thread && (
-        <ProviderAccountIcon
-          provider={thread.provider}
-          instance={
-            (thread.switch?.state === "queued" ? thread.switch.selection.instanceId : undefined) ??
-            thread.live?.account ??
-            thread.execution?.instanceId
-          }
-          size={14}
-        />
-      )}
-      {!machine.primary && (
-        <MachineLabel
-          name={machine.name}
-          icon={machine.icon}
-          className="max-w-32 text-xs text-muted-foreground"
-        />
-      )}
       <span className="min-w-0 flex-1">
         <span
           className={cn(

@@ -1,3 +1,4 @@
+import { useInteraction } from "@ace/client-react";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { Suspense, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -26,6 +27,7 @@ export function RequestStack(props: {
   // Stay on the request the person moved to while it is open; else the oldest.
   const at = Math.max(0, picked === undefined ? 0 : props.ids.indexOf(picked));
   const id = props.ids[at];
+  const request = useInteraction(props.threadId, id ?? "");
   if (!id) return null;
   const go = (step: number) => setPicked(props.ids[(at + step + count) % count]);
   const onKeyDown = (event: KeyboardEvent) => {
@@ -65,16 +67,29 @@ export function RequestStack(props: {
         />
       </span>
     ) : undefined;
+  const content = (
+    <Suspense fallback={null}>
+      <InteractionCard
+        threadId={props.threadId}
+        interactionId={id}
+        frame={request?.request.kind === "approval" ? "inline" : "attached"}
+        aside={pager}
+      />
+    </Suspense>
+  );
+  if (request?.request.kind === "approval")
+    return (
+      <section
+        aria-label="Waiting for you"
+        onKeyDownCapture={onKeyDown}
+        className="relative mx-0 mb-3 max-h-[50vh] overflow-y-auto overscroll-contain"
+      >
+        {content}
+      </section>
+    );
   return (
     <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id} onKeyDown={onKeyDown}>
-      <Suspense fallback={null}>
-        <InteractionCard
-          threadId={props.threadId}
-          interactionId={id}
-          frame="attached"
-          aside={pager}
-        />
-      </Suspense>
+      {content}
     </AttachedCard>
   );
 }

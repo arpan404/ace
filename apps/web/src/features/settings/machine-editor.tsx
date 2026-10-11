@@ -5,15 +5,13 @@ import { useState } from "react";
 import type { MachineIcon } from "@ace/protocol";
 import {
   CheckIcon,
-  PencilSimpleIcon,
   PlusIcon,
-  ArrowClockwiseIcon,
-  TrashIcon,
 } from "@phosphor-icons/react";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { MachineLabel, MachineMark } from "@/components/ui/machine-label.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -73,42 +71,25 @@ export function Machines() {
             machine.primary ? "This machine" : machineProblem(machine.status, !!machine.failed)
           }
         >
-          <StatusLabel
-            tone={machineStatus[machine.status].tone}
-            label={machineStatus[machine.status].label}
-          />
-          {!machine.primary && (
-            <>
-              <IconButton
-                icon={ArrowClockwiseIcon}
-                size="sm"
-                label={`Reconnect ${machine.name}`}
-                disabled={machine.status === "online" || machine.status === "connecting"}
-                onClick={() => pool?.reconnect(machine.id)}
-              />
-              <IconButton
-                icon={TrashIcon}
-                size="sm"
-                label={`Forget ${machine.name}`}
-                onClick={() =>
-                  void pool?.remove(machine.id).then(
-                    () => toast.add({ title: `${machine.name} forgotten` }),
-                    () => toast.error({ title: "Couldn't forget this machine. Try again." }),
-                  )
-                }
-              />
-            </>
+          {machine.status !== "online" && (
+            <StatusLabel tone={machineStatus[machine.status].tone} label={machineStatus[machine.status].label} />
           )}
-          <IconButton
-            icon={PencilSimpleIcon}
-            size="sm"
-            label={`Edit ${machine.primary ? "this machine" : machine.name}`}
-            disabled={!machine.client}
-            reason={
-              !machine.client ? "Connect to this machine to edit its name and icon" : undefined
-            }
-            onClick={() => setEditing(machine)}
-          />
+          <RowMenu label={`Actions for ${machine.name}`}>
+            {!machine.primary && <>
+              <MenuItem disabled={machine.status === "online" || machine.status === "connecting"} onClick={() => pool?.reconnect(machine.id)}>Reconnect</MenuItem>
+              <MenuItem onClick={() => void pool?.remove(machine.id).then(
+                () => toast.add({ title: `${machine.name} forgotten` }),
+                () => toast.error({ title: "Couldn't forget this machine. Try again." }),
+              )}>Forget</MenuItem>
+            </>}
+            <MenuItem
+              disabled={!machine.client}
+              reason={!machine.client ? "Connect to this machine to rename it" : undefined}
+              onClick={() => setEditing(machine)}
+            >
+              Rename
+            </MenuItem>
+          </RowMenu>
         </SettingRow>
       ))}
       {editing && (

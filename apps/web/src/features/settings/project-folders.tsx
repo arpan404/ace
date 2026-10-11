@@ -1,10 +1,10 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import { TrashIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { SettingSection, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { addProjectRoot, saveProjectRoots } from "@/lib/project-roots.ts";
@@ -33,30 +33,31 @@ export function ProjectFolders() {
   const disabled = offline || pending || roots === undefined;
   return (
     <SettingSection label="Project folders" anchor="projects.roots" scope="daemon">
-      <p className="mb-2 text-sm text-muted-foreground">
-        ace can open projects inside these folders. With no folders added, your home folder is
-        allowed.
-      </p>
       <ul aria-label="Project folders">
         {(roots ?? []).map((root) => (
-          <li key={root} className="flex min-h-9 items-center gap-2 text-ui">
-            <span className="min-w-0 flex-1 truncate" title={root}>
-              {root}
-            </span>
-            <IconButton
-              icon={TrashIcon}
-              label={`Remove ${root}`}
-              size="sm"
-              disabled={disabled}
-              onClick={() =>
-                void run(() =>
-                  saveProjectRoots(
-                    client,
-                    (roots ?? []).filter((value) => value !== root),
-                  ),
-                )
-              }
-            />
+          <li key={root}>
+            <SettingRow
+              title={root.split(/[\\/]/).findLast(Boolean) ?? "Projects"}
+              description={root}
+              compact
+              inline
+            >
+              <RowMenu label={`Actions for ${root}`}>
+                <MenuItem
+                  disabled={disabled}
+                  onClick={() =>
+                    void run(() =>
+                      saveProjectRoots(
+                        client,
+                        (roots ?? []).filter((value) => value !== root),
+                      ),
+                    )
+                  }
+                >
+                  Remove
+                </MenuItem>
+              </RowMenu>
+            </SettingRow>
           </li>
         ))}
       </ul>
@@ -69,7 +70,7 @@ export function ProjectFolders() {
       >
         <Input
           aria-label="Folder path"
-          placeholder="Full folder path"
+          placeholder="Add a project folder"
           value={path}
           className="min-w-0 flex-1"
           onChange={(event) => setPath(event.target.value)}
@@ -78,7 +79,7 @@ export function ProjectFolders() {
         <Button
           type="submit"
           size="sm"
-          variant="ghost"
+          variant="secondary"
           disabled={disabled || !/^(?:\/|[A-Za-z]:[\\/])/.test(path.trim())}
         >
           Add folder

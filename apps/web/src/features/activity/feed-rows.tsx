@@ -56,6 +56,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
       : undefined;
   return (
     <FeedRow
+      itemKey={key}
       threadId={props.threadId}
       icon={glyph(requestIcons[request.kind])}
       title={

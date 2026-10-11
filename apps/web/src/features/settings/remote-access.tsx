@@ -1,6 +1,6 @@
 import { useRemoteStatus } from "./data/use-settings.ts";
 import { useId } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -24,11 +24,15 @@ export function RemoteAccess() {
         ? "lan"
         : transport.value;
   return (
-    <SettingSection
-      label="Remote access"
-      note="Only paired devices can connect. Turning this off disconnects them; saved pairings stay available for next time."
-    >
-      <SettingRow id="remote.enabled" title="Remote access" htmlFor={id} inline compact>
+    <div className="mt-7">
+      <SettingRow
+        id="remote.enabled"
+        title="Remote access"
+        description="Only paired devices can connect."
+        htmlFor={id}
+        inline
+        compact
+      >
         <DaemonSlot control={enabled}>
           <Switch
             id={id}
@@ -54,7 +58,13 @@ export function RemoteAccess() {
           {status.error.message}
         </p>
       )}
-      <SettingRow id="remote.transport" title="Transport" inline compact>
+      <SettingRow
+        id="remote.transport"
+        title="Transport"
+        description={selected === "lan" ? "Trust this computer’s HTTPS certificate." : undefined}
+        inline
+        compact
+      >
         <DaemonSlot control={transport}>
           <Select
             label="Transport"
@@ -76,8 +86,7 @@ export function RemoteAccess() {
             ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
             : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
       </p>
-      {
-        <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
+      <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
           <Input
             id={`${id}-relay`}
             aria-label="Relay address"

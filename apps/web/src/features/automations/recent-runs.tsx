@@ -28,18 +28,16 @@ export function RecentRuns(props: { automationId: string; timezone?: string | un
           ))}
         </ul>
       ) : (
-        <p className="py-2 text-sm text-muted-foreground">
-          No runs yet. Run it now to see what it does.
-        </p>
+        <p className="py-2 text-sm text-muted-foreground">No runs yet.</p>
       )}
       {history.isError && (
-        <Button variant="ghost" size="sm" onClick={() => void history.refetch()}>
+        <Button variant="secondary" size="sm" onClick={() => void history.refetch()}>
           Try again
         </Button>
       )}
       {history.hasNextPage && (
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
           disabled={history.isFetchingNextPage}
           onClick={() => void history.fetchNextPage()}
@@ -82,15 +80,17 @@ function RunItem(props: { run: AutomationRun; timezone?: string | undefined }) {
         className="flex h-9 w-full items-center gap-3 rounded-sm text-left focus-ring-inset hover:bg-accent"
       >
         <span className="min-w-0 flex-1 truncate text-ui">
-          {open || run.status === "running" ? triggers[run.trigger] : summary}
+          {open || run.status === "running"
+            ? triggers[run.trigger]
+            : summary.replace(/^Failed: /, "")}
         </span>
+        {run.status !== "succeeded" && <StatusLabel {...status} />}
         <span
           className="shrink-0 text-xs text-muted-foreground tabular-nums"
           title={new Date(run.startedAt).toLocaleString(undefined, { timeZone: props.timezone })}
         >
           {formatWhen(run.startedAt, now, props.timezone)}
         </span>
-        <StatusLabel {...status} />
       </button>
       {open && (
         <section aria-label={`Run details for ${run.title}`} className="pb-3">
@@ -102,7 +102,7 @@ function RunItem(props: { run: AutomationRun; timezone?: string | undefined }) {
           <RunOutput run={run} />
           <div className="mt-3 flex items-center justify-end gap-2">
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => {
                 setOpen(false);

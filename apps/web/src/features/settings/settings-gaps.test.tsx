@@ -208,13 +208,14 @@ test("allowed project folders round-trip and removing one stops browsing it", as
   expect(denied.result).toMatchObject({ kind: "error", code: "outside_project_roots" });
   await userEvent.type(await screen.findByRole("textbox", { name: "Folder path" }), "/external");
   await userEvent.click(screen.getByRole("button", { name: "Add folder" }));
-  expect(await screen.findByRole("button", { name: "Remove /external" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Actions for /external" })).toBeTruthy();
   const allowed = await app.client.request({
     type: "projects.request",
     operation: { op: "fs.browse", path: "/external" },
   });
   expect(allowed.result.kind).toBe("directories");
-  await userEvent.click(screen.getByRole("button", { name: "Remove /external" }));
+  await userEvent.click(screen.getByRole("button", { name: "Actions for /external" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
   await waitFor(() =>
     expect(app.daemon.services.settings.get("projects.roots")).toEqual(["/fake"]),
   );

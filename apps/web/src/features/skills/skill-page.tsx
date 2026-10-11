@@ -107,7 +107,6 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
   const ownSkill = skill.kind === "skill";
   const policy = ownSkill ? (skill.skillAvailability ?? skill) : plugin;
   const controlled = ownSkill ? skill : plugin;
-  const group = kinds.find((entry) => entry.kind === skill.kind)?.label ?? "Skills";
   const change = (next: { enabled?: boolean; providers?: readonly ProviderKind[] }, done: string) =>
     setAvailability.mutate(
       {
@@ -136,8 +135,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
     );
   return (
     <Screen
-      title={skillTitle(skill)}
-      subtitle={group}
+      title="Skills"
       menu={
         <>
           {isPlugin && (
@@ -164,10 +162,7 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           <div className="flex items-start gap-4">
             <div className="min-w-0 flex-1">
-              <p className="font-mono text-sm text-muted-foreground">{skill.name}</p>
-              <p className="mt-1 text-base leading-normal text-muted-foreground">
-                {skill.description}
-              </p>
+              <h2 className="text-2xl font-semibold tracking-title">{skillTitle(skill)}</h2>
             </div>
             {(isPlugin || ownSkill) && (
               <LabelledSwitch
@@ -178,6 +173,11 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
               />
             )}
           </div>
+          {skill.description && (
+            <p className="mt-2 truncate text-sm text-muted-foreground" title={skill.description}>
+              {skill.description}
+            </p>
+          )}
           {ownSkill && (
             <div className="mt-4">
               <Link
@@ -199,13 +199,11 @@ function SkillDetail(props: { skill: Skill; plugin: Skill; components: readonly 
                     params={{ skillId: plugin.id }}
                     className="underline-offset-4 hover:underline"
                   >
-                    {skillTitle(plugin)} plugin
+                    Plugin: {skillTitle(plugin)}
                   </Link>
                 }
                 description={
-                  !plugin.enabled
-                    ? "This plugin is off. Turn it on to use its skills."
-                    : "Changes apply to new threads."
+                  !plugin.enabled ? "This plugin is off. Turn it on to use its skills." : undefined
                 }
               />
             )}
@@ -294,7 +292,7 @@ function AvailabilityMenu(props: {
         setDraft(undefined);
       }}
     >
-      <MenuTrigger render={<Button variant="ghost" size="sm" />}>Change</MenuTrigger>
+      <MenuTrigger render={<Button variant="secondary" size="sm" />}>Change</MenuTrigger>
       <MenuContent align="end">
         {ProviderKind.options.map((provider) => (
           <MenuCheckboxItem
@@ -350,22 +348,16 @@ function Contents(props: { components: readonly Skill[] }) {
 function DiscoveredSkillDetail({ skill }: { skill: Skill }) {
   const source = skill.discovered?.source;
   return (
-    <Screen
-      title={skillTitle(skill)}
-      subtitle={kinds.find((entry) => entry.kind === skill.kind)?.label}
-    >
+    <Screen title="Skills">
       <div className="mx-auto max-w-(--column) px-4 pt-6 sm:px-8 sm:pt-11">
-        <p className="font-mono text-sm text-subtle-foreground">{skill.name}</p>
+        <h2 className="text-2xl font-semibold tracking-title">{skillTitle(skill)}</h2>
         <p className="mt-2 text-base text-muted-foreground">{skill.description}</p>
         <SettingSection label="Source">
           <p className="text-sm text-muted-foreground">
             {source?.provider === "ace" ? "ace" : source && providerNames[source.provider]} ·{" "}
             {source?.scope === "project" ? "This project" : "Provider catalog"}
           </p>
-          {skill.path && <p className="break-words font-mono text-sm">{skill.path}</p>}
-          <p className="mt-2 text-sm text-muted-foreground">
-            Use this from the / menu in a thread with the same project and provider.
-          </p>
+          {skill.path && <SettingRow title="Source file" description={skill.path} compact inline />}
         </SettingSection>
       </div>
     </Screen>

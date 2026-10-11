@@ -15,7 +15,7 @@ export function DesktopShortcut(props: {
     <>
       <Button
         size="sm"
-        variant="ghost"
+        variant="secondary"
         aria-label="Quick-thread global shortcut"
         onClick={() => {
           setRecording(true);

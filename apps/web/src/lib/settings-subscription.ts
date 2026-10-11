@@ -11,7 +11,7 @@ export function subscribeSettings(
   schedule: { set(delay: number, run: () => void): () => void } = {
     set(delay, run) {
       const timer = setTimeout(run, delay);
-      return () => cancel?.();
+      return () => clearTimeout(timer);
     },
   },
 ) {

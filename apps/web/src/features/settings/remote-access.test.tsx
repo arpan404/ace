@@ -15,10 +15,12 @@ test("remote access and transport choices are saved and machine renaming is show
   await userEvent.click(transport);
   await userEvent.click(await screen.findByRole("option", { name: "LAN" }));
   await waitFor(() => expect(app.daemon.services.settings.get("remote.transport")).toBe("lan"));
+  await userEvent.hover(screen.getByText("Transport", { exact: true }));
   expect(
-    await screen.findByText(/Browsers must trust this computer's HTTPS certificate/),
+    await screen.findByRole("tooltip", { name: "Trust this computer’s HTTPS certificate." }),
   ).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Edit this machine" }));
+  await userEvent.click(screen.getByRole("button", { name: "Actions for Fake machine" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const name = screen.getByRole("textbox", { name: "Machine name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Office Mac");
@@ -34,7 +36,7 @@ test("remote access and transport choices are saved and machine renaming is show
 test("administrator access still requires explicit Projects and Accounts grants", async () => {
   const app = harness({ clock: () => Date.now() });
   await app.open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "Pair" }));
+  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Administrator" }));
   await userEvent.click(within(dialog).getByText("Advanced access", { exact: true }));

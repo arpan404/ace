@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
@@ -15,7 +15,7 @@ import { useModelChoices } from "@/features/models/index.ts";
 import { Page, Screen } from "@/features/shell/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
-import { missedRunLabels, runsOn } from "./labels.ts";
+import { runsOn } from "./labels.ts";
 import { RecentRuns } from "./recent-runs.tsx";
 import { describeWhen, formatNextRun, localTimeZone } from "./schedule.ts";
 import {
@@ -31,6 +31,7 @@ import { useProjectName } from "@/lib/projects.ts";
 export function AutomationScreen(props: { id: string }) {
   const { entry, pending, error, retry } = useAutomation(props.id);
   const actions = useAutomationControls(entry?.automation);
+  const navigate = useNavigate();
   const choices = useModelChoices();
   const now = useNow();
   const projectName = useProjectName();
@@ -68,13 +69,22 @@ export function AutomationScreen(props: { id: string }) {
       </Screen>
     );
   const { automation, nextRunAt } = entry;
-  const edit = { to: "/automations/$automationId/edit", params: { automationId: automation.id } };
   return (
     <Screen
-      title={automation.title}
-      subtitle="Automation"
+      title="Automations"
       menu={
         <>
+          <MenuItem
+            onClick={() =>
+              void navigate({
+                to: "/automations/$automationId/edit",
+                params: { automationId: automation.id },
+              })
+            }
+          >
+            Edit
+          </MenuItem>
+          <MenuItem onClick={actions.duplicate}>Duplicate</MenuItem>
           <MenuItem danger icon={<Icon icon={TrashIcon} />} onClick={actions.remove}>
             Delete
           </MenuItem>
@@ -85,13 +95,10 @@ export function AutomationScreen(props: { id: string }) {
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-semibold tracking-title">{automation.title}</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <span className="text-base text-muted-foreground">
                 {projectName(automation.workspace)}
               </span>
-              <Link {...edit} className={buttonVariants({ variant: "ghost", size: "sm" })}>
-                Edit
-              </Link>
               {/* A paused automation must resume before it can run. */}
               {!automation.enabled || running === false ? (
                 <Tip
@@ -101,13 +108,13 @@ export function AutomationScreen(props: { id: string }) {
                       : "Automations are off on this machine"
                   }
                 >
-                  <Button variant="ghost" size="sm" disabled focusableWhenDisabled>
+                  <Button variant="primary" size="sm" disabled focusableWhenDisabled>
                     <Icon icon={PlayIcon} size={14} />
                     Run now
                   </Button>
                 </Tip>
               ) : (
-                <Button variant="ghost" size="sm" onClick={actions.runNow}>
+                <Button variant="primary" size="sm" onClick={actions.runNow}>
                   <Icon icon={PlayIcon} size={14} />
                   Run now
                 </Button>
@@ -129,21 +136,19 @@ export function AutomationScreen(props: { id: string }) {
           <SettingRow title="Prompt" description={automation.prompt} />
           <SettingRow
             title="When"
-            description={describeWhen(automation.trigger, localTimeZone())}
-          />
-          <SettingRow title="Runs on" description={runsOn(automation, choices)} />
-          <SettingRow
-            title="Next run"
             description={
-              <NextRun automation={automation} nextRunAt={nextRunAt} now={now} running={running} />
+              <>
+                {describeWhen(automation.trigger, localTimeZone())} ·{" "}
+                <NextRun
+                  automation={automation}
+                  nextRunAt={nextRunAt}
+                  now={now}
+                  running={running}
+                />
+              </>
             }
           />
-          {automation.trigger.kind === "schedule" && (
-            <SettingRow
-              title="If a run was missed"
-              description={missedRunLabels[automation.missedRun]}
-            />
-          )}
+          <SettingRow title="Runs on" description={runsOn(automation, choices)} />
         </div>
         {entry.lastPollError && <PollError error={entry.lastPollError} />}
         <RecentRuns
@@ -200,7 +205,7 @@ function NextRun(props: {
 }
 
 function useAutomationControls(automation: Automation | undefined) {
-  const { setEnabled, remove, runNow, setHidden } = useAutomationActions();
+  const { setEnabled, remove, runNow, setHidden, save } = useAutomationActions();
   const list = useAutomations().data;
   const toast = useToast();
   const navigate = useNavigate();
@@ -223,6 +228,20 @@ function useAutomationControls(automation: Automation | undefined) {
       if (!automation) return;
       runNow(automation.id).then(
         () => toast.add({ title: `Started · ${automation.title}` }),
+        failed,
+      );
+    },
+    duplicate() {
+      if (!automation) return;
+      const copy = {
+        ...automation,
+        id: `auto-${crypto.randomUUID()}`,
+        title: `${automation.title} copy`,
+        enabled: false,
+      };
+      save(copy).then(
+        () =>
+          navigate({ to: "/automations/$automationId/edit", params: { automationId: copy.id } }),
         failed,
       );
     },

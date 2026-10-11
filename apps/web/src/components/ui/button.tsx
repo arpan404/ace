@@ -12,9 +12,9 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        /** The quiet default: a 7% ink fill. */
+        /** A quiet outline for secondary actions. */
         secondary:
-          "bg-secondary text-foreground hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_7%)] aria-expanded:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_7%)]",
+          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
         /** The accent, for the one primary action on a surface. */
         primary:
           "bg-tint text-tint-foreground hover:bg-[color-mix(in_oklab,var(--ring),var(--background)_14%)]",

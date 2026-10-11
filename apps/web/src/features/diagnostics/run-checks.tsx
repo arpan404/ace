@@ -70,7 +70,12 @@ export function RunChecks(props: {
     <>
       <div className="flex h-9 items-center justify-between gap-3 text-ui">
         <span>Check this computer</span>
-        <Button size="sm" variant="ghost" disabled={!ready || running} onClick={() => void run()}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!ready || running}
+          onClick={() => void run()}
+        >
           {running ? "Checking…" : "Run checks"}
         </Button>
       </div>

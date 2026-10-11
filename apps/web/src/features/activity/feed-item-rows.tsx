@@ -97,6 +97,7 @@ export function EventItemRow(props: { event: FeedEvent; read: boolean }) {
   };
   return (
     <FeedRow
+      itemKey={key}
       threadId={event.threadId}
       icon={<Icon icon={eventIcons[event.kind]} size={16} />}
       title={event.title}
@@ -124,6 +125,7 @@ export function RunItemRow(props: { run: AutomationRun; read: boolean }) {
   const key = runKey(run.id);
   return (
     <FeedRow
+      itemKey={key}
       threadId={run.threadId}
       icon={<Dot tone={automationRunTone(run)} label={run.status} />}
       title={run.title}

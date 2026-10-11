@@ -12,7 +12,9 @@ import { Screen } from "@/features/shell/index.ts";
 const RemoteDevices = lazy(() =>
   import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
 );
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { settingRow } from "./settings-index.ts";
+import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
 
@@ -26,10 +28,24 @@ const GeneralSettings = lazy(() =>
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">
-      <Suspense fallback={<ListSkeleton label="settings" shape="row" rows={4} />}>
+      <Suspense fallback={<GeneralPlaceholder />}>
         <GeneralSettings />
       </Suspense>
     </SettingsBody>
+  );
+}
+
+function GeneralPlaceholder() {
+  return (
+    <SettingSection label="Threads">
+      {(["providers.default", "threads.useWorktree", "threads.autoSettleAfter"] as const).map(
+        (entry) => (
+          <SettingRow key={entry} {...settingRow(entry)}>
+            <Skeleton className="h-7 w-28 rounded-md" />
+          </SettingRow>
+        ),
+      )}
+    </SettingSection>
   );
 }
 
@@ -82,10 +98,7 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody
-      page="Remote devices"
-      lede="Connect your own devices to this computer. Provider sign-ins stay here."
-    >
+    <SettingsBody page="Remote devices">
       <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
         <RemoteDevices />
       </Suspense>
@@ -103,10 +116,7 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody
-      page="Keyboard"
-      lede="Click a shortcut and press the new keys. Changes apply at once on every device using ace on this machine."
-    >
+    <SettingsBody page="Keyboard">
       <KeyboardShortcuts />
     </SettingsBody>
   );
@@ -126,10 +136,7 @@ const ComputerUseSettings = lazy(loadComputerUseSettings);
 
 export function ComputerUseSettingsScreen() {
   return (
-    <SettingsBody
-      page="Computer use"
-      lede="Agents can use apps on this Mac in the background while you keep working. You approve each app, can take over at any time and can stop everything at once."
-    >
+    <SettingsBody page="Computer use">
       <Suspense fallback={null}>
         <ComputerUseSettings />
       </Suspense>
@@ -160,6 +167,17 @@ export function PromptsSettingsScreen() {
   return (
     <Suspense fallback={null}>
       <Prompts />
+    </Suspense>
+  );
+}
+
+const PairDevicePage = lazy(() =>
+  import("./pair-device.tsx").then((module) => ({ default: module.PairDevicePage })),
+);
+export function PairDeviceScreen() {
+  return (
+    <Suspense fallback={<SettingsBody page="Pair a device" />}>
+      <PairDevicePage />
     </Suspense>
   );
 }

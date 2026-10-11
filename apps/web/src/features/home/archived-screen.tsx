@@ -1,7 +1,7 @@
 import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { formatAgo } from "@ace/ui-core";
-import { ArchiveIcon, TrashIcon, TrayArrowUpIcon } from "@phosphor-icons/react";
+import { TrashIcon, TrayArrowUpIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,7 +13,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import {
   useOrganizer,
@@ -42,28 +41,21 @@ export function ArchivedScreen() {
   const actions = useThreadActions();
   const scope = project === null ? undefined : projectName(project);
   return (
-    <Screen title="Archived threads" subtitle={scope}>
+    <Screen title="Threads" subtitle={scope}>
       <Page>
-        <PageTitle
-          title="Archived"
-          lede="Archived threads leave Home on every device and wait here. Restore one to bring it back, or delete it for good."
-        />
+        <PageTitle title="Archived" />
         <div className="mt-6">
           {!loaded ? (
             <ListSkeleton label="archived threads" shape="row" />
           ) : ids.length === 0 ? (
-            <EmptyState
-              icon={ArchiveIcon}
-              title={scope ? `Nothing archived in ${scope}` : "Nothing archived"}
-              description="Archive a thread from its ⋯ menu or with ⇧⌘A; it waits here until you need it."
-              action={
-                scope ? (
-                  <Button size="sm" variant="ghost" onClick={() => organizer.setProject(null)}>
-                    Show all projects
-                  </Button>
-                ) : undefined
-              }
-            />
+            <div className="text-sm text-muted-foreground">
+              <p>{scope ? `Nothing archived in ${scope}` : "Nothing archived"}</p>
+              {scope && (
+                <Button size="sm" variant="secondary" onClick={() => organizer.setProject(null)}>
+                  Show all projects
+                </Button>
+              )}
+            </div>
           ) : (
             <ul aria-label="Archived threads" className="flex flex-col border-t">
               {ids.map((id) => (

@@ -18,12 +18,9 @@ export function NewAutomationScreen() {
   const navigate = useNavigate();
   const toast = useToast();
   return (
-    <Screen title="New automation" subtitle="Automation">
+    <Screen title="Automations">
       <Page>
-        <PageTitle
-          title="New automation"
-          lede="A prompt that runs by itself, on a schedule or when something happens in a repository. Results land in Activity."
-        />
+        <PageTitle title="New automation" />
         <AutomationEditor
           initial={blankForm(workspaces[0] ?? "", localTimeZone())}
           workspaces={workspaces}
@@ -96,7 +93,7 @@ export function EditAutomationScreen(props: { id: string }) {
     );
   const back = { to: "/automations/$automationId", params: { automationId: previous.id } } as const;
   return (
-    <Screen title={previous.title} subtitle="Edit automation">
+    <Screen title="Automations">
       <Page>
         <PageTitle title="Edit automation" />
         <AutomationEditor

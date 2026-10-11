@@ -22,7 +22,8 @@ import { defaultModelChoice, modelLabel, pickerModel, providerNames } from "@ace
 import { AutomationForm } from "./automation-values.ts";
 import { missedRunLabels } from "./labels.ts";
 import { Row, invalidProps, visible } from "./form-row.tsx";
-import { ScheduleFields } from "./schedule-fields.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
+import { TimeZoneField, ScheduleFields } from "./schedule-fields.tsx";
 import { useAutomationForm, type AutomationFormApi } from "./use-automation-form.ts";
 import { githubEventLabels } from "./schedule.ts";
 
@@ -156,7 +157,7 @@ export function AutomationEditor(props: {
             );
           }}
         </form.Field>
-        <div className="grid gap-x-4 @min-[34rem]:grid-cols-3">
+        <div className="contents">
           <form.Field name="workspace">
             {(field) => (
               <Row label="Project" errors={visible(field.state.meta)}>
@@ -201,21 +202,6 @@ export function AutomationEditor(props: {
             )}
           </form.Subscribe>
         </div>
-        <form.Subscribe selector={(state) => state.values.provider}>
-          {(provider) => (
-            <form.Field name="permissionMode">
-              {(field) => (
-                <Row label="Permissions">
-                  <NativePermissionSelect
-                    provider={provider}
-                    value={field.state.value}
-                    onChange={field.handleChange}
-                  />
-                </Row>
-              )}
-            </form.Field>
-          )}
-        </form.Subscribe>
         <form.Field name="trigger">
           {(field) => (
             <Row label="When it runs" className="items-start">
@@ -232,12 +218,41 @@ export function AutomationEditor(props: {
         <form.Subscribe selector={(state) => state.values.trigger}>
           {(trigger) => <TriggerFields form={form} trigger={trigger} />}
         </form.Subscribe>
-        <div className="mt-2 border-b">
+        <details className="mt-5">
+          <summary className="rounded-sm text-sm text-muted-foreground focus-ring">
+            Advanced
+          </summary>
+          <form.Subscribe selector={(state) => state.values.provider}>
+            {(provider) => (
+              <form.Field name="permissionMode">
+                {(field) => (
+                  <Row label="Permissions">
+                    <NativePermissionSelect
+                      provider={provider}
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                    />
+                  </Row>
+                )}
+              </form.Field>
+            )}
+          </form.Subscribe>
+          <form.Field name="timezone">
+            {(field) => (
+              <TimeZoneField
+                value={field.state.value}
+                error={visible(field.state.meta)}
+                onBlur={field.handleBlur}
+                onChange={(value) => field.handleChange(value)}
+              />
+            )}
+          </form.Field>
+
           <form.Field name="worktree">
             {(field) => (
               <InlineRow
                 title="Run in a fresh worktree"
-                description="Keeps your checkout untouched. The thread shows the branch it made."
+                description="Keeps your checkout clean."
                 htmlFor="automation-worktree"
               >
                 <Switch
@@ -255,7 +270,7 @@ export function AutomationEditor(props: {
                   {(field) => (
                     <InlineRow
                       title="If a run was missed"
-                      description="When this machine was asleep or ace was closed at the time."
+                      description="While this computer was asleep."
                     >
                       <Select
                         label="If a run was missed"
@@ -269,14 +284,14 @@ export function AutomationEditor(props: {
               )
             }
           </form.Subscribe>
-        </div>
+        </details>
       </fieldset>
       {saveError && (
         <p role="alert" className="mt-4 text-sm text-destructive">
           {saveError}
         </p>
       )}
-      <div className="mt-6 flex justify-end gap-2">
+      <div className="sticky bottom-0 mt-6 flex justify-end gap-2 bg-reading py-3">
         <span inert={submitting} className="contents">
           {props.cancel}
         </span>
@@ -306,7 +321,7 @@ function TriggerFields(props: { form: AutomationFormApi; trigger: AutomationForm
     case "github":
       return (
         <>
-          <div className="grid gap-x-4 @min-[34rem]:grid-cols-2">
+          <div className="contents">
             <form.Field name="repository">
               {(field) => {
                 const error = visible(field.state.meta);
@@ -474,6 +489,8 @@ function focusFirstInvalid(form: AutomationFormApi, element: HTMLFormElement | n
   for (const control of element.querySelectorAll<HTMLElement>("[name]")) {
     const name = control.getAttribute("name") as keyof AutomationForm;
     if (form.getFieldMeta(name)?.errors.length) {
+      const disclosure = control.closest("details");
+      if (disclosure) disclosure.open = true;
       control.focus();
       return;
     }
@@ -509,19 +526,9 @@ function InlineRow(props: {
   htmlFor?: string;
   children: ReactNode;
 }) {
-  const Title = props.htmlFor ? "label" : "div";
   return (
-    <div className="flex items-center gap-4 border-t py-3.5">
-      <div className="min-w-0 flex-1">
-        <Title
-          {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-          className="block text-ui font-medium"
-        >
-          {props.title}
-        </Title>
-        <p className="mt-0.5 text-sm text-muted-foreground">{props.description}</p>
-      </div>
+    <SettingRow title={props.title} description={props.description} htmlFor={props.htmlFor} inline>
       {props.children}
-    </div>
+    </SettingRow>
   );
 }

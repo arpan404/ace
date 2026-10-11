@@ -72,7 +72,7 @@ export function ThreadRow(props: {
         onRename={() => selection.rename(props.threadId, card.title)}
       >
         <HoverCardTrigger
-          delay={180}
+          delay={600}
           closeDelay={100}
           onClick={() => hover.change(false)}
           onContextMenu={() => hover.change(false)}

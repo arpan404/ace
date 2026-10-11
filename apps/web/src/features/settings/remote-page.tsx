@@ -4,7 +4,7 @@ import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow, SettingSection, SettingSummaryRow } from "@/components/setting-row.tsx";
+import { SettingSection, SettingSummaryRow } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -18,7 +18,8 @@ import {
 import { useToast } from "@/components/ui/toast.tsx";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
-import { settingRow } from "./settings-index.ts";
+import { RowMenu } from "@/components/ui/row-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
 
 /** Machines running the daemon, paired phones and browsers, pairing and revoking. */
 export function RemoteDevices() {
@@ -48,9 +49,7 @@ function PairedDevices() {
       {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
-        <p className="py-3.5 text-sm text-muted-foreground">
-          No devices are paired with this computer.
-        </p>
+        <p className="py-3.5 text-sm text-muted-foreground">No paired devices.</p>
       )}
       {devices.data?.map((device) => (
         <SettingSummaryRow
@@ -58,24 +57,14 @@ function PairedDevices() {
           title={device.name}
           description={[deviceScopeLabels(device.scopes)].join(" · ")}
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`Revoke ${device.name}`}
-            onClick={() => setRevoking(device)}
-          >
-            Revoke
-          </Button>
+          <RowMenu label={`Actions for ${device.name}`}>
+            <MenuItem onClick={() => setRevoking(device)}>Revoke</MenuItem>
+          </RowMenu>
         </SettingSummaryRow>
       ))}
-      <SettingRow
-        compact
-        {...settingRow("remote.pair")}
-        description="Open the link on your other device. Keep it private until it expires."
-        inline
-      >
+      <div className="py-1">
         <PairDevice />
-      </SettingRow>
+      </div>
       <RevokeDialog device={revoking} onDone={() => setRevoking(undefined)} />
     </SettingSection>
   );

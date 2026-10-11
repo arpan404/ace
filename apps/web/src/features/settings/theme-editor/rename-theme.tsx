@@ -47,7 +47,7 @@ export function RenameTheme(props: {
             onChange={(event) => setDraft(event.target.value)}
           />
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
+            <Button type="button" variant="secondary" onClick={() => props.onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={!name}>

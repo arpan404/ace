@@ -12,11 +12,13 @@ test("machines and paired devices are listed; revoking a device removes it after
 
   const devices = screen.getByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();
-  await userEvent.click(within(devices).getByRole("button", { name: "Revoke iPhone 16 Pro" }));
+  await userEvent.click(within(devices).getByRole("button", { name: "Actions for iPhone 16 Pro" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
   await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   expect(within(devices).getByText("iPhone 16 Pro")).toBeTruthy();
 
-  await userEvent.click(within(devices).getByRole("button", { name: "Revoke iPhone 16 Pro" }));
+  await userEvent.click(within(devices).getByRole("button", { name: "Actions for iPhone 16 Pro" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
   const dialog = await screen.findByRole("dialog", { name: "Revoke iPhone 16 Pro?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
   await waitFor(() => expect(within(devices).queryByText("iPhone 16 Pro")).toBeNull());
@@ -29,7 +31,7 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
   const user = userEvent.setup();
   // Pairing codes expire on the daemon's clock; here it is the page's.
   await harness({ clock: () => Date.now() }).open("/settings/remote");
-  await user.click(await screen.findByRole("button", { name: "Pair" }));
+  await user.click(await screen.findByRole("button", { name: "+ Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await user.click(within(dialog).getByRole("button", { name: "View only" }));
   await user.click(within(dialog).getByRole("button", { name: "Show pairing code" }));

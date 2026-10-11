@@ -1,12 +1,11 @@
 import { RecoveryThreadRow } from "./recovery-thread-row.tsx";
-import { useSidebar, useInteractions, useSidebarLoaded } from "@ace/client-react";
+import { useInteractions, useSidebarLoaded } from "@ace/client-react";
 import { BellIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap, type KeymapId } from "@/lib/keymap.ts";
+import { keymap } from "@/lib/keymap.ts";
 import { Page, PageTitle } from "@/features/shell/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { InteractionCard } from "./interaction-card.tsx";
@@ -25,9 +24,6 @@ export function NeedsYouPage() {
   const loaded = useSidebarLoaded();
   const { focused, focusCard } = useActivityState();
   const empty = !needs.entries.length;
-  const requests = useSidebar(["threads"], (reader) =>
-    needs.threadIds.some((id) => reader.thread(id)?.status.state === "needs_you"),
-  );
   const [watch, list] = useFocusFollowsCards();
   const move = (step: number) => {
     const root = list.current;
@@ -61,16 +57,11 @@ export function NeedsYouPage() {
     );
   return (
     <Page>
-      <PageTitle
-        title="Needs you"
-        lede="Threads that need your help, oldest first. Answer here or open a thread to continue."
-      />
       <div ref={watch} className="mt-3 flex flex-col">
         {needs.entries.map((entry) => (
           <ThreadCards key={entry.threadId} threadId={entry.threadId} />
         ))}
       </div>
-      {requests && <KeyLegend />}
       <LimitedThreads threads={limited} />
     </Page>
   );
@@ -142,34 +133,4 @@ function useFocusFollowsCards() {
     [focusCard],
   );
   return [watch, list] as const;
-}
-
-/** The card keys: shortcuts with an id follow their rebinding, the rest are fixed keys. */
-const legend: { label: string; shortcut?: KeymapId; keys?: string }[] = [
-  { label: "next", shortcut: "activity.next" },
-  { label: "previous", shortcut: "activity.prev" },
-  { label: "expand", keys: "enter" },
-  { label: "approve", shortcut: "activity.approve" },
-  { label: "deny", shortcut: "activity.deny" },
-  { label: "choose", keys: "1" },
-  { label: "open thread", keys: "o" },
-  { label: "snooze", keys: "h" },
-  { label: "pick", keys: "x" },
-];
-
-function KeyLegend() {
-  return (
-    <p className="mt-[22px] flex flex-wrap gap-4 text-sm text-muted-foreground">
-      {legend.map((entry) => (
-        <span key={entry.label} className="inline-flex items-center gap-[5px]">
-          {entry.shortcut ? (
-            <Kbd shortcut={entry.shortcut} />
-          ) : (
-            <Kbd keys={entry.keys ?? ""} resolve={false} />
-          )}
-          {entry.label}
-        </span>
-      ))}
-    </p>
-  );
 }

@@ -95,7 +95,7 @@ test("the default provider lists the installed CLIs and remembers the choice", a
 test("Reset restores the follow-up behavior on every device", async () => {
   await harness().open("/settings/general");
   const section = await screen.findByRole("region", { name: "While agents work" });
-  expect(within(section).getByText("All devices")).toBeTruthy();
+  expect(within(section).queryByText("All devices")).toBeNull();
   await pick("Messages sent while the agent works", "Steer");
   expect(
     screen.getByRole("combobox", { name: "Messages sent while the agent works" }).textContent,

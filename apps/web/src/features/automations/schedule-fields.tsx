@@ -1,19 +1,13 @@
 import { useMemo } from "react";
 import { Input } from "@/components/ui/input.tsx";
+import { TimeInput } from "./time-input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useNow } from "@/lib/time.ts";
 import { Row, invalidProps, visible } from "./form-row.tsx";
 import type { AutomationFormApi } from "./use-automation-form.ts";
 import { AutomationForm, hourSteps, scheduleFromForm } from "./automation-values.ts";
-import {
-  describeSchedule,
-  formatRunInZone,
-  timeZones,
-  upcomingRuns,
-  weekdayName,
-  weekdays,
-} from "./schedule.ts";
+import { formatRunInZone, timeZones, upcomingRuns, weekdayName, weekdays } from "./schedule.ts";
 
 const cadences = [
   { value: "daily", label: "Every day" },
@@ -42,7 +36,7 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
   const { form } = props;
   return (
     <>
-      <div className="grid gap-x-4 @min-[34rem]:grid-cols-3">
+      <div className="contents">
         <form.Field name="cadence">
           {(field) => (
             <Row label="Repeat">
@@ -80,15 +74,11 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
                     const error = visible(field.state.meta);
                     return (
                       <Row label="At" htmlFor="automation-time" errors={error}>
-                        <Input
+                        <TimeInput
                           id="automation-time"
-                          name="time"
-                          type="time"
-                          step={60}
                           value={field.state.value}
                           onBlur={field.handleBlur}
                           onValueChange={(value) => field.handleChange(value)}
-                          className="tabular-nums"
                           {...invalidProps("automation-time", error)}
                         />
                       </Row>
@@ -154,16 +144,6 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
           )
         }
       </form.Subscribe>
-      <form.Field name="timezone">
-        {(field) => (
-          <TimeZoneField
-            value={field.state.value}
-            error={visible(field.state.meta)}
-            onBlur={field.handleBlur}
-            onChange={(value) => field.handleChange(value)}
-          />
-        )}
-      </form.Field>
       <form.Subscribe selector={(state) => state.values}>
         {(values) => <ScheduleReadBack values={values} />}
       </form.Subscribe>
@@ -172,7 +152,7 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
 }
 
 /** A picker over the browser's IANA zones; keeps the saved zone through an edit. */
-function TimeZoneField(props: {
+export function TimeZoneField(props: {
   value: string;
   error: string | undefined;
   onBlur(): void;
@@ -214,8 +194,7 @@ function ScheduleReadBack(props: { values: AutomationForm }) {
   const next = upcomingRuns(schedule, now).map((at) => formatRunInZone(at, timezone));
   return (
     <p aria-live="polite" className="-mt-1 mb-4 text-sm text-muted-foreground">
-      Runs: <span className="text-foreground">{describeSchedule(schedule)}</span> ({timezone}).
-      {next.length > 0 && <> Next: {next.join(", ")}</>}
+      {next[0] && <>Next run {next[0]}</>}
     </p>
   );
 }
