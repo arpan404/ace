@@ -172,9 +172,6 @@ export class RemoteAgentBroker {
     const reply = await this.primary.request({ type: "delegation.broker.poll", lease });
     if (!reply.ok || this.closed) return;
     const tasks = reply.tasks ?? [];
-    const active = new Set(tasks.map((task) => task.id));
-    for (const id of this.importFailures.keys())
-      if (!active.has(id)) this.importFailures.delete(id);
     // Polls are bounded pages. Track last service independently of page membership
     // so each host routes its least recently serviced visible task on every page.
     const ordered = tasks.toSorted(
@@ -204,11 +201,11 @@ export class RemoteAgentBroker {
     const reply = await this.primary.request({ type: "delegation.broker.report", lease, report });
     if (reply.ok) {
       const current = reply.tasks?.find((task) => task.id === report.taskId);
-      if (current && this.settled(current)) this.routingProgress.delete(current.id);
+      if (current && this.settled(current)) this.forget(current.id);
     } else if (reply.error === "not_found" && report.phase === "running") {
       // A progress report cannot fail artifact admission. This confirms removal,
       // unlike a missing poll-page entry or a rejected terminal artifact report.
-      this.routingProgress.delete(report.taskId);
+      this.forget(report.taskId);
     }
     return reply;
   }
@@ -217,6 +214,10 @@ export class RemoteAgentBroker {
       ["completed", "failed", "cancelled"].includes(task.phase) &&
       !(task.phase === "failed" && task.cancellingAt !== undefined && task.result === undefined)
     );
+  }
+  private forget(id: string) {
+    this.routingProgress.delete(id);
+    this.importFailures.delete(id);
   }
   private async outcome(
     client: RemoteClient,
@@ -248,7 +249,6 @@ export class RemoteAgentBroker {
             this.primary.state === "ready" &&
             this.pool.machine(task.request.hostId)?.status === "online",
         );
-      this.importFailures.delete(task.id);
     } catch (error) {
       const failures = (this.importFailures.get(task.id) ?? 0) + 1;
       this.importFailures.set(task.id, failures);
@@ -270,7 +270,7 @@ export class RemoteAgentBroker {
     const reconcile =
       task.phase === "failed" && task.cancellingAt !== undefined && task.result === undefined;
     if (this.settled(task)) {
-      this.routingProgress.delete(task.id);
+      this.forget(task.id);
       return;
     }
     if (this.pool.machine(task.request.hostId)?.status !== "online") {

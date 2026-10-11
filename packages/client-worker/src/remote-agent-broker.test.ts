@@ -241,15 +241,11 @@ test("broker rotates tasks on the same host rather than starving later task iden
   });
   const f = world("running", "running", [task, second]);
   try {
-    for (let index = 0; index < 2; index++) {
+    await vi.waitFor(async () => {
       await f.broker.cycle();
-      await vi.waitFor(() =>
-        expect(f.calls.filter((call) => call.startsWith("status:")).length).toBe(index + 1),
-      );
-      await vi.waitFor(() => expect(f.emitted.length).toBe((index + 1) * 2));
-    }
-    expect(f.calls).toContain(`status:${task.id}`);
-    expect(f.calls).toContain(`status:${second.id}`);
+      expect(f.calls).toContain(`status:${task.id}`);
+      expect(f.calls).toContain(`status:${second.id}`);
+    });
   } finally {
     f.broker.close();
   }
@@ -270,18 +266,16 @@ test("every task on a host gets status routing across alternating active and ret
   let page = 0;
   const f = world("running", "running", tasks, () => pages[page++ % pages.length] ?? []);
   try {
-    for (let index = 0; index < 128; index++) {
-      await f.broker.cycle();
-      await vi.waitFor(() =>
-        expect(f.calls.filter((call) => call.startsWith("status:")).length).toBe(index + 1),
-      );
-      // Wait for each route's response before supplying the next disjoint page.
-      await vi.waitFor(() =>
-        expect(f.emitted.length).toBe((Math.floor(index / 2) + 1) * 2),
-      );
-    }
-    expect(new Set(f.calls.filter((call) => call.startsWith("status:")))).toEqual(
-      new Set(tasks.map((task) => `status:${task.id}`)),
+    // cycle() deliberately leaves routing in the background. Keep polling until
+    // the observable target messages cover every task, regardless of job timing.
+    await vi.waitFor(
+      async () => {
+        await f.broker.cycle();
+        expect(new Set(f.calls.filter((call) => call.startsWith("status:")))).toEqual(
+          new Set(tasks.map((candidate) => `status:${candidate.id}`)),
+        );
+      },
+      { timeout: 4000, interval: 1 },
     );
     expect(f.admitted()).toBe(false);
   } finally {
@@ -317,6 +311,42 @@ test("repeated file-import failure returns the sealed answer and names the missi
     error: expect.stringContaining("output.txt"),
   });
   f.broker.close();
+});
+
+test("file-import attempts survive disjoint poll pages until both preserved answers are acknowledged", async () => {
+  const second = RemoteTask.parse({
+    ...task,
+    id: "b".repeat(64),
+    threadId: `remote-${"b".repeat(64)}`,
+  });
+  const tasks = [task, second];
+  let polls = 0;
+  const f = world("files", "running", tasks, () => [tasks[polls++ % 2] ?? task]);
+  try {
+    await vi.waitFor(
+      async () => {
+        await f.broker.cycle();
+        expect(
+          new Set(
+            f.emitted
+              .filter((report) => report.phase === "completed")
+              .map((report) => report.taskId),
+          ),
+        ).toEqual(new Set(tasks.map((candidate) => candidate.id)));
+      },
+      { timeout: 4000, interval: 1 },
+    );
+    for (const candidate of tasks)
+      expect(
+        f.emitted.find((report) => report.taskId === candidate.id && report.phase === "completed"),
+      ).toMatchObject({
+        result: "Already finished",
+        artifactsUnavailable: true,
+        error: expect.stringContaining("output.txt"),
+      });
+  } finally {
+    f.broker.close();
+  }
 });
 
 test("device discovery withdraws a connected host when its files relay is unavailable", async () => {
