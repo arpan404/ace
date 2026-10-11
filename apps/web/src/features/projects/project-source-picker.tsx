@@ -52,7 +52,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
   };
   return (
     <div className="grid min-w-0 gap-4">
-      <div className="flex h-11 items-center gap-2 border-b border-border pb-3">
+      <div className="flex min-h-(--picker-row-height) items-center gap-(--surface-gap) rounded-md bg-input px-(--surface-inset) focus-within:ring-2 focus-within:ring-ring">
         <Icon icon={MagnifyingGlassIcon} size={18} className="text-muted-foreground" />
         <input
           role="combobox"
@@ -68,10 +68,10 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
           }}
           onKeyDown={keyDown}
           ref={input}
-          className="h-full min-w-0 flex-1 rounded-sm bg-input text-ui outline-none focus-ring"
+          className="min-w-0 flex-1 bg-transparent py-(--picker-row-padding) text-ui outline-none focus-visible:outline-none"
         />
       </div>
-      <div id={id} role="listbox" aria-label="Project sources" className="grid gap-1">
+      <div id={id} role="listbox" aria-label="Project sources" className="grid min-w-0 gap-1">
         {rows.map((source, at) => (
           <button
             type="button"
@@ -82,10 +82,10 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
             aria-selected={at === current}
             onPointerMove={() => setActive(at)}
             onClick={() => props.onChoose(source.tab)}
-            className="flex w-full items-center gap-3 h-11 rounded-sm px-2 text-left focus-ring aria-selected:bg-accent"
+            className="flex min-h-(--picker-row-height) w-full items-center gap-3 rounded-md px-(--surface-inset) py-(--picker-row-padding) text-left focus-ring aria-selected:bg-accent"
           >
             <Icon icon={source.icon} size={20} className="shrink-0 text-muted-foreground" />
-            <span className="grid gap-1">
+            <span className="grid min-w-0 gap-1">
               <span className="text-ui font-medium">{source.name}</span>
               <span className="text-sm text-muted-foreground">{source.description}</span>
             </span>

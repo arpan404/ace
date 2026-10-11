@@ -28,7 +28,7 @@ async function fork() {
   await userEvent.type(title, "Try another model");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Fork model:/ }));
   const picker = await screen.findByRole("dialog", { name: "Fork model" });
-  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex" }));
+  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex · Personal" }));
   await selectAccount(picker, "Personal");
   await userEvent.type(
     within(picker).getByRole("combobox", { name: "Search models" }),

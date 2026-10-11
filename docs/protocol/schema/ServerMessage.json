@@ -81,6 +81,9 @@
       "$ref": "https://ace.local/protocol/v1/ProjectsResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SourceControlResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/WorkspaceChanged.json"
     },
     {

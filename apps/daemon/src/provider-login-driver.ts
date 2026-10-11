@@ -61,6 +61,7 @@ export interface CliLoginOptions {
   env: NodeJS.ProcessEnv;
   manager: TerminalManager;
   openTerminal?: PiLoginOptions["openTerminal"];
+  assertCurrent?(): void;
 }
 /** PTY output has no scrollback or logging. Only finite, reviewed observations leave here. */
 export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
@@ -172,6 +173,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         ) {
           nativeChoice = (choice) => {
             if (choice === "github-com") {
+              options.assertCurrent?.();
               terminal?.write("\r");
               nativeChoice = undefined;
               emit({ state: "verifying" });
@@ -204,6 +206,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         if (observation.enter)
           enter = () => {
             if (!signal.aborted) {
+              options.assertCurrent?.();
               terminal?.write("\r");
               emit({ state: "verifying" });
             }
@@ -220,6 +223,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         };
         emit(output);
       };
+      options.assertCurrent?.();
       terminal = options.manager.openLiveTerminal(
         {
           shell: options.command,

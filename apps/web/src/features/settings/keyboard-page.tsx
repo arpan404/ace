@@ -231,7 +231,7 @@ export function KeyboardShortcuts() {
       <div className="mt-6 flex items-center gap-3">
         <SearchField
           label="Filter shortcuts"
-          placeholder="Click a shortcut to change it"
+          placeholder="Search shortcuts"
           value={query}
           onValueChange={setQuery}
           className="max-w-80"

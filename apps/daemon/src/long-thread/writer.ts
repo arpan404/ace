@@ -151,6 +151,7 @@ export class TurnWriter {
             : old.ended_at == null
               ? undefined
               : Number(old.ended_at),
+          p.type === "agent.status" ? p.completionRelevant : undefined,
         );
     } else if (p.type === "run.started") {
       const root = p.run.agentId === this.head(event.threadId)?.root;
@@ -523,9 +524,10 @@ export class TurnWriter {
     name: string | undefined,
     start: number,
     end?: number,
+    completionRelevant?: boolean,
   ): void {
     const old = this.data
-      .sql("SELECT ordinal,status FROM long_agents WHERE thread_id=? AND id=?")
+      .sql("SELECT ordinal,status,completion_relevant FROM long_agents WHERE thread_id=? AND id=?")
       .get(event.threadId, id);
     const isRoot = id === this.head(event.threadId)?.root;
     const childHead = child ? this.head(child) : undefined;
@@ -538,9 +540,16 @@ export class TurnWriter {
           root: isRoot,
           status: previousStatus,
           linkedChildStatus,
+          completionRelevant: old?.completion_relevant !== 0,
         })
       : {};
-    const nextCounters = agentActivityCounters({ root: isRoot, status, linkedChildStatus });
+    const relevant = completionRelevant ?? old?.completion_relevant !== 0;
+    const nextCounters = agentActivityCounters({
+      root: isRoot,
+      status,
+      linkedChildStatus,
+      completionRelevant: relevant,
+    });
     const snapshot = this.data
       .sql("SELECT counters FROM long_entities WHERE thread_id=? AND kind='agentActivity' AND id=?")
       .get(event.threadId, id);
@@ -584,7 +593,7 @@ export class TurnWriter {
       event.seq,
     );
     this.data.run(
-      `INSERT INTO long_agents VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,id) DO UPDATE SET ordinal=excluded.ordinal,status=excluded.status,child_thread=COALESCE(excluded.child_thread,child_thread),name=COALESCE(excluded.name,name),ended_at=COALESCE(excluded.ended_at,ended_at),last_seq=excluded.last_seq`,
+      `INSERT INTO long_agents(thread_id,id,ordinal,status,child_thread,name,started_at,ended_at,last_seq,completion_relevant) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,id) DO UPDATE SET ordinal=excluded.ordinal,status=excluded.status,child_thread=COALESCE(excluded.child_thread,child_thread),name=COALESCE(excluded.name,name),ended_at=COALESCE(excluded.ended_at,ended_at),last_seq=excluded.last_seq,completion_relevant=excluded.completion_relevant`,
       event.threadId,
       id,
       ordinal,
@@ -594,6 +603,7 @@ export class TurnWriter {
       start,
       end ?? null,
       event.seq,
+      Number(relevant),
     );
     if (activity.recordActivity) this.ensure(event, ordinal);
   }

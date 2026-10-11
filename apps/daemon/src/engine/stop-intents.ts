@@ -7,6 +7,12 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
     for (const intent of repo.pending.headers(id)) {
       if (!["pending", "queued"].includes(intent.status)) continue;
       const kind = intent.kind;
+      if (["thread.resume", "queue.resume", "thread.limit"].includes(kind)) {
+        // Stop supersedes recovery authorized before its hold token. Keep the
+        // durable continuation for a later explicit Resume, without dispatch.
+        repo.mark(intent, "failed", "Cancelled before delivery");
+        continue;
+      }
       if (kind !== "thread.switch" && kind !== "thread.merge") continue;
       repo.mark(intent, "failed", "Cancelled before delivery");
       for (const thread of repo.transitions.releaseGuards(intent.commandId)) released.add(thread);

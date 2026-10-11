@@ -121,7 +121,7 @@ export function mergeToolData(data: Data, update: Data): void {
   for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
     if (!Object.hasOwn(update, field)) continue;
     const value = update[field];
-    if (field === "name" && typeof value !== "string") continue;
+    if (["name", "title", "kind"].includes(field) && typeof value !== "string") continue;
     if (field === "rawInput") {
       if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
       const previous = object(data[field]);
@@ -141,14 +141,9 @@ export function mergeToolData(data: Data, update: Data): void {
     } else data[field] = value;
   }
 }
-const outputFields = [
-  "exitCode",
-  "totalFiles",
-  "error",
-  "permissionDenied",
-  "rejected",
-  "isBackground",
-];
+// Failure payloads only determine the compact tool status in toolStatus. Their full
+// evidence belongs to canonical raw data or diagnostics, never retained tool data.
+const outputFields = ["exitCode", "totalFiles", "isBackground"];
 const inputFields = [
   "_toolName",
   "command",

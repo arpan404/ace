@@ -98,12 +98,12 @@ export class IntentDelivery {
       const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
       if (this.dependencies.repo.pending.commandStatus(intent.commandId) === "failed") {
         this.dependencies.releaseGuards(intent);
-      } else if (continuation && acknowledged) {
+      } else if ((continuation || send) && acknowledged) {
         // Admission transfers ownership even if the transport loses the reply.
         // Keep the durable run correlation until the admitted run actually starts.
         this.dependencies.repo.mark(intent, "done");
         this.dependencies.transitions.delivered(actor.id);
-        this.dependencies.recovery.release(actor.id, holdToken);
+        if (continuation) this.dependencies.recovery.release(actor.id, holdToken);
       } else if (
         send &&
         !acknowledged &&
@@ -119,11 +119,11 @@ export class IntentDelivery {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
         const undelivered =
-          editableSend &&
+          (editableSend || continuation) &&
           !acknowledged &&
           (error instanceof DeliveryNotStarted ||
             this.dependencies.repo.pending.submitted(intent.id) === undefined);
-        const uncertain = editableSend && !acknowledged && !undelivered;
+        const uncertain = (editableSend || continuation) && !acknowledged && !undelivered;
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         const message = error instanceof Error ? error.message : String(error);
         const openingFailure =
@@ -144,7 +144,7 @@ export class IntentDelivery {
           error instanceof ModelSelectionError ||
           details?.code === "model_unavailable" ||
           /(?:^|[\s:])model_unavailable(?:$|[\s:])/.test(details?.detail ?? message);
-        if (undelivered) this.retainInput(intent, message, unavailable, details);
+        if (undelivered && editableSend) this.retainInput(intent, message, unavailable, details);
         else if (continuation && unavailable) {
           this.dependencies.repo.mark(intent, "failed", message);
           this.dependencies.releaseGuards(intent);
@@ -164,7 +164,7 @@ export class IntentDelivery {
                 : undefined,
             details,
           );
-        if (uncertain)
+        if (uncertain && this.dependencies.recovery.owns(actor.id, holdToken))
           this.dependencies.repo.queue.set(
             actor.id,
             { paused: true, reason: "uncertain" },
@@ -304,7 +304,10 @@ export class IntentDelivery {
           this.dependencies.clock.now(),
         );
     }
-    if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind))
+    if (
+      code !== "delivery_uncertain" &&
+      ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind)
+    )
       this.dependencies.repo.queue.set(
         intent.threadId,
         { paused: true, reason: "manual" },
@@ -354,7 +357,10 @@ export class IntentDelivery {
     this.dependencies.repo.apply(intent.threadId, [fact], this.dependencies.clock.now());
   }
   expire(actor: ThreadActor, generation: number): void {
-    if (this.dependencies.repo.pending.recoveryAcknowledgement(actor.id)) {
+    if (
+      this.dependencies.repo.pending.recoveryAcknowledgement(actor.id) &&
+      !this.dependencies.repo.pending.unconfirmedContinuation(actor.id)
+    ) {
       this.dependencies.recovery.capture(actor.id);
       this.dependencies.repo.pending.finishContinuation(actor.id);
       const queue = this.dependencies.repo.queue.get(actor.id);
@@ -370,7 +376,15 @@ export class IntentDelivery {
     }
     for (const intent of this.dependencies.repo.pending.headers(actor.id))
       if (intent.awaiting && intent.submittedGeneration === generation && !intent.acknowledged) {
-        if (intent.kind === "thread.send" || intent.kind === "thread.create")
+        if (
+          [
+            "thread.send",
+            "thread.create",
+            "thread.resume",
+            "queue.resume",
+            "thread.limit",
+          ].includes(intent.kind)
+        )
           this.dependencies.repo.queue.uncertain(intent.id);
         this.fail(
           intent,

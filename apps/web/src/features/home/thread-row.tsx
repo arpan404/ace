@@ -1,7 +1,6 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useConnectionState } from "@ace/client-react";
-import { modelLabel } from "@ace/ui-core";
 import {
   useRefusedTitle,
   useSelected,
@@ -9,22 +8,11 @@ import {
   useRenameTitle,
 } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { Dot } from "@/components/ui/dot.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import {
-  ProjectMark,
-  RowDetail,
-  RowMeta,
-  RowIdentity,
-  RowIdentitySpace,
-  RowStatus,
-  threadDetails,
-  titleTone,
-  quietCard,
-} from "./row-parts.tsx";
+import { RowStatus, StatusMark, threadDetails, titleTone, quietCard } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
@@ -32,11 +20,12 @@ import { useThreadCard } from "./use-thread-card.ts";
 const row =
   "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
-/** Tasks show project and status, title, then context; settled work stays compact. */
+/** One compact title row; full context stays in its accessible name and hover card. */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
   leaving?: boolean | undefined;
+  showProject?: boolean | undefined;
 }) {
   const { settled } = props;
   const online = useConnectionState() === "ready";
@@ -59,80 +48,46 @@ export function ThreadRow(props: {
   const card =
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
   const handle = card.flags.pinned && !renaming;
-  const model = entry.live?.model ?? entry.execution?.model;
   const details = threadDetails(card);
   const quiet = quietCard(card);
   const instance =
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
+  const attention = card.status.tone === "needs-you" || card.status.tone === "failed";
   const body = (
-    <>
-      <div
-        className={cn(
-          "flex min-w-0 w-full",
-          settled ? "items-center gap-2" : "flex-col gap-1 compact:gap-0.5",
-        )}
+    <div className="flex min-w-0 w-full items-center gap-1.5 group-focus-within/row:pr-7 group-hover/row:pr-7">
+      <span
+        {...(card.flags.unread
+          ? { role: "img", "aria-label": "Unread activity" }
+          : { "aria-hidden": true })}
+        className="grid w-3 shrink-0 place-items-center"
       >
-        {settled ? (
-          <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
-        ) : (
-          <span
-            className={cn(
-              "flex min-w-0 items-center gap-1.5 text-xs leading-4",
-              quiet ? "text-subtle-foreground" : "text-muted-foreground",
-            )}
-          >
-            <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
-            <span className="min-w-0 flex-1 truncate group-focus-within/row:pr-8 group-hover/row:pr-8">
-              {card.project}
-            </span>
-            <span className="contents group-focus-within/row:hidden group-hover/row:hidden group-has-[[data-popup-open]]/row:hidden">
-              <RowStatus card={card} />
-            </span>
-          </span>
-        )}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {!settled && card.flags.unread && <Dot tone="working" label="Unread activity" />}
-          <div
-            className={cn(
-              "min-w-0 flex-1 truncate",
-              settled
-                ? "text-ui leading-4 group-focus-within/row:pr-8 group-hover/row:pr-8"
-                : "text-ui leading-5",
-              titleTone(card, highlighted),
-            )}
-          >
-            {renaming ? (
-              <RenameField
-                entry={entry}
-                title={editing ?? refused ?? card.title}
-                onDone={() => selection.finishRename()}
-              />
-            ) : (
-              card.title
-            )}
-          </div>
-        </div>
-        {settled ? (
-          <>
-            <span aria-hidden className="contents">
-              <RowMeta card={card} />
-            </span>
-            <RowIdentitySpace card={card} />
-          </>
-        ) : (
-          <RowDetail
-            card={card}
-            machinePrimary={data.machinePrimary}
-            model={model ? modelLabel(model) : undefined}
+        <StatusMark card={card} muted={!attention} />
+      </span>
+      <div
+        className={cn("min-w-0 flex-1 truncate text-ui leading-4", titleTone(card, highlighted))}
+      >
+        {renaming ? (
+          <RenameField
+            entry={entry}
+            title={editing ?? refused ?? card.title}
+            onDone={() => selection.finishRename()}
           />
+        ) : (
+          card.title
         )}
       </div>
-    </>
+      <RowStatus card={card} />
+    </div>
   );
   return (
     <>
+      {props.showProject && (
+        <h3 className="flex h-7 items-center truncate px-2 text-xs font-normal text-muted-foreground">
+          {card.project}
+        </h3>
+      )}
       <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
         <ThreadMenu
           entry={entry}
@@ -151,9 +106,7 @@ export function ThreadRow(props: {
             {...(settled ? {} : { "data-thread-row": entry.id })}
           >
             {renaming ? (
-              <div className={cn(row, settled ? "h-10" : "h-24 py-2.5 compact:h-22 compact:py-2")}>
-                {body}
-              </div>
+              <div className={cn(row, "h-8 pointer-coarse:h-11")}>{body}</div>
             ) : (
               <Link
                 to="/t/$threadId"
@@ -163,7 +116,7 @@ export function ThreadRow(props: {
                 draggable={false}
                 className={cn(
                   row,
-                  settled ? "h-8" : "h-20 py-2.5 compact:h-18 compact:py-2",
+                  "h-8 pointer-coarse:h-11",
                   "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
                   selected && "bg-foreground/5",
                   handle && "pointer-coarse:pr-11",
@@ -171,17 +124,6 @@ export function ThreadRow(props: {
               >
                 {body}
               </Link>
-            )}
-            {!renaming && (
-              <RowIdentity
-                card={card}
-                instance={instance}
-                className={cn(
-                  "absolute right-2",
-                  settled ? "top-1/2 -translate-y-1/2" : "bottom-[11px] compact:bottom-[9px]",
-                  handle && "pointer-coarse:right-12",
-                )}
-              />
             )}
             {handle && (
               // The list starts a touch drag from here (`touch-none`: the browser doesn't scroll)

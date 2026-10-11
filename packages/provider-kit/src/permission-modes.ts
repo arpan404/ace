@@ -26,7 +26,14 @@ const mode = (
   label: string,
   description: string,
   risk: NativePermissionMode["risk"],
-): NativePermissionMode => ({ id, label, description, risk });
+  presentation?: NativePermissionMode["presentation"],
+): NativePermissionMode => ({
+  id,
+  label,
+  description,
+  risk,
+  ...(presentation ? { presentation } : {}),
+});
 
 /** Provider vocabulary only. Missing selections leave the harness's configured default alone. */
 export function nativePermissionModes(provider: ProviderKind): NativePermissionMode[] {
@@ -63,7 +70,13 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
           "Allows reads and actions you already approved; blocks anything that would ask.",
           "low",
         ),
-        mode("bypassPermissions", "Bypass permissions", "Skips permission checks.", "high"),
+        mode(
+          "bypassPermissions",
+          "Bypass permissions",
+          "Skips permission checks.",
+          "high",
+          "full-access",
+        ),
       ];
     case "codex":
       return [
@@ -96,6 +109,7 @@ export function nativePermissionModes(provider: ProviderKind): NativePermissionM
           "Full access",
           "Can change files anywhere and use the network.",
           "high",
+          "full-access",
         ),
       ];
     case "opencode":
@@ -249,7 +263,10 @@ const Setup = z
       .optional(),
   })
   .passthrough();
-export function acpPermissionModes(raw: unknown): NativePermissionMode[] {
+export function acpPermissionModes(
+  raw: unknown,
+  identity: { provider?: ProviderKind | undefined; profile?: string | undefined } = {},
+): NativePermissionMode[] {
   const parsed = Setup.safeParse(raw);
   if (!parsed.success) return [];
   for (const entry of parsed.data.configOptions ?? []) {
@@ -265,19 +282,44 @@ export function acpPermissionModes(raw: unknown): NativePermissionMode[] {
           ? [Choice.parse(option)]
           : z.object({ options: z.array(Choice) }).parse(option).options,
       )
-      .map((option) => ({
-        id: option.value,
-        label: option.name,
-        description: option.description ?? "",
-        risk: "medium",
-      }));
+      .map((option) =>
+        acpPresentation(
+          {
+            id: option.value,
+            label: option.name,
+            description: option.description ?? "",
+            risk: "medium",
+          },
+          identity,
+        ),
+      );
   }
-  return (parsed.data.modes?.availableModes ?? []).map((entry) => ({
-    id: entry.id,
-    label: entry.name,
-    description: entry.description ?? "",
-    risk: "medium",
-  }));
+  return (parsed.data.modes?.availableModes ?? []).map((entry) =>
+    acpPresentation(
+      {
+        id: entry.id,
+        label: entry.name,
+        description: entry.description ?? "",
+        risk: "medium",
+      },
+      identity,
+    ),
+  );
+}
+
+/** Source-verified native selectors (ADR 0069); an unprofiled "yolo" is not enough evidence. */
+function acpPresentation(
+  entry: NativePermissionMode,
+  identity: { provider?: ProviderKind | undefined; profile?: string | undefined },
+): NativePermissionMode {
+  const full =
+    (entry.id === "yolo" &&
+      (identity.provider === "antigravity" ||
+        identity.profile === "gemini-043" ||
+        identity.profile === "qwen-modern")) ||
+    (entry.id === "bypassPermissions" && identity.profile === "claude-bridge") ||
+    (entry.id === "agent-full-access" && identity.profile === "codex-bridge");
+  return full ? { ...entry, presentation: "full-access" } : entry;
 }
 
 /** Absence preserves the harness's configured default, regardless of offered modes. */

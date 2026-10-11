@@ -39,6 +39,25 @@ impl<T: Clone> References<T> {
             .insert(identity, (reference.clone(), element, self.clock));
         reference
     }
+    /// Reuse a ref only when the I/O boundary confirms continuity of the old control.
+    pub fn retain_if_same(
+        &mut self,
+        identity: String,
+        element: T,
+        same: impl FnOnce(&T, &T) -> bool,
+    ) -> String {
+        let replaced = self
+            .entries
+            .get(&identity)
+            .is_some_and(|(_, old, _)| !same(old, &element));
+        if replaced {
+            if let Some((reference, _, stamp)) = self.entries.remove(&identity) {
+                self.refs.remove(&reference);
+                self.order.remove(&stamp);
+            }
+        }
+        self.retain(identity, element)
+    }
     pub fn get(&self, reference: &str) -> Option<T> {
         self.refs
             .get(reference)

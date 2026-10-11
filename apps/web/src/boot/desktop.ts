@@ -169,3 +169,35 @@ function record(value: unknown): Record<string, unknown> | undefined {
   // Read field by field, each checked before use.
   return value as Record<string, unknown>;
 }
+
+/** Follow authenticated replacement targets, dropping replies from older status generations. */
+export function watchDesktopTarget(
+  listener: (target: DaemonTarget) => void,
+  scope: object = globalThis,
+): () => void {
+  const daemon = desktopDaemon(scope);
+  if (!daemon) return () => {};
+  let generation = 0;
+  let stopped = false;
+  const refresh = (status: DesktopDaemonStatus | undefined) => {
+    const revision = ++generation;
+    if (status?.state !== "running") return;
+    void desktopConnection(scope).then((connection) => {
+      if (!stopped && generation === revision && connection.kind === "target")
+        listener(connection.target);
+    });
+  };
+  const stop = daemon.onStatus(refresh);
+  const initial = generation;
+  void daemon
+    .status()
+    .then((status) => {
+      if (!stopped && initial === generation) refresh(status);
+    })
+    .catch(() => {});
+  return () => {
+    stopped = true;
+    ++generation;
+    stop();
+  };
+}

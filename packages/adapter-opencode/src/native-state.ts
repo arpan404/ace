@@ -243,10 +243,12 @@ export class NativeState {
         kind,
         title: task.startsWith("admission:")
           ? "OpenCode input acknowledgement uncertain"
-          : kind === "shell"
-            ? "OpenCode shell"
-            : "OpenCode background work",
-        stoppable: !task.startsWith("admission:"),
+          : task.startsWith("ancestry:")
+            ? "Verifying OpenCode child ownership"
+            : kind === "shell"
+              ? "OpenCode shell"
+              : "OpenCode background work",
+        stoppable: !task.startsWith("admission:") && !task.startsWith("ancestry:"),
         ...(item ? { item } : {}),
         ...(kind === "subagent" ? { childAgent: this.key(task.slice(6)) } : {}),
       },

@@ -722,6 +722,10 @@
     },
     {
       "properties": {
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "expectedHead": {
           "anyOf": [
             {
@@ -773,6 +777,35 @@
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "target": {
+          "properties": {
+            "branch": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{40,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            }
+          },
+          "required": [
+            "repository",
+            "branch",
+            "head"
+          ],
+          "type": "object"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -991,6 +1024,15 @@
     },
     {
       "properties": {
+        "draftBaseRef": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "input": {
           "$ref": "https://ace.local/protocol/v1/ForgeCreatePrInput.json"
         },
@@ -1199,6 +1241,9 @@
     },
     {
       "properties": {
+        "expectedFingerprint": {
+          "$ref": "https://ace.local/protocol/v1/ReviewFingerprint.json"
+        },
         "position": {
           "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
         },
@@ -1609,6 +1654,11 @@
       "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "cascade": {
           "default": true,

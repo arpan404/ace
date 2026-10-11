@@ -41,8 +41,8 @@ export const defaultAppearance: Appearance = {
 };
 
 export const transcriptSizes: Record<TranscriptSize, { px: number; label: string }> = {
-  small: { px: 14.5, label: "Small" },
-  default: { px: 15.5, label: "Default" },
+  small: { px: 13, label: "Small" },
+  default: { px: 14, label: "Default" },
   large: { px: 17, label: "Large" },
 };
 

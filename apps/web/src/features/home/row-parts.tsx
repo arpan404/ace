@@ -5,7 +5,6 @@ import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -59,10 +58,15 @@ export function StatusMark(props: { card: ThreadCard; muted?: boolean }) {
     case "failed":
     case "unresponsive":
     case "limited":
-      return <Dot tone={card.status.mark} className={props.muted ? "opacity-50" : ""} />;
+      return (
+        <Dot
+          tone={card.status.mark}
+          className={props.muted ? "[--tone:var(--muted-foreground)]" : ""}
+        />
+      );
     case "none":
       return card.status.tone === "waiting" ? (
-        <Dot tone="limited" className={props.muted ? "opacity-50" : ""} />
+        <Dot tone="limited" className={props.muted ? "[--tone:var(--muted-foreground)]" : ""} />
       ) : null;
   }
 }
@@ -94,47 +98,27 @@ export function PullRequest(props: { card: ThreadCard }) {
   );
 }
 
-/** Only visible working rows subscribe to the shared second clock. Offline facts stop ticking. */
+/** Routine work shows only relative time; requests and failures retain their short labels. */
 export function RowStatus(props: { card: ThreadCard }) {
   const { card } = props;
-  const muted = quietCard(card);
   const fresh = useLiveConnection().fresh;
-  const now = useSeconds(fresh && card.status.since !== undefined);
-  if (card.flags.settled || card.status.tone === "done" || card.status.tone === "idle")
+  const ongoing = !card.flags.settled && card.status.tone !== "done" && card.status.tone !== "idle";
+  const now = useSeconds(fresh && ongoing && card.status.since !== undefined);
+  if (card.status.tone === "needs-you" || card.status.tone === "failed") {
     return (
-      <span
-        className={cn(
-          "shrink-0 text-xs tabular-nums",
-          muted ? "text-subtle-foreground" : "text-muted-foreground",
-        )}
-      >
-        {card.age}
-      </span>
+      <StatusLabel
+        tone={card.status.tone}
+        label={card.status.compact}
+        mark={false}
+        className="text-xs"
+      />
     );
+  }
   return (
-    <StatusLabel
-      tone={card.status.tone}
-      label={card.status.compact}
-      mark={<StatusMark card={card} muted={muted} />}
-      className={cn("gap-1 text-xs", muted && "text-subtle-foreground")}
-    >
-      {card.status.since !== undefined && fresh && (
-        <span className="tabular-nums">{formatSpan(card.status.since, now)}</span>
-      )}
-    </StatusLabel>
-  );
-}
-
-/** Settled rows show only a pull request or their age, replaced by Unsettle on hover. */
-export function RowMeta(props: { card: ThreadCard }) {
-  const { card } = props;
-  return (
-    <span className="flex shrink-0 items-center text-xs text-subtle-foreground group-focus-within/row:hidden group-hover/row:hidden">
-      {card.pr !== undefined ? (
-        <PullRequest card={card} />
-      ) : (
-        <span className="tabular-nums">{card.age}</span>
-      )}
+    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+      {ongoing && card.status.since !== undefined && fresh
+        ? formatSpan(card.status.since, now)
+        : card.age}
     </span>
   );
 }
@@ -146,88 +130,8 @@ export function quietCard(card: ThreadCard): boolean {
 
 /** Selection stays readable; ordinary read work uses the quiet ink. */
 export function titleTone(card: ThreadCard, selected: boolean): string {
-  if (selected) return card.flags.unread ? "font-semibold text-foreground" : "text-foreground";
-  if (card.flags.unread) return "font-semibold text-foreground";
+  if (selected) return card.flags.unread ? "font-medium text-foreground" : "text-foreground";
+  if (card.flags.unread) return "font-medium text-foreground";
   if (card.emphasis) return "text-foreground";
   return quietCard(card) ? "text-subtle-foreground" : "text-sidebar-foreground";
-}
-
-/** The provider's mark, with the count of subagents working beside it. */
-function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }) {
-  const { card } = props;
-  return (
-    <span aria-hidden className="inline-flex items-center gap-0.5">
-      {card.subagents > 0 && (
-        <span className="text-2xs text-muted-foreground tabular-nums">⑂ {card.subagents}</span>
-      )}
-      <ProviderAccountIcon
-        instance={props.instance}
-        provider={card.provider}
-        acpAgentId={card.acpAgentId}
-        size={14}
-        variant="color"
-        className={cn(
-          "text-muted-foreground",
-          quietCard(card) ? "[&>svg]:opacity-65" : "[&>svg]:opacity-75",
-        )}
-        tooltip={false}
-        accountLabel
-        decorative
-      />
-    </span>
-  );
-}
-
-/** Remote host context stays quiet; the whole row owns its rich hover card. */
-export function RowIdentity(props: {
-  card: ThreadCard;
-  instance?: string | undefined;
-  className?: string;
-}) {
-  return (
-    <span className={cn("inline-flex shrink-0 items-center gap-1.5", props.className)}>
-      <ProviderMark card={props.card} instance={props.instance} />
-    </span>
-  );
-}
-
-/** Match the sibling cluster's intrinsic width without subscribing or rendering its icons twice. */
-export function RowIdentitySpace(props: { card: ThreadCard }) {
-  return (
-    <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-1.5">
-      <span className="inline-flex items-center gap-0.5">
-        {props.card.subagents > 0 && (
-          <span className="text-2xs tabular-nums">⑂ {props.card.subagents}</span>
-        )}
-        <span className="size-4" />
-      </span>
-    </span>
-  );
-}
-
-/** Task context stays visible while the project-line status gives way to the hover action. */
-export function RowDetail(props: {
-  card: ThreadCard;
-  machinePrimary: boolean;
-  model: string | undefined;
-}) {
-  const { card } = props;
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-subtle-foreground">
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className="truncate">
-          {card.branch?.name ?? props.model ?? card.providerLabel}
-          {!props.machinePrimary && card.machine && (
-            <span className="hidden group-focus-within/row:inline-flex group-hover/row:inline-flex">
-              {` · ${card.machine}`}
-            </span>
-          )}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-1.5">
-        <PullRequest card={card} />
-      </span>
-      <RowIdentitySpace card={card} />
-    </span>
-  );
 }

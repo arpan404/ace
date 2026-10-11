@@ -1,4 +1,5 @@
 import { MachineIcon } from "@ace/protocol";
+import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -333,7 +334,7 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
   get workspace(): Pick<
     FakeWorkspaceWire,
-    "gitStatus" | "setGitStatus" | "setGitDiff" | "setEditors"
+    "gitStatus" | "setGitStatus" | "setGitDiff" | "setEditors" | "setDraftGenerator"
   > {
     return this.servicesWire.workspace;
   }
@@ -354,21 +355,19 @@ export class FakeDaemon implements Host {
   /** Fault injection: a restart lost proof that a queued message reached its provider. */
   uncertainQueuedMessage(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
-    const message = host.queued.find((entry) => entry.key === messageId);
-    if (!message) throw new Error("No queued message to make uncertain");
-    message.state = "uncertain";
-    host.queue.paused = true;
-    host.queue.reason = "uncertain";
-    host.queueDirty = true;
+    markUncertainInput(host, messageId);
+    this.afterChange(host, this.options.clock());
+  }
+  /** A legacy daemon lost admission proof after filling the follow-up queue. */
+  restoreUncertainInput(threadId: string, value: unknown): void {
+    const host = this.thread(threadId);
+    restoreInput(host, value);
     this.afterChange(host, this.options.clock());
   }
   /** Fault injection: old snapshots repeated an input under two delivery states. */
   repeatQueuedInput(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
-    const message = host.queued.find((entry) => entry.key === messageId);
-    if (!message) throw new Error("No queued input to repeat");
-    host.queued.push({ ...message, state: "queued" });
-    host.queueDirty = true;
+    repeatInput(host, messageId);
     this.afterChange(host, this.options.clock());
   }
   /** Simulate a pre-delivery failure without contacting any provider. Queued input is retained. */

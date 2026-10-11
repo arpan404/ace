@@ -1,6 +1,6 @@
 import { useInteraction } from "@ace/client-react";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { Suspense, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import { AttachedCard } from "./attached-card.tsx";
@@ -19,10 +19,22 @@ const typing = (target: EventTarget) =>
 export function RequestStack(props: {
   threadId: string;
   ids: readonly string[];
+  target?: string | undefined;
   /** Put the caret back in the message. */
   onLeave(): void;
 }) {
   const [picked, setPicked] = useState<string>();
+  const frame = useRef<HTMLDivElement>(null);
+  const targeted =
+    props.target !== undefined && props.ids.includes(props.target) ? props.target : undefined;
+  const [seenTarget, setSeenTarget] = useState<string>();
+  if (seenTarget !== targeted) {
+    setSeenTarget(targeted);
+    setPicked(targeted);
+  }
+  useEffect(() => {
+    if (targeted && picked === targeted) frame.current?.focus();
+  }, [targeted, picked]);
   const count = props.ids.length;
   // Stay on the request the person moved to while it is open; else the oldest.
   const at = Math.max(0, picked === undefined ? 0 : props.ids.indexOf(picked));
@@ -77,19 +89,22 @@ export function RequestStack(props: {
       />
     </Suspense>
   );
-  if (request?.request.kind === "approval")
-    return (
+  const card =
+    request?.request.kind === "approval" ? (
       <section
         aria-label="Waiting for you"
-        onKeyDownCapture={onKeyDown}
         className="relative mx-0 mb-3 max-h-[50vh] overflow-y-auto overscroll-contain"
       >
         {content}
       </section>
+    ) : (
+      <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id}>
+        {content}
+      </AttachedCard>
     );
   return (
-    <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id} onKeyDown={onKeyDown}>
-      {content}
-    </AttachedCard>
+    <div ref={frame} tabIndex={-1} onKeyDownCapture={onKeyDown} className="focus-ring">
+      {card}
+    </div>
   );
 }

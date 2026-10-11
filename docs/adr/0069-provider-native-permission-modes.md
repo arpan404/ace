@@ -33,10 +33,17 @@ conditional startup default, OpenCode's mixed permission rules, user-defined
 Codex profiles, and agents with no native selector. Pi advertises an empty list.
 Providers without a known default do not mark an arbitrary descriptor as default.
 An explicit Deck or scoped settings selection overrides absence for that
-provider. A composer provider or model change retains an ID only if the new
-instance still advertises it; otherwise it clears the selection to native
-default. Defaults are stored per provider rather than interpreted as a universal
-permission preference.
+provider. Following the owner correction in #428 (2026-10-11), a composer account or
+provider change preserves the requested ID visibly when the new instance does
+not advertise it. New-thread admission stays blocked until the person explicitly
+chooses an available mode or resets to Provider default; absence must never be
+introduced silently. This supersedes the earlier automatic clearing rule.
+Defaults are stored per provider rather than interpreted as a universal
+permission preference. Native picker selections never pass through legacy preset
+migration: an advertised ACP `read-only` ID stays `read-only` after a switch,
+even if another provider has a legacy mapping for those words. Compatibility
+migration belongs to identifiable deprecated settings/input fields, not live
+native selections.
 
 Apply mode changes at the native boundary the provider supports. A pending
 change is distinct from an acknowledged effective selection. A process restart

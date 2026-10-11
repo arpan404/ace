@@ -36,6 +36,7 @@ export interface DaemonConnection {
   remembered: boolean;
   /** The token of the target being tried or last tried, so a failed attempt keeps it. */
   token?: string | undefined;
+  pairedDeviceId?: string | undefined;
   status: ConnectionStatus;
   /** Inside the desktop app: its daemon is managed for the person, never started by hand. */
   desktop?: boolean | undefined;

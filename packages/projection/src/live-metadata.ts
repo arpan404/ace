@@ -113,6 +113,10 @@ export function liveMetadata(
       }
     }
     if (!changed) return undefined;
+  } else if (payload.type === "run.started" && payload.run.agentId === thread.rootAgentId) {
+    live.rootRunId = payload.run.id;
+  } else if (payload.type === "run.ended" && payload.runId === live.rootRunId) {
+    live.rootRunId = null;
   } else if (payload.type === "agent.created") {
     const count =
       Number(payload.agent.origin !== "root") -

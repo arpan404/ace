@@ -189,7 +189,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         ];
       }
       case "message_end": {
-        const translated = messageFacts({ agent, prefix, message, streamed, data: frame.data });
+        const translated = messageFacts({ agent, prefix, message, data: frame.data });
         if (!translated) return overflow(frame);
         for (const fact of translated.facts)
           if (

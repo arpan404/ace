@@ -11,6 +11,8 @@ export const NativePermissionMode = z.object({
   label: z.string().min(1).max(256),
   description: z.string().max(2048),
   risk: z.enum(["low", "medium", "high"]),
+  /** Verified presentation meaning only; never used for permission enforcement. */
+  presentation: z.literal("full-access").optional(),
   default: z.boolean().optional(),
 });
 export type NativePermissionMode = z.infer<typeof NativePermissionMode>;

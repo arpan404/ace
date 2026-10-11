@@ -11,7 +11,7 @@ import { NotificationDatabase } from "./database.ts";
 import { PresenceIndex } from "./presence.ts";
 import { isQuiet, retryDelay } from "./policy.ts";
 
-export type DeliveryResult = "accepted" | "retry" | "gone" | "failed";
+export type DeliveryResult = "accepted" | "retry" | "gone" | "revoked" | "failed";
 export interface NotificationTransport {
   send(
     device: NotificationDevice,
@@ -36,7 +36,10 @@ export class NotificationService {
   private database: NotificationDatabase;
   private presence = new PresenceIndex();
   private options: NotificationOptions;
-  private inFlight = new Map<number, { device: DeviceId; controller: AbortController }>();
+  private inFlight = new Map<
+    number,
+    { device: DeviceId; address: NotificationDevice["address"]; controller: AbortController }
+  >();
   private running: Promise<void> | undefined;
   private closed = false;
   constructor(options: NotificationOptions) {
@@ -150,7 +153,7 @@ export class NotificationService {
           return;
         }
         const controller = new AbortController();
-        this.inFlight.set(job.id, { device: device.id, controller });
+        this.inFlight.set(job.id, { device: device.id, address: device.address, controller });
         let result: DeliveryResult;
         try {
           const preview = device.preferences.includePreview
@@ -167,7 +170,14 @@ export class NotificationService {
         } finally {
           this.inFlight.delete(job.id);
         }
-        if (result === "gone") this.revoke(device.id);
+        if (result === "revoked") this.revoke(device.id);
+        if (result === "gone" && this.database.expireAddress(device.id, device.address))
+          for (const flight of this.inFlight.values())
+            if (
+              flight.device === device.id &&
+              JSON.stringify(flight.address) === JSON.stringify(device.address)
+            )
+              flight.controller.abort();
         if (result !== "retry" || job.attempts >= 4 || controller.signal.aborted)
           this.database.remove(job.id);
         else

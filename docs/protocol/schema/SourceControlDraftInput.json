@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlDraftInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "fingerprint": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "generationId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "preference": {
+      "default": "",
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "claude",
+        "codex"
+      ],
+      "type": "string"
+    },
+    "selection": {
+      "$ref": "https://ace.local/protocol/v1/SourceControlSelection.json"
+    }
+  },
+  "required": [
+    "generationId",
+    "selection",
+    "fingerprint",
+    "provider"
+  ],
+  "type": "object"
+}

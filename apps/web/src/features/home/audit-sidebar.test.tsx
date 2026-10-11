@@ -175,7 +175,7 @@ test("a filtered empty state names the project rather than its opaque id", async
   expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
 });
 
-test("a thread without a model or branch keeps readable provider context on its third line", async () => {
+test("a compact thread keeps provider context in its accessible name and hover card", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -188,7 +188,12 @@ test("a thread without a model or branch keeps readable provider context on its 
     "link",
     { name: /^Bare thread/ },
   );
-  expect(within(bare).getByText("Codex")).toBeTruthy();
+  expect(bare.getAttribute("aria-label")).toContain("Codex");
+  expect(within(bare).queryByText("Codex")).toBeNull();
+  await userEvent.hover(bare);
+  expect(
+    within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),
+  ).toBeTruthy();
   expect(within(nav()).queryByRole("img", { name: "Codex" })).toBeNull();
 });
 

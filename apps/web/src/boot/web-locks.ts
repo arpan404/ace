@@ -44,3 +44,10 @@ export function lockReleased(name: string, gone: () => void): () => void {
     });
   return () => controller.abort();
 }
+
+/** Serialize a synchronous storage transaction across tabs; without Web Locks it stays atomic
+ * within this realm because the callback has no asynchronous boundary. */
+export function withBrowserLock<T>(name: string, run: () => T): Promise<T> {
+  const manager = locks();
+  return manager ? manager.request(name, run) : Promise.resolve().then(run);
+}

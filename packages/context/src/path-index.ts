@@ -88,6 +88,36 @@ export class PathIndex {
       }
     }
   }
+  /** Validate combined capacity before publishing any part of a subtree. */
+  replaceSubtree(folder: string, replacement: PathIndex): void {
+    const before = new Set(this.under(folder));
+    const next = new Set(replacement.under(folder));
+    const removed = [...before].filter((path) => !next.has(path));
+    const added = [...next].filter((path) => !before.has(path));
+    const references = new Map<string, number>();
+    for (const path of removed)
+      for (const ancestor of folders(path))
+        references.set(ancestor, (references.get(ancestor) ?? 0) - 1);
+    for (const path of added)
+      for (const ancestor of folders(path))
+        references.set(ancestor, (references.get(ancestor) ?? 0) + 1);
+    let size = this.entries.size + added.length - removed.length;
+    for (const [ancestor, change] of references) {
+      const previous = this.directories.get(ancestor) ?? 0;
+      const remaining = previous + change;
+      if (!previous && remaining) size++;
+      else if (previous && !remaining) size--;
+    }
+    requireContext(
+      size <= this.cap && added.every((path) => path.length <= 1024),
+      "quota",
+      "Workspace index limit exceeded",
+    );
+    // All removals precede additions, so intermediate size cannot exceed the
+    // validated final size. Work stays proportional to the affected subtree.
+    for (const path of removed) this.update(path, false);
+    for (const path of added) this.update(path, true);
+  }
   *under(folder: string): Iterable<string> {
     const prefix = folder === "." ? "" : `${folder}/`;
     const visit = function* (index: PathIndex, directory: string): Iterable<string> {

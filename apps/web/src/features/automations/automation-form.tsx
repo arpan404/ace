@@ -142,7 +142,12 @@ export function AutomationEditor(props: {
           {(field) => {
             const error = visible(field.state.meta);
             return (
-              <Row label="What should the agent do?" htmlFor="automation-prompt" errors={error}>
+              <Row
+                layout="stacked"
+                label="What should the agent do?"
+                htmlFor="automation-prompt"
+                errors={error}
+              >
                 <Textarea
                   id="automation-prompt"
                   name="prompt"

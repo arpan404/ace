@@ -1,6 +1,42 @@
 import { expect, test } from "vitest";
 import { setup } from "./testing/v2-session.ts";
 import { object, array } from "./data.ts";
+import { projectAttachments, canonicalContext, encodedContextBudget } from "@ace/context";
+
+test.each([130_808, 700_000, 922_403])(
+  "OpenCode delivers or falls back before admission for a %s-byte image",
+  async (bytes) => {
+    const h = await setup();
+    const base = [{ type: "text" as const, text: "image proof" }];
+    const image = {
+      path: "/files/image.png",
+      name: "image.png",
+      mimeType: "image/png",
+      bytes,
+      base64: Buffer.alloc(bytes, 42).toString("base64"),
+    };
+    const projection = projectAttachments([image], {
+      provider: "opencode",
+      images: ["image/png"],
+      documents: [],
+      embeddedContext: false,
+      maxInlineBytes:
+        h.session.effectiveCapabilities?.attachmentInput?.maxInlineBytes ?? 4 * 1024 * 1024,
+      maxEncodedBytes: encodedContextBudget(base),
+    });
+    await h.session.send([...base, ...canonicalContext(projection)], "queue");
+    const prompts = array(await h.control("/test/requests"))
+      .map(object)
+      .filter((r) => String(r.path).endsWith("/prompt"));
+    expect(prompts).toHaveLength(1);
+    expect(JSON.stringify(prompts[0])).toContain(
+      bytes < 900_000 ? image.base64 : "/files/image.png",
+    );
+    expect(h.frames.some((f) => ["input.rejected", "input.uncertain"].includes(f.channel))).toBe(
+      false,
+    );
+  },
+);
 test("mid-message OpenCode skills and agents carry native identities and exact mention ranges", async () => {
   const h = await setup();
   await h.session.send(

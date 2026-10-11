@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlDraft.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "maxLength": 7800,
+      "type": "string",
+      "x-ace-constraint": "Text without NUL bytes."
+    },
+    "subject": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Single line without NUL bytes."
+    }
+  },
+  "required": [
+    "subject",
+    "body"
+  ],
+  "type": "object"
+}

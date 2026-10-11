@@ -5,6 +5,11 @@ import type { ClientApi } from "@ace/client";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import {
   ThreadId,
+  SourceControlPreferences,
+  type SourceControlContext,
+  type SourceControlDraftInput,
+  type SourceControlSelection,
+  type SourceControlDraft,
   type CommandPayload,
   type CommandResult,
   type ForgePrRef,
@@ -41,6 +46,9 @@ export interface PrInput {
   title: string;
   summary: string;
   draft: boolean;
+  expectedHead?: string;
+  draftFingerprint?: string | undefined;
+  draftBaseRef?: string | undefined;
 }
 
 export class WorkspaceError extends Error {
@@ -56,6 +64,17 @@ type Operation = WorkspaceActionRequest["operation"];
 type Result = WorkspaceActionResult["result"];
 
 export interface WorkspaceSource {
+  draftContext(
+    thread: ThreadRef,
+    selection: SourceControlSelection,
+    signal?: AbortSignal,
+  ): Promise<SourceControlContext>;
+  generateDraft(
+    thread: ThreadRef,
+    input: SourceControlDraftInput,
+    signal: AbortSignal,
+  ): Promise<{ draft: SourceControlDraft; context: SourceControlContext }>;
+  cancelDraft(thread: ThreadRef, generationId: string): Promise<void>;
   /** Reads the checkout again; the daemon also publishes it to the thread's live details. */
   details(thread: ThreadRef, signal?: AbortSignal): Promise<ThreadDetails>;
   /** The linked PR as the forge reports it now, or null when none is linked. */
@@ -79,8 +98,12 @@ export interface WorkspaceSource {
     message: string,
     expectedHead: string | null,
     paths?: readonly string[],
+    draftFingerprint?: string,
   ): Promise<string>;
-  push(thread: ThreadRef): Promise<void>;
+  push(
+    thread: ThreadRef,
+    target?: { repository: ForgeRepository; branch: string; head: string | null },
+  ): Promise<void>;
   /**
    * Opens a pull request for the branch, or links the one the forge already has for it (the
    * daemon never opens a second); returns its status as the forge reports it.
@@ -150,7 +173,10 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
   ): Promise<Extract<Result, { kind: K }>> => {
     const reply = await client.request(
       { type: "workspace.request", operation },
-      signal ? { signal } : {},
+      {
+        ...(signal ? { signal } : {}),
+        ...(operation.op === "git.draft.generate" ? { timeoutMs: 150_000 } : {}),
+      },
     );
     const result = reply.result;
     if (result.kind === "error") throw new WorkspaceError(result.code);
@@ -163,6 +189,25 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     return result;
   };
   return {
+    draftContext: async (thread, selection, signal) =>
+      (
+        await read(
+          { op: "git.draft.context", threadId: id(thread), selection },
+          "draftContext",
+          signal,
+        )
+      ).context,
+    generateDraft: async (thread, input, signal) => {
+      const { draft, context } = await read(
+        { op: "git.draft.generate", threadId: id(thread), input },
+        "draft",
+        signal,
+      );
+      return { draft, context };
+    },
+    cancelDraft: async (thread, generationId) => {
+      await read({ op: "git.draft.cancel", threadId: id(thread), generationId }, "draftCancelled");
+    },
     details: async (thread, signal) =>
       (await read({ op: "thread.details", threadId: id(thread) }, "details", signal)).details,
     prStatus: async (thread, signal) =>
@@ -191,18 +236,32 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       if (!result.editor) throw new WorkspaceError("unexpected");
       return result.editor;
     },
-    async commit(thread, message, expectedHead, paths) {
+    async commit(thread, message, expectedHead, paths, draftFingerprint) {
       const result = await run({
         type: "git.commit",
         threadId: id(thread),
         message,
         expectedHead,
         ...(paths ? { paths: [...paths] } : {}),
+        ...(draftFingerprint ? { draftFingerprint } : {}),
       });
       return result.commit ?? "";
     },
-    async push(thread) {
-      await run({ type: "git.push", threadId: id(thread), remote: "origin" });
+    async push(thread, target) {
+      const response = await client.request({
+        type: "settings.get",
+        key: "sourceControl.preferences",
+        scope: {},
+      });
+      const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
+      if (!response.ok || !entry) throw new WorkspaceError("forge_preferences_changed");
+      const preferences = SourceControlPreferences.parse(entry.value);
+      await run({
+        type: "git.push",
+        threadId: id(thread),
+        remote: preferences.remote,
+        ...(target ? { target } : {}),
+      });
     },
     async createPr(thread, input) {
       return status(
@@ -210,6 +269,8 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
           type: "forge.pr.create",
           threadId: thread.id,
           repository: input.repository,
+          ...(input.draftFingerprint ? { draftFingerprint: input.draftFingerprint } : {}),
+          ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
           input: {
             branch: input.branch,
             base: input.base,
@@ -218,6 +279,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
             // The forge fills these from the fields above.
             template: { title: "{{title}}", body: "{{summary}}" },
             draft: input.draft,
+            ...(input.expectedHead ? { expectedHead: input.expectedHead } : {}),
           },
         }),
       );

@@ -13,7 +13,6 @@ import {
   object,
   string,
   timestamp,
-  claudeSidechainParent,
 } from "@ace/native-session";
 import { HistorySession } from "@ace/protocol/history";
 import { summary, sourceId } from "./metadata.ts";
@@ -121,14 +120,6 @@ export async function scan(
             lastActivity: timestamp(time.updated) ?? sample.mtime,
             parentNativeId: string(r.parentID),
             countAccuracy: "sampled",
-          });
-        } else if (instance.provider === "claude" && claudeSidechainParent(path)) {
-          const parent = claudeSidechainParent(path);
-          s = HistorySession.parse({
-            ...s,
-            id: sourceId(instance.id, path, basename(path, ".jsonl")),
-            nativeId: basename(path, ".jsonl"),
-            parentNativeId: parent,
           });
         }
         if (!isStorage && fp !== sample.fingerprint)
