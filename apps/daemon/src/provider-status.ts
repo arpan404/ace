@@ -11,15 +11,22 @@ import {
   type DiscoveryResult,
 } from "@ace/provider-kit/discovery";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
+import { probeOutput } from "@ace/provider-kit/process";
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
   piExecutable?: string;
-  configuration?: (provider: Status["provider"], instance?: string) => {
+  configuration?: (
+    provider: Status["provider"],
+    instance?: string,
+  ) => {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
     revision?: string | undefined;
   };
-  environment?(provider: Status["provider"], instance?: string): NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
+  environment?(
+    provider: Status["provider"],
+    instance?: string,
+  ): NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   attention?(row: Status): boolean;
   account?(
     row: Status,
@@ -86,15 +93,24 @@ export class ProviderStatuses {
     return {
       account,
       configuration,
-      key: JSON.stringify([account?.instanceId, configuration?.binaryPath, configuration?.enabled !== false, configuration?.revision]),
+      key: JSON.stringify([
+        account?.instanceId,
+        configuration?.binaryPath,
+        configuration?.enabled !== false,
+        configuration?.revision,
+      ]),
     };
   }
   private refreshSelection(): void {
     if (this.followup || this.controller.signal.aborted) return;
-    this.followup = Promise.resolve().then(async () => {
-      await this.flight;
-      await this.refresh();
-    }).finally(() => { this.followup = undefined; });
+    this.followup = Promise.resolve()
+      .then(async () => {
+        await this.flight;
+        await this.refresh();
+      })
+      .finally(() => {
+        this.followup = undefined;
+      });
   }
   list(): Status[] {
     const now = this.runtime.now();
@@ -103,12 +119,21 @@ export class ProviderStatuses {
       const observed = this.observations.get(cached.provider);
       const fresh = observed === undefined || observed === selection.key;
       if (!fresh) this.refreshSelection();
-      const row: Status = fresh ? cached : { provider: cached.provider, runtime: cached.runtime, installed: null, auth: "unknown", loginHint: cached.loginHint, stale: true, refreshing: Boolean(this.flight) };
+      const row: Status = fresh
+        ? cached
+        : {
+            provider: cached.provider,
+            runtime: cached.runtime,
+            installed: null,
+            auth: "unknown",
+            loginHint: cached.loginHint,
+            stale: true,
+            refreshing: Boolean(this.flight),
+          };
       const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
       const { state, actionId, ...observation } = row;
       const account = this.options.account?.(row);
-      // Discovery describes the default home. Auth-derived actions must describe
-      // the selected account, while unrelated installation failures stay intact.
+      // Auth-derived actions follow the selected account; installation errors stay intact.
       const authState = state === "not_configured" && actionId === "provider.sign_in";
       const selectedAuth = account?.auth ?? row.auth;
       const effectiveState =
@@ -144,17 +169,29 @@ export class ProviderStatuses {
       timeoutMs: this.options.timeoutMs ?? 4000,
     };
     const selections = new Map(this.rows.map((row) => [row.provider, this.selection(row)]));
+    const assertSelection = (row: Status) => {
+      this.controller.signal.throwIfAborted();
+      if (selections.get(row.provider)?.key !== this.selection(row).key)
+        throw new Error("Provider selection changed");
+    };
     const probe = async (row: Status): Promise<DiscoveryResult | undefined> => {
       const selection = selections.get(row.provider);
       const configuration = selection?.configuration;
       if (configuration?.enabled === false) return Promise.resolve(undefined);
-      const env = await this.options.environment?.(row.provider, selection?.account?.instanceId) ?? options.env;
-      if (selection?.key !== this.selection(row).key) throw new Error("Provider selection changed");
-      const configured = configuredProviderDiscovery(
-        row.provider,
-        configuration?.binaryPath,
-        { ...options, ...(env ? { env } : {}) },
-      );
+      const env =
+        (await this.options.environment?.(row.provider, selection?.account?.instanceId)) ??
+        options.env;
+      assertSelection(row);
+      const configured = configuredProviderDiscovery(row.provider, configuration?.binaryPath, {
+        ...options,
+        ...(env ? { env } : {}),
+        probe: async (...args: Parameters<typeof probeOutput>) => {
+          assertSelection(row);
+          const result = await (options.probe ?? probeOutput)(...args);
+          assertSelection(row);
+          return result;
+        },
+      });
       if (row.runtime === "cursor-sdk")
         return this.options.cursorSdk?.(this.controller.signal) ?? Promise.resolve(undefined);
       switch (row.provider) {
@@ -180,16 +217,23 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
+        assertSelection(row);
         const instanceId = selections.get(row.provider)?.account?.instanceId;
-        const result: Status = { ...providerStatusRow(row, status, this.runtime.now()), ...(instanceId ? { instanceId } : {}) };
+        const result: Status = {
+          ...providerStatusRow(row, status, this.runtime.now()),
+          ...(instanceId ? { instanceId } : {}),
+        };
         const versions =
           result.installed && this.options.versions
             ? await this.options.versions(result, this.controller.signal)
             : {};
+        assertSelection(row);
+        const authInfo = await this.options.authInfo?.(result, this.controller.signal);
+        assertSelection(row);
         return {
           ...result,
           ...versions,
-          ...(await this.options.authInfo?.(result, this.controller.signal)),
+          ...authInfo,
         };
       } catch {
         return {
@@ -208,9 +252,18 @@ export class ProviderStatuses {
     this.flight = Promise.all(work)
       .then((rows) => {
         if (!this.controller.signal.aborted) {
-          this.rows = rows;
-          for (const [provider, selection] of selections) this.observations.set(provider, selection.key);
-          this.options.checked?.(rows);
+          const admitted = rows.filter(
+            (row) => selections.get(row.provider)?.key === this.selection(row).key,
+          );
+          const admittedProviders = new Set(admitted.map((row) => row.provider));
+          this.rows = rows.map((row) =>
+            admittedProviders.has(row.provider)
+              ? row
+              : providerStatusRow(row, undefined, this.runtime.now()),
+          );
+          for (const [provider, selection] of selections)
+            this.observations.set(provider, selection.key);
+          this.options.checked?.(admitted);
         }
       })
       .finally(() => {

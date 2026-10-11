@@ -35,7 +35,9 @@ export function startProviderStatuses(context: ServiceContext): void {
     ? cursorSdkLoginDriver(context.services.accountRegistry, { ...driverOptions, now: context.now })
     : undefined;
   const selectedInstance = (provider: import("@ace/protocol").ProviderKind) =>
-    (provider === "cursor" ? context.services.accountRegistry?.selectedCursorSdk() : context.services.accountRegistry?.selectedProvider(provider)) ??
+    (provider === "cursor"
+      ? context.services.accountRegistry?.selectedCursorSdk()
+      : context.services.accountRegistry?.selectedProvider(provider)) ??
     (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
   const statuses = new ProviderStatuses(
     {
@@ -56,17 +58,30 @@ export function startProviderStatuses(context: ServiceContext): void {
           instanceId: account.instance.id,
           ...(account.instance.authMethod ? { authMethod: account.instance.authMethod } : {}),
           ...(account.instance.signedInAs ? { accountLabel: account.instance.signedInAs } : {}),
-          ...(!account.instance.implicit ? { auth: row.provider === "cursor" ? account.quota.auth : row.instanceId === selected ? row.auth : "unknown" as const } : {}),
+          ...(!account.instance.implicit
+            ? {
+                auth:
+                  row.provider === "cursor"
+                    ? account.quota.auth
+                    : row.instanceId === selected
+                      ? row.auth
+                      : ("unknown" as const),
+              }
+            : {}),
         };
       },
       async authInfo(row, signal) {
         let help = "";
         if (row.path && (row.provider === "codex" || row.provider === "opencode")) {
           try {
+            const account = row.instanceId
+              ? context.services.accountRegistry?.get(row.instanceId)?.instance
+              : undefined;
+            const env = context.options.providerStatus?.env ?? process.env;
             const result = await probeOutput(
               row.path,
               row.provider === "codex" ? ["login", "--help"] : ["auth", "login", "--help"],
-              { env: context.options.providerStatus?.env ?? process.env, signal, timeoutMs: 4000 },
+              { env: account ? instanceEnv(account, env) : env, signal, timeoutMs: 4000 },
             );
             if (result.code === 0) help = result.stdout;
           } catch {
@@ -109,11 +124,14 @@ export function startProviderStatuses(context: ServiceContext): void {
       },
       configuration: (provider) => ({
         ...context.services.providerConfigurations?.for(provider, selectedInstance(provider)),
-        revision: context.services.accountRegistry?.get(selectedInstance(provider))?.instance.loginRevision,
+        revision: context.services.accountRegistry?.get(selectedInstance(provider))?.instance
+          .loginRevision,
       }),
       async environment(provider, instanceId) {
         const env = context.options.providerStatus?.env ?? process.env;
-        const account = instanceId ? context.services.accountRegistry?.get(instanceId)?.instance : undefined;
+        const account = instanceId
+          ? context.services.accountRegistry?.get(instanceId)?.instance
+          : undefined;
         if (!account || provider === "cursor") return env;
         await context.services.accountRegistry?.validateHome(account);
         return instanceEnv(account, env);

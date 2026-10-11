@@ -1,6 +1,4 @@
-import {
-  configuredProviderDiscovery,
-} from "../provider-discovery.ts";
+import { configuredProviderDiscovery } from "../provider-discovery.ts";
 import { nativeLoginGuard } from "./native-login-guard.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
@@ -168,7 +166,13 @@ export async function prepareProviderLogin(
   )
     throw new Error("Instance unavailable");
   const release = services.accounts.reserveAccountChange(instanceId);
-  const guard = nativeLoginGuard(instance, registry, services.providerConfigurations, signal);
+  const guard = nativeLoginGuard(
+    instance,
+    registry,
+    services.providerConfigurations,
+    signal,
+    services.models,
+  );
   const assertCurrent = () => guard.assertCurrent();
   try {
     assertCurrent();
@@ -179,12 +183,20 @@ export async function prepareProviderLogin(
       instance,
       options.accounts?.env ?? options.providerStatus?.env ?? process.env,
     );
+    const metadataProbe =
+      options.accounts?.discovery?.probe ?? options.providerStatus?.probe ?? probeOutput;
     const discovery = {
       ...options.providerStatus,
       ...options.accounts?.discovery,
       env,
       signal: guard.signal,
       timeoutMs: 4000,
+      probe: async (...args: Parameters<typeof probeOutput>) => {
+        assertCurrent();
+        const result = await metadataProbe(...args);
+        assertCurrent();
+        return result;
+      },
     };
     const configured = configuredProviderDiscovery(
       target.provider,
@@ -275,13 +287,36 @@ export async function prepareProviderLogin(
           });
     const result: ProviderLoginDriver = {
       ...driver,
-      release() { guard.dispose(); release(); },
+      release() {
+        guard.dispose();
+        release();
+      },
+      async drain() {
+        await driver.drain?.();
+        await guard.drain();
+      },
+      isCurrent() {
+        try {
+          assertCurrent();
+          return true;
+        } catch {
+          return false;
+        }
+      },
       input(input) {
-        try { assertCurrent(); } catch { return false; }
+        try {
+          assertCurrent();
+        } catch {
+          return false;
+        }
         return driver.input?.(input) ?? false;
       },
       apiKey(key) {
-        try { assertCurrent(); } catch { return false; }
+        try {
+          assertCurrent();
+        } catch {
+          return false;
+        }
         return driver.apiKey?.(key) ?? false;
       },
       async run(runSignal, emit) {
@@ -290,6 +325,7 @@ export async function prepareProviderLogin(
         return driver.run(AbortSignal.any([runSignal, guard.signal]), emit);
       },
       async changed(changeSignal) {
+        changeSignal = AbortSignal.any([changeSignal, guard.signal]);
         changeSignal.throwIfAborted();
         assertCurrent();
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
@@ -331,6 +367,8 @@ export async function prepareProviderLogin(
         guard.acceptRevision();
         const models = services.models;
         if (models) {
+          assertCurrent();
+          guard.ownCatalog();
           models.registerInstance({
             id: instanceId,
             provider: instance.provider,
@@ -350,9 +388,13 @@ export async function prepareProviderLogin(
             instanceId,
             registry.get(instanceId)?.instance.loginRevision ?? "0",
           );
+          assertCurrent();
         }
+        assertCurrent();
         await services.providerStatuses?.refresh();
+        assertCurrent();
         services.providerStatuses?.publish();
+        assertCurrent();
       },
     };
     return result;

@@ -32,3 +32,39 @@ test("unknown auth probes preserve the account generation while confirmed auth c
     registry.close();
   }
 });
+
+test("explicit auth invalidation clears obsolete identity and cannot revoke a newer login", async () => {
+  const fixture = await homes("codex");
+  const registry = await openRegistry(fixture.to.homeDir + "/accounts.sqlite");
+  try {
+    await registry.register(fixture.from);
+    registry.recordAuth(fixture.from.id, "browser", "obsolete-account");
+    registry.ingest(fixture.from.id, {
+      provider: "codex",
+      payload: new ProviderPayload('{"auth":"logged_in"}'),
+      observedAt: 1,
+      timeZone: "UTC",
+    });
+    expect(registry.invalidateAuth(fixture.from.id, "1")).toBe(true);
+    expect(registry.get(fixture.from.id)).toMatchObject({
+      instance: { authMethod: "unknown", loginRevision: "2" },
+      quota: { auth: "unknown" },
+    });
+    expect(registry.get(fixture.from.id)?.instance.signedInAs).toBeUndefined();
+    expect(registry.summary(fixture.from.id, 2)?.availability).toBe("unknown");
+    registry.recordAuth(fixture.from.id, "api_key", "new-account");
+    registry.ingest(fixture.from.id, {
+      provider: "codex",
+      payload: new ProviderPayload('{"auth":"logged_in"}'),
+      observedAt: 3,
+      timeZone: "UTC",
+    });
+    expect(registry.invalidateAuth(fixture.from.id, "1")).toBe(false);
+    expect(registry.get(fixture.from.id)).toMatchObject({
+      instance: { authMethod: "api_key", signedInAs: "new-account", loginRevision: "3" },
+      quota: { auth: "logged_in" },
+    });
+  } finally {
+    registry.close();
+  }
+});
