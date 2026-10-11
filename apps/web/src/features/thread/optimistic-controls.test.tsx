@@ -46,19 +46,19 @@ async function chooseApprovals(from: string, mode: string) {
 test("an approval mode chosen offline shows at once and reaches the daemon once it's back", async () => {
   const app = await open();
   await offline(app);
-  await chooseApprovals("Provider default", "Bypass permissions");
+  await chooseApprovals("Provider default", "Full access");
 
   const pending = await screen.findByRole("button", {
-    name: "Approvals: Bypass permissions, will apply when reconnected",
+    name: "Approvals: Full access, will apply when reconnected",
   });
-  expect(pending.textContent).toBe("Bypass permissions");
+  expect(pending.textContent).toBe("Full access");
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
   await waitFor(() => expect(thread(app)?.permission?.override).toBe("bypassPermissions"));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Bypass permissions, applies at the agent's next turn",
+      name: "Approvals: Full access, applies at the agent's next turn",
     }),
   ).toBeTruthy();
 });

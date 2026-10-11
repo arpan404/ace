@@ -323,9 +323,9 @@ test("global permissions start at the CLI default and can return to it after an 
     expect(picker).toHaveProperty("disabled", false);
   });
   await userEvent.click(picker);
-  await screen.findByRole("option", { name: "Bypass permissions" });
+  await screen.findByRole("option", { name: "Full access" });
   expect(screen.getByRole("option", { name: "Provider default" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("option", { name: "Bypass permissions" }));
+  await userEvent.click(screen.getByRole("option", { name: "Full access" }));
   await waitFor(() =>
     expect(app.daemon.services.settings.get("permissions.providerModes")).toMatchObject({
       claude: "bypassPermissions",
