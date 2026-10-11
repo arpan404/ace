@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { useEffect } from "react";
-import { loadedPanelServices, panelServices } from "../services.ts";
+import { endPanelTerminal, loadedPanelServices } from "../services.ts";
 import { onTerminalEnd, setTerminalProbe } from "./closing.ts";
 
 /**
@@ -19,12 +19,7 @@ export function TerminalClient() {
       return terminals.source.list(threadId).find((terminal) => terminal.id === terminalId)?.exited;
     });
     // A closed terminal tab ends its shell (the tab kind's onClose has no client to ask).
-    const unend = onTerminalEnd(
-      (end) =>
-        void panelServices(client).then((services) =>
-          services.terminals.end(end.threadId, end.terminalId),
-        ),
-    );
+    const unend = onTerminalEnd((end) => endPanelTerminal(client, end));
     return () => {
       unprobe();
       unend();

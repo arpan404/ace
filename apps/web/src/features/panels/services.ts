@@ -5,6 +5,7 @@ import type { ReviewDraft } from "./changes/drafts.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
+import type { TerminalEnd } from "./terminal/closing.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
 import type { TabUiState } from "./terminal/tab-ui.ts";
 
@@ -41,6 +42,24 @@ async function load(client: ClientApi): Promise<Pick<PanelServices, "terminals" 
 
 const byClient = new WeakMap<ClientApi, Promise<PanelServices>>();
 const ready = new WeakMap<ClientApi, PanelServices>();
+// Close intents belong to the client, including while its service chunk is unavailable.
+const terminalEnds = new WeakMap<ClientApi, Map<string, TerminalEnd>>();
+
+function drainTerminalEnds(client: ClientApi, services: PanelServices): void {
+  const pending = terminalEnds.get(client);
+  terminalEnds.delete(client);
+  for (const end of pending?.values() ?? []) services.terminals.end(end.threadId, end.terminalId);
+}
+
+/** Retain tab-close intents until this client's terminal services are usable. */
+export function endPanelTerminal(client: ClientApi, end: TerminalEnd): void {
+  const pending = terminalEnds.get(client) ?? new Map<string, TerminalEnd>();
+  pending.set(end.terminalId, end);
+  terminalEnds.set(client, pending);
+  const services = ready.get(client);
+  if (services) drainTerminalEnds(client, services);
+  else void panelServices(client).catch(() => {});
+}
 
 type ServiceLoad =
   | { status: "loading" }
@@ -78,6 +97,7 @@ export function panelServices(
           terminalUi: new LocalStore<TabUiState>(new Map()),
         };
         ready.set(client, value);
+        drainTerminalEnds(client, value);
         publish(client, { status: "ready", services: value });
         return value;
       },
@@ -101,6 +121,7 @@ export function disposePanelServices(client: ClientApi): void {
   ready.get(client)?.preview.dispose();
   byClient.delete(client);
   ready.delete(client);
+  terminalEnds.delete(client);
   states.delete(client);
   listeners.delete(client);
 }
