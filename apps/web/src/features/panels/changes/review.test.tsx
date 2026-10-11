@@ -146,23 +146,34 @@ test("a comment from another device shows with its replies, and a reply here rea
   ]);
 });
 
-test("Approve marks the thread's review approved for every device", async () => {
-  const { panel, remote, replay } = await openChanges();
-  expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
-  const [cell, , line] = adjacentNewLines(replay);
-  await userEvent.click(within(cell).getByRole("button", { name: `Comment on line ${line}` }));
-  await userEvent.type(
-    within(replay).getByRole("textbox", { name: `Comment on line ${line}` }),
-    "Looks good",
-  );
-  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
-  const review = await within(panel).findByRole("region", { name: "Review" });
-  await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
-  await waitFor(() => expect(within(review).getByRole("status").textContent).toMatch(/^Approved/));
-  expect(remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions).toEqual(
-    [expect.objectContaining({ status: "approved" })],
-  );
-});
+test.each([false, true])(
+  "Approve completes a no-comment review with an existing session: %s",
+  async (existing) => {
+    const { panel, remote } = await openChanges();
+    if (existing) {
+      remote({
+        type: "review.open",
+        source: {
+          workspaceId: "ace",
+          threadId,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+        },
+      });
+      await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
+    }
+    const review = await within(panel).findByRole("region", { name: "Review" });
+    await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(within(review).getByRole("status").textContent).toMatch(/^Approved/),
+    );
+    expect(
+      remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions,
+    ).toEqual([expect.objectContaining({ status: "approved" })]);
+  },
+  30000,
+);
 
 test("Request changes sends the unsent comments to the agent as a queued turn", async () => {
   const { app, panel, replay } = await openChanges();

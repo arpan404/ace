@@ -64,7 +64,6 @@ export function ReviewBar(props: {
       () => setError(undefined),
       (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)),
     );
-  if (!props.drafts.length && status === "open") return null;
   return (
     <section
       aria-label="Review"
