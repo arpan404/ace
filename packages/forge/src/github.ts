@@ -65,8 +65,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     method: MergeMethod,
     signal: AbortSignal,
     allowed: () => boolean = () => true,
+    dispatch?: WriteDispatch,
   ) {
-    return this.#mergeState.change(number, headSha, action, method, signal, allowed);
+    return this.#mergeState.change(number, headSha, action, method, signal, allowed, dispatch);
   }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);

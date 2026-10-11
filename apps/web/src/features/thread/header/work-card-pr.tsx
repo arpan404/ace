@@ -1,3 +1,4 @@
+import type { ForgePrStatus } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";

@@ -146,8 +146,12 @@ export function PrDetails(props: {
           )}
         </div>
       )}
-      <PrMergeControls workspaceId={props.workspaceId} pr={status.ref}
-        relatedThreads={[{ id: git.threadId, title: "This task" }]} onRefresh={props.onRefresh} />
+      <PrMergeControls
+        workspaceId={props.workspaceId}
+        pr={status.ref}
+        relatedThreads={[{ id: git.threadId, title: "This task" }]}
+        onRefresh={props.onRefresh}
+      />
     </>
   );
 }

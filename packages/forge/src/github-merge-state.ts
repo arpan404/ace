@@ -1,3 +1,4 @@
+import { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
 import { ForgeMergeState } from "@ace/protocol/forge-merge-state";
 import type { ForgeRepository } from "@ace/protocol/forge";
@@ -107,15 +108,16 @@ export class GitHubMergeState {
     method: MergeMethod,
     signal: AbortSignal,
     allowed: () => boolean = () => true,
-  ) {
+    dispatch = new WriteDispatch(),
+  ): Promise<ForgeMergeState | undefined> {
     z.string()
       .regex(/^[a-fA-F0-9]{40,64}$/)
       .parse(headSha);
     z.enum(["merge", "squash", "rebase"]).parse(method);
     z.enum(["enable", "disable", "dequeue"]).parse(action);
     const { pr, state } = await this.#read(number, signal);
-    if (!allowed()) throw new ForgeError("forbidden");
-    if (state.headSha !== headSha) throw new ForgeError("conflict");
+    if (!allowed()) throw new ForgeError("forbidden", undefined, false);
+    if (state.headSha !== headSha) throw new ForgeError("conflict", undefined, false);
     // Reconcile an already completed action before issuing another write.
     if (action === "enable" && (state.queue || state.autoMerge?.method === method.toUpperCase()))
       return state;
@@ -128,7 +130,7 @@ export class GitHubMergeState {
           ? state.canDisable
           : state.canDequeue)
     )
-      throw new ForgeError("forbidden");
+      throw new ForgeError("forbidden", undefined, false);
     const mutation =
       action === "enable"
         ? "enablePullRequestAutoMerge"
@@ -145,20 +147,33 @@ export class GitHubMergeState {
     // the authoritative preflight above checks it, and GitHub enforces permissions.
     let failure: unknown;
     try {
-      const page = await this.#api.request("graphql", signal, {
-        query: `mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!){${mutation}(input:$input){clientMutationId}}`,
-        variables: { input },
-      });
+      const page = await this.#api.request(
+        "graphql",
+        signal,
+        {
+          query: `mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!){${mutation}(input:$input){clientMutationId}}`,
+          variables: { input },
+        },
+        "POST",
+        dispatch,
+      );
       const result = z.object({ data: z.record(z.string(), z.unknown()) }).safeParse(page.body);
       if (!result.success || !result.data.data[mutation]) throw new ForgeError("invalid_data");
+      // Return the acknowledgement before any read. The shell persists acceptance
+      // before fetching host state, which may fail or lag behind this write.
+      return undefined;
     } catch (error) {
+      if (dispatch.definitelyFailed) throw error;
       failure = error;
     }
-    // Never retry a write after a lost acknowledgement. Observe GitHub first.
-    const current = await this.read(number, signal);
-    const completed = mergeStateChangeObserved(current, headSha, action, method);
-    if (failure && !completed) throw failure;
-    if (!completed) throw new ForgeError("conflict");
+    // A read cannot turn an ambiguous mutation into a definite refusal.
+    let current: ForgeMergeState;
+    try {
+      current = await this.read(number, signal);
+    } catch {
+      throw failure;
+    }
+    if (!mergeStateChangeObserved(current, headSha, action, method)) throw failure;
     return current;
   }
 }

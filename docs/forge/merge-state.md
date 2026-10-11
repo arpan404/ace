@@ -13,14 +13,19 @@ writing through the installed `gh api` process. Enabling auto-merge supplies
 not expose an expected revision on those cancellation inputs, so ace checks the
 head immediately before the mutation; GitHub still enforces its permissions.
 
-After a write, including a lost acknowledgement, ace reads authoritative state.
-It returns success only when that state confirms the requested outcome. It never
-retries the mutation. An unresolved outcome stays visible through an error
-receipt, and the UI requires an explicit refresh before another action. The
-PR-wide write receipt prevents replay with a new command ID or after daemon restart.
-A read that confirms completion clears that fence. Pending or uncertain writes
-keep controls disabled across reloads. The legacy `forge.pr.auto-merge` command
-and `enableAutoMerge` API use the same guarded merge-state owner.
+A complete mutation acknowledgement is persisted before later state reads. If a
+read fails, that accepted receipt remains accepted and the workspace asks for a
+refresh. Only the shared forge transport can prove a definite refusal or that
+nothing was sent. A later read failure cannot change the mutation's certainty.
+
+After a lost acknowledgement or partial GraphQL result, ace reads authoritative
+state without retrying the mutation. An unresolved outcome stays visible through
+an uncertain receipt, including after a new command ID or daemon restart. A read
+that confirms completion clears that fence. A complete refusal and an unsent
+spawn failure settle as failed and permit a reviewed retry. Reads capture the
+receipt generation before host I/O. Pending or uncertain writes keep controls
+disabled across reloads. The legacy `forge.pr.auto-merge` command and
+`enableAutoMerge` API use the same guarded merge-state owner.
 
 GitHub's capability fields decide auto-merge availability. Check rollup, review
 decision and merge-state status describe blockers without pretending to enumerate

@@ -14,7 +14,18 @@ const args = process.argv.slice(2);
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const body = input ? JSON.parse(input) : undefined;
-const path = args[0] === "api" ? args[1] : "auto-merge";
+const path =
+  args[0] === "api"
+    ? args[1] === "graphql" &&
+      config["merge-state-write"] &&
+      body?.query?.trimStart().startsWith("mutation")
+      ? "merge-state-write"
+      : args[1] === "graphql" &&
+          config["merge-state-read"] &&
+          body?.query?.includes("autoMergeRequest")
+        ? "merge-state-read"
+        : args[1]
+    : "auto-merge";
 const count = state.counters[path] ?? 0;
 const records = config[path];
 if (!records) {

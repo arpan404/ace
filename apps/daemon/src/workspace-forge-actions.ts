@@ -54,7 +54,17 @@ export class WorkspaceForgeActions {
     );
     return row ? z.number().int().nonnegative().parse(row.generation) : -1;
   }
-  async readDetail<T extends { status: ForgePrStatus }>(pr: ForgePrRef, read: () => Promise<T>) {
+  readDetail<T extends { status: ForgePrStatus }>(pr: ForgePrRef, read: () => Promise<T>) {
+    return this.guardedRead(pr, read, (value) => this.observe(value.status));
+  }
+  readMergeState(pr: ForgePrRef, read: () => Promise<ForgeMergeState>) {
+    return this.guardedRead(pr, read, (value) => this.observeMergeState(pr, value));
+  }
+  private async guardedRead<T>(
+    pr: ForgePrRef,
+    read: () => Promise<T>,
+    observe: (value: T) => "pending" | "uncertain" | undefined,
+  ) {
     const key = this.key(pr);
     const generation = this.generation(key);
     const duringWrite = this.live.has(key);
@@ -63,7 +73,7 @@ export class WorkspaceForgeActions {
     return this.store.atomic(() => {
       if (generation !== this.generation(key) || (duringWrite && !this.live.has(key)))
         throw new ForgeError("conflict");
-      return { value, writeState: this.observe(value.status) };
+      return { value, writeState: observe(value) };
     });
   }
   private observe(status: ForgePrStatus): "pending" | "uncertain" | undefined {
@@ -77,11 +87,14 @@ export class WorkspaceForgeActions {
     }
     return "uncertain";
   }
-  observeMergeState(pr: ForgePrRef, state: ForgeMergeState): "pending" | "uncertain" | undefined {
+  private observeMergeState(
+    pr: ForgePrRef,
+    state: ForgeMergeState,
+  ): "pending" | "uncertain" | undefined {
     const key = this.key(pr);
     if (this.live.has(key)) return "pending";
     const receipt = this.read(key);
-    if (!receipt || receipt.phase === "reconciled") return undefined;
+    if (!receipt || ["reconciled", "failed"].includes(receipt.phase)) return undefined;
     if (receipt.phase === "accepted" || observedMergeState(receipt.action, state)) {
       this.save(key, { ...receipt, phase: "reconciled" });
       return undefined;
@@ -180,7 +193,9 @@ export class WorkspaceForgeActions {
       try {
         const status = {
           ...(await backend.status(pr.number, signal)),
-          ...(mergeState ? { mergeState } : {}),
+          ...(action.type === "forge.pr.auto-merge" || action.type === "forge.pr.merge-state.change"
+            ? { mergeState: mergeState ?? (await backend.prMergeState(pr.number, signal)) }
+            : {}),
         };
         publish(status);
         this.save(key, { ...accepted, phase: "reconciled" });

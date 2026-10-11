@@ -59,8 +59,8 @@ test.each([
           { body: threads() },
           read(),
           { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
-          read(armed),
           { body: threads() },
+          read(armed),
           read(),
         ];
     const gh = await fakeGh(fixtures);

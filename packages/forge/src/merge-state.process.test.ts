@@ -58,12 +58,12 @@ test("enable and cancel return GitHub state and a subsequent external disablemen
     ],
   });
   try {
-    expect(await f.forge.changeMergeState(7, sha, "enable", "squash", signal())).toMatchObject({
+    await f.forge.changeMergeState(7, sha, "enable", "squash", signal());
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({
       autoMerge: { method: "SQUASH", actor: "octo" },
     });
-    expect(await f.forge.changeMergeState(7, sha, "disable", "squash", signal())).toMatchObject({
-      autoMerge: null,
-    });
+    await f.forge.changeMergeState(7, sha, "disable", "squash", signal());
+    expect(await f.forge.prMergeState(7, signal())).toMatchObject({ autoMerge: null });
     expect(await f.forge.prMergeState(7, signal())).toMatchObject({ autoMerge: null });
     const requests = await f.requests();
     expect(requests[1]?.body).toMatchObject({
@@ -101,9 +101,8 @@ test("queue cancellation is separate from auto-merge cancellation and observes q
     ],
   });
   try {
-    expect(
-      (await cancel.forge.changeMergeState(7, sha, "dequeue", "squash", signal())).queue,
-    ).toBeNull();
+    await cancel.forge.changeMergeState(7, sha, "dequeue", "squash", signal());
+    expect((await cancel.forge.prMergeState(7, signal())).queue).toBeNull();
     expect((await cancel.requests())[1]?.body).toMatchObject({
       query: expect.stringContaining("dequeuePullRequest(input:$input)"),
       variables: { input: { id: "PR_7" } },
@@ -141,7 +140,7 @@ test("a lost acknowledgement is reconciled without repeating the enable mutation
     await f.cleanup();
   }
 });
-test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
+test.each(["FORBIDDEN", "RATE_LIMITED", "GRAPHQL_VALIDATION_FAILED"])(
   "%s failure remains visible if a fresh read does not confirm the write",
   async (type) => {
     const f = await fakeGh({
@@ -160,7 +159,7 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
             ? "forbidden"
             : type === "RATE_LIMITED"
               ? "rate_limit"
-              : "unsupported",
+              : "invalid_data",
       });
     } finally {
       await f.cleanup();
@@ -202,12 +201,31 @@ test("the legacy auto-merge API uses the same authoritative guarded mutation", a
       query: expect.stringContaining("enablePullRequestAutoMerge(input:$input)"),
       variables: { input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" } },
     });
-    expect((await f.requests()).map((request) => request.path)).toEqual([
-      "graphql",
-      "graphql",
-      "graphql",
-    ]);
+    expect((await f.requests()).map((request) => request.path)).toEqual(["graphql", "graphql"]);
   } finally {
     await f.cleanup();
   }
 });
+
+test.each(["FORBIDDEN", "RATE_LIMITED", "NOT_FOUND"])(
+  "a %s read after a lost acknowledgement cannot replace the mutation's uncertainty",
+  async (type) => {
+    const f = await fakeGh({
+      graphql: [
+        read(),
+        { code: 1, raw: "lost acknowledgement" },
+        { code: 1, body: { errors: [{ type, message: "State cannot be read" }] } },
+      ],
+    });
+    try {
+      await expect(
+        f.forge.changeMergeState(7, sha, "enable", "squash", signal()),
+      ).rejects.toMatchObject({ kind: "invalid_data", dispatched: undefined });
+      expect(
+        (await f.requests()).filter((r) => JSON.stringify(r.body).includes("mutation(")),
+      ).toHaveLength(1);
+    } finally {
+      await f.cleanup();
+    }
+  },
+);

@@ -75,17 +75,11 @@ export class WorkspaceForge {
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
     if (operation.op === "forge.pr.merge-state") {
-      const value = await backend.prMergeState(operation.number, signal);
-      return {
-        resource: "prMergeState",
-        value: {
-          ...value,
-          writeState: this.actions.observeMergeState(
-            { repository, number: operation.number },
-            value,
-          ),
-        },
-      };
+      const { value, writeState } = await this.actions.readMergeState(
+        { repository, number: operation.number },
+        () => backend.prMergeState(operation.number, signal),
+      );
+      return { resource: "prMergeState", value: { ...value, writeState } };
     }
     if (operation.op === "forge.pr.activity")
       return {
