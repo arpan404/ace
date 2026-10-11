@@ -28,7 +28,7 @@ import {
   type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { composerSurface } from "./composer-styles.ts";
+import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
@@ -731,7 +731,8 @@ function ComposerBody({
                 selection.addRange(range);
                 el.dispatchEvent(new Event("input", { bubbles: true }));
               }}
-              className="message-input block min-h-5 min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
+              style={{ minHeight: inputLine * inputMinLines }}
+              className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
             />
           </div>
           {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
