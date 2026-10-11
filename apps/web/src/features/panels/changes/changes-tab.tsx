@@ -19,6 +19,7 @@ import {
   sendDrafts,
   type ReviewDraft,
 } from "./drafts.ts";
+import { displayedSelection, linesOf } from "./displayed-selection.ts";
 import { applySuggestion, setReviewStatus } from "./review-actions.ts";
 import { FileActions } from "./file-actions.tsx";
 import {
@@ -244,7 +245,11 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
               <CommentComposer
                 label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
                 {...textOf(draft)}
-                suggestFrom={writing.side === "new" ? linesOf(file, writing) : undefined}
+                suggestFrom={
+                  writing.side === "new"
+                    ? (draft?.fingerprint?.lines ?? linesOf(file, writing))?.join("\n")
+                    : undefined
+                }
                 onCancel={() => setComposing(undefined)}
                 onSave={(text, suggestion) => {
                   saveDraft(services.drafts, {
@@ -254,6 +259,8 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
                     side: writing.side,
                     line: writing.start,
                     ...(writing.end > writing.start ? { end: writing.end } : {}),
+                    fingerprint: draft?.fingerprint ?? displayedSelection(file, writing),
+                    source: draft?.source,
                     text,
                     ...(suggestion === undefined ? {} : { suggestion }),
                     createdAt: Date.now(),
@@ -361,17 +368,3 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
 const identity = <T,>(value: T) => value;
 const textOf = (draft: ReviewDraft | undefined) =>
   draft ? { initial: draft.text, initialSuggestion: draft.suggestion } : {};
-
-/** The text of new-side lines in a range, when the diff holds every one of them. */
-function linesOf(file: FileDiff, range: LineRange): string | undefined {
-  const lines: string[] = [];
-  for (const row of file.rows)
-    for (const line of row.kind === "fold" ? (row.lines ?? []) : [row])
-      if (
-        line.kind !== "del" &&
-        line.new !== undefined &&
-        inRange(range, { side: "new", line: line.new })
-      )
-        lines.push(line.text);
-  return lines.length === range.end - range.start + 1 ? lines.join("\n") : undefined;
-}

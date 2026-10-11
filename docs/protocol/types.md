@@ -17137,6 +17137,7 @@ Example:
 | type | yes | `"review.comment"` |  |
 | sessionId | yes | string | {"minLength":1,"maxLength":128} |
 | position | yes | [ReviewPosition.json](schema/ReviewPosition.json) |  |
+| expectedFingerprint | no | [ReviewFingerprint.json](schema/ReviewFingerprint.json) |  |
 | text | yes | string | {"minLength":1,"maxLength":4096} |
 | suggestion | no | string | {"maxLength":8192} |
 
@@ -17151,6 +17152,7 @@ Example:
     "start": 1
   },
   "sessionId": "example",
+  "suggestion": "example",
   "text": "example",
   "type": "review.comment"
 }
@@ -17268,7 +17270,8 @@ Example:
 ```json
 {
   "from": {
-    "kind": "working-tree"
+    "id": "example",
+    "kind": "checkpoint"
   },
   "sessionId": "example",
   "to": {
@@ -17292,7 +17295,7 @@ Example:
 ```json
 {
   "sessionId": "example",
-  "status": "approved",
+  "status": "open",
   "type": "review.status"
 }
 ```
@@ -17312,9 +17315,9 @@ Example:
 
 ```json
 {
+  "commentId": "example",
   "cursor": "example",
-  "limit": 3,
-  "threadId": "example",
+  "limit": 2,
   "type": "review.list"
 }
 ```
@@ -17376,8 +17379,9 @@ Example:
     },
     "state": "active"
   },
-  "resolved": true,
+  "resolved": false,
   "sessionId": "example",
+  "suggestion": "example",
   "text": "example"
 }
 ```
@@ -17401,7 +17405,7 @@ Example:
 
 ```json
 {
-  "intentId": "example"
+  "nextCursor": "example"
 }
 ```
 
@@ -17464,8 +17468,10 @@ Example:
   "from": {
     "kind": "working-tree"
   },
+  "threadId": "example",
   "to": {
-    "kind": "working-tree"
+    "kind": "commit",
+    "ref": "example"
   },
   "workspaceId": "example",
   "worktree": "example"
@@ -17513,7 +17519,8 @@ Example:
   "before": [],
   "lines": [
     "example"
-  ]
+  ],
+  "noFinalNewline": true
 }
 ```
 
@@ -17544,6 +17551,7 @@ Example:
         "side": "new",
         "start": 1
       },
+      "suggestion": "example",
       "text": "example"
     }
   ],
@@ -17557,8 +17565,7 @@ Example:
     },
     "threadId": "example",
     "to": {
-      "kind": "commit",
-      "ref": "example"
+      "kind": "working-tree"
     },
     "workspaceId": "example",
     "worktree": "example"
@@ -17648,11 +17655,13 @@ Example:
   "sessionId": "example",
   "source": {
     "from": {
-      "kind": "working-tree"
-    },
-    "to": {
       "id": "example",
       "kind": "checkpoint"
+    },
+    "threadId": "example",
+    "to": {
+      "kind": "commit",
+      "ref": "example"
     },
     "workspaceId": "example",
     "worktree": "example"
@@ -17726,19 +17735,19 @@ Example:
 
 ```json
 {
-  "createdAt": 3,
+  "createdAt": 0,
   "id": "example",
   "source": {
     "from": {
+      "kind": "working-tree"
+    },
+    "to": {
       "id": "example",
       "kind": "checkpoint"
     },
-    "to": {
-      "kind": "working-tree"
-    },
     "workspaceId": "example"
   },
-  "status": "approved"
+  "status": "changes-requested"
 }
 ```
 
@@ -17758,12 +17767,12 @@ Example:
 ```json
 {
   "from": {
-    "kind": "working-tree"
+    "kind": "commit",
+    "ref": "example"
   },
   "threadId": "example",
   "to": {
-    "kind": "commit",
-    "ref": "example"
+    "kind": "working-tree"
   },
   "workspaceId": "example"
 }
@@ -17801,7 +17810,6 @@ Example:
     "state": "unavailable"
   },
   "id": "example",
-  "permissionMode": null,
   "provider": "opencode",
   "startedAt": 4,
   "state": "active",

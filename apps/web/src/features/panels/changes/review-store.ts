@@ -1,4 +1,5 @@
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { ReviewFingerprint, ReviewSource } from "@ace/protocol";
 import * as z from "zod/mini";
 import type { DiffPrefs, PanelServices, ViewedFiles } from "../services.ts";
 import type { LocalStore } from "../store.ts";
@@ -35,6 +36,8 @@ const Draft = z.object({
   commentId: z.optional(z.string()),
   sessionId: z.optional(z.string()),
   anchor: z.optional(z.enum(["active", "outdated", "addressed-pending-review"])),
+  fingerprint: z.optional(ReviewFingerprint),
+  source: z.optional(ReviewSource),
   createdAt: z.number(),
 });
 

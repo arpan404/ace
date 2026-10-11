@@ -223,6 +223,21 @@ export class ReviewService {
         p.position,
         p.position.side === "old" ? session.source.from : session.source.to,
       );
+      const expected = p.expectedFingerprint;
+      if (
+        expected &&
+        (JSON.stringify(expected.lines) !== JSON.stringify(anchor.fingerprint.lines) ||
+          JSON.stringify(expected.before) !==
+            JSON.stringify(
+              anchor.fingerprint.before.slice(
+                Math.max(0, anchor.fingerprint.before.length - expected.before.length),
+              ),
+            ) ||
+          JSON.stringify(expected.after) !==
+            JSON.stringify(anchor.fingerprint.after.slice(0, expected.after.length)) ||
+          (expected.noFinalNewline && !anchor.fingerprint.noFinalNewline))
+      )
+        throw new Error("review_selection_mismatch");
       const comment = ReviewComment.parse({
         id: this.options.id(),
         sessionId: session.id,

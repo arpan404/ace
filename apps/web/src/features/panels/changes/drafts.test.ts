@@ -23,10 +23,19 @@ async function fixture() {
   });
   await client.start();
   await ready;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of client.downloadFile({
+    threadId: ThreadId.parse("thread-cold-start"),
+    op: "download",
+    path: "apps/server/src/replay.ts",
+    offset: 0,
+  }))
+    chunks.push(chunk);
+  const fileLines = new TextDecoder().decode(Buffer.concat(chunks)).split("\n");
   let serial = 0;
   const remote = (payload: unknown) =>
     daemon.command(Command.parse({ id: `remote-${++serial}`, deviceId: "other-device", payload }));
-  return { daemon, client, remote };
+  return { daemon, client, remote, fileLines };
 }
 
 test("an empty device discovers daemon review comments and follows resolution from another device", async () => {
@@ -158,6 +167,7 @@ test("retrying an admitted review comment reuses its session without duplicating
       file: "apps/server/src/replay.ts",
       side: "new",
       line: 2,
+      fingerprint: { before: [], lines: f.fileLines.slice(1, 2), after: [] },
       text: "Retry this review",
       createdAt: 1,
     });
@@ -191,6 +201,7 @@ test.each([1, 20, 21])("sending %i comments delivers each recorded comment once"
         file: "apps/server/src/replay.ts",
         side: "new",
         line,
+        fingerprint: { before: [], lines: f.fileLines.slice(line - 1, line), after: [] },
         text: `Finding ${line}`,
         createdAt: line,
       });
@@ -222,6 +233,7 @@ test("a failed delivery batch retries only pending comments without recording du
         file: "apps/server/src/replay.ts",
         side: "new",
         line,
+        fingerprint: { before: [], lines: f.fileLines.slice(line - 1, line), after: [] },
         text: `Finding ${line}`,
         createdAt: line,
       });

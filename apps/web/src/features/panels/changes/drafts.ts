@@ -6,6 +6,8 @@ import type {
   ReviewComment,
   ReviewData,
   ReviewSession,
+  ReviewFingerprint,
+  ReviewSource,
   ThreadId,
   WorkspaceId,
 } from "@ace/protocol";
@@ -51,6 +53,9 @@ export interface ReviewDraft {
   sessionId?: string | undefined;
   /** The daemon's view of where the comment sits now, once read back. */
   anchor?: AnchorState | undefined;
+  /** Displayed selection, checked against the daemon snapshot before recording. */
+  fingerprint?: ReviewFingerprint | undefined;
+  source?: ReviewSource | undefined;
   createdAt: number;
 }
 
@@ -80,7 +85,10 @@ export function discardDraft(store: LocalStore<readonly ReviewDraft[]>, key: str
 }
 
 /** A review command; a refusal becomes an error saying what happened and what to do. */
-export async function review(client: ClientApi, payload: CommandPayload): Promise<ReviewData> {
+export async function review(
+  client: Pick<ClientApi, "command">,
+  payload: CommandPayload,
+): Promise<ReviewData> {
   const result = await client.command(payload);
   if (!result.ok) throw new Error(actionErrorText(result.error));
   return result.review ?? {};
@@ -108,11 +116,15 @@ export function patch(
  * comment and session, so doing it again records nothing twice.
  */
 export async function record(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   store: LocalStore<readonly ReviewDraft[]>,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   drafts: readonly ReviewDraft[],
 ): Promise<{ sessionId: string; commentIds: string[] }> {
+  if (drafts.some((draft) => (!draft.commentId || !draft.sessionId) && !draft.fingerprint))
+    throw new Error(
+      "These saved lines have no review snapshot: select them again in the current diff.",
+    );
   const previous = drafts[0]?.sessionId;
   const reuse =
     previous && drafts.every((draft) => draft.sessionId === previous && draft.commentId);
@@ -120,7 +132,7 @@ export async function record(
     ? await review(client, { type: "review.list", sessionId: previous, cursor: "", limit: 1 })
     : await review(client, {
         type: "review.open",
-        source: {
+        source: drafts[0]?.source ?? {
           workspaceId: thread.workspaceId,
           threadId: thread.id,
           from: { kind: "commit", ref: "HEAD" },
@@ -140,13 +152,19 @@ export async function record(
       type: "review.comment",
       sessionId,
       position: positionOf(draft),
+      ...(draft.fingerprint ? { expectedFingerprint: draft.fingerprint } : {}),
       text: draft.text,
       ...(draft.suggestion === undefined ? {} : { suggestion: draft.suggestion }),
     });
     if (!comment) throw new Error("The daemon didn't record the comment: try again.");
     const commentId = comment.id;
     commentIds.push(commentId);
-    patch(store, new Set([draft.key]), (d) => ({ ...d, commentId, sessionId }));
+    patch(store, new Set([draft.key]), (d) => ({
+      ...d,
+      commentId,
+      sessionId,
+      source: opened.session?.source,
+    }));
   }
   return { sessionId, commentIds };
 }
@@ -156,7 +174,7 @@ export async function record(
  * thread's agent as a queued turn.
  */
 export async function sendDrafts(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   store: LocalStore<readonly ReviewDraft[]>,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   keys: readonly string[],
@@ -167,18 +185,28 @@ export async function sendDrafts(
   const sending = new Set(drafts.map((draft) => draft.key));
   patch(store, sending, ({ error: _error, ...draft }) => ({ ...draft, state: "sending" }));
   try {
-    const { sessionId, commentIds } = await record(client, store, thread, drafts);
-    // The public review command admits at most twenty comments per queued turn.
-    for (let offset = 0; offset < commentIds.length; offset += 20) {
-      await review(client, {
-        type: "review.sendToAgent",
-        sessionId,
-        threadId: thread.id,
-        commentIds: commentIds.slice(offset, offset + 20),
-      });
-      const delivered = new Set(drafts.slice(offset, offset + 20).map((draft) => draft.key));
-      patch(store, delivered, (draft) => ({ ...draft, state: "sent", anchor: "active" }));
-      for (const key of delivered) sending.delete(key);
+    // Recorded comments keep their original session and immutable revision on bulk sends.
+    const groups = new Map<string, ReviewDraft[]>();
+    for (const draft of drafts) {
+      const identity = draft.sessionId ?? JSON.stringify(draft.source ?? null);
+      const group = groups.get(identity) ?? [];
+      group.push(draft);
+      groups.set(identity, group);
+    }
+    for (const group of groups.values()) {
+      const { sessionId, commentIds } = await record(client, store, thread, group);
+      // The public review command admits at most twenty comments per queued turn.
+      for (let offset = 0; offset < commentIds.length; offset += 20) {
+        await review(client, {
+          type: "review.sendToAgent",
+          sessionId,
+          threadId: thread.id,
+          commentIds: commentIds.slice(offset, offset + 20),
+        });
+        const delivered = new Set(group.slice(offset, offset + 20).map((draft) => draft.key));
+        patch(store, delivered, (draft) => ({ ...draft, state: "sent", anchor: "active" }));
+        for (const key of delivered) sending.delete(key);
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : actionErrorText(undefined);
@@ -188,7 +216,7 @@ export async function sendDrafts(
 
 /** Mark a sent comment resolved (or open again); the daemon keeps the flag with the comment. */
 export async function resolveDraft(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   store: LocalStore<readonly ReviewDraft[]>,
   key: string,
   resolved: boolean,
@@ -218,7 +246,7 @@ export async function resolveDraft(
  * last known state.
  */
 export async function refreshDrafts(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   store: LocalStore<readonly ReviewDraft[]>,
   threadId: string,
 ): Promise<ReviewSession | null> {
@@ -297,6 +325,8 @@ export async function refreshDrafts(
         commentId: comment.id,
         sessionId: comment.sessionId,
         anchor: comment.anchor.state,
+        fingerprint: comment.originalAnchor.fingerprint,
+        source: sessions.get(comment.sessionId)?.source,
         createdAt: sessions.get(comment.sessionId)?.createdAt ?? 0,
       });
       usedKeys.add(updated.at(-1)?.key ?? "");

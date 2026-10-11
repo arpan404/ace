@@ -1005,6 +1005,7 @@ Example:
 | type | yes | `"review.comment"` |  |
 | sessionId | yes | string | {"minLength":1,"maxLength":128} |
 | position | yes | [ReviewPosition.json](schema/ReviewPosition.json) |  |
+| expectedFingerprint | no | [ReviewFingerprint.json](schema/ReviewFingerprint.json) |  |
 | text | yes | string | {"minLength":1,"maxLength":4096} |
 | suggestion | no | string | {"maxLength":8192} |
 
@@ -1058,7 +1059,7 @@ Example:
 ```json
 {
   "commentId": "example",
-  "resolved": false,
+  "resolved": true,
   "sessionId": "example",
   "type": "review.resolve"
 }
@@ -1140,7 +1141,8 @@ Example:
   },
   "sessionId": "example",
   "to": {
-    "kind": "working-tree"
+    "kind": "commit",
+    "ref": "example"
   },
   "type": "review.refresh"
 }
@@ -1159,7 +1161,7 @@ Example:
 ```json
 {
   "sessionId": "example",
-  "status": "changes-requested",
+  "status": "approved",
   "type": "review.status"
 }
 ```
@@ -1179,7 +1181,7 @@ Example:
 
 ```json
 {
-  "limit": 6,
+  "cursor": "example",
   "type": "review.list"
 }
 ```
