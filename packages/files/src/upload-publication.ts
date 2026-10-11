@@ -1,8 +1,9 @@
+import { fchmod, fsync } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { SafeRoot } from "@ace/workspace";
 import { Catalog, type UploadRecord, type UploadReceipt } from "./catalog.ts";
 import { hashFile } from "./filesystem.ts";
-import { version } from "./types.ts";
+import { FileError, version } from "./types.ts";
 
 /** Durable intent belongs to the catalog; only the known published inode can discharge it. */
 export class UploadPublication {
@@ -21,11 +22,43 @@ export class UploadPublication {
       bytes: 0,
       device: record.device,
       path: record.path,
+      ...(record.mode === undefined
+        ? {}
+        : { permissions: { identity: record.identity, mode: record.mode } }),
       sha256,
       expires: Math.max(record.expires, this.now() + 86400_000),
     };
     this.catalog.completeUpload(receipt);
     return receipt;
+  }
+  async finishPermissions(receipt: UploadReceipt): Promise<void> {
+    const pending = receipt.permissions;
+    if (!pending) return;
+    const target = await this.safe.target(receipt.path);
+    const { info } = await this.safe.metadata(receipt.path);
+    if (!info.isFile() || `${info.dev}:${info.ino}` !== pending.identity)
+      throw new FileError("CONFLICT", "Published upload was replaced before permissions settled");
+    if ((info.mode & 0o777) !== pending.mode) {
+      const { handle, info: opened } = await this.safe.file(receipt.path);
+      try {
+        if (`${opened.dev}:${opened.ino}` !== pending.identity)
+          throw new FileError("CONFLICT", "Published upload changed");
+        await new Promise<void>((resolve, reject) =>
+          fchmod(handle.fd, pending.mode, (error) => (error ? reject(error) : resolve())),
+        );
+        await new Promise<void>((resolve, reject) =>
+          fsync(handle.fd, (error) => (error ? reject(error) : resolve())),
+        );
+        await target.verify();
+        if (version(await lstat(target.path)) !== version(await handle.stat()))
+          throw new FileError("CONFLICT", "Published upload changed");
+      } finally {
+        await handle.close();
+      }
+    }
+    const settled = { ...receipt };
+    delete settled.permissions;
+    this.catalog.finishUploadPermissions(settled);
   }
   async recover(record: UploadRecord): Promise<UploadReceipt | undefined> {
     if (!record.publishing) return;
@@ -48,6 +81,10 @@ export class UploadPublication {
       // Inaccessible, missing or replaced destinations retain their reservation.
       return;
     }
-    if (verified) return this.complete(record, record.publishing);
+    if (verified) {
+      const receipt = this.complete(record, record.publishing);
+      await this.finishPermissions(receipt);
+      return receipt;
+    }
   }
 }

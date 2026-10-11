@@ -30,8 +30,11 @@ export class Uploads {
   async reconcile(): Promise<void> {
     for (const row of this.catalog.list("upload"))
       await this.publication.recover(UploadRecord.parse(row));
-    for (const receipt of this.catalog.list("upload.completed"))
+    for (const row of this.catalog.list("upload.completed")) {
+      const receipt = UploadReceipt.parse(row);
+      await this.publication.finishPermissions(receipt);
       if (receipt.expires <= this.options.now()) this.catalog.delete(receipt.id);
+    }
   }
   private receipt(id: string, device: string): UploadReceipt | undefined {
     const row = this.catalog.get(id);
@@ -146,16 +149,23 @@ export class Uploads {
         throw new FileError("CONFLICT", "Upload changed during verification");
       await verify();
       const target = await checkedTarget(this.safe, record.path, record.expected);
-      if (record.expected !== null) await handle.chmod(await replacementMode(target.path));
+      const publishing: UploadRecord = {
+        ...record,
+        publishing: sha256,
+        ...(record.expected === null ? {} : { mode: await replacementMode(target.path) }),
+      };
+      // Keep the owned temp readable until a durable completion receipt exists. Its
+      // pending permission step can finish even when the final mode forbids reads.
       await handle.sync();
       await target.verify();
       await verify();
       const temp = join(dirname(target.path), record.temp);
-      this.catalog.publishUpload({ ...record, publishing: sha256 });
+      this.catalog.publishUpload(publishing);
       if (record.expected === null) await this.exclusive.move(temp, target.path);
       else await rename(temp, target.path);
       await target.verify();
-      this.publication.complete(record, sha256);
+      const completed = this.publication.complete(publishing, sha256);
+      await this.publication.finishPermissions(completed);
       return record.path;
     } finally {
       await handle.close();

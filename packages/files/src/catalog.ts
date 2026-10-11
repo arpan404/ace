@@ -17,6 +17,7 @@ export const UploadRecord = z.object({
   identity: z.string(),
   expected: z.string().nullable(),
   cleanup: z.boolean().default(false),
+  mode: z.number().int().min(0).max(0o777).optional(),
   publishing: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -29,6 +30,9 @@ export const UploadReceipt = z.object({
   device: z.string(),
   path: z.string(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  permissions: z
+    .object({ identity: z.string(), mode: z.number().int().min(0).max(0o777) })
+    .optional(),
 });
 export type UploadReceipt = z.infer<typeof UploadReceipt>;
 export const TrashRecord = z.object({
@@ -150,6 +154,11 @@ export class Catalog {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+  finishUploadPermissions(receipt: UploadReceipt): void {
+    this.db
+      .prepare("UPDATE resources SET body=? WHERE id=? AND kind='upload.completed'")
+      .run(JSON.stringify(receipt), receipt.id);
   }
   markUploadCleanup(id: string): void {
     this.cleanupDebt.run(id);

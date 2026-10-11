@@ -1,6 +1,6 @@
 import { workspaceRuntime } from "@ace/workspace";
 import { createHash } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
@@ -156,6 +156,82 @@ for (const alteration of ["replace", "relocate", "edit"]) {
       if (alteration !== "edit")
         expect(await readFile(join(f.home, "outside"), "utf8")).toBe("data");
     } finally {
+      await f.close();
+    }
+  });
+}
+
+for (const lostAt of ["publication", "permissions"]) {
+  test(`a write-only replacement recovers after losing ${lostAt} completion and preserves its mode`, async () => {
+    let lose = true;
+    const runtime = workspaceRuntime();
+    const filesystem = runtime.filesystem;
+    runtime.filesystem = {
+      ...filesystem,
+      async realpath(path) {
+        const resolved = await filesystem.realpath(path);
+        const final = await filesystem.lstat(join(resolved, "final")).catch(() => undefined);
+        if (
+          lose &&
+          final?.size === 4 &&
+          (lostAt === "publication" || (final.mode & 0o777) === 0o200)
+        )
+          throw new Error("lost publication completion");
+        return resolved;
+      },
+    };
+    const f = await fixture({ workspaceRuntime: runtime, maxReservedBytes: 4 });
+    try {
+      await writeFile(join(f.root, "final"), "old", { mode: 0o200 });
+      const expected = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      const upload = Upload.parse(
+        await f.service.request("writer", { op: "upload.begin", path: "final", expected, size: 4 }),
+      );
+      await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+      await expect(
+        f.service.request("writer", {
+          op: "upload.commit",
+          uploadId: upload.uploadId,
+          sha256: digest,
+        }),
+      ).rejects.toThrow("lost publication");
+      lose = false;
+      await f.restart();
+      await expect(
+        f.service.request("writer", {
+          op: "upload.commit",
+          uploadId: upload.uploadId,
+          sha256: digest,
+        }),
+      ).resolves.toMatchObject({ path: "final" });
+      expect((await filesystem.lstat(join(f.root, "final"))).mode & 0o777).toBe(0o200);
+      if (process.getuid?.() !== 0)
+        await expect(readFile(join(f.root, "final"))).rejects.toMatchObject({ code: "EACCES" });
+      const current = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      await expect(
+        f.service.request("writer", {
+          op: "move",
+          path: "final",
+          destination: "moved",
+          destinationExpected: null,
+          expected: current,
+        }),
+      ).resolves.toMatchObject({ destination: "moved" });
+      expect((await filesystem.lstat(join(f.root, "moved"))).mode & 0o777).toBe(0o200);
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "next", expected: null, size: 4 }),
+      ).resolves.toMatchObject({ offset: 0 });
+      await expect(
+        f.service.request("writer", { op: "upload.begin", path: "over", expected: null, size: 4 }),
+      ).rejects.toMatchObject({ code: "QUOTA" });
+      await chmod(join(f.root, "moved"), 0o600);
+      expect(await readFile(join(f.root, "moved"), "utf8")).toBe("data");
+    } finally {
+      lose = false;
       await f.close();
     }
   });
