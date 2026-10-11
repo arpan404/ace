@@ -57,13 +57,16 @@ export class DeviceStreamControl {
     if (this.closed || !this.viewers.delete(owner)) return Promise.resolve({ codec: "jpeg" });
     return this.refresh();
   }
-  refresh(): Promise<{ codec: "jpeg" | "h264" }> {
+  async refresh(): Promise<{ codec: "jpeg" | "h264" }> {
     this.revision++;
-    if (this.running) return this.running;
-    this.running = this.drain().finally(() => {
-      this.running = undefined;
-    });
-    return this.running;
+    // A no-op drain may already have settled when another update joins it.
+    do {
+      this.running ??= this.drain().finally(() => {
+        this.running = undefined;
+      });
+      await this.running;
+    } while (!this.closed && this.applied !== this.revision);
+    return this.result;
   }
   acquireImage(): { ready: Promise<{ codec: "jpeg" | "h264" }>; release(): Promise<void> } {
     if (this.closed) throw new Error("Stream closed");

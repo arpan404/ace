@@ -12,7 +12,7 @@ it("delivers Codex authority only in native thread configuration", () => {
   expect(result.config["mcp_servers.ace"]).toMatchObject({
     url: connection.url,
     http_headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
-    tool_timeout_sec: 300,
+    tool_timeout_sec: 660,
   });
 });
 it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
@@ -25,6 +25,7 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
     },
   });
   expect(result.developerInstructions).toContain("mcp__ace__*");
+  expect(result.env.MCP_TOOL_TIMEOUT).toBe("660000");
 });
 it("exposes OpenCode tools directly through the v2 runtime server configuration", () => {
   const result = openCodeInjection(connection);
@@ -34,7 +35,7 @@ it("exposes OpenCode tools directly through the v2 runtime server configuration"
     oauth: false,
     disabled: false,
     codemode: false,
-    timeout: { execution: 300000 },
+    timeout: { execution: 660000 },
     headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
   });
 });

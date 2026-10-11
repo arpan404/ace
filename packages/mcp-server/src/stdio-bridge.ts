@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Readable, Writable } from "node:stream";
 import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
+import { nodeScheduler, type Scheduler } from "./registry.ts";
+import { maxToolTimeoutMs } from "./timeouts.ts";
 const Message = z
   .object({
     jsonrpc: z.literal("2.0"),
@@ -16,6 +18,7 @@ export type BridgeOptions = {
   output: Writable;
   signal: AbortSignal;
   fetch?: typeof fetch;
+  scheduler?: Scheduler;
 };
 /** One supervised stdio child, bounded request admission and callback-plus-drain writes. */
 export async function runStdioBridge(options: BridgeOptions): Promise<void> {
@@ -79,10 +82,13 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
       if (active.has(message.id)) throw new Error("Duplicate MCP request ID");
       active.set(message.id, controller);
     }
-    const timer = setTimeout(() => {
-      controller.abort();
-      fail(new Error("MCP bridge request deadline exceeded"));
-    }, 120000);
+    const stopTimer = (options.scheduler ?? nodeScheduler).after(
+      message.method === "tools/call" ? maxToolTimeoutMs : 120000,
+      () => {
+        controller.abort();
+        fail(new Error("MCP bridge request deadline exceeded"));
+      },
+    );
     const requestSignal = AbortSignal.any([signal, controller.signal]);
     try {
       const response = await (options.fetch ?? fetch)(connection.url, {
@@ -153,7 +159,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
           error: { code: -32603, message: "ace MCP bridge request failed" },
         });
     } finally {
-      clearTimeout(timer);
+      stopTimer();
       if (message.id !== undefined) active.delete(message.id);
     }
   };

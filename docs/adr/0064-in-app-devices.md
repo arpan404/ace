@@ -201,16 +201,24 @@ stream settings and nearby panel sizes preserve the pipeline.
 
 Queued boot, install and input actions retain their controller ticket until completion.
 Takeover still invalidates the ticket. An agent may resume its own expired delegation
-on its next authorized action; explicit release, revocation and takeover prevent this.
+on its next authorized action; explicit release, disconnect, revocation and takeover prevent this.
 Boot state is visible separately from capture startup. Inventory reads preserve loading
 and failure states, cache Android identity until disconnect, and queue SDK commands.
+Only resolved AVD names enter the cache; failed probes retry on later inventory reads.
 
 Approval still replaces scoped capture resources, but the service restores a previously
 live capture and mounted viewers subscribe to the replacement. Failed native cleanup
 offers a retry. First-frame deadlines begin after capture opens. Simulator throttling
 publishes the trailing frame. Android console shutdown waits for exit before signalling.
 
-Recording imposes a 1280×720, 15 fps image budget and a 512 MiB source limit. Automatic
-stops and failed exports produce a visible notice; consumed source files are deleted
+Native installs have a ten-minute command budget. Their MCP tool deadline allows another
+30 seconds for dispatch and completion; provider configurations and the registry ceiling
+allow up to eleven minutes. Pi accepts the same bounded advertised deadlines, and the
+ACP stdio bridge retains tool calls for that budget.
+
+Recording imposes a 1280×720, 15 fps image budget and a 512 MiB source limit shared
+by capture, export validation and encoder frame admission. MP4 output retains its
+separate 50 MiB limit. Automatic stops and failed exports produce a visible notice;
+consumed source files are deleted
 even after export failure. Logs filter iOS processes, batch updates and retain consumers
 independently. Congested sockets coalesce state pushes rather than closing the channel.

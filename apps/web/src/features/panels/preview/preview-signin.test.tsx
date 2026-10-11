@@ -1,7 +1,8 @@
 import { failingSubagent } from "@ace/fake-daemon";
+import { createServer } from "node:http";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 afterEach(() => {
@@ -68,12 +69,28 @@ test("a port the daemon won't preview says why, not just that it couldn't", asyn
 });
 
 test("a preview the daemon won't sign in shows its reason, and Reload signs in again", async () => {
+  const { promise: probed, resolve: responded } = Promise.withResolvers<void>();
+  const server = createServer((_request, response) => {
+    response.end("<h1>Ready</h1>", responded);
+  });
+  onTestFinished(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      }),
+  );
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing test server address");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const title = `Preview of ${origin}`;
   const opened = await openPreview();
   opened.browser.refusePreviews("forbidden");
   act(() =>
     opened.browser.serve("thread-settings", {
-      port: 3000,
-      origin: "http://localhost:3000",
+      port: address.port,
+      origin,
       name: "api",
       source: "listener",
     }),
@@ -84,11 +101,12 @@ test("a preview the daemon won't sign in shows its reason, and Reload signs in a
   expect(
     within(failure).getByRole("heading", { name: "This device can't open previews" }),
   ).toBeTruthy();
-  expect(within(opened.panel).queryByTitle(frameTitle)).toBeNull();
+  expect(within(opened.panel).queryByTitle(title)).toBeNull();
 
   opened.browser.refusePreviews(undefined);
   await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
-  expect(await within(opened.panel).findByTitle(frameTitle)).toBeTruthy();
+  expect(await within(opened.panel).findByTitle(title)).toBeTruthy();
+  await probed;
   await waitFor(() => expect(within(opened.panel).queryByRole("alert")).toBeNull());
 });
 

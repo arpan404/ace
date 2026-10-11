@@ -1,4 +1,5 @@
 import { parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
 import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
@@ -150,7 +151,7 @@ export class ToolRegistry {
     )
       throw new Error("Invalid or duplicate tool name");
     if (this.entries.size >= this.maxTools) throw new Error("Tool capacity reached");
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > maxToolTimeoutMs)
       throw new Error("Invalid tool timeout");
     let built: Tool | undefined;
     return () => (built ??= this.build(name, description, input, timeoutMs, output, riskClass));

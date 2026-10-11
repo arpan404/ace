@@ -1135,6 +1135,44 @@ it("inventory reuses emulator names until their transport disconnects", async ()
   name = "Tablet";
   expect((await manager.list()).find((device) => device.serial)?.name).toBe("Tablet");
 });
+it("inventory recovers from failed emulator name probes without a transport disconnect", async () => {
+  const f = await fixture();
+  let readable = false;
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    after: shutdownClock,
+    async probe(_command, args) {
+      if (args.includes("-list-avds")) return { code: 0, stderr: "", stdout: "Pixel" };
+      if (args[0] === "devices")
+        return {
+          code: 0,
+          stderr: "",
+          stdout: "List of devices attached\nemulator-5554 device",
+        };
+      if (!readable) throw new Error("Probe timed out");
+      return { code: 0, stderr: "", stdout: "Pixel" };
+    },
+  });
+  onTestFinished(() => manager.close());
+  expect(await manager.list()).toContainEqual({
+    id: "android:Pixel",
+    platform: "android",
+    name: "Pixel",
+    state: "shutdown",
+  });
+  readable = true;
+  expect(await manager.list()).toEqual([
+    {
+      id: "android:Pixel",
+      platform: "android",
+      name: "Pixel",
+      state: "booted",
+      serial: "emulator-5554",
+    },
+  ]);
+});
 it("an owned emulator that goes offline after boot stays visible as offline", async () => {
   const f = await fixture();
   await f.manager.boot(android());

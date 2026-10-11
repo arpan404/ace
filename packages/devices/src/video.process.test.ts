@@ -15,7 +15,7 @@ import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { framePacket, type RecordingArtifact } from "@ace/screen";
 import { BrowserRecording } from "@ace/browser";
-import { renderDeviceVideo } from "./video.ts";
+import { renderDeviceVideo, consumeDeviceRecording } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -26,26 +26,34 @@ async function fixture(mode = "success") {
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const executable = join(directory, "ffmpeg");
   const script = `#!${process.execPath}
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, statSync } from "node:fs";
 const mode = ${JSON.stringify(mode)};
 if (mode === "fail") process.exit(1);
 const concat = readFileSync("frames.ffconcat", "utf8");
 const files = [...concat.matchAll(/file '([^']+)'/g)].map((match) => match[1]);
-const images = files.map((file) => readFileSync(file).toString("hex"));
+const images = files.map((file) => {
+  const bytes = readFileSync(file);
+  return (mode === "large" ? bytes.subarray(0,5) : bytes).toString("hex");
+});
+const sizes = files.map((file) => statSync(file).size);
 if (mode === "oversize") {
   const { openSync, ftruncateSync, closeSync } = await import("node:fs");
   const fd = openSync("recording.mp4", "w"); ftruncateSync(fd, 50 * 1024 * 1024 + 1); closeSync(fd);
 } else {
   const header = Buffer.from([0,0,0,24,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109,109,112,52,50]);
-  writeFileSync("recording.mp4", Buffer.concat([header, Buffer.from(JSON.stringify({ concat, images }))]));
+  writeFileSync("recording.mp4", Buffer.concat([header, Buffer.from(JSON.stringify({ concat, images, sizes, args: process.argv.slice(2) }))]));
 }
 `;
   await writeFile(executable, script);
   await chmod(executable, 0o755);
   return { directory, executable, env: { PATH: directory } };
 }
-function packet(sequence: number, timestamp: number, version: 1 | 2 = 1) {
-  const payload = Buffer.from([255, 216, sequence, 255, 217]);
+function packet(
+  sequence: number,
+  timestamp: number,
+  version: 1 | 2 = 1,
+  payload = Buffer.from([255, 216, sequence, 255, 217]),
+) {
   return framePacket(
     version === 1
       ? {
@@ -113,6 +121,30 @@ it("preserves the custom recording and removes intermediates when ffmpeg fails",
   expect(await readFile(artifact.path)).toEqual(bytes);
   expect((await readdir(f.directory)).toSorted()).toEqual(["artifact.ace-screen", "ffmpeg"]);
 });
+it("exports every frame of a recording over 50 MiB while retaining the separate MP4 size cap", async () => {
+  const f = await fixture("large");
+  const artifact = await source(f.directory, Buffer.alloc(0));
+  const file = await open(artifact.path, "w");
+  const payload = Buffer.alloc(8 * 1024 * 1024);
+  Buffer.from([255, 216, 0, 255, 217]).copy(payload);
+  try {
+    for (let sequence = 0; sequence < 8; sequence++)
+      await file.write(packet(sequence, sequence * 100, 1, payload));
+    artifact.bytes = (await file.stat()).size;
+  } finally {
+    await file.close();
+  }
+  expect(artifact.bytes).toBeGreaterThan(50 * 1024 * 1024);
+  const result = await consumeDeviceRecording(artifact, () => renderDeviceVideo(artifact, f.env));
+  const evidence = z
+    .object({ images: z.array(z.string()), sizes: z.array(z.number()), args: z.array(z.string()) })
+    .parse(JSON.parse((await readFile(result.path)).subarray(24).toString()));
+  expect(evidence.images).toEqual(Array(9).fill("ffd800ffd9"));
+  expect(evidence.sizes).toEqual(Array(9).fill(payload.length));
+  expect(evidence.args[evidence.args.indexOf("-fs") + 1]).toBe(String(50 * 1024 * 1024));
+  expect(result.mimeType).toBe("video/mp4");
+  await expect(stat(artifact.path)).rejects.toMatchObject({ code: "ENOENT" });
+});
 it("rejects missing ffmpeg with an installation hint without deleting the recording", async () => {
   const f = await fixture();
   const artifact = await source(f.directory, packet(0, 0));
@@ -147,10 +179,10 @@ it("rejects oversized source and encoder output by actual file size", async () =
   await expect(renderDeviceVideo(artifact, f.env)).rejects.toMatchObject({ code: "limit" });
   expect((await readdir(f.directory)).toSorted()).toEqual(["artifact.ace-screen", "ffmpeg"]);
   const file = await open(artifact.path, "r+");
-  await file.truncate(50 * 1024 * 1024 + 1);
+  await file.truncate(512 * 1024 * 1024 + 1);
   await file.close();
   await expect(
-    renderDeviceVideo({ ...artifact, bytes: 50 * 1024 * 1024 + 1 }, f.env),
+    renderDeviceVideo({ ...artifact, bytes: 512 * 1024 * 1024 + 1 }, f.env),
   ).rejects.toMatchObject({ code: "limit" });
 });
 it("rejects path-traversing artifact ids without reading or removing another artifact", async () => {

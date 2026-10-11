@@ -7,8 +7,8 @@ import { ScreenFrameHeader, ScreenId } from "@ace/protocol";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import type { RecordingArtifact } from "@ace/screen";
 import { DeviceError } from "./sdk.ts";
+import { deviceRecordingSourceLimit, deviceVideoOutputLimit } from "./recording-limits.ts";
 
-const limit = 50 * 1024 * 1024;
 /** Positional reads retain one bounded header or JPEG, never recording history. */
 async function exact(
   file: FileHandle,
@@ -76,10 +76,10 @@ export async function renderDeviceVideo(
     source = file;
     const info = await file.stat();
     if (!info.isFile()) throw invalid("Device recording is not a regular file");
-    if (info.size > limit)
+    if (info.size > deviceRecordingSourceLimit)
       throw new DeviceError(
         "limit",
-        "Device recording exceeds 50 MiB",
+        "Device recording exceeds 512 MiB",
         "Make a shorter recording.",
       );
     if (info.size === 0) throw invalid("Device recording has no frames");
@@ -109,8 +109,13 @@ export async function renderDeviceVideo(
       position = nextPosition;
     }
     directory = await mkdtemp(join(dirname(artifact.path), `.${parsed.data}-video-`));
-    recording = await BrowserRecording.start(directory, ffmpeg, limit, (command, args, launch) =>
-      (options.spawn ?? spawn)(command, args, { ...launch, env: { ...process.env, ...env } }),
+    recording = await BrowserRecording.start(
+      directory,
+      ffmpeg,
+      deviceRecordingSourceLimit,
+      (command, args, launch) =>
+        (options.spawn ?? spawn)(command, args, { ...launch, env: { ...process.env, ...env } }),
+      deviceVideoOutputLimit,
     );
     let previousSequence = -1;
     let previousTimestamp = -1;
@@ -144,7 +149,7 @@ export async function renderDeviceVideo(
         "Verify ffmpeg includes the libx264 encoder, then retry.",
       );
     const result = await stat(encoded.path);
-    if (!result.isFile() || result.size === 0 || result.size > limit)
+    if (!result.isFile() || result.size === 0 || result.size > deviceVideoOutputLimit)
       throw new DeviceError(
         "limit",
         "Encoded device video exceeds 50 MiB",
@@ -152,7 +157,7 @@ export async function renderDeviceVideo(
       );
     const path = join(dirname(artifact.path), `${parsed.data}.mp4`);
     await rename(encoded.path, path);
-    // The daemon removes the source only after the MP4 artifact is registered.
+    // The export owner removes the source when publication settles.
     return { id: parsed.data, path, bytes: result.size, mimeType: "video/mp4" };
   } catch (error) {
     if (error instanceof DeviceError) throw error;

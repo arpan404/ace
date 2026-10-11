@@ -1,4 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, onTestFinished } from "vitest";
+import { PassThrough } from "node:stream";
+import { createInterface } from "node:readline";
+import { setImmediate } from "node:timers/promises";
 import { z } from "zod";
 import { ThreadId, AgentId } from "@ace/protocol";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -10,7 +13,91 @@ import {
   nodeScheduler,
   startMcpServer,
   ToolRegistry,
+  runStdioBridge,
 } from "./index.ts";
+test("stdio MCP forwards a six-minute tool result without ending the provider connection", async () => {
+  const tools = new ToolRegistry({ scheduler: nodeScheduler });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  tools.register({
+    name: "device_install",
+    description: "Synthetic installation",
+    capability: "devices",
+    timeoutMs: 630000,
+    input: z.object({}),
+    output: z.object({ completed: z.boolean() }),
+    async run() {
+      entered.resolve();
+      await release.promise;
+      return { completed: true };
+    },
+  });
+  const credentials = new CredentialRegistry(() => "c".repeat(64));
+  const lifetime = new AbortController();
+  const lease = credentials.issue(
+    {
+      sessionId: "install",
+      threadId: ThreadId.parse("thread"),
+      agentId: AgentId.parse("agent"),
+      capabilities: ["devices"],
+    },
+    lifetime.signal,
+  );
+  const server = await startMcpServer({ registry: tools, credentials });
+  const input = new PassThrough(),
+    output = new PassThrough();
+  const lines = createInterface({ input: output });
+  const reply = Promise.withResolvers<unknown>();
+  lines.once("line", (line) => {
+    reply.resolve(JSON.parse(line));
+  });
+  const timers = new Set<{ at: number; run(): void }>();
+  await import("@modelcontextprotocol/client");
+  const closing = runStdioBridge({
+    connection: { url: server.url, bearer: lease.bearer },
+    input,
+    output,
+    signal: lifetime.signal,
+    scheduler: {
+      after(ms, run) {
+        const timer = { at: ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  void closing.catch(() => {});
+  onTestFinished(async () => {
+    release.resolve();
+    lifetime.abort();
+    await closing.catch(() => {});
+    lines.close();
+    output.destroy();
+    lease.end();
+    await server.close();
+  });
+  await setImmediate();
+  input.write(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "device_install", arguments: {} },
+    }) + "\n",
+  );
+  await entered.promise;
+  for (const timer of timers) if (timer.at <= 360000) timer.run();
+  expect(input.destroyed).toBe(false);
+  release.resolve();
+  expect(await reply.promise).toMatchObject({
+    id: 1,
+    result: { structuredContent: { completed: true } },
+  });
+  input.end();
+  await closing;
+});
 test("stdio MCP forwards scoped tools over loopback and an ended lease cannot call them again", async () => {
   const tools = new ToolRegistry({ scheduler: nodeScheduler });
   tools.register({

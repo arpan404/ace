@@ -96,7 +96,8 @@ actions validate a fresh accessibility ref and disclose coordinate fallback.
 iOS back/power keys are unsupported; home, rotate and enter use Simulator keys.
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
-registry, and ffmpeg for MP4 export. A recording is capped at 50 MiB. Conversion
+registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;
+exported MP4 files retain a separate 50 MiB cap. Conversion
 reads frame payloads individually, preserves their timing, and returns an
 artifact ID and metadata. Clients stream the registered file through file
 transfer rather than receiving video bytes in a JSON result.

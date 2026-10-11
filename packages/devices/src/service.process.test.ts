@@ -419,6 +419,30 @@ describe("in-app device ownership", () => {
     expect(h.effects).toEqual([]);
     expect(h.service.states()[0]?.controller).toBe("none");
   });
+  for (const observed of [false, true])
+    it(`a disconnected agent needs fresh delegation after reconnecting ${observed ? "after" : "before"} an expiry update`, async () => {
+      const h = await harness();
+      await delegate(h);
+      h.time(30001);
+      if (observed) expect(h.service.states()[0]?.controller).toBe("none");
+      h.service.disconnect(agent.owner);
+      const reconnected = { ...agent };
+      const input = { op: "input", deviceId, input: { kind: "tap", x: 1, y: 2 } };
+      await expect(h.request(input, reconnected)).rejects.toMatchObject({ code: "lease_required" });
+      expect(h.effects).toEqual([]);
+      await delegate(h);
+      await h.request(input, reconnected);
+      expect(h.effects).toEqual([expect.stringContaining("'tap' '1' '2'")]);
+    });
+  it("disconnecting another owner preserves an agent's expired delegation", async () => {
+    const h = await harness();
+    await delegate(h);
+    h.time(30001);
+    h.service.disconnect("unrelated-owner");
+    await h.request({ op: "input", deviceId, input: { kind: "key", key: "home" } }, agent);
+    expect(h.effects).toEqual([expect.stringContaining("'keyevent' '3'")]);
+    expect(h.service.states()[0]?.controller).toBe("agent");
+  });
   it("revocation clears live pixels and prevents later agent screenshots", async () => {
     const h = await harness();
     await delegate(h);
@@ -1041,6 +1065,53 @@ it("a long installation succeeds without expiring its queued controller", async 
   h.deadlines();
   gate.resolve();
   expect(await installing).toEqual({ completed: true });
+  expect(h.effects).toEqual(["-s emulator-5554 install -r /tmp/Example.apk"]);
+});
+it("an agent installation lasting six minutes returns success through MCP", async () => {
+  const h = await harness();
+  await delegate(h);
+  let now = 0;
+  const timers = new Set<{ at: number; run(): void }>();
+  const registry = new ToolRegistry({
+    scheduler: {
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  devicesToolkit(h.service).register(registry);
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(
+    {
+      sessionId: "install-session",
+      threadId: ThreadId.parse("thread-1"),
+      agentId: AgentId.parse("agent-1"),
+      capabilities: ["devices"],
+    },
+    new AbortController().signal,
+  );
+  cleanups.push(async () => lease.end());
+  const gate = h.blockInput();
+  const installing = registry.call(
+    "device_install",
+    { deviceId, path: "/tmp/Example.apk" },
+    lease.principal,
+    new AbortController().signal,
+  );
+  await h.entered.promise;
+  now = 360000;
+  h.time(now);
+  h.deadlines();
+  for (const timer of timers) if (timer.at <= now) timer.run();
+  gate.resolve();
+  expect(await installing).toMatchObject({
+    content: [{ type: "text", text: '{"completed":true}' }],
+  });
+  expect(h.service.states()[0]?.controller).toBe("agent");
   expect(h.effects).toEqual(["-s emulator-5554 install -r /tmp/Example.apk"]);
 });
 it("agent-triggered approval restores the live view a person was watching", async () => {

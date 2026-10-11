@@ -4,6 +4,7 @@ import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import type { LifecycleOwner, LifecycleOptions } from "./lifecycle.ts";
+import { deviceRecordingSourceLimit } from "./recording-limits.ts";
 export async function recordDevice(
   session: DeviceSession,
   options: LifecycleOptions,
@@ -66,7 +67,7 @@ export async function recordDevice(
             mimeType: result.mimeType,
           };
       },
-      options.recordingLimitBytes ?? 512 * 1024 * 1024,
+      options.recordingLimitBytes ?? deviceRecordingSourceLimit,
       (reason) => {
         if (reason === "limit")
           session.recordingNotice =

@@ -678,10 +678,11 @@ export class DevicesService {
         .catch((error) =>
           this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
         );
-      if (session.lease.owned(owner)) {
+      const owned = session.lease.owned(owner);
+      session.lease.release(owner);
+      if (owned) {
         session.leaseExpiry?.();
         delete session.leaseExpiry;
-        session.lease.release(owner);
         void session.capture
           ?.releaseInput?.()
           .catch((error) =>

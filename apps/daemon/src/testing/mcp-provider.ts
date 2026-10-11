@@ -271,7 +271,7 @@ if (provider === "opencode") {
     } else if (provider === "claude") {
       if (message.type !== "control_request") continue;
       if (request["subtype"] === "initialize") {
-        if (process.env["MCP_TOOL_TIMEOUT"] !== "300000")
+        if (process.env["MCP_TOOL_TIMEOUT"] !== "660000")
           throw new Error("Claude tool deadline cannot accommodate origin approval");
         const config = z
           .object({ mcpServers: z.object({ ace: HttpServer.extend({ type: z.literal("http") }) }) })
@@ -321,7 +321,7 @@ if (provider === "opencode") {
           .object({
             url: z.url(),
             http_headers: z.object({ Authorization: z.string() }),
-            tool_timeout_sec: z.literal(300),
+            tool_timeout_sec: z.literal(660),
           })
           .parse(config);
         url = server.url;

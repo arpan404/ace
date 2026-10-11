@@ -17,7 +17,7 @@ export class ControllerLease {
     this.epoch++;
   }
   release(owner?: string): void {
-    if (owner !== undefined && this.actor?.owner !== owner) return;
+    if (owner !== undefined && this.actor?.owner !== owner && this.expired?.owner !== owner) return;
     this.expired = undefined;
     this.actor = undefined;
     this.deadline = 0;

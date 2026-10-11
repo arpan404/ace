@@ -78,7 +78,7 @@ export class AndroidPlatform {
         let name = this.serialNames.get(serial);
         if (!name && state === "booted") {
           name = await this.emulatorName(adb, serial);
-          this.serialNames.set(serial, name ?? serial);
+          if (name) this.serialNames.set(serial, name);
         }
         return { serial, state, name: name ?? serial };
       }),

@@ -1,4 +1,5 @@
 import { deviceInputTimeout } from "./input-budget.ts";
+import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { extname, isAbsolute } from "node:path";
 import { z } from "zod";
 import { Simulators, type ScreenManager } from "@ace/screen";
@@ -261,7 +262,7 @@ export class DevicePlatform {
           "iOS Simulator installs Simulator-built .app bundles",
           "Extract a Simulator-built .app from the IPA; device-only IPA binaries cannot run in Simulator.",
         );
-      await this.simctl(device, ["install", path], authorize, 600_000);
+      await this.simctl(device, ["install", path], authorize, deviceInstallTimeoutMs);
     } else {
       if (extname(path) !== ".apk")
         throw new DeviceError(
@@ -269,7 +270,13 @@ export class DevicePlatform {
           "Android install requires an .apk",
           "Select an APK built for the emulator architecture.",
         );
-      await this.android.adb(device, ["install", "-r", path], undefined, authorize, 600_000);
+      await this.android.adb(
+        device,
+        ["install", "-r", path],
+        undefined,
+        authorize,
+        deviceInstallTimeoutMs,
+      );
     }
   }
   async openApp(device: Device, input: string, authorize?: () => void): Promise<void> {
