@@ -3,6 +3,7 @@ import { decode, hashSchema, count } from "./decode.ts";
 import { z } from "zod";
 import { GitError } from "./types.ts";
 import { containsPublicationCredential } from "./publication-credentials.ts";
+import { assertPublicationYaml } from "./publication-yaml.ts";
 
 export function sensitivePublicationPath(path: string): boolean {
   if (sensitiveSpans(path).next().done === false) return true;
@@ -11,6 +12,7 @@ export function sensitivePublicationPath(path: string): boolean {
     .some(
       (part) =>
         /^\.env/i.test(part) ||
+        /kubeconfig/i.test(part) ||
         /^(?:\.ssh|\.gnupg|\.aws|\.azure|\.docker|\.kube|\.oci|\.gcloud|gcloud|\.boto|\.s3cfg|\.terraformrc|terraform\.rc|\.terraform\.d|\.netrc|\.npmrc|\.pypirc|\.git-credentials)$/i.test(
           part,
         ) ||
@@ -29,7 +31,8 @@ export function assertPublicationText(bytes: Buffer): void {
 export function incompletePublicationScan(): never {
   throw new GitError("publication_scan_incomplete", "Publication safety scan incomplete");
 }
-export type ScanObject = { id: string; type: "blob" | "tree" | "commit" | "tag"; size: number };
+export type PublicationReference = { id: string; format?: "yaml" };
+export type ScanObject = PublicationReference & { type: "blob" | "tree" | "commit" | "tag"; size: number };
 const objectType = z.enum(["blob", "tree", "commit", "tag"]);
 export function objectHeader(line: string): ScanObject {
   const parts = /^(\S+) (\S+) (\d+)$/.exec(line);
@@ -41,8 +44,8 @@ export function objectHeader(line: string): ScanObject {
   };
 }
 /** Binary tree names are inspected independently of blobs, including reused/renamed content. */
-export function assertPublicationTree(bytes: Buffer, hashBytes: number): string[] {
-  const children: string[] = [];
+export function assertPublicationTree(bytes: Buffer, hashBytes: number): PublicationReference[] {
+  const children: PublicationReference[] = [];
   let offset = 0;
   while (offset < bytes.length) {
     const space = bytes.indexOf(32, offset),
@@ -54,14 +57,17 @@ export function assertPublicationTree(bytes: Buffer, hashBytes: number): string[
       throw new GitError("sensitive_publication", "Sensitive publication path");
     const mode = bytes.subarray(offset, space).toString("ascii");
     if (mode !== "160000")
-      children.push(bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"));
+      children.push({
+        id: bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"),
+        ...(mode !== "40000" && mode !== "040000" && /\.ya?ml$/i.test(name) ? { format: "yaml" as const } : {}),
+      });
     offset = end + 1 + hashBytes;
   }
   return children;
 }
 /** Parse the byte-framed batch result. Raw content never becomes diagnostics or a receipt. */
-export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanObject[]): string[] {
-  const children: string[] = [];
+export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanObject[]): PublicationReference[] {
+  const children: PublicationReference[] = [];
   let offset = 0;
   for (const object of expected) {
     const end = bytes.indexOf(10, offset);
@@ -83,15 +89,16 @@ export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanOb
         const root = /^tree ([a-f0-9]+)$/.exec(headers[0] ?? "");
         if (endOfHeader < 0 || !root?.[1] || root[1].length !== object.id.length)
           incompletePublicationScan();
-        children.push(decode(hashSchema, root[1], "publication commit tree"));
+        children.push({ id: decode(hashSchema, root[1], "publication commit tree") });
         for (const header of headers.slice(1)) {
           if (!header.startsWith("parent ")) continue;
           const parent = /^parent ([a-f0-9]+)$/.exec(header);
           if (!parent?.[1] || parent[1].length !== object.id.length) incompletePublicationScan();
-          children.push(decode(hashSchema, parent[1], "publication commit parent"));
+          children.push({ id: decode(hashSchema, parent[1], "publication commit parent") });
         }
       }
       assertPublicationText(content);
+      if (object.format === "yaml") assertPublicationYaml(content);
     }
     offset += object.size + 1;
   }

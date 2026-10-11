@@ -1,29 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { spawnGitProcess } from "@ace/git";
 import { input, setup } from "./publication-project-test-support.ts";
+import { configure, commit } from "./publication-safety-test-support.ts";
 
-type Fixture = Awaited<ReturnType<typeof setup>>;
-async function configure(f: Fixture) {
-  await f.git(f.path, ["config", "user.name", "Test"]);
-  await f.git(f.path, ["config", "user.email", "test@example.invalid"]);
-  const remote = join(f.root, "remote.git");
-  await mkdir(remote);
-  await f.git(remote, ["init", "--bare"]);
-  await appendFile(
-    join(f.root, "gitconfig"),
-    `\n[url "file://${remote}"]\n\tinsteadOf = https://github.com/octo/engine.git\n`,
-  );
-  return remote;
-}
-async function commit(f: Fixture, path: string, content: string | Buffer) {
-  await mkdir(dirname(join(f.path, path)), { recursive: true });
-  await writeFile(join(f.path, path), content);
-  await f.git(f.path, ["add", "-f", "--", path]);
-  await f.git(f.path, ["commit", "-m", "Fixture"]);
-}
 
 test("a restored remote root tree in an intermediate commit is scanned even after HEAD removes it", async () => {
   const f = await setup();

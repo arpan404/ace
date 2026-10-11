@@ -47,13 +47,22 @@ export async function scanPublication(
   if ((await read(["rev-parse", "--is-shallow-repository"])).toString("ascii").trim() !== "false")
     incompletePublicationScan();
   const objects = new Set<string>();
+  const yamlObjects = new Set<string>();
+  const yamlIds: string[] = [];
   // Check all current tracked paths/content too, even when a blob is already on the remote.
   for (const entry of nul(await read(["ls-tree", "-r", "-z", input.head]))) {
     const parsed = /^\d+ (blob|commit) ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
     if (!parsed?.[2] || !parsed[3]) incompletePublicationScan();
     if (sensitivePublicationPath(parsed[3]))
       throw new GitError("sensitive_publication", "Sensitive tracked path");
-    if (parsed[1] === "blob") objects.add(hash(parsed[2]));
+    if (parsed[1] === "blob") {
+      const id = hash(parsed[2]);
+      objects.add(id);
+      if (/\.ya?ml$/i.test(parsed[3]) && !yamlObjects.has(id)) {
+        yamlObjects.add(id);
+        yamlIds.push(id);
+      }
+    }
   }
   const reachable = (await read(["rev-list", "--objects", "--no-object-names", input.head]))
     .toString("ascii")
@@ -73,7 +82,11 @@ export async function scanPublication(
     );
     try {
       // Traverse raw commit and tree edges as well as Git's initial object enumeration.
-      for (const id of inspectPublicationBatch(bytes, batch)) {
+      for (const { id, format } of inspectPublicationBatch(bytes, batch)) {
+        if (format === "yaml" && !yamlObjects.has(id)) {
+          yamlObjects.add(id);
+          yamlIds.push(id);
+        }
         if (objects.has(id)) continue;
         objects.add(id);
         ids.push(id);
@@ -85,9 +98,12 @@ export async function scanPublication(
     batch.length = 0;
     batchBytes = 0;
   };
+  // Historical trees can label a blob after its first read. A second bounded pass
+  // inspects every YAML spelling, including reused/renamed blobs. Both passes share the byte budget.
+  for (const phase of [{ ids, format: undefined }, { ids: yamlIds, format: "yaml" }] as const) {
   let position = 0;
-  while (position < ids.length) {
-    const group = ids.slice(position, position + 512);
+  while (position < phase.ids.length) {
+    const group = phase.ids.slice(position, position + 512);
     position += group.length;
     const headers = (await read(["cat-file", "--batch-check"], group.join("\n") + "\n"))
       .toString("ascii")
@@ -96,13 +112,15 @@ export async function scanPublication(
     if (headers.length !== group.length) incompletePublicationScan();
     for (const [index, header] of headers.entries()) {
       const object = objectHeader(header);
+      if (phase.format === "yaml" && object.type !== "blob") incompletePublicationScan();
       if (object.id !== group[index] || object.size > objectLimit) incompletePublicationScan();
       total += object.size;
       if (total > contentLimit) incompletePublicationScan();
       if (batch.length >= 256 || batchBytes + object.size > 16 * 1024 * 1024) await flush();
-      batch.push(object);
+      batch.push({ ...object, ...(phase.format ? { format: phase.format } : {}) });
       batchBytes += object.size + 1;
     }
     await flush();
+  }
   }
 }
