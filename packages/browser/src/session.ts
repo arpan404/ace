@@ -118,17 +118,21 @@ export class BrowserSession {
   async replace(
     backend: BrowserBackendSession,
     kind: "embedded" | "headless" = "headless",
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     if (this.closed) {
       await backend.close();
       throw new Error("Browser closed during recovery");
     }
     await this.queue.settled();
+    signal?.throwIfAborted();
     if (this.closed) {
       await backend.close();
       throw new Error("Browser closed during recovery");
     }
     await this.options.backend.close().catch(() => {});
+    signal?.throwIfAborted();
     this.options.backend = backend;
     this.options.backendKind = kind;
     backend.privateMode?.(this.ownership.mode === "private");
@@ -136,7 +140,9 @@ export class BrowserSession {
     this.leaseReady = Promise.resolve();
     this.syncLease();
     await this.leaseReady;
+    signal?.throwIfAborted();
     await this.live.replace(backend.cdp);
+    signal?.throwIfAborted();
     this.lastUrl = undefined;
     this.paused = false;
     this.reason = "The page was reopened after the browser disconnected";

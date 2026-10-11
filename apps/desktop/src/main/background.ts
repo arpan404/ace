@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -115,7 +115,8 @@ export class Background {
       url: endpoint.url,
       token: endpoint.token,
       deviceId: this.deviceId(),
-      storage: this.outbox(),
+      ...(endpoint.pairedDeviceId ? { pairedDeviceId: endpoint.pairedDeviceId } : {}),
+      storage: this.outbox(endpoint),
       quietHours: () => {
         const hours = this.options.settings().notifications.quietHours;
         return hours
@@ -294,8 +295,13 @@ export class Background {
     return created;
   }
 
-  private outbox() {
-    const path = join(this.options.userData, "outbox.json");
+  private outbox(endpoint: Endpoint) {
+    const name = endpoint.pairedDeviceId
+      ? `outbox-${createHash("sha256")
+          .update(JSON.stringify([endpoint.url, endpoint.pairedDeviceId]))
+          .digest("hex")}.json`
+      : "outbox.json";
+    const path = join(this.options.userData, name);
     return {
       load: () => readFile(path, "utf8").catch(() => null),
       save: (value: string) => writeFile(path, value, { mode: 0o600 }),

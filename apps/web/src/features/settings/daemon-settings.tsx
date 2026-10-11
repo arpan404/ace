@@ -42,6 +42,8 @@ export function DaemonSettings() {
         <div className="py-4">
           <DaemonForm
             url={connection.url}
+            token={connection.token}
+            pairedDeviceId={connection.pairedDeviceId}
             remembered={connection.remembered}
             submitLabel="Reconnect"
             onSubmit={(target, remember) => {

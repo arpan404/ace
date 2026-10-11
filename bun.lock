@@ -90,14 +90,15 @@
       "name": "@ace/desktop",
       "version": "0.1.0",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/diagnostics": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/service": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
-        "@ace/browser": "workspace:*",
         "@ace/daemon": "workspace:*",
         "@ace/release": "workspace:*",
         "@electron/rebuild": "4.2.0",

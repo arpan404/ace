@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { traceBatches } from "./trace-batches.ts";
+import { compactPolicyEvent } from "@ace/browser/policy-events";
 import {
   type BrowserOpen,
   type BrowserBackendClientMessage,
@@ -340,15 +341,44 @@ export class BrowserBackend {
       }
       return;
     }
-    this.send({
+    const policyEvent = [
+      "Fetch.requestPaused",
+      "Target.receivedMessageFromTarget",
+      "ace.tabs.event",
+    ].includes(method);
+    let forwarded: unknown;
+    try {
+      forwarded = compactPolicyEvent(method, params);
+    } catch {
+      this.losePolicySession(session);
+      return;
+    }
+    const sent = this.send({
       type: "browser.backend.event",
       backendId: link.backendId,
       sessionId: session.id,
       method,
-      params,
+      params: forwarded,
     });
+    if (!sent && policyEvent) {
+      this.losePolicySession(session);
+      return;
+    }
     // The view is gone (closed by the person, crashed, or the debugger detached).
     if (method === "Inspector.detached") void this.dispose(session);
+  }
+
+  private losePolicySession(session: Session): void {
+    const link = this.link;
+    if (!link) return;
+    this.send({
+      type: "browser.backend.event",
+      backendId: link.backendId,
+      sessionId: session.id,
+      method: "Inspector.detached",
+      params: { reason: "Browser policy event payload limit" },
+    });
+    void this.dispose(session);
   }
 
   private frame(session: Session, params: unknown): void {

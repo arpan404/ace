@@ -109,9 +109,10 @@ function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Compon
   );
 }
 
-/** Where a link into the thread points: an item's creation sequence (a search hit elsewhere). */
+/** A canonical item or interaction identity, or a search hit's creation sequence. */
 export interface ThreadTarget {
-  seq: number;
+  seq?: number;
+  itemId?: string;
   /** The words that found it, marked once it is in view. */
   query?: string | undefined;
 }
@@ -285,12 +286,17 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
               <div className="col-start-1 row-start-1 min-h-0 min-w-0">
                 <Transcript threadId={id} />
               </div>
-              <TargetJump target={props.target} />
+              <TargetJump target={props.target} pending={requests ?? []} />
               <Suspense fallback={null}>
                 <ThreadBrowser threadId={id} />
               </Suspense>
               {thread && (
-                <ThreadComposer thread={thread} status={meta?.status} composer={composer} />
+                <ThreadComposer
+                  thread={thread}
+                  status={meta?.status}
+                  composer={composer}
+                  requestTarget={props.target?.itemId}
+                />
               )}
             </div>
           </ForkOpener>
@@ -327,13 +333,19 @@ function TranscriptSkeleton() {
 }
 
 /** Opening the thread at a link's target (a search hit in a subagent thread, say). */
-function TargetJump(props: { target: ThreadTarget | undefined }) {
+function TargetJump(props: { target: ThreadTarget | undefined; pending: readonly string[] }) {
   const nav = useThreadNav();
   const seq = props.target?.seq;
   const query = props.target?.query;
+  const itemId = props.target?.itemId;
+  const pending = itemId !== undefined && props.pending.includes(itemId);
   useEffect(() => {
-    if (seq !== undefined) void nav.jump.toSeq(seq, query ? { query } : {});
-  }, [nav.jump, seq, query]);
+    if (itemId !== undefined) {
+      if (pending) nav.jump.live();
+      else void nav.jump.toItem(itemId);
+    } else if (seq !== undefined) void nav.jump.toSeq(seq, query ? { query } : {});
+    else nav.jump.live();
+  }, [nav.jump, seq, query, itemId, pending]);
   return null;
 }
 

@@ -33,7 +33,11 @@ describe("which daemon the packaged app uses", () => {
   it("uses a configured remote daemon on any platform", () => {
     expect(
       resolveTarget(
-        { ACE_DAEMON_URL: "wss://box.example:4242/", ACE_DAEMON_TOKEN: "a".repeat(64) },
+        {
+          ACE_DAEMON_URL: "wss://box.example:4242/",
+          ACE_DAEMON_TOKEN: "a".repeat(64),
+          ACE_DAEMON_DEVICE_ID: "paired",
+        },
         options("win32"),
       ),
     ).toMatchObject({ kind: "remote", url: "wss://box.example:4242/" });
@@ -63,4 +67,31 @@ describe("development's attach mode", () => {
       kind: "refused",
     });
   });
+});
+
+it("carries the paired device identity from remote desktop configuration", () => {
+  expect(
+    resolveTarget(
+      {
+        ACE_DAEMON_URL: "wss://remote.example/",
+        ACE_DAEMON_TOKEN: "a".repeat(64),
+        ACE_DAEMON_DEVICE_ID: "paired-device",
+      },
+      options("win32"),
+    ),
+  ).toEqual({
+    kind: "remote",
+    url: "wss://remote.example/",
+    token: "a".repeat(64),
+    pairedDeviceId: "paired-device",
+  });
+});
+
+it("remote desktop configuration refuses a host token without paired device identity", () => {
+  expect(() =>
+    resolveTarget(
+      { ACE_DAEMON_URL: "wss://remote.example/", ACE_DAEMON_TOKEN: "a".repeat(64) },
+      options("win32"),
+    ),
+  ).toThrow("ACE_DAEMON_DEVICE_ID");
 });

@@ -6,6 +6,7 @@ import {
   object,
   string,
   timestamp,
+  claudeSidechainParent,
 } from "@ace/native-session";
 import { HistorySession } from "@ace/protocol/history";
 import type { ProviderHome } from "./contracts.ts";
@@ -92,6 +93,11 @@ export function summary(
   if (instance.provider === "codex" && !records.some((r) => CodexSessionMeta.safeParse(r).success))
     reason = "Unrecognized Codex rollout metadata";
   if (!cwd) reason ??= "Workspace metadata was not available in the bounded sample";
+  const sidechainParent = instance.provider === "claude" ? claudeSidechainParent(path) : undefined;
+  if (sidechainParent) {
+    nativeId = basename(path, ".jsonl");
+    parent = sidechainParent;
+  }
   return HistorySession.parse({
     id: sourceId(instance.id, path, nativeId),
     instanceId: instance.id,

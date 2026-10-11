@@ -1,3 +1,4 @@
+import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { portableSocket } from "./portable-socket.ts";
 import { ClientError, type Storage } from "@ace/client";
@@ -47,21 +48,50 @@ const timers = {
 };
 
 /** One dedicated client worker per machine; never shared between machines. */
-function dedicatedWorker(name: string): SpawnedWorker {
+function dedicatedWorker(name: string, url: string): SpawnedWorker {
   // Vite bundles the worker from this literal constructor call.
   const worker = new Worker(new URL("./machine-worker.ts", import.meta.url), {
     type: "module",
     name,
   });
+  const failures = new Set<() => void>();
+  let stopped = false;
+  let failed = false;
+  const fail = () => {
+    failed = true;
+    for (const listener of failures) listener();
+  };
+  worker.addEventListener("error", fail);
+  worker.addEventListener("messageerror", fail);
+  const ready = authorizeDaemonUrl(url).then(
+    () => true,
+    () => {
+      fail();
+      return false;
+    },
+  );
   return {
-    port: worker,
-    terminate: () => worker.terminate(),
+    port: {
+      postMessage(message, transfer?: ArrayBuffer[]) {
+        void ready.then((approved) => {
+          if (approved && !stopped) worker.postMessage(message, transfer ?? []);
+        });
+      },
+      addEventListener: (type, listener) => worker.addEventListener(type, listener),
+      removeEventListener: (type, listener) => worker.removeEventListener(type, listener),
+    },
+    terminate() {
+      stopped = true;
+      worker.terminate();
+    },
     onError(listener) {
-      worker.addEventListener("error", listener);
-      worker.addEventListener("messageerror", listener);
+      failures.add(listener);
+      if (failed)
+        queueMicrotask(() => {
+          if (!stopped && failures.has(listener)) listener();
+        });
       return () => {
-        worker.removeEventListener("error", listener);
-        worker.removeEventListener("messageerror", listener);
+        failures.delete(listener);
       };
     },
   };
@@ -77,7 +107,6 @@ export function browserMachinePool(options: {
   session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
 }): MachinePool {
-  const spawnWorker = options.spawnWorker ?? dedicatedWorker;
   const directory = new MachineDirectory(
     directoryStorage(options.storage),
     machineSecrets(options.storage, options.session ?? sessionStorage),
@@ -86,6 +115,7 @@ export function browserMachinePool(options: {
   return new MachinePool({
     directory,
     async openTaskRelay(entry, credential, target) {
+      await authorizeDaemonUrl(target.url);
       const [{ openRemoteContextRelay }, { keyPair }] = await Promise.all([
         import("@ace/client/remote-context-relay"),
         import("@ace/secure-channel"),
@@ -107,7 +137,9 @@ export function browserMachinePool(options: {
     spawn(entry, token) {
       if (entry.target.kind !== "direct")
         throw new ClientError("offline", "Relay machines aren't supported in this window yet");
-      const worker = spawnWorker(`ace-machine-${entry.hostId}`);
+      const worker = options.spawnWorker
+        ? options.spawnWorker(`ace-machine-${entry.hostId}`)
+        : dedicatedWorker(`ace-machine-${entry.hostId}`, entry.target.url);
       const config: MachineTarget = {
         url: socketUrl(entry.target.url),
         token,
