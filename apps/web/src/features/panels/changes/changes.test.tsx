@@ -238,8 +238,9 @@ test("Changes says what is uncommitted in the checkout, and follows a commit", a
   expect(await screen.findByText(/^Last turn: \+\d+ −\d+$/, {}, { timeout: 2000 })).toBeTruthy();
 
   // The one commit action in the work card.
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Commit & push" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Work card/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   // WorkCard owns the context pane while open; return to tools after the commit.

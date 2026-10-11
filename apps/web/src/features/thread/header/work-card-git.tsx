@@ -1,4 +1,5 @@
-import { nextGitStep, type Checkout } from "@ace/ui-core";
+import { useThreadMeta } from "@ace/client-react";
+import { baseRecordText, nextGitStep, type Checkout } from "@ace/ui-core";
 import {
   DotsThreeIcon,
   GitBranchIcon,
@@ -12,7 +13,6 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { useGitFlow } from "./use-git-flow.tsx";
@@ -22,41 +22,11 @@ type GitFlow = ReturnType<typeof useGitFlow>;
 
 const glyph = (Glyph: typeof GitCommitIcon) => <Glyph aria-hidden size={16} />;
 
-/**
- * Changes (the thread's own edits, opening the Changes tab), then the branch the checkout is on
- * with the next git step (Commit & push, Push, Create PR) and every git action behind its ⋯.
- */
+/** Branch and changes have separate rows, leaving the full branch its own line. */
 export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose(): void }) {
   const workspace = useWorkspaceActions(props.thread.id);
-  const { stat, label, pending } = useScopedDiff(props.thread.id);
-  const edited = stat.additions + stat.deletions > 0;
-  return (
-    <section aria-label="Changes and branch">
-      <RowButton
-        aria-label={`Changes, ${label.toLowerCase()}: ${edited ? `${stat.additions} added, ${stat.deletions} removed` : pending ? "preparing changes" : "no edits yet"}`}
-        onClick={() => {
-          workspace.open({ kind: "changes" });
-          props.onClose();
-        }}
-      >
-        <GitDiffIcon aria-hidden size={16} className={rowIcon} />
-        <span className="min-w-0 flex-1 truncate">Changes · {label}</span>
-        {edited ? (
-          <DiffStat {...stat} className="text-xs" />
-        ) : (
-          <span className="text-xs text-subtle-foreground">
-            {pending ? "Preparing changes" : "No edits yet"}
-          </span>
-        )}
-      </RowButton>
-      <BranchRow git={props.git} onClose={props.onClose} />
-    </section>
-  );
-}
-
-function BranchRow(props: { git: GitFlow; onClose(): void }) {
-  const { checkout, state } = props.git;
-  // A form steps in front of the card: the card gives way to it.
+  const details = useThreadMeta(props.thread.id)?.details;
+  const base = details?.base ? baseRecordText(details.base) : undefined;
   const git: GitFlow = {
     ...props.git,
     open: (kind) => {
@@ -64,108 +34,124 @@ function BranchRow(props: { git: GitFlow; onClose(): void }) {
       props.onClose();
     },
   };
+  const { checkout, state } = git;
   if (!checkout)
     return (
       <RowNote>
-        <GitBranchIcon aria-hidden size={16} className={rowIcon} />
+        <GitBranchIcon aria-hidden size={14} className={rowIcon} />
         {state === "loading" ? (
-          <span className="flex items-center gap-1.5">
+          <>
             <Spinner /> Reading the checkout
-          </span>
+          </>
         ) : (
           "Not a git checkout"
         )}
       </RowNote>
     );
   const branch = checkout.branch ?? "detached HEAD";
-  const status =
-    checkout.changed > 0
-      ? `${checkout.changed} uncommitted`
-      : checkout.ahead > 0
-        ? `${checkout.ahead} to push`
-        : undefined;
+  const step = nextGitStep(checkout);
+  const create = step.kind === "create-pr" && !step.blocked && checkout.pr?.state !== "merged";
   return (
-    <div className="flex h-8 items-center gap-2.5 pr-1 pl-2.5 text-ui">
-      <GitBranchIcon aria-hidden size={16} className={rowIcon} />
-      <Tip label={`${branch}${status ? ` · ${status}` : ""}`}>
-        <span className="min-w-0 flex-1 truncate">{branch}</span>
-      </Tip>
-      {status && <span className="shrink-0 text-xs text-subtle-foreground">{status}</span>}
-      <NextStep git={git} checkout={checkout} />
-      <GitMenu git={git} checkout={checkout} />
-    </div>
+    <section aria-label="Changes and branch">
+      <RowNote className="text-foreground">
+        <GitBranchIcon aria-hidden size={14} className={rowIcon} />
+        <Tip
+          label={`${branch} → ${checkout.baseBranch}, ${checkout.ahead} ahead${checkout.behind ? `, ${checkout.behind} behind` : ""}${base?.note ? ` · ${base.text}. ${base.note}` : ""}`}
+        >
+          <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>
+        </Tip>
+        {(checkout.ahead > 0 || checkout.behind > 0) && (
+          <span className="shrink-0 text-2xs text-subtle-foreground">
+            {checkout.ahead > 0 && `↑${checkout.ahead}`}
+            {checkout.ahead > 0 && checkout.behind > 0 && " "}
+            {checkout.behind > 0 && `↓${checkout.behind}`}
+          </span>
+        )}
+      </RowNote>
+      <div className="flex h-7 min-w-0 items-center">
+        {checkout.changed > 0 ? (
+          <RowButton
+            aria-label={`Changes, ${checkout.changed} files: ${checkout.additions} added, ${checkout.deletions} removed`}
+            className="flex-1 gap-1.5"
+            onClick={() => {
+              workspace.open({ kind: "changes" });
+              props.onClose();
+            }}
+          >
+            <GitDiffIcon aria-hidden size={14} className={rowIcon} />
+            <span className="min-w-0 truncate whitespace-nowrap">
+              <DiffStat additions={checkout.additions} deletions={checkout.deletions} />{" "}
+              <span className="text-2xs text-subtle-foreground">
+                · {checkout.changed} {checkout.changed === 1 ? "file" : "files"}
+              </span>
+            </span>
+          </RowButton>
+        ) : (
+          <RowNote className="flex-1">
+            <GitDiffIcon aria-hidden size={14} className={rowIcon} />
+            <span className="min-w-0 truncate">
+              {checkout.ahead > 0 ? `${checkout.ahead} to push` : "Up to date"}
+            </span>
+          </RowNote>
+        )}
+        {checkout.changed > 0 ? (
+          <button
+            type="button"
+            className={stepButton}
+            disabled={git.pending}
+            onClick={() => git.open("commit")}
+          >
+            Commit
+          </button>
+        ) : create ? (
+          <button
+            type="button"
+            className={stepButton}
+            disabled={git.pending}
+            onClick={() => git.open("pr")}
+          >
+            Create PR
+          </button>
+        ) : null}
+        <GitMenu git={git} checkout={checkout} />
+      </div>
+    </section>
   );
 }
 
-/** The branch row's next action. */
 const stepButton =
-  "focus-ring inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2.5 text-sm font-medium transition-colors duration-(--dur-1) hover:bg-accent disabled:text-muted-foreground";
-
-/** The one git step that moves the branch on: commit (and push), push, or open a PR. */
-function NextStep(props: { git: GitFlow; checkout: Checkout }) {
-  const { git } = props;
-  const step = nextGitStep(props.checkout);
-  if (step.kind === "pr") return null;
-  if (step.kind === "commit")
-    return (
-      <button
-        type="button"
-        className={`${stepButton} text-foreground`}
-        disabled={git.pending}
-        onClick={() => git.open("commit-push")}
-      >
-        Commit &amp; push
-      </button>
-    );
-  if (step.kind === "push")
-    return (
-      <button
-        type="button"
-        className={`${stepButton} text-foreground`}
-        disabled={git.pending}
-        onClick={git.push}
-      >
-        Push
-      </button>
-    );
-  return (
-    <Tip label={step.blocked ?? "Open a pull request for this branch"}>
-      <button
-        type="button"
-        className={`${stepButton} ${step.blocked ? "text-muted-foreground" : "text-foreground"}`}
-        aria-disabled={step.blocked || git.pending ? true : undefined}
-        aria-description={step.blocked}
-        onClick={() => !step.blocked && !git.pending && git.open("pr")}
-      >
-        Create PR
-      </button>
-    </Tip>
-  );
-}
+  "focus-ring inline-flex h-5 shrink-0 items-center rounded-sm bg-secondary px-1.5 text-2xs font-medium hover:bg-accent disabled:text-muted-foreground";
 
 function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
   const { git, checkout } = props;
   return (
     <Menu>
-      <MenuTrigger
-        render={
-          <IconButton icon={DotsThreeIcon} label="Git actions" size="sm" className="size-7" />
-        }
-      />
+      <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Git actions" size="sm" />} />
       <MenuContent align="end" className="w-[240px]">
-        <MenuItem
-          icon={glyph(UploadSimpleIcon)}
-          disabled={!checkout.branch || git.pending}
-          reason={checkout.branch ? undefined : "Detached HEAD: no branch to push"}
-          onClick={git.push}
-        >
-          Push
-        </MenuItem>
+        {checkout.changed > 0 && (
+          <MenuItem
+            icon={glyph(GitCommitIcon)}
+            disabled={git.pending}
+            onClick={() => git.open("commit-push")}
+          >
+            Commit &amp; push…
+          </MenuItem>
+        )}
+        {checkout.branch && (
+          <MenuItem
+            icon={glyph(UploadSimpleIcon)}
+            disabled={!checkout.branch || git.pending}
+            onClick={git.push}
+          >
+            Push
+          </MenuItem>
+        )}
         <MenuSeparator />
         <MenuItem
           icon={glyph(GitPullRequestIcon)}
           disabled={!!git.draftBlocked || git.pending}
-          reason={git.draftBlocked}
+          aria-description={git.draftBlocked}
+          title={git.draftBlocked}
           onClick={() => git.open("pr")}
         >
           Create PR…
@@ -173,7 +159,8 @@ function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
         <MenuItem
           icon={glyph(GitPullRequestIcon)}
           disabled={!!git.draftBlocked || git.pending}
-          reason={git.draftBlocked}
+          aria-description={git.draftBlocked}
+          title={git.draftBlocked}
           onClick={() => git.open("draft-pr")}
         >
           Create draft PR…

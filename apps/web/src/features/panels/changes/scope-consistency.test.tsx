@@ -43,10 +43,10 @@ test("the Changes badge and toolbar count the selected turn and keep it when ano
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Turn 1" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 8, 2));
-  await userEvent.click(screen.getByRole("button", { name: "Work card" }));
+  await userEvent.click(screen.getByRole("button", { name: /^Work card/ }));
   const card = await screen.findByRole("complementary", { name: "Work card" });
   expect(
-    within(card).getByRole("button", { name: "Changes, turn 1: 8 added, 2 removed" }),
+    within(card).getByRole("button", { name: "Changes, 2 files: 38 added, 6 removed" }),
   ).toBeTruthy();
 });
 

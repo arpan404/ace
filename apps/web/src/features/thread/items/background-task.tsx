@@ -4,7 +4,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
-import { formatElapsed } from "@ace/ui-core";
+import { backgroundCommand, formatElapsed } from "@ace/ui-core";
 
 const ended = {
   completed: "Finished",
@@ -27,10 +27,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   const { send, intent, error } = useIntentSender();
   const workspace = useWorkspaceActions(props.threadId);
   if (!task) return null;
-  const command =
-    item?.type === "tool_call" && item.call.detail.kind === "shell"
-      ? item.call.detail.command
-      : task.title;
+  const command = backgroundCommand(task, item);
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;

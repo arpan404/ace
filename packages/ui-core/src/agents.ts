@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, BackgroundTask } from "@ace/protocol";
+import type { Agent, AgentStatus, BackgroundTask, Item } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 
 /** How an agent is named in trees and status lines: the provider for the root, else its name. */
@@ -74,3 +74,13 @@ const taskStates: Record<BackgroundTask["status"], string> = {
   unknown: "possibly running",
 };
 export const taskState = (task: BackgroundTask) => taskStates[task.status];
+
+/** A background shell's command comes from its tool call; the task title is a fallback. */
+export function backgroundCommand(
+  task: Pick<BackgroundTask, "title">,
+  item: Item | undefined,
+): string {
+  return item?.type === "tool_call" && item.call.detail.kind === "shell"
+    ? item.call.detail.command
+    : task.title;
+}

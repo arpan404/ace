@@ -6,11 +6,15 @@ import { expect, type Locator, type Page } from "@playwright/test";
  */
 
 /** The thread's work card, floating under the header while it is open. */
-export const workCard = (page: Page): Locator => page.getByRole("dialog", { name: "Work card" });
+export const workCard = (page: Page): Locator =>
+  page.getByRole("complementary", { name: "Work card" });
 
 /** Open the work card from the header's list button. */
 export async function openWorkCard(page: Page): Promise<Locator> {
-  await page.getByRole("banner").getByRole("button", { name: "Work card" }).click();
+  await page
+    .getByRole("banner")
+    .getByRole("button", { name: /^Work card/ })
+    .click();
   const card = workCard(page);
   await expect(card).toBeVisible();
   return card;
@@ -19,10 +23,8 @@ export async function openWorkCard(page: Page): Promise<Locator> {
 /** Run one of the project's scripts from the work card's Actions, by its command. */
 export async function runAction(page: Page, command: string): Promise<void> {
   const card = await openWorkCard(page);
-  await card
-    .getByRole("region", { name: "Actions" })
-    .getByRole("button", { name: `Run ${command}` })
-    .click();
+  await card.getByRole("button", { name: "Project actions" }).click();
+  await page.getByRole("menuitem", { name: `Run ${command}` }).click();
 }
 
 /** Pick an item of the header's ⋯ menu. */

@@ -1,4 +1,8 @@
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { ProjectMark } from "@/components/project-mark.tsx";
+import { projectBadge } from "@ace/ui-core";
+import { ProjectScriptItems } from "./work-card-actions.tsx";
+import { Suspense } from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
@@ -25,12 +29,16 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useBranches } from "@/lib/branches.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useProjectMetadata, useProjectName } from "@/lib/projects.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
+
+const DeferredOpenIn = deferredComponent(() =>
+  import("./thread-open-in.tsx").then((m) => m.ThreadOpenIn),
+);
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -43,8 +51,7 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
 ]);
 
 /**
- * Checkout actions: switch branch, move to a worktree and open the folder. What can't be done now stays listed,
- * disabled, with the reason.
+ * Checkout actions: unavailable moves stay out of the menu while agents work.
  */
 function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
@@ -66,11 +73,7 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
   const worktree = checkout?.mode === "worktree";
   return (
     <>
-      {switchReason ? (
-        <MenuItem icon={glyph(ArrowsSplitIcon)} disabled reason={switchReason}>
-          Switch branch
-        </MenuItem>
-      ) : (
+      {!switchReason && (
         <MenuSub>
           <MenuSubTrigger icon={glyph(ArrowsSplitIcon)}>Switch branch</MenuSubTrigger>
           <MenuContent
@@ -107,20 +110,22 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
           </MenuContent>
         </MenuSub>
       )}
-      <MenuItem
-        icon={glyph(GitForkIcon)}
-        disabled={!!worktreeReason}
-        reason={worktreeReason}
-        onClick={() =>
-          props.move({
-            change: { mode: "worktree", branch: checkout?.branch ?? undefined },
-            done: "Moved to a worktree",
-          })
-        }
-      >
-        Move to a worktree
-      </MenuItem>
-      {worktree && (
+      {!worktreeReason && (
+        <MenuItem
+          icon={glyph(GitForkIcon)}
+          disabled={!!worktreeReason}
+          reason={worktreeReason}
+          onClick={() =>
+            props.move({
+              change: { mode: "worktree", branch: checkout?.branch ?? undefined },
+              done: "Moved to a worktree",
+            })
+          }
+        >
+          Move to a worktree
+        </MenuItem>
+      )}
+      {worktree && !switchReason && (
         <MenuItem
           icon={glyph(LaptopIcon)}
           disabled={!!switchReason}
@@ -132,18 +137,28 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
           Move to local checkout
         </MenuItem>
       )}
+      <MenuSub>
+        <MenuSubTrigger icon={glyph(FolderOpenIcon)}>Open in…</MenuSubTrigger>
+        <MenuContent>
+          <Suspense fallback={<MenuItem disabled>Looking for editors…</MenuItem>}>
+            <DeferredOpenIn.Component thread={props.thread} />
+          </Suspense>
+        </MenuContent>
+      </MenuSub>
       <MenuSeparator />
       <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
         Copy path
       </MenuItem>
-      <MenuItem
-        icon={glyph(FolderOpenIcon)}
-        disabled={!folder.reveal}
-        reason={folder.revealReason}
-        onClick={folder.reveal}
-      >
-        {folder.revealLabel}
-      </MenuItem>
+      {folder.reveal && (
+        <MenuItem
+          icon={glyph(FolderOpenIcon)}
+          disabled={!folder.reveal}
+          reason={folder.revealReason}
+          onClick={folder.reveal}
+        >
+          {folder.revealLabel}
+        </MenuItem>
+      )}
       <MenuItem
         icon={glyph(TerminalWindowIcon)}
         keys={keymap.terminal.keys}
@@ -154,6 +169,8 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
       >
         Open terminal
       </MenuItem>
+      <MenuSeparator />
+      <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
     </>
   );
 }
@@ -180,24 +197,29 @@ export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; o
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
   const machine = useMachineIdentity(meta?.details?.machine);
+  const metadata = useProjectMetadata()(meta?.workspaceId ?? props.thread.workspaceId);
+  const mode = meta?.details?.mode === "worktree" ? "Worktree" : "Local";
+  const summary = `${project} · ${mode}${machine.primary ? "" : ` · ${machine.name}`}`;
   return (
-    <>
-      <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
-        <h2 className="min-w-0 flex-1 truncate text-ui text-subtle-foreground">{project}</h2>
-        <MachineLabel
-          name={machine.name}
-          icon={machine.icon}
-          className="max-w-40 text-xs text-muted-foreground"
-        />
-        <EnvironmentMenu
-          thread={props.thread}
-          move={props.move}
-          onClose={props.onClose}
-          trigger={
-            <IconButton icon={DotsThreeIcon} label="Project actions" size="sm" className="size-7" />
-          }
-        />
-      </div>
-    </>
+    <div className="flex h-7 min-w-0 items-center gap-2 px-1.5 text-xs">
+      <ProjectMark
+        badge={projectBadge({ name: project, id: props.thread.workspaceId })}
+        icon={metadata?.icon ?? metadata?.defaultIcon}
+        quiet
+      />
+      <h2 className="min-w-0 flex-1 truncate" title={summary}>
+        <strong className="font-semibold">{project}</strong>{" "}
+        <span className="text-subtle-foreground">
+          · {mode}
+          {!machine.primary && ` · ${machine.name}`}
+        </span>
+      </h2>
+      <EnvironmentMenu
+        thread={props.thread}
+        move={props.move}
+        onClose={props.onClose}
+        trigger={<IconButton icon={DotsThreeIcon} label="Project actions" size="sm" />}
+      />
+    </div>
   );
 }

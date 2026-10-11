@@ -32,10 +32,12 @@ export function PrLinkForm(props: {
         }
       }}
     >
-      <div className="flex items-center gap-1 px-2.5 py-1">
+      <div className="flex items-center gap-1 px-1.5 py-1">
         <Input
+          autoFocus
+          className="h-7 text-xs"
           aria-label="Link pull request…"
-          placeholder="Link pull request… URL or #number"
+          placeholder="URL or #number"
           value={value}
           maxLength={2000}
           disabled={props.pending}
