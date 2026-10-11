@@ -130,3 +130,89 @@ test("switching provider keeps an unavailable native selection until an explicit
     });
   });
 });
+
+test("a native ACP read-only ID cannot become Cursor workspace access on a provider switch", async () => {
+  const made = harness();
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  const template = made.daemon.services.models.find((model) => model.provider === "acp");
+  if (!template) throw new Error("fixture has an ACP model");
+  made.daemon.services.models = [
+    ...made.daemon.services.models.filter((model) => model.provider !== "acp"),
+    {
+      ...template,
+      id: "bridge-codex",
+      displayName: "Bridge Codex",
+      nativeModelId: "gpt-6",
+      acpAgentId: "official:codex-acp",
+    },
+  ];
+  made.daemon.services.accounts = made.daemon.services.accounts.map((account) =>
+    account.provider === "acp"
+      ? { ...account, acpAgentId: "official:codex-acp", label: "Codex bridge" }
+      : account,
+  );
+  const handle = made.daemon.services.handle.bind(made.daemon.services);
+  vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
+    if (message.type === "permissions.capabilities" && message.provider === "acp") {
+      push({
+        type: "permissions.capabilities.result",
+        requestId: message.requestId,
+        ok: true,
+        permissions: {
+          modes: ["read-only"],
+          permissionModes: [
+            {
+              id: "read-only",
+              label: "Read only",
+              description: "Codex bridge reads files without workspace writes",
+              risk: "low",
+            },
+          ],
+          nativeAutoReview: false,
+          toolGate: true,
+        },
+      });
+      return true;
+    }
+    return handle(message, push, device);
+  });
+  await made.open("/new?project=relay");
+  await chooseModel("Bridge Codex", "ACP agent", /^Model: Opus 5.5/);
+  await closeModelControl();
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Read only" }));
+  expect(await screen.findByRole("button", { name: "Approvals: Read only" })).toBeTruthy();
+  const input = screen.getByRole("combobox", { name: "Message" });
+  await userEvent.type(input, "Keep the bridge read-only choice");
+  await chooseModel("Composer 2.5", "Cursor", /^Model: Bridge Codex/);
+  await closeModelControl();
+  const unavailable = await screen.findByRole("button", {
+    name: "Approvals: Unavailable mode: read-only",
+  });
+  expect(unavailable.getAttribute("aria-description")).toBe("Cursor doesn't offer this mode");
+  const send = screen.getByRole("button", { name: "Send" });
+  expect(send.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(send);
+  await userEvent.click(input);
+  await userEvent.keyboard("{Enter}");
+  expect(input.textContent).toBe("Keep the bridge read-only choice");
+  expect(screen.getByRole("heading", { name: "New thread", level: 1 })).toBeTruthy();
+  const created = () => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads"
+      ? Object.values(view.threads).find(
+          (thread) => thread.title === "Keep the bridge read-only choice",
+        )
+      : undefined;
+  };
+  expect(created()).toBeUndefined();
+  await userEvent.click(unavailable);
+  expect(screen.queryByRole("menuitemradio", { name: "Read only" })).toBeNull();
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Sandbox enabled" }));
+  await waitFor(() => expect(send.getAttribute("aria-disabled")).toBe("false"));
+  await userEvent.click(send);
+  await waitFor(() => expect(created()?.provider).toBe("cursor"));
+  expect(created()?.permission?.override).toBe(
+    '{"sandboxOptions":{"enabled":true},"autoReview":false}',
+  );
+});

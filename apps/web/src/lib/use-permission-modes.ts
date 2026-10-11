@@ -1,4 +1,3 @@
-import { resolvePermissionMode } from "@ace/ui-core";
 import { useState } from "react";
 import { PermissionClient } from "@ace/client";
 import type {
@@ -52,9 +51,9 @@ export function usePermissionModes(
   const query = usePermissionCapabilities(provider, options.live, options.instanceId);
   const [choice, setChoice] = useState<PermissionMode | null>(null);
   const modes = query.capabilities?.permissionModes ?? emptyModes;
-  const requested = options.currentId !== undefined ? options.currentId : choice;
-  const currentId =
-    (provider ? resolvePermissionMode(provider, requested, query.capabilities) : null) ?? requested;
+  // Catalog selections are opaque native IDs, even when they resemble old ace presets.
+  // Deprecated stored settings are migrated by the settings boundary before reaching the UI.
+  const currentId = options.currentId !== undefined ? options.currentId : choice;
   const setCurrentId = (id: PermissionMode | null) => {
     if (options.setCurrentId) options.setCurrentId(id);
     else setChoice(id);
