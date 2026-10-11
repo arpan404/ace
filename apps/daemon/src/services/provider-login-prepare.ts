@@ -1,7 +1,7 @@
 import {
   configuredProviderDiscovery,
-  sameProviderExecutableConfiguration,
 } from "../provider-discovery.ts";
+import { nativeLoginGuard } from "./native-login-guard.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
   cursorSdkLoginDriver,
@@ -167,25 +167,12 @@ export async function prepareProviderLogin(
     (!instance.implicit && !instance.managed)
   )
     throw new Error("Instance unavailable");
-  const nativeConfiguration = { ...services.providerConfigurations?.for(provider, instanceId) };
-  if (nativeConfiguration.enabled === false) throw new Error("Provider disabled");
-  const revision = instance.loginRevision;
-  const assertCurrent = () => {
-    const current = registry.get(instanceId)?.instance;
-    if (
-      !current ||
-      current.provider !== provider ||
-      current.homeDir !== instance.homeDir ||
-      current.loginRevision !== revision ||
-      !sameProviderExecutableConfiguration(
-        nativeConfiguration,
-        services.providerConfigurations?.for(provider, instanceId),
-      )
-    )
-      throw new Error("Provider configuration or account revision changed");
-  };
   const release = services.accounts.reserveAccountChange(instanceId);
+  const guard = nativeLoginGuard(instance, registry, services.providerConfigurations, signal);
+  const assertCurrent = () => guard.assertCurrent();
   try {
+    assertCurrent();
+    if (guard.configuration.enabled === false) throw new Error("Provider disabled");
     if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
     assertCurrent();
     const env = instanceEnv(
@@ -196,12 +183,12 @@ export async function prepareProviderLogin(
       ...options.providerStatus,
       ...options.accounts?.discovery,
       env,
-      signal,
+      signal: guard.signal,
       timeoutMs: 4000,
     };
     const configured = configuredProviderDiscovery(
       target.provider,
-      nativeConfiguration.binaryPath,
+      guard.configuration.binaryPath,
       discovery,
     );
     const status =
@@ -222,7 +209,7 @@ export async function prepareProviderLogin(
             try {
               const result = await probeOutput(executable, args, {
                 env,
-                signal,
+                signal: guard.signal,
                 timeoutMs: 4000,
               });
               return result.code === 0
@@ -268,6 +255,7 @@ export async function prepareProviderLogin(
                   ],
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
+            assertCurrent,
             ...(provider === "opencode" ? { prompt: true } : {}),
           })
         : cliLoginDriver({
@@ -280,17 +268,26 @@ export async function prepareProviderLogin(
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
             manager,
+            assertCurrent,
             ...(management
               ? { openTerminal: (launch) => management.openLoginTerminal(owner, launch) }
               : {}),
           });
     const result: ProviderLoginDriver = {
       ...driver,
-      release,
+      release() { guard.dispose(); release(); },
+      input(input) {
+        try { assertCurrent(); } catch { return false; }
+        return driver.input?.(input) ?? false;
+      },
+      apiKey(key) {
+        try { assertCurrent(); } catch { return false; }
+        return driver.apiKey?.(key) ?? false;
+      },
       async run(runSignal, emit) {
         runSignal.throwIfAborted();
         assertCurrent();
-        return driver.run(runSignal, emit);
+        return driver.run(AbortSignal.any([runSignal, guard.signal]), emit);
       },
       async changed(changeSignal) {
         changeSignal.throwIfAborted();
@@ -331,6 +328,7 @@ export async function prepareProviderLogin(
         });
         if (registry.get(instanceId)?.instance.loginRevision === before)
           registry.loginChanged(instanceId);
+        guard.acceptRevision();
         const models = services.models;
         if (models) {
           models.registerInstance({
@@ -359,6 +357,7 @@ export async function prepareProviderLogin(
     };
     return result;
   } catch (error) {
+    guard.dispose();
     release();
     throw error;
   }

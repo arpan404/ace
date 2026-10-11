@@ -184,7 +184,7 @@ else console.log('Not logged in');
         ).toContain("configured-login-model");
         expect(f.registry.get(instance.id)?.instance.loginRevision).not.toBe(revision);
       } else expect(f.registry.get(instance.id)?.instance.loginRevision).toBe(revision);
-      if (phase === "preparation")
+      if (phase === "preparation" || phase === "login")
         await expect(
           readFile(join(instance.homeDir, "configured-login-ran")),
         ).rejects.toMatchObject({ code: "ENOENT" });
