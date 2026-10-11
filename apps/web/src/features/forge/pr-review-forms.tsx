@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { z } from "zod";
 import type { ForgeComment, ForgePrDetail, ForgeReviewAnchor } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -13,22 +13,27 @@ export function useReviewText(key: string, initial = "") {
       return initial;
     }
   });
-  return [
-    value,
-    (text: string) => {
-      setValue(text);
-      try {
-        localStorage.setItem(key, JSON.stringify(text));
-      } catch {
-        /* Daemon drafts remain durable when browser storage is unavailable. */
-      }
-    },
-  ] as const;
+  const current = useRef(value);
+  const save = (text: string) => {
+    current.current = text;
+    setValue(text);
+    try {
+      localStorage.setItem(key, JSON.stringify(text));
+    } catch {
+      /* Daemon drafts remain durable when browser storage is unavailable. */
+    }
+  };
+  const clearSubmitted = (submitted: string): boolean => {
+    if (current.current !== submitted) return false;
+    save("");
+    return true;
+  };
+  return [value, save, clearSubmitted] as const;
 }
 export function PrReviewSubmission({ detail }: { detail: ForgePrDetail }) {
   const review = usePrReview();
   const key = `ace:hosted-review:${JSON.stringify(detail.status.ref)}:${detail.status.headSha}`;
-  const [body, setBody] = useReviewText(key);
+  const [body, setBody, clearSubmitted] = useReviewText(key);
   const drafts = review?.state?.drafts ?? [];
   const outdated = drafts.some((d) => d.anchor.commit !== detail.status.headSha);
   return (
@@ -89,7 +94,7 @@ export function PrReviewSubmission({ detail }: { detail: ForgePrDetail }) {
                   draftIds: drafts.map((d) => d.id),
                 })
                 .then((ok) => {
-                  if (ok) setBody("");
+                  if (ok) clearSubmitted(body);
                 })
             }
           >
@@ -110,7 +115,7 @@ export function PrInlineDraft(props: {
   onClose(): void;
 }) {
   const review = usePrReview();
-  const [body, setBody] = useReviewText(
+  const [body, setBody, clearSubmitted] = useReviewText(
     `ace:inline:${props.prKey}:${JSON.stringify(props.anchor)}`,
   );
   const [id] = useState(() => crypto.randomUUID());
@@ -122,10 +127,7 @@ export function PrInlineDraft(props: {
         void review
           ?.run({ kind: "draft.save", draft: { id, anchor: props.anchor, body } })
           .then((ok) => {
-            if (ok) {
-              setBody("");
-              props.onClose();
-            }
+            if (ok && clearSubmitted(body)) props.onClose();
           });
       }}
     >
@@ -150,7 +152,7 @@ export function PrInlineDraft(props: {
 }
 export function PrConversationComposer(props: { prKey: string; replyTo?: number | undefined }) {
   const review = usePrReview();
-  const [body, setBody] = useReviewText(
+  const [body, setBody, clearSubmitted] = useReviewText(
     `ace:conversation:${props.prKey}:${props.replyTo ?? "new"}`,
   );
   return (
@@ -165,7 +167,7 @@ export function PrConversationComposer(props: { prKey: string; replyTo?: number 
               : { kind: "conversation", body },
           )
           .then((ok) => {
-            if (ok) setBody("");
+            if (ok) clearSubmitted(body);
           });
       }}
     >
