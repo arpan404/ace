@@ -77,12 +77,19 @@ export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanOb
       for (const id of assertPublicationTree(content, object.id.length / 2)) children.push(id);
     } else {
       if (object.type === "commit") {
-        // A commit can reuse an excluded remote root tree without any new tree objects.
-        const endOfHeader = content.indexOf(10);
-        const root = /^tree ([a-f0-9]+)$/.exec(content.subarray(0, endOfHeader).toString("ascii"));
+        // Follow raw commit edges too, including roots reused from old remote snapshots.
+        const endOfHeader = content.indexOf("\n\n");
+        const headers = content.subarray(0, endOfHeader).toString("ascii").split("\n");
+        const root = /^tree ([a-f0-9]+)$/.exec(headers[0] ?? "");
         if (endOfHeader < 0 || !root?.[1] || root[1].length !== object.id.length)
           incompletePublicationScan();
         children.push(decode(hashSchema, root[1], "publication commit tree"));
+        for (const header of headers.slice(1)) {
+          if (!header.startsWith("parent ")) continue;
+          const parent = /^parent ([a-f0-9]+)$/.exec(header);
+          if (!parent?.[1] || parent[1].length !== object.id.length) incompletePublicationScan();
+          children.push(decode(hashSchema, parent[1], "publication commit parent"));
+        }
       }
       assertPublicationText(content);
     }

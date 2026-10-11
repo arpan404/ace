@@ -78,7 +78,7 @@ export async function pushPublication(
         `protocol.${protocol}.allow=always`,
       ]),
     ];
-    await scanPublication(repository.cli, { ...input, head: info.head, transport });
+    await scanPublication(repository.cli, { ...input, head: info.head });
     // Pin both destination and revision. External edits to origin/HEAD cannot redirect this push.
     await repository.cli.call(
       input.worktree,

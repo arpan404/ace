@@ -12,7 +12,7 @@ import {
 const metadataLimit = 8 * 1024 * 1024;
 const contentLimit = 128 * 1024 * 1024;
 const objectLimit = 8 * 1024 * 1024;
-/** Scan a pinned commit using bounded Git object reads. Unknown remote tips are never excluded. */
+/** Scan the complete pinned history. Mutable remote refs cannot establish a security exclusion. */
 export async function scanPublication(
   cli: GitCli,
   input: {
@@ -20,8 +20,6 @@ export async function scanPublication(
     directoryFd: number;
     signal: AbortSignal;
     head: string;
-    url: string;
-    transport: readonly string[];
     guard?: () => void;
   },
 ): Promise<void> {
@@ -48,29 +46,6 @@ export async function scanPublication(
   };
   if ((await read(["rev-parse", "--is-shallow-repository"])).toString("ascii").trim() !== "false")
     incompletePublicationScan();
-  const advertised = (await read([...input.transport, "ls-remote", "--", input.url]))
-    .toString("utf8")
-    .trim();
-  const tips = [
-    ...new Set(advertised ? advertised.split("\n").map((line) => hash(line.split("\t")[0])) : []),
-  ];
-  if (tips.length > 2000) incompletePublicationScan();
-  const known: string[] = [];
-  if (tips.length) {
-    const rows = (await read(["cat-file", "--batch-check"], tips.join("\n") + "\n"))
-      .toString("ascii")
-      .trim()
-      .split("\n");
-    if (rows.length !== tips.length) incompletePublicationScan();
-    rows.forEach((row, index) => {
-      const id = tips[index];
-      if (!id) incompletePublicationScan();
-      if (row === `${id} missing`) return;
-      const object = objectHeader(row);
-      if (object.id !== id) incompletePublicationScan();
-      if (object.type === "commit") known.push(id);
-    });
-  }
   const objects = new Set<string>();
   // Check all current tracked paths/content too, even when a blob is already on the remote.
   for (const entry of nul(await read(["ls-tree", "-r", "-z", input.head]))) {
@@ -80,9 +55,8 @@ export async function scanPublication(
       throw new GitError("sensitive_publication", "Sensitive tracked path");
     if (parsed[1] === "blob") objects.add(hash(parsed[2]));
   }
-  const revisions = input.head + "\n" + known.map((id) => `^${id}\n`).join("");
   const reachable = (
-    await read(["rev-list", "--objects", "--no-object-names", "--stdin"], revisions)
+    await read(["rev-list", "--objects", "--no-object-names", input.head])
   )
     .toString("ascii")
     .trim();
@@ -100,7 +74,7 @@ export async function scanPublication(
       batchBytes + batch.length * 128,
     );
     try {
-      // Reused trees and blobs may already be remote, but new commits still need inspection.
+      // Traverse raw commit and tree edges as well as Git's initial object enumeration.
       for (const id of inspectPublicationBatch(bytes, batch)) {
         if (objects.has(id)) continue;
         objects.add(id);

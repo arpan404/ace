@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
+import { spawnGitProcess } from "@ace/git";
 import { input, setup } from "./publication-project-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
@@ -93,15 +95,12 @@ for (const sample of [
   });
 }
 
-test("already-remote deleted history is excluded but a sensitive rename of an existing blob still blocks", async () => {
+test("a sensitive rename of an already-remote safe blob is blocked after the renamed file is deleted", async () => {
   const f = await setup();
   try {
     const remote = await configure(f);
-    await commit(f, ".env", "old synthetic value");
-    await f.git(f.path, ["rm", ".env"]);
-    await f.git(f.path, ["commit", "-m", "Clean"]);
-    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     await commit(f, "note.txt", "safe content");
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     expect(await f.publish()).toMatchObject({ ok: true, publication: { phase: "pushed" } });
     const remoteHead = (await f.git(remote, ["rev-parse", "refs/heads/trunk"])).stdout;
     await f.git(f.path, ["mv", "note.txt", ".env.reused"]);
@@ -152,7 +151,7 @@ test("sensitive paths in an already-remote subtree are still blocked when reused
     await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     await f.git(f.path, ["rm", "old/.env"]);
     await f.git(f.path, ["commit", "-m", "Clean"]);
-    expect(await f.publish()).toMatchObject({ ok: true });
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     const before = (await f.git(remote, ["rev-parse", "HEAD"])).stdout;
     await f.git(f.path, ["checkout", old, "--", "old"]);
     await f.git(f.path, ["mv", "old", "reused"]);
@@ -175,7 +174,7 @@ test("secret content in an already-remote blob is blocked when reused and delete
     await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     await f.git(f.path, ["rm", "old.txt"]);
     await f.git(f.path, ["commit", "-m", "Clean"]);
-    expect(await f.publish()).toMatchObject({ ok: true });
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
     const before = (await f.git(remote, ["rev-parse", "HEAD"])).stdout;
     await f.git(f.path, ["checkout", old, "--", "old.txt"]);
     await f.git(f.path, ["mv", "old.txt", "reused.txt"]);
@@ -184,6 +183,49 @@ test("secret content in an already-remote blob is blocked when reused and delete
     await f.git(f.path, ["commit", "-m", "Remove again"]);
     expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
     expect((await f.git(remote, ["rev-parse", "HEAD"])).stdout).toBe(before);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+
+test("publication blocks sensitive history already present on an unchanged remote", async () => {
+  const f = await setup();
+  try {
+    const remote = await configure(f);
+    await commit(f, ".env", "synthetic");
+    await f.git(f.path, ["rm", ".env"]);
+    await f.git(f.path, ["commit", "-m", "Clean"]);
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
+    const before = (await f.git(remote, ["rev-parse", "HEAD"])).stdout;
+    await commit(f, "readme", "safe");
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
+    expect((await f.git(remote, ["rev-parse", "HEAD"])).stdout).toBe(before);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a remote branch disappearing before push cannot exclude sensitive history from publication review", async () => {
+  let remote: string | undefined;
+  const f = await setup({}, {
+    git: { processRuntime: { spawn(command, args, options) {
+      if (args.includes("rev-list") && remote)
+        execFileSync("git", ["--git-dir", remote, "update-ref", "-d", "refs/heads/trunk"]);
+      return spawnGitProcess(command, args, options);
+    } } },
+  });
+  try {
+    remote = await configure(f);
+    await commit(f, ".env", "synthetic");
+    await f.git(f.path, ["rm", ".env"]);
+    await f.git(f.path, ["commit", "-m", "Clean"]);
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
+    await commit(f, "readme", "safe");
+    const head = (await f.git(f.path, ["rev-parse", "HEAD"])).stdout;
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
+    await expect(f.git(remote, ["rev-parse", "--verify", "refs/heads/trunk"])).rejects.toThrow();
+    expect((await f.git(f.path, ["rev-parse", "HEAD"])).stdout).toBe(head);
   } finally {
     await f.cleanup();
   }
