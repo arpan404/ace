@@ -212,6 +212,7 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/context": "workspace:*",
       },
     },
     "packages/adapter-claude": {
@@ -275,6 +276,7 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/context": "workspace:*",
         "@ace/projection": "workspace:*",
       },
     },

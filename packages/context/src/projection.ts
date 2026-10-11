@@ -4,6 +4,7 @@ import { z } from "zod";
 import { type ContextDiagnostic as Diagnostic } from "@ace/protocol";
 import { requireContext } from "./errors.ts";
 import { languageHint } from "./file-kind.ts";
+import { boundEncodedContext, maxEncodedContextBytes } from "./encoded-budget.ts";
 
 export const PreparedAttachment = z.object({
   path: z.string().min(1).max(4096),
@@ -33,6 +34,7 @@ export const ProjectionCapabilities = z.object({
     .int()
     .nonnegative()
     .max(32 * 1024 * 1024),
+  maxEncodedBytes: z.number().int().nonnegative().max(maxEncodedContextBytes).optional(),
 });
 export type ProjectionCapabilities = z.infer<typeof ProjectionCapabilities>;
 type Text = { type: "text"; text: string };
@@ -112,6 +114,12 @@ export function projectAttachments(
     if (attachment.bytes === undefined) return attachment.text ?? "";
     return `Attachment ${JSON.stringify(attachment.name)} (${attachment.mimeType}, ${attachment.bytes} bytes; language: ${languageHint(attachment.name)}).\n<ace-attachment>\n${attachment.text ?? ""}\n</ace-attachment>${attachment.truncated ? `\n[Inline text truncated.] ${fallback(attachment).text}` : ""}`;
   }
+  function boundedFallback(index: number): Text {
+    const attachment = attachments[index];
+    requireContext(attachment, "invalid_request", "Missing prepared attachment");
+    if (attachment.path.startsWith("ace://")) return { type: "text", text: text(attachment) };
+    return fallback(attachment);
+  }
   switch (capabilities.provider) {
     case "claude": {
       const input: ClaudeInput[] = attachments.map((a) => {
@@ -178,7 +186,15 @@ export function projectAttachments(
           return { type: "file", mime: a.mimeType, filename: a.name, url: fileUri(a.path) };
         return fallback(a);
       });
-      return { provider: "opencode", input, diagnostics };
+      return {
+        provider: "opencode",
+        input: boundEncodedContext(
+          input,
+          boundedFallback,
+          capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
+        ),
+        diagnostics,
+      };
     }
     case "acp": {
       const input: AcpInput[] = attachments.map((a) => {
@@ -206,7 +222,15 @@ export function projectAttachments(
               resource: { uri: fileUri(a.path), mimeType: a.mimeType, blob: encoded },
             };
       });
-      return { provider: "acp", input, diagnostics };
+      return {
+        provider: "acp",
+        input: boundEncodedContext(
+          input,
+          boundedFallback,
+          capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
+        ),
+        diagnostics,
+      };
     }
   }
 }

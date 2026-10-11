@@ -21,6 +21,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@ace/adapter-testkit": "workspace:*"
+    "@ace/adapter-testkit": "workspace:*",
+    "@ace/context": "workspace:*"
   }
 }
