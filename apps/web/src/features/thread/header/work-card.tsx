@@ -5,12 +5,16 @@ import {
   useEffect,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import { useElementWidth } from "@/lib/use-element-width.ts";
 import { WorkAutomations } from "@/features/automations/index.ts";
+import { fileTab, loadCreateFile } from "@/features/panels/index.ts";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
@@ -21,6 +25,8 @@ import { BranchRow, ChangesSection, GitMenuItems } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
 import { attachCardScroll } from "./work-card-scroll.ts";
 import { WorkCardStateProvider, useWorkCardState } from "./work-card-state.tsx";
+
+const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
 /** Floating checkout and activity details, with one scroll surface at every width. */
 export function WorkCard(props: {
@@ -33,6 +39,8 @@ export function WorkCard(props: {
   const [measure, width] = useElementWidth();
   const wide = width >= 1060;
   const [linking, setLinking] = useState(false);
+  const [addingScript, setAddingScript] = useState(false);
+  const workspace = useWorkspaceActions(props.thread.id);
   const surface = useRef<HTMLElement>(null);
   useEffect(() => {
     if (props.open) surface.current?.focus({ preventScroll: true });
@@ -67,6 +75,10 @@ export function WorkCard(props: {
             thread={props.thread}
             move={checkout.move}
             onClose={close}
+            onAddScript={() => {
+              setAddingScript(true);
+              close();
+            }}
             menuFocus={() =>
               linking
                 ? (surface.current?.querySelector<HTMLInputElement>(
@@ -98,7 +110,7 @@ export function WorkCard(props: {
             }
           />
           <section aria-label="Source control" className="py-3">
-            <BranchRow thread={props.thread} git={git} move={checkout.move} onClose={close} />
+            <BranchRow thread={props.thread} git={git} move={checkout.move} />
             <PullRequestsSection
               git={menuGit}
               linking={linking}
@@ -153,6 +165,15 @@ export function WorkCard(props: {
       )}
       {git.dialog}
       {checkout.dialog}
+      {addingScript && (
+        <Suspense fallback={null}>
+          <CreateFile
+            threadId={props.thread.id}
+            onClose={() => setAddingScript(false)}
+            onCreated={(path) => workspace.open(fileTab(path))}
+          />
+        </Suspense>
+      )}
     </WorkCardStateProvider>
   );
 }

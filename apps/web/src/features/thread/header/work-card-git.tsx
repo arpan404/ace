@@ -11,7 +11,7 @@ import {
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { Menu, MenuContent, MenuTrigger, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { EnvironmentItems } from "./work-card-environment.tsx";
+import { BranchItems } from "./work-card-branches.tsx";
 import type { Move } from "./checkout-move.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -24,13 +24,8 @@ type GitFlow = ReturnType<typeof useGitFlow>;
 
 const glyph = (Glyph: typeof GitCommitIcon) => <Glyph aria-hidden size={16} />;
 
-/** The current branch opens the existing guarded checkout-move menu. */
-export function BranchRow(props: {
-  thread: ThreadRef;
-  git: GitFlow;
-  move(move: Move): void;
-  onClose(): void;
-}) {
+/** The current branch opens a focused, guarded branch switcher. */
+export function BranchRow(props: { thread: ThreadRef; git: GitFlow; move(move: Move): void }) {
   const details = useThreadMeta(props.thread.id)?.details;
   const base = details?.base ? baseRecordText(details.base) : undefined;
   const { checkout, state } = props.git;
@@ -52,7 +47,7 @@ export function BranchRow(props: {
     <Menu>
       <MenuTrigger
         render={
-          <RowButton aria-label={`Branch ${branch}, checkout options`}>
+          <RowButton aria-label={`Branch ${branch}, switch branch`}>
             <GitBranchIcon aria-hidden size={16} className={rowIcon} />
             <Tip
               label={`${branch} → ${checkout.baseBranch}, ${checkout.ahead} ahead${checkout.behind ? `, ${checkout.behind} behind` : ""}${base?.note ? ` · ${base.text}. ${base.note}` : ""}`}
@@ -63,8 +58,8 @@ export function BranchRow(props: {
           </RowButton>
         }
       />
-      <MenuContent align="end">
-        <EnvironmentItems thread={props.thread} move={props.move} onClose={props.onClose} />
+      <MenuContent align="end" className="max-h-(--available-height) overflow-y-auto">
+        <BranchItems thread={props.thread} move={props.move} />
       </MenuContent>
     </Menu>
   );

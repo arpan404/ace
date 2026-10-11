@@ -3,10 +3,8 @@ import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useThreadMeta } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
 import {
   ArrowsSplitIcon,
-  CheckIcon,
   CopyIcon,
   DotsThreeIcon,
   CaretDownIcon,
@@ -28,15 +26,14 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { useBranches } from "@/lib/branches.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
-import { fileTab } from "@/features/panels/index.ts";
 import { RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
-import { useCheckoutState } from "../lib/use-git.ts";
+import { BranchItems, useCheckoutMoves } from "./work-card-branches.tsx";
+import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
 
@@ -50,14 +47,6 @@ const DeferredOpenButton = deferredComponent(() =>
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
-/** Agents or terminals are working in the checkout: it can't move under them. */
-const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
-  "working",
-  "needs_you",
-  "waiting",
-  "limited",
-]);
-
 /**
  * Checkout actions: unavailable moves stay out of the menu while agents work.
  */
@@ -68,20 +57,10 @@ export function EnvironmentItems(props: {
 }) {
   const meta = useThreadMeta(props.thread.id);
   const details = meta?.details;
-  const { checkout, state } = useCheckoutState(props.thread);
-  const branches = useBranches(props.thread.workspaceId);
+  const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
   const path = details?.worktree ?? details?.workspace?.path;
   const folder = useFolderActions(path);
   const workspace = useWorkspaceActions(props.thread.id);
-  const live =
-    meta && liveStates.has(meta.status.state)
-      ? "Wait for the agents to stop: the checkout can't move under live work"
-      : undefined;
-  const noCheckout =
-    state === "loading" ? "Reading the checkout" : checkout ? undefined : "Not a git checkout";
-  const worktreeReason =
-    noCheckout ?? (checkout?.mode === "worktree" ? "Already in a worktree of its own" : live);
-  const switchReason = noCheckout ?? live;
   const worktree = checkout?.mode === "worktree";
   return (
     <>
@@ -93,32 +72,7 @@ export function EnvironmentItems(props: {
             align="end"
             className="max-h-[min(360px,var(--available-height))] overflow-y-auto"
           >
-            {branches.length === 0 ? (
-              <MenuItem disabled reason="Branches appear here once the checkout has been read">
-                Loading branches
-              </MenuItem>
-            ) : (
-              branches.map((branch) => (
-                <MenuItem
-                  key={branch}
-                  icon={
-                    <span className="grid size-4 place-items-center">
-                      {branch === checkout?.branch && <CheckIcon aria-hidden size={14} />}
-                    </span>
-                  }
-                  disabled={branch === checkout?.branch}
-                  onClick={() =>
-                    props.move({
-                      change: { mode: checkout?.mode ?? "local", branch },
-                      done: `Switched to ${branch}`,
-                      carriesTo: branch,
-                    })
-                  }
-                >
-                  <span className="font-mono text-sm">{branch}</span>
-                </MenuItem>
-              ))
-            )}
+            <BranchItems thread={props.thread} move={props.move} />
           </MenuContent>
         </MenuSub>
       )}
@@ -214,17 +168,13 @@ export function ProjectRow(props: {
   onClose(): void;
   actions?: ReactNode;
   menuFocus?: (() => HTMLElement | boolean) | undefined;
+  onAddScript(): void;
 }) {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
   const machine = useMachineIdentity(meta?.details?.machine);
   const path = meta?.details?.worktree ?? meta?.details?.workspace?.path;
   const folder = useFolderActions(path);
-  const workspace = useWorkspaceActions(props.thread.id);
-  const scriptFile = (scriptPath: string) => {
-    workspace.open(fileTab(scriptPath));
-    props.onClose();
-  };
   return (
     <section aria-label="Environment" className="py-3">
       <div className="flex min-w-0 items-center">
@@ -272,12 +222,11 @@ export function ProjectRow(props: {
           }
         />
         <MenuContent align="end">
-          <MenuItem onClick={() => scriptFile("package.json")}>Edit package.json scripts</MenuItem>
-          <MenuItem onClick={() => scriptFile("Makefile")}>Edit Makefile</MenuItem>
-          <MenuItem onClick={() => scriptFile("justfile")}>Edit justfile</MenuItem>
-          <MenuItem onClick={() => scriptFile("Procfile")}>Edit Procfile</MenuItem>
-          <MenuSeparator />
-          <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
+          <ScriptConfigurationItems
+            thread={props.thread}
+            onClose={props.onClose}
+            onAddScript={props.onAddScript}
+          />
         </MenuContent>
       </Menu>
     </section>
