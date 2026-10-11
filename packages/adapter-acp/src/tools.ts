@@ -121,7 +121,7 @@ export function mergeToolData(data: Data, update: Data): void {
   for (const field of ["kind", "title", "name", "rawInput", "rawOutput", "content", "_meta"]) {
     if (!Object.hasOwn(update, field)) continue;
     const value = update[field];
-    if (field === "name" && typeof value !== "string") continue;
+    if (["name", "title", "kind"].includes(field) && typeof value !== "string") continue;
     if (field === "rawInput") {
       if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
       const previous = object(data[field]);

@@ -13,7 +13,7 @@ const Result = z.object({
   lastOutputTail: z.string(),
   failedTools: z.number(),
   completedTurns: z.number(),
-  diagnosticErrors: z.number(),
+  diagnosticPayloads: z.number(),
 });
 test("completed shell output and turn completion remain observable within a fixed memory bound", async () => {
   const { stdout } = await promisify(execFile)(process.execPath, [
@@ -44,8 +44,29 @@ test("late failed-tool errors remain in diagnostics without accumulating retaine
     completedTools: 1000,
     failedTools: 1000,
     lastCommand: "build-999",
-    diagnosticErrors: 1000,
+    diagnosticPayloads: 1000,
     completedTurns: 1,
   });
   expect(result.retainedBytes).toBeLessThan(8 * 1024 * 1024);
 });
+
+test.each(["late-title", "late-kind"])(
+  "%s opaque payloads survive in diagnostics without accumulating retained tool data",
+  async (mode) => {
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      "--expose-gc",
+      fileURLToPath(new URL("./testing/retention.ts", import.meta.url)),
+      mode,
+    ]);
+    const result = Result.parse(JSON.parse(stdout));
+    expect(result).toMatchObject({
+      completedTools: 1000,
+      failedTools: 0,
+      lastCommand: "build-999",
+      emittedChunks: 1000,
+      diagnosticPayloads: 1000,
+      completedTurns: 1,
+    });
+    expect(result.retainedBytes).toBeLessThan(8 * 1024 * 1024);
+  },
+);
