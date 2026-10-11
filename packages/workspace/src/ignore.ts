@@ -29,7 +29,7 @@ export class GitIgnore {
   async metadataPaths(signal?: AbortSignal): Promise<string[]> {
     await this.safe.resolve("");
     const paths: string[] = [];
-    for (const name of ["index", "info/exclude", "config", "config.worktree"]) {
+    for (const name of ["HEAD", "index", "info/exclude", "config", "config.worktree"]) {
       const result = await command(
         "git",
         ["rev-parse", "--path-format=absolute", "--git-path", name],
