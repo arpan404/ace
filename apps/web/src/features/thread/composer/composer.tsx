@@ -161,16 +161,15 @@ function ComposerContent({
 }) {
   // A failed message brought back with its files remounts the composer on the restored draft.
   const [generation, setGeneration] = useState(0);
-  const [replacedAttachments, setReplacedAttachments] =
-    useState<readonly { sha256: string; name: string }[]>();
+  const [replacedDraft, setReplacedDraft] = useState<ComposerDraft>();
   return (
     <ComposerBody
       key={generation}
       {...props}
       ref={ref}
-      replacedAttachments={replacedAttachments}
-      onReplaced={(files) => {
-        setReplacedAttachments(files);
+      replacedDraft={replacedDraft}
+      onReplaced={(draft) => {
+        setReplacedDraft(draft);
         setGeneration((value) => value + 1);
       }}
     />
@@ -181,8 +180,8 @@ function ComposerBody({
   ref,
   ...props
 }: Parameters<typeof Composer>[0] & {
-  replacedAttachments?: readonly { sha256: string; name: string }[] | undefined;
-  onReplaced(files?: readonly { sha256: string; name: string }[]): void;
+  replacedDraft?: ComposerDraft | undefined;
+  onReplaced(draft?: ComposerDraft): void;
 }) {
   // Kept out of the compiler, as it was before: memoizing every handler here costs the
   // thread route ~5 KB of code for a component that re-renders per keystroke anyway.
@@ -192,8 +191,8 @@ function ComposerBody({
   const navigate = useNavigate();
   const workspace = useWorkspaceActions(props.thread.id);
   const fork = useForkOpener();
-  const [restored] = useState(() =>
-    props.draftKey ? readDraft(storage, props.draftKey) : undefined,
+  const [restored] = useState(
+    () => props.replacedDraft ?? (props.draftKey ? readDraft(storage, props.draftKey) : undefined),
   );
   const [text, setText] = useState(restored?.text ?? props.initialText ?? "");
   const [tokens, setTokens] = useState<readonly ComposerToken[]>(restored?.tokens ?? []);
@@ -216,7 +215,8 @@ function ComposerBody({
   const addMenu = useRef<AddHandle>(null);
   const attachments = useAttachments(
     props.thread,
-    props.replacedAttachments ?? (props.keepsAttachments ? restored?.attachments : undefined),
+    props.replacedDraft?.attachments ??
+      (props.keepsAttachments ? restored?.attachments : undefined),
   );
   const attach = (files: Iterable<File>, note?: string) => {
     const left = attachments.add(files);
@@ -273,26 +273,37 @@ function ComposerBody({
     const draft = next ?? emptyDraft;
     if (document.activeElement === input.current) return void setTheirs(draft);
     if (!otherFiles(draft)) return void takeText(draft);
-    props.onReplaced();
+    props.onReplaced(draft);
     return "replace";
   });
   const apply = (next: ComposerDraft) => {
     if (!otherFiles(next)) return takeText(next);
     saved.drop();
-    props.onReplaced();
+    props.onReplaced(next);
   };
   // Edit on a failed message: its text joins what's here, its files and picks come back.
   const draftKey = props.draftKey;
   const takeReturned = useEffectEvent((returned: ReturnedDraft) => {
-    if (!draftKey) return;
-    saved.discard();
-    writeDraft(storage, draftKey, mergeReturnedDraft(current, returned));
+    if (!draftKey) return false;
+    const next = mergeReturnedDraft({ ...current, attachments: attachments.ready }, returned);
+    saved.drop();
+    const written = writeDraft(storage, draftKey, next);
     props.onReturnedOptions?.(returned.options);
-    props.onReplaced();
+    props.onReplaced(next);
+    return written;
   });
+  const saveReturned = useEffectEvent(() =>
+    draftKey
+      ? writeDraft(storage, draftKey, { ...current, attachments: attachments.ready })
+      : false,
+  );
   useEffect(() => {
     if (!draftKey) return;
-    return takeDraftsFor(draftKey, (returned) => takeReturned(returned));
+    return takeDraftsFor(
+      draftKey,
+      (returned) => takeReturned(returned),
+      () => saveReturned(),
+    );
   }, [draftKey]);
   const restoreSubmission = useEffectEvent((before: ReturnedDraft, draft: Draft) => {
     const next = mergeReturnedDraft(current, before);
@@ -301,7 +312,7 @@ function ComposerBody({
     if (draft.files.restore) {
       draft.files.restore();
       takeText(next);
-    } else props.onReplaced(next.attachments);
+    } else props.onReplaced(next);
   });
   useAutosize(input, text, width);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);

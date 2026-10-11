@@ -127,11 +127,12 @@ function patch(commandId: string, change: Partial<StagedSend>): boolean {
  * Let a held message go: it was enqueued, or taken back to edit. Its previews are freed unless
  * the transcript now shows them (`keepPreviews`).
  */
-export function unstage(commandId: string, keepPreviews = false): void {
-  if (!deleteHeldSend(commandId)) return;
+export function unstage(commandId: string, keepPreviews = false): boolean {
+  if (!deleteHeldSend(commandId)) return false;
   const local = held.get(commandId);
   held.delete(commandId);
   if (local && !keepPreviews) for (const url of local.previews) if (url) URL.revokeObjectURL(url);
+  return true;
 }
 
 /** Whether this page can still finish (or retry) the held message's uploads. */
