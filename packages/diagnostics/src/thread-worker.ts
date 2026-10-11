@@ -1,9 +1,20 @@
-import { createRedactor } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { workerData, parentPort } from "node:worker_threads";
 import { z } from "zod";
-const redact = createRedactor({});
-const { path } = z.object({ path: z.string() }).parse(workerData);
+const { path, context } = z
+  .object({
+    path: z.string(),
+    context: z.object({
+      home: z.string().optional(),
+      workspace: z.string().optional(),
+      username: z.string().optional(),
+      host: z.string().optional(),
+      env: z.record(z.string(), z.string().optional()).optional(),
+    }),
+  })
+  .parse(workerData);
+const redact = createDiagnosticRedactor(context);
 const db = new DatabaseSync(path, { readOnly: true, timeout: 200 });
 // Limit each event before transferring it. Work is bounded to the newest 2000 rows.
 const query = db.prepare(`SELECT seq, at,
@@ -36,7 +47,7 @@ port.on("message", (input: unknown) => {
     } catch {
       payload = "<INVALID PAYLOAD OMITTED>";
     }
-    lines.push(JSON.stringify({ ...row, payload }) + "\n");
+    lines.push(JSON.stringify({ ...row, type: redact(row.type), payload }) + "\n");
   }
   port.postMessage({ lines, done });
   if (done) {

@@ -89,7 +89,14 @@ it("support export works before adding a project, redacts secrets, and includes 
     await mkdir(join(root, "logs"), { recursive: true });
     await writeFile(
       join(root, "logs", "ace.999.jsonl"),
-      JSON.stringify({ token, message: "diagnostic included" }) + "\n",
+      JSON.stringify({
+        token,
+        message:
+          'diagnostic included: {"credentials":{"login":"OPAQUE_EXPORT_CREDENTIAL"},"code":7}',
+        wrapped:
+          'request failed: "{\\"credentials\\":{\\"login\\":\\"OPAQUE_WRAPPED_CREDENTIAL\\"}}"',
+        truncated: 'request failed: {"credentials":{"login":"OPAQUE_TRUNCATED_CREDENTIAL"',
+      }) + "\n",
     );
     const workspace = daemon.store.createWorkspace(join(root, "fictional-repo"), "Test");
     const thread = createDevThread(daemon.store, workspace);
@@ -132,6 +139,9 @@ it("support export works before adding a project, redacts secrets, and includes 
       }
       const bundle = gunzipSync(Buffer.concat(parts)).toString();
       expect(bundle).toContain("diagnostic included");
+      expect(bundle).not.toContain("OPAQUE_EXPORT_CREDENTIAL");
+      expect(bundle).not.toContain("OPAQUE_WRAPPED_CREDENTIAL");
+      expect(bundle).not.toContain("OPAQUE_TRUNCATED_CREDENTIAL");
       expect(bundle).toContain("Git available");
       expect(bundle).not.toContain(token.trim());
       expect(bundle.includes("Conversation opt-in")).toBe(includeThreads);

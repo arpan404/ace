@@ -55,6 +55,8 @@ for (const sample of [
   },
   { path: "src/config.txt", text: "ghp_" + "x".repeat(32), deleted: true },
   { path: "archive.bin", text: "\0Bearer synthetic-private-value\0", deleted: false },
+  { path: "docs/link.txt", text: "https://example.invalid/#ticket=opaque-credential", deleted: false },
+  { path: "docs/link.txt", text: "https://example.invalid/#ticket=opaque-credential", deleted: true },
   {
     path: ".docker/config.json",
     text: JSON.stringify({

@@ -22,13 +22,13 @@ test("between steps an open turn shows Work so far without a body Working line",
   expect(await within(feed).findByRole("button", { name: /^Worked for/ })).toBeTruthy();
 });
 
-test("one turn's work reads as one Worked line and one Started line, though subagents interleave", async () => {
+test("one turn's work reads as one Worked line and one subagent card, though subagents interleave", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("relay-output");
   await app.open("/t/thread-cold-start");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const second = await within(feed).findByText(/Send coldStart with the ack/);
-  await within(feed).findByRole("button", { name: "Started 2 subagents" });
+  await within(feed).findByRole("button", { name: "2 subagents" });
 
   // After the second ask: the parent's edit, the audit's edit and the test run are one log,
   // still open while the root waits on its subagents.
@@ -38,6 +38,6 @@ test("one turn's work reads as one Worked line and one Started line, though suba
     .getAllByRole("button", { name: /^(?:Work(ed|ing) for|Work so far)/ })
     .filter(after);
   expect(work).toHaveLength(1);
-  expect(within(feed).getAllByRole("button", { name: /^Started \d subagents?$/ })).toHaveLength(1);
-  expect(within(feed).queryByRole("button", { name: "Started 1 subagent" })).toBeNull();
+  expect(within(feed).getAllByRole("button", { name: /^\d subagents?$/ })).toHaveLength(1);
+  expect(within(feed).queryByRole("button", { name: "1 subagent" })).toBeNull();
 });

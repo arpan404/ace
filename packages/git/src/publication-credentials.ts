@@ -1,4 +1,4 @@
-import { containsSecretText, isSecretKey } from "@ace/redaction";
+import { sensitiveSpans, isSecretKey } from "@ace/redaction";
 import { z } from "zod";
 import { GitError } from "./types.ts";
 
@@ -51,7 +51,7 @@ function containsStructuredCredential(text: string): boolean {
 /** Shared redaction signatures plus credential formats that intentionally hide their value shape. */
 export function containsPublicationCredential(text: string): boolean {
   return (
-    containsSecretText(text) ||
+    sensitiveSpans(text).next().done === false ||
     /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text) ||
     /(?:https?|ssh):\/\/[^\s/@:]+:[^\s/@]+@/i.test(text) ||
     /(?:^|[\s:/])(?:_auth(?:Token)?|private[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?)\s*[:=]\s*["']?[^\s"'#,;]+/im.test(

@@ -1,11 +1,11 @@
-import { containsSecretText } from "@ace/redaction";
+import { sensitiveSpans } from "@ace/redaction";
 import { decode, hashSchema, count } from "./decode.ts";
 import { z } from "zod";
 import { GitError } from "./types.ts";
 import { containsPublicationCredential } from "./publication-credentials.ts";
 
 export function sensitivePublicationPath(path: string): boolean {
-  if (containsSecretText(path)) return true;
+  if (sensitiveSpans(path).next().done === false) return true;
   return path
     .split("/")
     .some(
