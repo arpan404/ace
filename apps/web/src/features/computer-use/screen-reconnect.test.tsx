@@ -1,3 +1,4 @@
+import { useMemo, type ReactNode } from "react";
 import { ClientProvider } from "@ace/client-react";
 import { FakeDaemon } from "@ace/fake-daemon";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -5,6 +6,15 @@ import { expect, test } from "vitest";
 import { DaemonConnectionContext, fallback, type DaemonEndpoint } from "@/boot/connection.tsx";
 import { fakeClient } from "@/test/fake-client.ts";
 import { useScreenSession } from "./screen-session.ts";
+
+function ScreenConnection(props: { endpoint: DaemonEndpoint; children: ReactNode }) {
+  const connection = useMemo(() => ({ ...fallback, endpoint: props.endpoint }), [props.endpoint]);
+  return (
+    <DaemonConnectionContext.Provider value={connection}>
+      {props.children}
+    </DaemonConnectionContext.Provider>
+  );
+}
 
 function Surface({ label }: { label: string }) {
   const { snapshot, reconnect } = useScreenSession();
@@ -38,13 +48,12 @@ test("screen failures wait for manual Retry or a main reconnect and stop after t
       close() {},
     }),
   };
-  const connection = { ...fallback, endpoint };
   const view = render(
     <ClientProvider client={client}>
-      <DaemonConnectionContext.Provider value={connection}>
+      <ScreenConnection endpoint={endpoint}>
         <Surface label="settings" />
         <Surface label="indicator" />
-      </DaemonConnectionContext.Provider>
+      </ScreenConnection>
     </ClientProvider>,
   );
   for (let n = 0; n < 100; n++)
