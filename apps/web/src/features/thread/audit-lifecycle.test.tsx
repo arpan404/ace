@@ -315,7 +315,9 @@ test("a provider without steering explains why a queued follow-up cannot steer",
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   const steer = within(queue).getByRole("button", { name: "Steer" });
   await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("true"));
-  expect(steer.getAttribute("aria-description")).toBe("This provider doesn't support steering.");
+  await waitFor(() =>
+    expect(steer.getAttribute("aria-description")).toBe("This provider doesn't support steering."),
+  );
   await userEvent.click(steer);
   expect(within(queue).getByText("Follow up later")).toBeTruthy();
 });

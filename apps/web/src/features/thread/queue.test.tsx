@@ -42,10 +42,14 @@ const pills = () =>
     .getAllByRole("listitem")
     .map((pill) => pill.textContent ?? "");
 
-async function takeBackButton(queued: HTMLElement) {
+async function queuedEditButton(queued = screen.getByRole("list", { name: "Queued messages" })) {
   const edit = within(queued).getByRole("button", { name: "Edit queued message" });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
+  return edit;
+}
+
+async function takeBackButton(queued: HTMLElement) {
+  await userEvent.click(await queuedEditButton(queued));
   return screen.findByRole("button", { name: "Take back to composer" });
 }
 
@@ -53,6 +57,13 @@ async function queueTwo(message: HTMLElement) {
   await userEvent.type(message, "Check the iOS path{Enter}");
   await userEvent.type(message, "Then the Android path{Enter}");
   await waitFor(() => expect(pills()).toHaveLength(2));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 2" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
 }
 
 test("removing a queued message preserves the next message and the current draft", async () => {
@@ -313,6 +324,13 @@ test("dragging moves a queued message to a nonadjacent position", async () => {
   await queueTwo(message);
   await userEvent.type(message, "Finally check web{Enter}");
   await waitFor(async () => expect(await daemonQueue(app)).toHaveLength(3));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 3" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
   const rows = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole(
     "listitem",
   );
@@ -344,6 +362,13 @@ test("a queue change during a drag asks the user to move again", async () => {
   });
   await userEvent.type(message, "A new message{Enter}");
   await waitFor(() => expect(pills()).toHaveLength(3));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 3" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
   fireEvent.drop(target);
   await screen.findByText("The queue changed. Try moving the message again.");
   expect(await daemonQueue(app)).toEqual([
@@ -366,7 +391,7 @@ test("editing a queued attachment keeps its file and leaves the composer draft a
     threadId: ThreadId.parse(threadId),
   });
   await userEvent.type(message, "Keep this draft");
-  await userEvent.click(screen.getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await queuedEditButton());
   const editor = await screen.findByRole("textbox", { name: "Queued message text" });
   await userEvent.clear(editor);
   await userEvent.type(editor, "Review only errors{Control>}{Enter}{/Control}");
@@ -382,7 +407,7 @@ test("an edit stays available to copy after another device dispatches the messag
   const { app, message } = await openBusy();
   await userEvent.type(message, "Check retries{Enter}");
   const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(within(queued).getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await queuedEditButton(queued));
   const editor = await screen.findByRole("textbox", { name: "Queued message text" });
   await userEvent.clear(editor);
   await userEvent.type(editor, "Keep my revised wording");
@@ -416,7 +441,7 @@ test("a refused edit keeps the unsaved text and the original queued message", as
   const { app, message } = await openBusy();
   await userEvent.type(message, "Original wording{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(screen.getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await queuedEditButton());
   const editor = await screen.findByRole("textbox", { name: "Queued message text" });
   await userEvent.clear(editor);
   await userEvent.type(editor, "Unsaved revision");
@@ -545,7 +570,7 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
     .getAllByRole("listitem")
     .at(-1);
   if (!last) throw new Error("no last row");
-  await userEvent.click(within(last).getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await queuedEditButton(last));
   expect(await screen.findByRole("textbox", { name: "Queued message text" })).toHaveProperty(
     "value",
     "Follow-up 17",
