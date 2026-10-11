@@ -43,7 +43,7 @@ export function useWorkCardLive(threadId: string) {
   const pending = useThread(threadId, interactionKeys, interactions, arrayEqual) ?? noInteractions;
   return useMemo(
     () => ({
-      agents: allAgents.filter((agent) => agent.parentId),
+      agents: allAgents.filter((agent) => agent.origin !== "root" || agent.parentId !== null),
       tasks: allTasks.filter(
         (task) =>
           (task.status === "running" || task.status === "unknown") &&

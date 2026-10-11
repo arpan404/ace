@@ -77,7 +77,7 @@ export function useGitFlow(thread: ThreadRef): {
   state: ReturnType<typeof useCheckoutState>["state"];
   pending: boolean;
   push(): void;
-  /** A change made straight away (Merge), confirmed or explained by a toast. */
+  /** Remote writes ask for confirmation; every command reports its reconciled result. */
   run(change: GitChange): void;
   /** Ask the forge for the PR's status now. */
   refreshPr(pr?: ForgePrRef): Promise<ForgePrStatus | undefined>;

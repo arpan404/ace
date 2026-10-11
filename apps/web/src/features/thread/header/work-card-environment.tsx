@@ -1,5 +1,3 @@
-import { ProjectMark } from "@/components/project-mark.tsx";
-import { projectBadge } from "@ace/ui-core";
 import { ProjectScriptItems } from "./work-card-actions.tsx";
 import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -11,6 +9,9 @@ import {
   CheckIcon,
   CopyIcon,
   DotsThreeIcon,
+  CaretDownIcon,
+  FolderIcon,
+  PlusIcon,
   FolderOpenIcon,
   GitForkIcon,
   LaptopIcon,
@@ -29,7 +30,10 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useBranches } from "@/lib/branches.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useProjectMetadata, useProjectName } from "@/lib/projects.ts";
+import { useProjectName } from "@/lib/projects.ts";
+import { fileTab } from "@/features/panels/index.ts";
+import { RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
@@ -38,6 +42,10 @@ import type { Move } from "./checkout-move.tsx";
 
 const DeferredOpenIn = deferredComponent(() =>
   import("./thread-open-in.tsx").then((m) => m.ThreadOpenIn),
+);
+
+const DeferredOpenButton = deferredComponent(() =>
+  import("./thread-open-in.tsx").then((m) => m.ThreadOpenButton),
 );
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
@@ -53,7 +61,11 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
 /**
  * Checkout actions: unavailable moves stay out of the menu while agents work.
  */
-function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
+export function EnvironmentItems(props: {
+  thread: ThreadRef;
+  move(move: Move): void;
+  onClose(): void;
+}) {
   const meta = useThreadMeta(props.thread.id);
   const details = meta?.details;
   const { checkout, state } = useCheckoutState(props.thread);
@@ -195,7 +207,7 @@ function EnvironmentMenu(props: {
   );
 }
 
-/** The project's name and checkout actions. Environment details live in the composer. */
+/** Machine, checkout openers and the project's existing script editor. */
 export function ProjectRow(props: {
   thread: ThreadRef;
   move(move: Move): void;
@@ -206,31 +218,68 @@ export function ProjectRow(props: {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
   const machine = useMachineIdentity(meta?.details?.machine);
-  const metadata = useProjectMetadata()(meta?.workspaceId ?? props.thread.workspaceId);
-  const mode = meta?.details?.mode === "worktree" ? "Worktree" : "Local";
-  const summary = `${project} · ${mode}${machine.primary ? "" : ` · ${machine.name}`}`;
+  const path = meta?.details?.worktree ?? meta?.details?.workspace?.path;
+  const folder = useFolderActions(path);
+  const workspace = useWorkspaceActions(props.thread.id);
+  const scriptFile = (scriptPath: string) => {
+    workspace.open(fileTab(scriptPath));
+    props.onClose();
+  };
   return (
-    <div className="flex min-w-0 items-start gap-(--surface-gap) pb-2 text-sm">
-      <ProjectMark
-        badge={projectBadge({ name: project, id: props.thread.workspaceId })}
-        icon={metadata?.icon ?? metadata?.defaultIcon}
-        quiet
-      />
-      <h2 className="min-w-0 flex-1 [overflow-wrap:anywhere]" title={summary}>
-        <strong className="block text-base font-semibold">{project}</strong>
-        <span className="block pt-1 text-xs text-subtle-foreground">
-          {mode}
-          {!machine.primary && ` · ${machine.name}`}
-        </span>
-      </h2>
-      <EnvironmentMenu
-        actions={props.actions}
-        menuFocus={props.menuFocus}
-        thread={props.thread}
-        move={props.move}
-        onClose={props.onClose}
-        trigger={<IconButton icon={DotsThreeIcon} label="Project actions" size="sm" />}
-      />
-    </div>
+    <section aria-label="Environment" className="py-3">
+      <div className="flex min-w-0 items-center">
+        <div className="flex min-h-(--row-height) min-w-0 flex-1 items-center gap-(--surface-gap) px-2 text-foreground">
+          <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+            <LaptopIcon aria-hidden size={16} />
+            <FolderIcon aria-hidden size={16} />
+          </span>
+          <Tip label={`${project} · ${path ?? "Reading checkout"}`}>
+            <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{machine.name}</h2>
+          </Tip>
+        </div>
+        <EnvironmentMenu
+          {...props}
+          trigger={<IconButton icon={DotsThreeIcon} label="Project actions" size="sm" />}
+        />
+      </div>
+      <div className="flex items-center">
+        <Suspense fallback={<RowNote className="flex-1">Reading checkout openers…</RowNote>}>
+          <DeferredOpenButton.Component thread={props.thread} />
+        </Suspense>
+        <Menu>
+          <MenuTrigger
+            render={<IconButton icon={CaretDownIcon} label="Other checkout openers" size="sm" />}
+          />
+          <MenuContent align="end">
+            <Suspense fallback={<MenuItem disabled>Looking for editors…</MenuItem>}>
+              <DeferredOpenIn.Component thread={props.thread} />
+            </Suspense>
+            <MenuSeparator />
+            <MenuItem disabled={!folder.copy} onClick={folder.copy}>
+              Copy path
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
+      <Menu>
+        <MenuTrigger
+          render={
+            <RowButton>
+              <PlusIcon aria-hidden size={16} className={rowIcon} />
+              Add project script
+              <CaretDownIcon aria-hidden size={12} className="ml-auto" />
+            </RowButton>
+          }
+        />
+        <MenuContent align="end">
+          <MenuItem onClick={() => scriptFile("package.json")}>Edit package.json scripts</MenuItem>
+          <MenuItem onClick={() => scriptFile("Makefile")}>Edit Makefile</MenuItem>
+          <MenuItem onClick={() => scriptFile("justfile")}>Edit justfile</MenuItem>
+          <MenuItem onClick={() => scriptFile("Procfile")}>Edit Procfile</MenuItem>
+          <MenuSeparator />
+          <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
+        </MenuContent>
+      </Menu>
+    </section>
   );
 }

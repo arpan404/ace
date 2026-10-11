@@ -34,8 +34,8 @@ export function GitWriteConfirm(props: {
           </DialogTitle>
           <DialogDescription>
             {change.kind === "push"
-              ? "Push this branch to origin. The daemon will reconcile the result before reporting success."
-              : `Use ${change.method} on the reviewed pull request head. GitHub will refuse if that head has changed.${change.auto ? " GitHub will merge when its requirements pass." : ""}`}
+              ? "Push this branch to origin."
+              : `Use ${change.method} to merge ${change.pr?.repository.owner}/${change.pr?.repository.name}#${change.pr?.number}. GitHub will refuse if that head has changed.${change.auto ? " GitHub will merge when its requirements pass." : ""}`}
           </DialogDescription>
         </DialogHeader>
         {error !== undefined && (

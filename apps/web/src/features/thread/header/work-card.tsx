@@ -8,12 +8,16 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useThreadMeta } from "@ace/client-react";
+import { useElementWidth } from "@/lib/use-element-width.ts";
+import { WorkAutomations } from "@/features/automations/index.ts";
+import { cn } from "@/lib/cn.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
 import { WorkCardActivity } from "./work-card-activity.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
-import { ChangesSection, GitMenuItems } from "./work-card-git.tsx";
+import { BranchRow, ChangesSection, GitMenuItems } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
 import { attachCardScroll } from "./work-card-scroll.ts";
 import { WorkCardStateProvider, useWorkCardState } from "./work-card-state.tsx";
@@ -25,6 +29,9 @@ export function WorkCard(props: {
   onClose(returnFocus: boolean): void;
 }) {
   const git = useGitFlow(props.thread);
+  const details = useThreadMeta(props.thread.id)?.details;
+  const [measure, width] = useElementWidth();
+  const wide = width >= 1060;
   const [linking, setLinking] = useState(false);
   const surface = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -44,83 +51,106 @@ export function WorkCard(props: {
     event.preventDefault();
     props.onClose(true);
   };
+  const content = (
+    <aside
+      ref={surface}
+      id="work-card"
+      aria-label="Work card"
+      hidden={!props.open}
+      tabIndex={-1}
+      onKeyDown={escape}
+      className="flex min-h-0 flex-col focus-ring-inset"
+    >
+      <div data-work-card-surface className="flex min-h-0 flex-col bg-popover">
+        <CardScroll open={props.open} wide={wide}>
+          <ProjectRow
+            thread={props.thread}
+            move={checkout.move}
+            onClose={close}
+            menuFocus={() =>
+              linking
+                ? (surface.current?.querySelector<HTMLInputElement>(
+                    '[aria-label="Link pull request…"]',
+                  ) ?? false)
+                : !git.dialog
+            }
+            actions={
+              <>
+                {git.checkout && (
+                  <>
+                    <MenuSeparator />
+                    <GitMenuItems git={menuGit} checkout={git.checkout} />
+                  </>
+                )}
+                {git.checkout?.repository?.forge !== "gitlab" && (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem
+                      disabled={!!git.linkBlocked || git.pending}
+                      reason={git.linkBlocked}
+                      onClick={() => setLinking(true)}
+                    >
+                      Link a pull request
+                    </MenuItem>
+                  </>
+                )}
+              </>
+            }
+          />
+          <section aria-label="Source control" className="py-3">
+            <BranchRow thread={props.thread} git={git} move={checkout.move} onClose={close} />
+            <PullRequestsSection
+              git={menuGit}
+              linking={linking}
+              onLinkClose={() => setLinking(false)}
+            />
+            <ChangesSection thread={props.thread} git={git} onClose={close} />
+          </section>
+          <WorkAutomations
+            workspaceId={props.thread.workspaceId}
+            workspacePath={details?.workspace?.path}
+            onClose={close}
+          />
+          <WorkCardActivity threadId={props.thread.id} onClose={close} />
+        </CardScroll>
+      </div>
+    </aside>
+  );
   return (
     <WorkCardStateProvider scope={props.thread.id}>
-      <Popover
-        open={props.open}
-        onOpenChange={(open, details) => {
-          if (!open) props.onClose(details.reason === "escape-key");
-        }}
-      >
-        <PopoverContent
-          anchor={() => document.querySelector<HTMLElement>("header [data-work-card-toggle]")}
-          aria-label="Work details"
-          side="bottom"
-          align="end"
-          className="w-(--work-details-width) p-0 overflow-hidden"
-          initialFocus={surface}
-          finalFocus={false}
-        >
-          <aside
-            ref={surface}
-            id="work-card"
-            aria-label="Work card"
-            hidden={!props.open}
-            tabIndex={-1}
-            onKeyDown={escape}
-            className="min-h-0 focus-ring-inset"
+      {/* Measure the work area's container, so resizing the transcript cannot toggle the layout. */}
+      <div ref={measure} aria-hidden className="pointer-events-none absolute inset-0" />
+      {wide ? (
+        props.open && (
+          <div
+            data-work-card-docked
+            className="flex min-h-0 w-[calc(var(--work-details-width)+2*var(--surface-inset))] shrink-0 flex-col px-(--surface-inset) py-6"
           >
-            <div
-              data-work-card-surface
-              className="flex min-h-0 flex-col bg-popover p-(--surface-inset)"
-            >
-              <CardScroll open={props.open}>
-                <ProjectRow
-                  thread={props.thread}
-                  move={checkout.move}
-                  onClose={close}
-                  menuFocus={() =>
-                    linking
-                      ? (surface.current?.querySelector<HTMLInputElement>(
-                          '[aria-label="Link pull request…"]',
-                        ) ?? false)
-                      : !git.dialog
-                  }
-                  actions={
-                    <>
-                      {git.checkout && (
-                        <>
-                          <MenuSeparator />
-                          <GitMenuItems git={menuGit} checkout={git.checkout} />
-                        </>
-                      )}
-                      {git.checkout?.repository?.forge !== "gitlab" && (
-                        <>
-                          <MenuSeparator />
-                          <MenuItem
-                            disabled={!!git.linkBlocked || git.pending}
-                            reason={git.linkBlocked}
-                            onClick={() => setLinking(true)}
-                          >
-                            Link a pull request
-                          </MenuItem>
-                        </>
-                      )}
-                    </>
-                  }
-                />
-                <ChangesSection thread={props.thread} git={git} onClose={close} />
-                <PullRequestsSection
-                  git={menuGit}
-                  linking={linking}
-                  onLinkClose={() => setLinking(false)}
-                />
-                <WorkCardActivity threadId={props.thread.id} onClose={close} />
-              </CardScroll>
+            <div className="flex min-h-0 max-h-full flex-col overflow-hidden rounded-xl border bg-popover shadow-raised">
+              {content}
             </div>
-          </aside>
-        </PopoverContent>
-      </Popover>
+          </div>
+        )
+      ) : (
+        <Popover
+          open={props.open}
+          onOpenChange={(open, event) => {
+            if (!open) props.onClose(event.reason === "escape-key");
+          }}
+        >
+          <PopoverContent
+            anchor={() => document.querySelector<HTMLElement>("header [data-work-card-toggle]")}
+            aria-label="Work details"
+            side="bottom"
+            align="end"
+            className="w-(--work-details-width) p-0 overflow-hidden rounded-xl"
+            initialFocus={surface}
+            finalFocus={false}
+          >
+            {content}
+          </PopoverContent>
+        </Popover>
+      )}
       {git.dialog}
       {checkout.dialog}
     </WorkCardStateProvider>
@@ -128,7 +158,7 @@ export function WorkCard(props: {
 }
 
 /** Restore once asynchronous content can contain the saved position. */
-function CardScroll(props: { open: boolean; children: ReactNode }) {
+function CardScroll(props: { open: boolean; wide: boolean; children: ReactNode }) {
   const { state, update } = useWorkCardState();
   const saved = state.scrollTop ?? 0;
   const open = props.open;
@@ -143,9 +173,12 @@ function CardScroll(props: { open: boolean; children: ReactNode }) {
     <div
       ref={scroll}
       data-work-card-scroll
-      className="max-h-[min(70dvh,calc(var(--available-height)_-_2*var(--surface-inset)_-_2px))] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
+      className={cn(
+        "min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain",
+        props.wide ? "max-h-full" : "max-h-[min(70dvh,calc(var(--available-height)_-_2px))]",
+      )}
     >
-      <div className="space-y-(--surface-gap)">{props.children}</div>
+      <div className="divide-y divide-border [&>section]:px-3">{props.children}</div>
     </div>
   );
 }
