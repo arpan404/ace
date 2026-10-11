@@ -175,7 +175,7 @@ import AppKit
         if node.states.contains("disabled") { throw HelperError("Element is disabled", code: "bounds") }
         if ["setValue", "selectText"].contains(action) { try TextDestination(element: entry.element, security: textSecurity(entry.element)).requireConsent(request.secureInputAllowed == true) }
         if snapshot.secure && request.secureInputAllowed != true { throw HelperError("Secure fields require session consent", code: "secure_input_required") }
-        if semanticStateMatches(action: action, states: node.states, requested: request.booleanValue) { return false }
+        if semanticStateMatches(action: action, states: node.states, requested: request.booleanValue, expanded: snapshot.expanded) { return false }
         if action == "setValue" && request.value == nil && request.booleanValue == nil { throw HelperError("setValue requires a value", code: "bounds") }
         if action == "focus", node.role == "AXWindow" {
             guard request.mode == "foreground" else { throw HelperError("AXRaise requires foreground mode", code: "foreground_required") }
@@ -225,6 +225,6 @@ import AppKit
 
 }
 
-func semanticStateMatches(action: String, states: [String], requested: Bool?) -> Bool {
-    (action == "focus" && states.contains("focused")) || (action == "select" && states.contains("selected")) || (action == "expand" && states.contains("expanded") == (requested ?? true))
+func semanticStateMatches(action: String, states: [String], requested: Bool?, expanded: Bool? = nil) -> Bool {
+    (action == "focus" && states.contains("focused")) || (action == "select" && states.contains("selected")) || (action == "expand" && expanded.map { $0 == (requested ?? true) } == true)
 }

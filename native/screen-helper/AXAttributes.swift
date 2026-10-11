@@ -52,7 +52,7 @@ func axActionNames(_ element: AXUIElement) -> [String] {
     guard AXUIElementCopyActionNames(element, &names) == .success else { return [] }
     return (names as? [String] ?? []).prefix(32).map { $0 }
 }
-struct AXSnapshot { var node: UINode; let secure: Bool; var truncated: Bool }
+struct AXSnapshot { var node: UINode; let secure: Bool; var truncated: Bool; var expanded: Bool? = nil }
 func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     // Never request the unbounded AXValue of an editor/document in the batch.
     let names = [kAXRoleAttribute, kAXTitleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXEnabledAttribute, "AXExpanded", "AXVisible"]
@@ -77,7 +77,7 @@ func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     let rawTitle = titleText.value
     let title = rawTitle?.isEmpty == false ? rawTitle ?? "" : descriptionText.value ?? ""
     let clipped = titleText.truncated || descriptionText.truncated
-    return AXSnapshot(node: UINode(ref: ref, role: role, name: title, value: secure ? nil : numeric?.stringValue, description: descriptionText.value, bounds: bounds, states: states, actions: [], children: []), secure: secure, truncated: clipped)
+    return AXSnapshot(node: UINode(ref: ref, role: role, name: title, value: secure ? nil : numeric?.stringValue, description: descriptionText.value, bounds: bounds, states: states, actions: [], children: []), secure: secure, truncated: clipped, expanded: value(9) as? Bool)
 }
 func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
     var snapshot = axMetadata(element, ref: ref)
