@@ -86,6 +86,9 @@ export class ForgeStore {
       }
       db.exec("RELEASE forge_intent_migrate");
     }
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS forge_repository_links ON forge_links(repo,number,thread_id)",
+    );
     this.#getLinks = db.prepare(
       "SELECT payload,generation,summary FROM forge_links WHERE thread_id=? ORDER BY generation DESC",
     );

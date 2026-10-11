@@ -181,13 +181,27 @@ export class WorkspaceRuntime {
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
-  async read(request: WorkspaceActionRequest): Promise<WorkspaceActionResult> {
+  async read(
+    request: WorkspaceActionRequest,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
       type: "workspace.result",
       requestId: request.requestId,
       result,
     });
+    if (
+      op.op === "forge.pr.activity" ||
+      op.op === "forge.pr.list" ||
+      op.op === "forge.pr.detail" ||
+      op.op === "forge.pr.commits" ||
+      op.op === "forge.pr.files"
+    ) {
+      const root = this.store.getWorkspacePath(op.workspaceId);
+      if (!root) throw new Error("workspace_not_found");
+      return wrap({ kind: "forge", data: await this.forge.browse(root, op, signal) });
+    }
     if (op.op === "editors.list")
       return wrap({
         kind: "editors",

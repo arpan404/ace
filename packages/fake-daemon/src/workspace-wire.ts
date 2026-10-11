@@ -1,5 +1,7 @@
 import { FakeProjects } from "./projects.ts";
 import {
+  ForgeBrowserResult,
+  type ForgeBrowserOperation,
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
@@ -26,6 +28,10 @@ export class FakeWorkspaceWire {
     this.context = context;
     this.projects = new FakeProjects(context, (id) => this.terminals.hasOwnedWork(id));
     this.forge = new FakeForgeWire(context);
+  }
+  private forgeReads = new Map<string, ForgeBrowserResult>();
+  setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
+    this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
   }
   /** Browser fixtures cannot inspect the OS. Apps exist only when a scenario explicitly seeds them. */
   private editors: readonly InstalledEditor[] = [];
@@ -93,6 +99,14 @@ export class FakeWorkspaceWire {
         },
       });
     }
+    if (op.op.startsWith("forge."))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: this.forgeReads.has(JSON.stringify(op))
+          ? { kind: "forge", data: this.forgeReads.get(JSON.stringify(op)) }
+          : { kind: "error", code: "forge_not_found" },
+      });
     if (op.op === "git.diff")
       return ServerMessage.parse({
         type: "workspace.result",

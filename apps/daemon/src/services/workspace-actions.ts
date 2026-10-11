@@ -54,7 +54,9 @@ export async function startWorkspaceActions({
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
   let reads = 0;
+  const lifetime = new AbortController();
   return {
+    close: () => lifetime.abort(),
     command: {
       types: [
         ...WorkspaceCommands.map((schema) => schema.shape.type.value),
@@ -104,7 +106,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       }
       reads++;
       const task = options.workspaceActions
-        .read(message)
+        .read(message, lifetime.signal)
         .then((result) => {
           if (
             connected() &&

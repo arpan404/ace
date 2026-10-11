@@ -157,6 +157,9 @@ export class GhApi {
     }
     return page;
   }
+  next(page: Page, path: string): string | undefined {
+    return this.#next(page.headers.link, path);
+  }
   async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
     const result: Page[] = [];
     let endpoint: string | undefined = path;

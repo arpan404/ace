@@ -45,7 +45,7 @@ export function WorkCard(props: {
           <CardScroll open={props.open}>
             <ProjectRow thread={props.thread} move={checkout.move} onClose={close} />
             <ChangesSection thread={props.thread} git={git} onClose={close} />
-            <PullRequestsSection git={git} />
+            <PullRequestsSection git={git} workspaceId={props.thread.workspaceId} />
             <WorkCardActivity threadId={props.thread.id} onClose={close} />
           </CardScroll>
         </div>

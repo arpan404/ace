@@ -1,0 +1,103 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrDetail.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "author": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "baseBranch": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "baseSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "changedFiles": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "commits": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "headBranch": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "headRepository": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "labels": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "relatedThreads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeRelatedThread.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "relatedThreadsTruncated": {
+      "type": "boolean"
+    },
+    "reviewDecision": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reviewers": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+    }
+  },
+  "required": [
+    "status",
+    "body",
+    "author",
+    "headBranch",
+    "baseBranch",
+    "baseSha",
+    "headRepository",
+    "labels",
+    "reviewers",
+    "reviewDecision",
+    "commits",
+    "changedFiles",
+    "relatedThreads",
+    "relatedThreadsTruncated"
+  ],
+  "type": "object"
+}

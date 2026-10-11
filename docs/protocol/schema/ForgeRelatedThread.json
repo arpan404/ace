@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeRelatedThread.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "archived": {
+      "type": "boolean"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "archived"
+  ],
+  "type": "object"
+}

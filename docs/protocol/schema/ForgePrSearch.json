@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrSearch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "author": {
+      "default": "",
+      "maxLength": 100,
+      "pattern": "^[\\w-]*$",
+      "type": "string"
+    },
+    "order": {
+      "default": "desc",
+      "enum": [
+        "asc",
+        "desc"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "maximum": 40,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "reviewer": {
+      "default": "",
+      "maxLength": 100,
+      "pattern": "^[\\w-]*$",
+      "type": "string"
+    },
+    "search": {
+      "default": "",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "sort": {
+      "default": "updated",
+      "enum": [
+        "created",
+        "updated",
+        "comments"
+      ],
+      "type": "string"
+    },
+    "state": {
+      "default": "open",
+      "enum": [
+        "open",
+        "draft",
+        "closed",
+        "merged"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

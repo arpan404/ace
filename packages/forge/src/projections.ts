@@ -20,6 +20,7 @@ export const sameComment = (a: z.infer<typeof GitHubComment>, b: z.infer<typeof 
   a.line === b.line &&
   a.original_line === b.original_line &&
   a.updated_at === b.updated_at &&
+  a.created_at === b.created_at &&
   a.in_reply_to_id === b.in_reply_to_id;
 export const sameReview = (a: z.infer<typeof GitHubReview>, b: z.infer<typeof GitHubReview>) =>
   a.body === b.body &&

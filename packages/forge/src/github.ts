@@ -1,3 +1,5 @@
+import { GitHubBrowser } from "./github-browser.ts";
+import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
 import {
   ForgeRepository,
@@ -5,7 +7,7 @@ import {
   ForgeCreatePrInput,
   ForgePrStatus,
 } from "@ace/protocol/forge";
-import type { Forge, MergeMethod } from "./api.ts";
+import type { Forge, ForgeBrowser, MergeMethod } from "./api.ts";
 import { StatusRevisions } from "./revisions.ts";
 import { GitHubStatusReader } from "./github-status.ts";
 import { GhApi } from "./http.ts";
@@ -17,12 +19,13 @@ import { githubStates } from "./github-states.ts";
 const positive = z.number().int().positive();
 const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const mergeSchema = z.enum(["merge", "squash", "rebase"]);
-export class GitHubForge implements Forge {
+export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
+  readonly #browser: GitHubBrowser;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -34,12 +37,37 @@ export class GitHubForge implements Forge {
       throw new ForgeError("unsupported");
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
     this.#api = new GhApi({ ...options, host: this.repository.host });
+    this.#browser = new GitHubBrowser(this.#api, this.repository);
   }
   #ref(number: number): ForgePrRef {
     return ForgePrRef.parse({ repository: this.repository, number });
   }
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatus> {
     return this.#status.read(this.#api, this.#root, this.repository, number, signal);
+  }
+  prActivity(number: number, page: number, signal: AbortSignal) {
+    return this.#browser.activity(number, page, signal);
+  }
+  listPrs(query: ForgePrSearch, signal: AbortSignal) {
+    return this.#browser.list(query, signal);
+  }
+  async prDetail(number: number, signal: AbortSignal) {
+    return this.#browser.detail(await this.status(number, signal), signal);
+  }
+  prCommits(number: number, page: number, headSha: string, signal: AbortSignal) {
+    return this.#browser.commits(number, page, headSha, signal);
+  }
+  prFiles(
+    input: {
+      number: number;
+      page: number;
+      headSha: string;
+      baseSha: string;
+      commit?: string | undefined;
+    },
+    signal: AbortSignal,
+  ) {
+    return this.#browser.files(input, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);

@@ -11,6 +11,22 @@
       "oneOf": [
         {
           "properties": {
+            "data": {
+              "$ref": "https://ace.local/protocol/v1/ForgeBrowserResult.json"
+            },
+            "kind": {
+              "const": "forge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "kind": {
               "const": "scripts",
               "type": "string"

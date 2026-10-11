@@ -36,6 +36,7 @@ export const GitHubComment = z.looseObject({
   line: z.number().int().nullable().optional(),
   original_line: z.number().int().nullable().optional(),
   updated_at: str,
+  created_at: str.optional(),
   in_reply_to_id: z.number().int().positive().optional(),
 });
 export const CheckPage = z

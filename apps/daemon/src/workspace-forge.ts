@@ -7,7 +7,6 @@ import {
   prUrl,
   prRepository,
   type CommandRunner,
-  type Forge,
 } from "@ace/forge";
 import {
   ForgeCommand,
@@ -31,7 +30,7 @@ export class WorkspaceForge {
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
-  private backends = new Map<string, Forge>();
+  private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
   constructor(
     store: Store,
@@ -52,7 +51,7 @@ export class WorkspaceForge {
       ?.fetchUrls[0];
     return repositoryFromRemote(remote);
   }
-  private backend(cwd: string, repository: ForgeRepository): Forge {
+  private backend(cwd: string, repository: ForgeRepository): GitHubForge {
     const key = JSON.stringify({ repository, cwd });
     let backend = this.backends.get(key);
     if (!backend)
@@ -64,6 +63,54 @@ export class WorkspaceForge {
       if (first !== undefined) this.backends.delete(first);
     }
     return backend;
+  }
+  async browse(
+    cwd: string,
+    operation: import("@ace/protocol").ForgeBrowserOperation,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const repository = operation.repository ?? (await this.repository(cwd));
+    signal.throwIfAborted();
+    const backend = this.backend(cwd, repository);
+    if (operation.op === "forge.pr.activity")
+      return {
+        resource: "prActivity",
+        ...(await backend.prActivity(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.pr.list")
+      return { resource: "prList", value: await backend.listPrs(operation.query, signal) };
+    if (operation.op === "forge.pr.commits")
+      return {
+        resource: "prCommits",
+        ...(await backend.prCommits(operation.number, operation.page, operation.headSha, signal)),
+      };
+    if (operation.op === "forge.pr.files")
+      return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    const value = await backend.prDetail(operation.number, signal);
+    const threads = this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT threads.id FROM forge_links JOIN threads ON threads.id=forge_links.thread_id WHERE repo=? AND number=? AND json_extract(client,'$.deletedAt') IS NULL ORDER BY threads.updated_at DESC LIMIT 101",
+          )
+          .all(repositoryKey(value.status.ref.repository), value.status.ref.number),
+      )
+      .flatMap((row) => {
+        const thread = this.store.getThread(ThreadId.parse(row.id));
+        return thread ? [thread] : [];
+      });
+    return {
+      resource: "prDetail",
+      value: {
+        ...value,
+        relatedThreads: threads.slice(0, 100).map((thread) => ({
+          id: thread.id,
+          title: thread.title,
+          archived: thread.archivedAt !== undefined,
+        })),
+        relatedThreadsTruncated: threads.length > 100,
+      },
+    };
   }
   async link(
     id: ThreadId,
