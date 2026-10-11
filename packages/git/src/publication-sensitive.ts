@@ -2,6 +2,7 @@ import { containsSecretText } from "@ace/redaction";
 import { decode, hashSchema, count } from "./decode.ts";
 import { z } from "zod";
 import { GitError } from "./types.ts";
+import { containsPublicationCredential } from "./publication-credentials.ts";
 
 export function sensitivePublicationPath(path: string): boolean {
   if (containsSecretText(path)) return true;
@@ -10,7 +11,7 @@ export function sensitivePublicationPath(path: string): boolean {
     .some(
       (part) =>
         /^\.env/i.test(part) ||
-        /^(?:\.ssh|\.gnupg|\.aws|\.azure|\.netrc|\.npmrc|\.pypirc|\.git-credentials)$/i.test(
+        /^(?:\.ssh|\.gnupg|\.aws|\.azure|\.docker|\.kube|\.oci|\.gcloud|gcloud|\.boto|\.s3cfg|\.terraformrc|terraform\.rc|\.terraform\.d|\.netrc|\.npmrc|\.pypirc|\.git-credentials)$/i.test(
           part,
         ) ||
         /^(?:id_(?:rsa|dsa|ecdsa|ed25519)|credentials?(?:[._-].*)?|.*[._-]credentials?(?:[._-].*)?|service[-_]account.*\.json|secrets?(?:[._-].*)?)$/i.test(
@@ -21,11 +22,7 @@ export function sensitivePublicationPath(path: string): boolean {
 }
 export function assertPublicationText(bytes: Buffer): void {
   const text = bytes.toString("utf8");
-  if (
-    containsSecretText(text) ||
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text) ||
-    /(?:https?|ssh):\/\/[^\s/@:]+:[^\s/@]+@/i.test(text)
-  )
+  if (containsPublicationCredential(text))
     throw new GitError("sensitive_publication", "Sensitive publication content");
   if (text.startsWith("version https://git-lfs.github.com/spec/v1")) incompletePublicationScan();
 }
