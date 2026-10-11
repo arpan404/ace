@@ -6,6 +6,10 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "actorAvatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
     "at": {
       "anyOf": [
         {
@@ -17,6 +21,10 @@
         }
       ]
     },
+    "commitSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
     "event": {
       "maxLength": 65536,
       "type": "string"
@@ -25,7 +33,11 @@
       "maxLength": 256,
       "type": "string"
     },
-    "raw": {}
+    "raw": {},
+    "subject": {
+      "maxLength": 65536,
+      "type": "string"
+    }
   },
   "required": [
     "id",
