@@ -87,7 +87,8 @@ export class HeadlessDownloads {
   async accept(download: Download, tabId: string): Promise<void> {
     const directory = this.request.downloadDir;
     if (this.privateMode || this.entries.length >= 128 || !directory) {
-      await download.cancel();
+      await download.cancel().catch(() => {});
+      await download.delete().catch(() => {});
       return;
     }
     const abort = new AbortController();
