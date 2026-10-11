@@ -85,7 +85,7 @@ export class HeadlessTabs {
       this.request.changed?.();
     });
     page.on("download", (download) => {
-      void this.downloads.accept(download, id);
+      void this.downloads.accept(download, id).catch(() => {});
     });
     try {
       const cdp = await this.context.newCDPSession(page);
