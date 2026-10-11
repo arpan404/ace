@@ -77,6 +77,9 @@ export function fakeClient(
 export function harness(
   options: {
     snapshotItems?: number;
+    /** Reuse a daemon while replacing the page/worker boundary during recovery. */
+    daemon?: FakeDaemon;
+    client?(daemon: FakeDaemon): ClientApi;
     connection?: DaemonConnection;
     history?: RouterHistory;
     storage?: KeyValueStorage;
@@ -117,24 +120,29 @@ export function harness(
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
       }),
   );
-  const daemon = new FakeDaemon({
-    clock,
-    ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
-    ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
-    ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
-    ...(options.worktreeSchedule
-      ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
-      : {}),
-  });
+  const daemon =
+    options.daemon ??
+    new FakeDaemon({
+      clock,
+      ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
+      ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
+      ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
+      ...(options.worktreeSchedule
+        ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
+        : {}),
+    });
   // Installed-app scenarios are explicit test facts, never fake-preview OS discovery.
   daemon.workspace.setEditors([
     { id: "code", name: "Visual Studio Code", command: "code" },
     { id: "zed", name: "Zed", command: "zed" },
   ]);
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
-  const client = options.throughWorker
-    ? workerClient(daemon)
-    : fakeClient(daemon, daemon.token, options.outbox);
+  const client = options.client
+    ? options.client(daemon)
+    : options.throughWorker
+      ? workerClient(daemon)
+      : fakeClient(daemon, daemon.token, options.outbox);
+  if (options.client) running.push(client);
   const storage = options.storage ?? memoryKeyValue();
   let fake: FakeMachines | undefined;
   const pooled = () => {

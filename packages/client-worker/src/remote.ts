@@ -50,6 +50,7 @@ import type {
   ServerMessage,
   TextSource,
 } from "@ace/protocol";
+import { WorkerLiveness, replyTimeout } from "./worker-liveness.ts";
 import { IntentCache } from "./intent-cache.ts";
 import { SendCache } from "./send-cache.ts";
 import { MirrorSidebar, MirrorThread } from "./mirror.ts";
@@ -88,6 +89,10 @@ export interface RemoteOptions {
   attached?(): void;
   /** Interval of the liveness ping that keeps this tab's leases in the worker. */
   pingMs?: number;
+  /** Attachment and visible-page worker reply bound. */
+  workerTimeoutMs?: number;
+  /** The owning Worker/SharedWorker handle reports load/runtime errors here. */
+  workerFailure?: { watch(lost: () => void): () => void; close?(): void };
   /**
    * Where the browser has it, a lock the worker watches instead of pings: throttled or frozen
    * hidden tabs keep their leases, and a closed tab's are released at once.
@@ -106,6 +111,8 @@ interface Mirrored {
   lease: number;
   mirror: MirrorThread | MirrorSidebar;
 }
+
+const noop = () => {};
 
 const states = new Set<string>([
   "connecting",
@@ -138,7 +145,10 @@ export class RemoteClient implements ClientApi {
   private sequence = 0;
   private attached: Promise<void>;
   private settle: Pending | undefined;
-  private stopPing: (() => void) | undefined;
+  private monitor: WorkerLiveness;
+  private stopFailure: (() => void) | undefined;
+  private workerLost = false;
+  private started = false;
   private releaseLock: (() => void) | undefined;
   private unwatch: (() => void) | undefined;
   private closed = false;
@@ -157,6 +167,15 @@ export class RemoteClient implements ClientApi {
     this.attached = new Promise<void>((resolve, reject) => {
       this.settle = { resolve: () => resolve(), reject };
     });
+    this.monitor = new WorkerLiveness(
+      options.scheduler,
+      () => this.post({ t: "ping" }),
+      () => this.loseWorker(),
+      options.pingMs ?? 5_000,
+      options.workerTimeoutMs ?? 15_000,
+    );
+    void this.attached.catch(() => {});
+    this.stopFailure = options.workerFailure?.watch(() => this.loseWorker());
     port.addEventListener("message", this.listener);
     port.start?.();
   }
@@ -247,7 +266,10 @@ export class RemoteClient implements ClientApi {
   }
   /** Attach to the worker's client for this target; resolves once its outbox is loaded. */
   start(): Promise<void> {
-    if (this.closed) return Promise.reject(new ClientError("offline"));
+    if (this.closed || this.workerLost) return Promise.reject(new ClientError("offline"));
+    if (this.started) return this.attached;
+    this.started = true;
+    this.monitor.start();
     this.post({ t: "connect", config: this.config });
     // Keep eviction/removal updates alive even without a mounted UI subscriber.
     this.post({ t: "watchPendingSends" });
@@ -257,16 +279,9 @@ export class RemoteClient implements ClientApi {
       this.unwatch = visibility.watch(report);
       if (!visibility.visible()) report();
     }
-    const ping = () => {
-      this.stopPing = this.options.scheduler.set(this.options.pingMs ?? 5_000, () => {
-        this.post({ t: "ping" });
-        ping();
-      });
-    };
-    ping();
     void this.options.liveness?.hold().then(
       (held) => {
-        if (this.closed) return held.release();
+        if (this.closed || this.workerLost) return held.release();
         this.releaseLock = held.release;
         this.post({ t: "alive", lock: held.name });
       },
@@ -280,12 +295,14 @@ export class RemoteClient implements ClientApi {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.stopPing?.();
+    this.monitor.close();
+    this.stopFailure?.();
     this.unwatch?.();
     this.post({ t: "bye" });
     this.releaseLock?.();
     this.port.removeEventListener("message", this.listener);
     this.port.close?.();
+    this.options.workerFailure?.close?.();
     for (const pending of this.pending.values()) pending.reject(new ClientError("offline"));
     this.pending.clear();
     this.messageListeners.clear();
@@ -296,6 +313,7 @@ export class RemoteClient implements ClientApi {
   }
   /** Hidden tabs receive nothing; on return they get everything that changed meanwhile. */
   private visible(visible: boolean): void {
+    this.monitor.visible(visible);
     this.post({ t: "visible", visible });
   }
   reconnectNow(): void {
@@ -330,7 +348,7 @@ export class RemoteClient implements ClientApi {
       result = await this.call("enqueue", [payload, id]);
     } catch (error) {
       const previous = this.sends.get(id);
-      if (previous)
+      if (previous && !(error instanceof ClientError && error.code === "offline"))
         this.sends.set(id, {
           ...previous,
           state: "failed",
@@ -409,7 +427,7 @@ export class RemoteClient implements ClientApi {
     return this.invoke<ServiceResponse<Q>>("request", [input, timeout(options)], options.signal);
   }
   onMessage(listener: (message: ServerMessage) => void): () => void {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed || this.workerLost) throw new ClientError("offline");
     if (this.messageListeners.size >= this.listeners) throw new ClientError("limit");
     if (this.messageListeners.size === 0) this.post({ t: "watchMessages" });
     this.messageListeners.add(listener);
@@ -524,15 +542,21 @@ export class RemoteClient implements ClientApi {
   }
   private post(message: TabMessage): void {
     // A MessagePort has no target origin: it reaches exactly the other end.
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin
-    if (!this.closed || message.t === "bye") this.port.postMessage(message);
+    if ((!this.closed && !this.workerLost) || message.t === "bye") {
+      try {
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin
+        this.port.postMessage(message);
+      } catch {
+        this.loseWorker();
+      }
+    }
   }
   private hold<T extends MirrorThread | MirrorSidebar>(
     key: string,
     scope: Scope,
     create: () => T,
   ): Lease<T> {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed || this.workerLost) throw new ClientError("offline");
     let held = this.mirrors.get(key);
     if (!held) {
       held = { refs: 0, lease: ++this.sequence, mirror: create() };
@@ -559,26 +583,39 @@ export class RemoteClient implements ClientApi {
     return trusted<T>(await this.call(method, args, signal));
   }
   private call(method: CallMethod, args: unknown[], signal?: AbortSignal): Promise<unknown> {
-    if (this.closed) return Promise.reject(new ClientError("offline"));
+    if (this.closed || this.workerLost) return Promise.reject(new ClientError("offline"));
     if (signal?.aborted) return Promise.reject(new ClientError("aborted"));
+    const wait = replyTimeout(args, defaultLimits.requestMs);
+    if (!Number.isSafeInteger(wait) || wait <= 0) return Promise.reject(new ClientError("limit"));
+    if (this.pending.size >= defaultLimits.requests)
+      return Promise.reject(new ClientError("limit"));
     const call = ++this.sequence;
     return new Promise((resolve, reject) => {
+      let cancel = noop;
       const abort = () => {
         this.post({ t: "abort", call });
+        this.pending.get(call)?.reject(new ClientError("aborted"));
         this.pending.delete(call);
-        reject(new ClientError("aborted"));
       };
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(call, {
         resolve: (value) => {
+          cancel();
           signal?.removeEventListener("abort", abort);
           resolve(value);
         },
         reject: (error) => {
+          cancel();
           signal?.removeEventListener("abort", abort);
           reject(error);
         },
       });
+      if (method !== "command" && method !== "enqueue")
+        cancel = this.options.scheduler.set(wait, () => {
+          this.post({ t: "abort", call });
+          this.pending.get(call)?.reject(new ClientError("timeout"));
+          this.pending.delete(call);
+        });
       this.post({ t: "call", call, method, args });
     });
   }
@@ -588,10 +625,29 @@ export class RemoteClient implements ClientApi {
     signal?: AbortSignal,
   ): AsyncGenerator<T> {
     if (signal?.aborted) throw new ClientError("aborted");
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed || this.workerLost) throw new ClientError("offline");
+    const wait = replyTimeout(args, defaultLimits.requestMs);
+    if (!Number.isSafeInteger(wait) || wait <= 0) throw new ClientError("limit");
+    if (this.pending.size >= defaultLimits.requests) throw new ClientError("limit");
     const call = ++this.sequence;
+    let cancel = noop;
     const step = () =>
-      new Promise<unknown>((resolve, reject) => this.pending.set(call, { resolve, reject }));
+      new Promise<unknown>((resolve, reject) => {
+        this.pending.set(call, {
+          resolve(value) {
+            cancel();
+            resolve(value);
+          },
+          reject(error) {
+            cancel();
+            reject(error);
+          },
+        });
+        cancel = this.options.scheduler.set(wait, () => {
+          this.pending.get(call)?.reject(new ClientError("timeout"));
+          this.pending.delete(call);
+        });
+      });
     const abort = () => {
       this.post({ t: "return", call });
       this.pending.get(call)?.reject(new ClientError("aborted"));
@@ -608,22 +664,46 @@ export class RemoteClient implements ClientApi {
           done = true;
           return;
         }
-        next = step();
+        this.pending.delete(call);
         yield trusted<T>(result.value);
+        if (signal?.aborted) throw new ClientError("aborted");
+        if (this.closed || this.workerLost) throw new ClientError("offline");
+        next = step();
         this.post({ t: "next", call });
       }
     } finally {
+      cancel();
       signal?.removeEventListener("abort", abort);
       this.pending.delete(call);
       if (!done) this.post({ t: "return", call });
     }
   }
+  private loseWorker(): void {
+    if (this.closed || this.workerLost) return;
+    this.workerLost = true;
+    this.monitor.close();
+    this.current = "fatal";
+    const error = new ClientError(
+      "offline",
+      "Client worker unavailable. Retry the connection; durable delivery may be uncertain.",
+    );
+    this.failure = error;
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+    this.settle?.reject(error);
+    this.notifications.emit(["connection"]);
+  }
   private receive(data: unknown): void {
+    if (this.closed || this.workerLost) return;
     const parsed = WorkerMessage.safeParse(data);
     if (!parsed.success) return;
     const message = parsed.data;
+    this.monitor.received();
     switch (message.t) {
+      case "pong":
+        return;
       case "attached":
+        this.monitor.attached();
         this.idPrefix = message.idPrefix;
         if (message.error) this.settle?.reject(toError(message.error));
         else {

@@ -26,10 +26,19 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#failure = error;
     this.#notifications.emit(["error"]);
   }
+  recover(): void {
+    if (!this.#failure) return;
+    this.#failure = undefined;
+    this.#notifications.emit(["error"]);
+  }
   #view: ThreadView | undefined;
   #notifications: Notifications;
   #limits: Limits;
   #clipped = new Set<string>();
+  #deleted = new Set<string>();
+  deleted(id: string): boolean {
+    return this.#deleted.has(id);
+  }
   #counts = new Map<string, number>();
   constructor(limits: Limits) {
     this.#limits = limits;
@@ -139,6 +148,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
       },
       truncated: [...this.#clipped],
+      deleted: [...this.#deleted],
     };
   }
   snapshot(view: ThreadView): void {
@@ -174,6 +184,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#hydrated.clear();
     this.#creation.clear();
     this.#clipped.clear();
+    this.#deleted.clear();
     this.#counts = counts;
     for (const id of view.itemOrder) {
       const seq = view.itemSeqs?.[id];
@@ -279,6 +290,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "item.created":
         case "item.updated":
+          this.#deleted.delete(p.item.id);
           if (p.type === "item.updated" && !this.item(p.item.id)) break;
           if (!this.item(p.item.id)) {
             view.itemOrder = [...view.itemOrder];
@@ -287,6 +299,13 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add(`item:${p.item.id}`);
           break;
         case "item.deleted":
+          this.#deleted.delete(p.itemId);
+          this.#deleted.add(p.itemId);
+          while (this.#deleted.size > this.#limits.entities) {
+            const oldest = this.#deleted.values().next().value;
+            if (oldest === undefined) break;
+            this.#deleted.delete(oldest);
+          }
           this.#clipped.delete(p.itemId);
           this.#hydrated.delete(p.itemId);
           this.#creation.delete(p.itemId);
