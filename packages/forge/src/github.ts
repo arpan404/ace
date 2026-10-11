@@ -57,9 +57,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     input: ForgeIssueWrite,
     actionId: string,
     signal: AbortSignal,
-    beforeDispatch?: () => void,
+    dispatch?: WriteDispatch,
   ) {
-    return this.#issues.write(input, actionId, signal, beforeDispatch);
+    return this.#issues.write(input, actionId, signal, dispatch);
   }
   reconcileIssue(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
     return this.#issues.reconcile(input, actionId, signal);

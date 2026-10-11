@@ -12,13 +12,13 @@ import {
 export class FakeIssueWire {
   private reads: Map<string, ForgeBrowserResult>;
   private journal = new Map<string, { scope: string; number: number; result: ForgeIssueAction }>();
-  private outcome: "succeeded" | "uncertain" = "succeeded";
+  private outcome: "succeeded" | "uncertain" | "unsent" = "succeeded";
   private now: () => number;
   constructor(reads: Map<string, ForgeBrowserResult>, now: () => number) {
     this.reads = reads;
     this.now = now;
   }
-  setOutcome(outcome: "succeeded" | "uncertain"): void {
+  setOutcome(outcome: "succeeded" | "uncertain" | "unsent"): void {
     this.outcome = outcome;
   }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
@@ -46,6 +46,13 @@ export class FakeIssueWire {
     const scope = JSON.stringify([payload.workspaceId, payload.repository]);
     const input = payload.input;
     const number = input.action === "create" ? 0 : input.number;
+    const unsent = (error: string): Omit<CommandResult, "commandId"> => ({
+      ok: false,
+      error,
+      code: "action_not_dispatched",
+      issueAction: { id: CommandId.parse(id), action: input.action, state: "failed", error },
+    });
+    if (this.outcome === "unsent") return unsent("forge_write_pending");
     if (
       [...this.journal.values()].some(
         (entry) =>
@@ -54,7 +61,7 @@ export class FakeIssueWire {
           (entry.result.state === "pending" || entry.result.state === "uncertain"),
       )
     )
-      return { ok: false, error: "issue_reconciliation_required" };
+      return unsent("issue_reconciliation_required");
     let detail: ForgeIssueDetail | undefined;
     for (const value of this.reads.values())
       if (
@@ -71,7 +78,7 @@ export class FakeIssueWire {
         (input.action === "state" &&
           !(input.state === "closed" ? detail.permissions.close : detail.permissions.reopen)))
     )
-      return { ok: false, error: "forge_forbidden" };
+      return unsent("forge_forbidden");
     if (
       detail &&
       (input.action === "edit" || input.action === "state") &&

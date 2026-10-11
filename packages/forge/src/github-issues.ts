@@ -1,3 +1,4 @@
+import type { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import {
@@ -222,7 +223,7 @@ export class GitHubIssues {
     input: ForgeIssueWrite,
     actionId: string,
     signal: AbortSignal,
-    beforeDispatch: () => void = () => {},
+    dispatch?: WriteDispatch,
   ) {
     const value = ForgeIssueWrite.parse(input);
     z.string().min(1).max(256).parse(actionId);
@@ -234,14 +235,19 @@ export class GitHubIssues {
       );
       if (repo.archived || !repo.has_issues) throw new ForgeError("forbidden");
       signal.throwIfAborted();
-      beforeDispatch();
       const record = decode(
         GitHubIssueRecord,
         (
-          await this.#api.request(`${this.#root}/issues`, signal, {
-            title: value.title,
-            body: `${value.body}\n\n${marker}`,
-          })
+          await this.#api.request(
+            `${this.#root}/issues`,
+            signal,
+            {
+              title: value.title,
+              body: `${value.body}\n\n${marker}`,
+            },
+            "POST",
+            dispatch,
+          )
         ).body,
       );
       return this.#row(record).ref;
@@ -250,13 +256,18 @@ export class GitHubIssues {
     if (value.action === "comment") {
       if (!current.permissions.comment) throw new ForgeError("forbidden");
       signal.throwIfAborted();
-      beforeDispatch();
       decode(
         z.looseObject({ id: z.number().int().positive() }),
         (
-          await this.#api.request(`${this.#root}/issues/${value.number}/comments`, signal, {
-            body: `${value.body}\n\n${marker}`,
-          })
+          await this.#api.request(
+            `${this.#root}/issues/${value.number}/comments`,
+            signal,
+            {
+              body: `${value.body}\n\n${marker}`,
+            },
+            "POST",
+            dispatch,
+          )
         ).body,
       );
     } else {
@@ -272,11 +283,17 @@ export class GitHubIssues {
       const body =
         value.action === "edit" ? { title: value.title, body: value.body } : { state: value.state };
       signal.throwIfAborted();
-      beforeDispatch();
       const record = decode(
         GitHubIssueRecord,
-        (await this.#api.request(`${this.#root}/issues/${value.number}`, signal, body, "PATCH"))
-          .body,
+        (
+          await this.#api.request(
+            `${this.#root}/issues/${value.number}`,
+            signal,
+            body,
+            "PATCH",
+            dispatch,
+          )
+        ).body,
       );
       if (record.number !== value.number) throw new ForgeError("invalid_data");
     }

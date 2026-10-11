@@ -195,7 +195,7 @@ export function NewThreadPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     return create({
       project,
-      draftKey: draftKeyFor(project),
+      draftKey: `${draftKeyFor(project)}${props.issue ? `:issue:${props.issue}` : ""}`,
       issue: issueSource.ref,
       scope: resolved.model.scope,
       model: resolved.model.id,

@@ -145,7 +145,8 @@ export function IssueEditor(props: {
         setMessage("Saved on GitHub.");
         props.onSaved(result.issue);
       } else {
-        if (result.issueAction?.state === "failed") releaseUnsent(id);
+        if (result.issueAction?.state === "failed" || result.code === "action_not_dispatched")
+          releaseUnsent(id);
         setMessage(
           result.issueAction?.state === "uncertain"
             ? "The outcome is uncertain. Reconcile before another write. Your draft is saved."

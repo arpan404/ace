@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
+import { createMemoryHistory } from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 import { ForgeIssueDetail, ForgeIssueSearch, WorkspaceId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
@@ -63,6 +64,53 @@ function seed(app: ReturnType<typeof harness>) {
     { resource: "issueActions", actions: [] },
   );
 }
+test("browser Back restores applied issue filters in the inputs as well as the results", async () => {
+  const history = createMemoryHistory({
+    initialEntries: ["/issues?project=api&labels=bug&assignee=maintainer"],
+  });
+  const app = harness({ history });
+  seed(app);
+  for (const [labels, assignee, total] of [
+    ["bug", "maintainer", 1],
+    ["feature", "reviewer", 9],
+  ] as const) {
+    app.daemon.workspace.setForgeRead(
+      {
+        op: "forge.issue.list",
+        workspaceId: WorkspaceId.parse("api"),
+        query: ForgeIssueSearch.parse({ labels: [labels], assignee }),
+      },
+      {
+        resource: "issueList",
+        value: {
+          repository,
+          items: [detail],
+          total,
+          counts: { open: total, closed: 0 },
+          canCreate: true,
+          unavailableReason: "",
+          incomplete: false,
+          truncated: false,
+        },
+      },
+    );
+  }
+  await app.open("/issues?project=api&labels=bug&assignee=maintainer");
+  const labels = await screen.findByRole("textbox", { name: "Issue labels" });
+  const assignee = screen.getByRole("textbox", { name: "Issue assignee" });
+  await userEvent.clear(labels);
+  await userEvent.type(labels, "feature");
+  await userEvent.clear(assignee);
+  await userEvent.type(assignee, "reviewer");
+  await userEvent.click(screen.getByRole("button", { name: "Apply issue filters" }));
+  await screen.findByText("9 issues · Page 1");
+  await act(async () => history.back());
+  await screen.findByText("1 issues · Page 1");
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Issue labels" }).value).toBe("bug");
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Issue assignee" }).value).toBe(
+    "maintainer",
+  );
+});
 test("an issue opens independently of an agent task and returning retains repository filters", async () => {
   const app = harness();
   seed(app);

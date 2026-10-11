@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -10,6 +10,7 @@ import {
   issuePermissions,
   type Fixtures,
 } from "@ace/forge/testing";
+import { GitHubForge, createCommandRunner } from "@ace/forge";
 import { Store } from "./store.ts";
 import { IssueActions } from "./issue-actions.ts";
 
@@ -59,6 +60,91 @@ async function environment(fixtures: Fixtures) {
     },
   };
 }
+
+for (const failure of ["executable disappears", "cwd disappears", "executable loses permission"]) {
+  test(`${failure} after metadata succeeds leaves creation definitely unsent and retryable`, async () => {
+    const app = await environment({
+      [repoPath]: [{ body: { archived: false, has_issues: true }, barrier: "metadata" }],
+      [`${repoPath}/issues`]: [{ body: issueRecord }],
+    });
+    const cwd = join(app.gh.dir, "spawn-cwd");
+    await mkdir(cwd);
+    const backend = new GitHubForge({
+      repository,
+      command: app.gh.executable,
+      now: () => 1000,
+      runner: createCommandRunner({
+        cwd,
+        env: {
+          FORGE_FIXTURE: join(app.gh.dir, "fixtures.json"),
+          FORGE_STATE: join(app.gh.dir, "state.json"),
+        },
+      }),
+    });
+    const writing = app.actions.execute(command("unsent"), backend, () => true, app.signal);
+    try {
+      await app.gh.waitForRequest(repoPath);
+      if (failure === "cwd disappears") await rm(cwd, { recursive: true });
+      else if (failure === "executable disappears")
+        await rename(app.gh.executable, `${app.gh.executable}.saved`);
+      else await chmod(app.gh.executable, 0o600);
+      await app.gh.release("metadata");
+      expect(await writing).toMatchObject({
+        ok: false,
+        issueAction: { id: "unsent", state: "failed" },
+      });
+      if (failure === "cwd disappears") await mkdir(cwd);
+      else if (failure === "executable disappears")
+        await rename(`${app.gh.executable}.saved`, app.gh.executable);
+      else await chmod(app.gh.executable, 0o755);
+      expect(
+        await app.actions.execute(command("fresh"), backend, () => true, app.signal),
+      ).toMatchObject({ ok: true });
+      expect(
+        (await app.gh.requests())
+          .filter((request) => request.args.includes("POST"))
+          .map((request) => request.body),
+      ).toEqual([{ title: "Draft", body: "Context\n\n<!-- ace-issue-action:fresh -->" }]);
+    } finally {
+      await app.gh.release("metadata");
+      await writing;
+      await app.close();
+    }
+  });
+}
+
+test("a competing intent refused before reservation returns an unsent outcome without adding an action to the journal", async () => {
+  const app = await environment({
+    [repoPath]: [{ body: { archived: false, has_issues: true }, barrier: "metadata" }],
+    [`${repoPath}/issues`]: [{ body: issueRecord }],
+  });
+  const first = app.actions.execute(command("first-window"), app.gh.forge, () => true, app.signal);
+  try {
+    await app.gh.waitForRequest(repoPath);
+    expect(
+      await app.actions.execute(command("second-window"), app.gh.forge, () => true, app.signal),
+    ).toMatchObject({
+      ok: false,
+      code: "action_not_dispatched",
+      issueAction: { id: "second-window", state: "failed" },
+    });
+    expect(app.actions.list(repository, 0).map((action) => action.id)).toEqual(["first-window"]);
+    await app.gh.release("metadata");
+    expect(await first).toMatchObject({ ok: true });
+    expect(
+      await app.actions.execute(
+        command("second-window-fresh"),
+        app.gh.forge,
+        () => true,
+        app.signal,
+      ),
+    ).toMatchObject({ ok: true });
+  } finally {
+    await app.gh.release("metadata");
+    await first;
+    await app.close();
+  }
+});
 
 test("failed creation preflights are definitely unsent and permit a fresh creation", async () => {
   const app = await environment({

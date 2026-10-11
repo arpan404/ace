@@ -169,7 +169,15 @@ export function IssueScreen(props: {
                 </div>
                 {query.data && !query.data.canCreate && <p>{query.data.unavailableReason}</p>}
                 <form
-                  key={`${workspaceId}/${location.repo}`}
+                  key={JSON.stringify([
+                    workspaceId,
+                    location.repo,
+                    location.search,
+                    location.labels,
+                    location.author,
+                    location.assignee,
+                    location.milestone,
+                  ])}
                   className="grid gap-3 sm:grid-cols-3"
                   onSubmit={(e) => {
                     e.preventDefault();
