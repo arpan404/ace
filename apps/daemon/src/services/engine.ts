@@ -1,7 +1,7 @@
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
 import { configuredDiscovery } from "../provider-discovery.ts";
-import { logError, logFields, logMetadata } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
@@ -302,7 +302,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           "Provider diagnostic",
           logFields([
             ["thread", thread],
-            ["raw", evidence.slice(0, 8).map((payload) => logMetadata(payload))],
+            ["raw", evidence.slice(0, 8).map((payload) => log.metadata(payload))],
           ]),
         );
       }),

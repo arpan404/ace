@@ -97,7 +97,13 @@ for await (const line of createInterface({ input: process.stdin })) {
                       configDirDigest: createHash("sha256")
                         .update(process.env.CLAUDE_CONFIG_DIR ?? "")
                         .digest("hex"),
-                      status: "connected",
+                      status:
+                        name === "failed-http"
+                          ? "failed"
+                          : name === "requires-login"
+                            ? "needs-auth"
+                            : "connected",
+                      error: name === "failed-http" ? "NATIVE_STATUS_DETAIL" : undefined,
                       source: "dynamic",
                       validAceConnection:
                         name === "ace" &&

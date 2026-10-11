@@ -1,6 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
-import { createRedactor } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { openFileSink } from "./file-sink.ts";
 const config = z
   .object({
@@ -22,7 +22,7 @@ const record = z.object({
   data: z.unknown(),
 });
 const sink = await openFileSink(config);
-const redact = createRedactor(config.context);
+const redact = createDiagnosticRedactor(config.context);
 const port = parentPort;
 if (!port) throw new Error("Logger requires a parent");
 port.on("message", async (input: unknown) => {
