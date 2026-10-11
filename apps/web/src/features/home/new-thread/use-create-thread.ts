@@ -13,6 +13,7 @@ import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
 import { rememberTitle } from "@/features/thread/index.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import {
   createAttemptKey,
   forgetCreateAttempt,
@@ -80,8 +81,9 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
  * client's durable outbox under a command id made here, and the thread opens after the local save on its
  * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
- * pending view moves to the real thread when the daemon's receipt names it. A lost worker leaves an unresolved attempt under its original id; resubmission reconciles
- * that attempt before a new command can be allocated.
+ * pending view moves to the real thread when the daemon's receipt names it. A lost worker
+ * leaves an unresolved attempt under its original id; resubmission reconciles that attempt
+ * before a new command can be allocated.
  */
 export function useCreateThread(): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
@@ -92,6 +94,7 @@ export function useCreateThread(): {
   const navigate = useNavigate();
   const { storage } = useLayout();
   const connection = useDaemonConnection();
+  const host = useHostIdentity();
   const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
   const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
@@ -104,13 +107,25 @@ export function useCreateThread(): {
       let submitted = false;
       try {
         const previous = readCreateAttempt(storage, recoveryKey);
+        const hostId =
+          host?.hostId ?? (await client.request({ type: "host.identity" })).identity.hostId;
+        if (previous && previous.hostId !== hostId) {
+          setError(
+            "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.",
+          );
+          return false;
+        }
         if (previous && !sameCreate(previous.payload, requested)) {
           setError(
             "The previous thread start still needs recovery. Restore that message and retry before starting another.",
           );
           return false;
         }
-        const attempt = previous ?? { commandId: crypto.randomUUID(), payload: requested };
+        const attempt = previous ?? {
+          hostId,
+          commandId: crypto.randomUUID(),
+          payload: requested,
+        };
         commandId = attempt.commandId;
         saveCreateAttempt(storage, recoveryKey, attempt);
         rememberTitle(commandId, provisionalTitle(attempt.payload.input));
@@ -145,7 +160,7 @@ export function useCreateThread(): {
         return false;
       }
     },
-    [client, navigate, storage, recoveryKey],
+    [client, navigate, storage, recoveryKey, host],
   );
   return { create, error };
 }

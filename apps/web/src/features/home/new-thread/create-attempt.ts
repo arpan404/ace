@@ -1,10 +1,15 @@
 import { ClientError, defaultLimits, fitsUtf8 } from "@ace/client";
-import { CommandPayload } from "@ace/protocol";
+import { CommandPayload, HostId } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
-const Attempt = z.object({ commandId: z.string().min(1), payload: CommandPayload });
+const Attempt = z.object({
+  hostId: HostId,
+  commandId: z.string().min(1),
+  payload: CommandPayload,
+});
 export type CreateAttempt = {
+  hostId: string;
   commandId: string;
   payload: Extract<CommandPayload, { type: "thread.create" }>;
 };
@@ -23,7 +28,7 @@ export function readCreateAttempt(
   if (raw === null || raw === "") return undefined;
   const attempt = Attempt.parse(JSON.parse(raw));
   if (attempt.payload.type !== "thread.create") throw new ClientError("storage");
-  return { commandId: attempt.commandId, payload: attempt.payload };
+  return { hostId: attempt.hostId, commandId: attempt.commandId, payload: attempt.payload };
 }
 export function saveCreateAttempt(
   storage: KeyValueStorage | undefined,
