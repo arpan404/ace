@@ -4,7 +4,7 @@ import type { Event, Thread } from "@ace/protocol";
 import { SearchKind } from "@ace/protocol";
 import { acceptsDelta } from "@ace/projection";
 import { appendWindow, capText, itemText, windowText } from "./text.ts";
-import { outputText, type OutputReader } from "./output.ts";
+import { outputText, sourceText, type OutputReader } from "./output.ts";
 import { StoredText, storeText } from "./encoding.ts";
 
 const Stage = z.object({
@@ -96,7 +96,25 @@ export class SearchWriter {
         detail?.kind === "shell" && detail.output
           ? outputText(this.readOutput, event.threadId, detail.output)
           : undefined;
-      const { title, window } = itemText(p.item, output);
+      let item = p.item;
+      if (item.type === "message") {
+        item = {
+          ...item,
+          parts: item.parts.map((part) =>
+            part.type === "text" && part.source
+              ? {
+                  ...part,
+                  text: sourceText(this.readOutput, event.threadId, part.source, part.text),
+                }
+              : part,
+          ),
+        };
+      } else if ((item.type === "reasoning" || item.type === "notice") && item.source)
+        item = {
+          ...item,
+          text: sourceText(this.readOutput, event.threadId, item.source, item.text),
+        };
+      const { title, window } = itemText(item, output);
       this.put(
         event.threadId,
         p.item.id,

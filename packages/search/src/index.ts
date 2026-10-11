@@ -22,10 +22,16 @@ export { FIELD_CAP, GAP } from "./text.ts";
 const ItemKey = z.object({ item: z.string() });
 const PendingWrites = z.object({ pending: z.number().int().nonnegative() });
 
+export interface SearchPage {
+  events: Event[];
+  throughSeq: number;
+  bytes: number;
+}
 export interface SearchSource {
   headSeq(): number;
   getThread?(id: ThreadId): Thread | undefined;
   readEvents(options: { afterSeq: number; limit: number }): Event[];
+  readSearchPage?(options: { afterSeq: number; limit: number; maxBytes: number }): SearchPage;
 }
 /** The caller owns the connection and event append transaction. */
 export class SearchIndex {
@@ -170,7 +176,8 @@ export class SearchIndex {
       Number(this.writer.sql.get("SELECT seq FROM search_meta WHERE id=1").get()?.seq),
       this.full.seq(),
     );
-    const events = source.readEvents({ afterSeq: seq, limit: 256 });
+    const page = source.readSearchPage?.({ afterSeq: seq, limit: 256, maxBytes: 512 * 1024 });
+    const events = page?.events ?? source.readEvents({ afterSeq: seq, limit: 256 });
     if (source.getThread) {
       const metadataThreads = new Set(
         events
@@ -188,7 +195,8 @@ export class SearchIndex {
     }
     // The durable source covers missing sequences left by thread retention. Live
     // append cannot make this guarantee and waits for replay across such gaps.
-    const throughSeq = events.length < 256 ? source.headSeq() : (events.at(-1)?.seq ?? seq);
+    const throughSeq =
+      page?.throughSeq ?? (events.length < 256 ? source.headSeq() : (events.at(-1)?.seq ?? seq));
     const progress = this.consume(events, throughSeq);
     this.backfillProgress =
       progress +

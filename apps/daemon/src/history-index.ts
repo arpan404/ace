@@ -133,6 +133,21 @@ export class HistoryIndex {
     ).get(id, through);
     return row ? Item.parse(JSON.parse(String(row.item))) : undefined;
   }
+  /** A replay revision refers to durable text streams, never a full canonical message body. */
+  searchItem(
+    threadId: ThreadId,
+    itemId: ItemId,
+    through: number,
+    maxBytes: number,
+  ): Item | undefined {
+    const size = this.statement(
+      "SELECT length(CAST(item AS BLOB)) AS bytes FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+    ).get(itemId, through);
+    if (!size) return;
+    if (Number(size.bytes) > maxBytes) throw new Error("search_replay_metadata_limit");
+    const item = this.itemAt(itemId, through);
+    return item ? this.preview(threadId, item, through) : undefined;
+  }
   private sources(event: Event, item: Item): void {
     const sources: TextSource[] = [];
     if (item.type === "message")
