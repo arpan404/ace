@@ -9,7 +9,7 @@ export type CommandRequest = {
   signal: AbortSignal;
   mode: "json" | "tail";
 };
-export type CommandResult = { code: number | null; stdout: string; truncated: boolean };
+export type CommandResult = { code: number | null; stdout: string; truncated: boolean; identityChanged?: true };
 export type CommandRunner = (request: CommandRequest) => Promise<CommandResult>;
 
 /** Byte-oriented shell: provider-kit's readline probes cannot bound an oversized line.

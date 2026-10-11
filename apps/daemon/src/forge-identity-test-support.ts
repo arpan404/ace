@@ -13,7 +13,7 @@ import { SourceControl } from "./source-control.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
 const stateSchema = z.object({
-  account: z.string(), replies: z.array(z.object({ id: z.number(), body: z.string(), user: z.object({ login: z.string() }), in_reply_to_id: z.number() })),
+  account: z.string(), replies: z.array(z.object({ id: z.number(), body: z.string(), user: z.object({ login: z.string() }), in_reply_to_id: z.number(), updated_at: z.string() })),
   switchAfterReply: z.boolean(), holdPath: z.string(), users: z.number(), holdUser: z.number(),
 });
 const script = `#!${process.execPath}
@@ -30,9 +30,10 @@ else {
  if(path.endsWith('/replies')) {
    let input=''; for await(const chunk of process.stdin) input+=chunk;
    const body=JSON.parse(input).body;
-   f=JSON.parse(readFileSync(file,'utf8')); const reply={id:31+f.replies.length,body,user:{login:f.account},in_reply_to_id:13}; f.replies.push(reply);
+   f=JSON.parse(readFileSync(file,'utf8')); const reply={id:31+f.replies.length,body,user:{login:f.account},in_reply_to_id:13,updated_at:"2026-10-11T12:00:00Z"}; f.replies.push(reply);
    if(f.switchAfterReply) f.account='other'; save(); http(reply);
- } else if(path.includes('/comments?')) http(f.replies);
+ } else if(path.includes('/pulls/comments/')) http(f.replies.find(r=>r.id===Number(path.split('/').at(-1))));
+ else if(path.includes('/pulls/7/comments?')) http(f.replies);
  else if(path.includes('/pulls?')) http([]);
  else if(path.endsWith('/pulls') || path.endsWith('/pulls/7')) http(pr);
  else if(path.includes('/check-runs?')) http({check_runs:[]});

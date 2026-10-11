@@ -1,7 +1,10 @@
+import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
   GitHubForge,
   ForgeError,
+  ForgeMutationOutcome,
+  replyIntent,
   repositoryKey,
   prFromUrl,
   prUrl,
@@ -26,6 +29,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
   private store: Store;
+  private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo">;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -42,6 +46,7 @@ export class WorkspaceForge {
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
+    this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
     this.now = now;
     this.runner = runner;
@@ -66,6 +71,7 @@ export class WorkspaceForge {
         repository,
         runner: identity?.runner ?? this.runner(cwd),
         now: this.now,
+        replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
       });
     this.backends.delete(key);
     this.backends.set(key, backend);
@@ -338,8 +344,17 @@ export class WorkspaceForge {
       await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
     if (p.type === "forge.pr.auto-merge")
       await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-    const status = await backend.status(p.link.pr.number, this.lifetime.signal);
-    this.projection.update(id, status, generation);
+    let status: ForgePrStatus;
+    try {
+      status = await backend.status(p.link.pr.number, this.lifetime.signal);
+      if (!allowed()) throw new Error("forbidden");
+      this.projection.update(id, status, generation);
+    } catch (error) {
+      if (p.type === "forge.comment.reply") throw new ForgeMutationOutcome({ replied: true });
+      throw error;
+    }
+    if (p.type === "forge.comment.reply")
+      this.replyReceipts.scope(cwd, p.link.pr.repository, "").remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
     return { ok: true, pr: status.ref, prStatus: status };
   }
   close(): void {

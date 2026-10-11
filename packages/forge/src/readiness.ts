@@ -1,3 +1,4 @@
+import { isForgeMutation } from "./mutation.ts";
 import { z } from "zod";
 import { SourceControlReadiness, type SourceControlPreferences } from "@ace/protocol";
 import type { CommandRunner, CommandRequest } from "./command.ts";
@@ -42,8 +43,14 @@ export function identityRunner(
     if ((await githubIdentity(runner, host, request.signal)) !== account)
       throw new ForgeError("forbidden");
     const result = await runner(request);
-    if ((await githubIdentity(runner, host, request.signal)) !== account)
-      throw new ForgeError("forbidden");
+    try {
+      if ((await githubIdentity(runner, host, request.signal)) !== account)
+        throw new ForgeError("forbidden");
+    } catch (error) {
+      // Preserve the response from a dispatched write even if the probe fails or is cancelled.
+      if (isForgeMutation(request)) return { ...result, identityChanged: true };
+      throw error;
+    }
     return result;
   };
 }

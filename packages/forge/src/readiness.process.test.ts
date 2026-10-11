@@ -109,3 +109,11 @@ it("cancellation stops a guarded CLI operation", async () => {
   controller.abort();
   await expect(result).rejects.toMatchObject({ kind: "cancelled" });
 });
+
+it("a post-write identity change preserves the dispatched mutation response", async () => {
+  const f = await setup({ changeAfter: true });
+  expect(await identityRunner(f.runner, "github.com", "octo")({
+    command: "gh", args: ["api", "repos/octo/ace/pulls/7/comments/13/replies", "--method", "POST"],
+    input: '{"body":"Fixed"}', mode: "json", signal: signal(),
+  })).toMatchObject({ code: 0, stdout: '{"result":"ok"}\n', identityChanged: true });
+});

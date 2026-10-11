@@ -1,3 +1,4 @@
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
@@ -16,6 +17,7 @@ export type Page = {
   headers: Record<string, string>;
   bytes: number;
   version: string;
+  identityChanged?: true;
 };
 type Cached = Page;
 export class GhApi {
@@ -137,7 +139,7 @@ export class GhApi {
     } catch {
       throw new ForgeError("invalid_data");
     }
-    const page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders };
+    const page: Page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders, ...(output.identityChanged ? { identityChanged: true } : {}) };
     if (!reusable) {
       this.#cache.clear();
       this.#cacheBytes = 0;
@@ -227,6 +229,7 @@ export class GhApi {
       mode: "json",
     });
     if (result.code !== 0) throw new ForgeError("cli");
+    if (result.identityChanged) throw new ForgeMutationOutcome({ number });
     this.#cache.clear();
     this.#cacheBytes = 0;
   }
