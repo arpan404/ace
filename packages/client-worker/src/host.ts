@@ -270,7 +270,7 @@ class Tab {
     if (!parsed.success) return;
     const message = parsed.data;
     if (message.t === "connect") return this.#connect(message.config);
-    if (message.t === "ping") return;
+    if (message.t === "ping") return this.#post({ t: "pong" });
     if (message.t === "alive") return this.#alive(message.lock);
     if (message.t === "bye") return this.drop();
     if (message.t === "watchMessages") {

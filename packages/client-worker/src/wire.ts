@@ -90,6 +90,7 @@ export const LeaseChanges = z.object({
 export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
+  z.object({ t: z.literal("pong") }),
   z.object({
     t: z.literal("attached"),
     error: z.optional(ErrorShape),
