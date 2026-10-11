@@ -2,7 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
-import type { Compositions } from "./changes/compositions.ts";
+import { reconcileCompositions, type Compositions } from "./changes/compositions.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
@@ -58,6 +58,7 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
         logCleared: new LocalStore<ClearedLines>(new Map()),
         terminalUi: new LocalStore<TabUiState>(new Map()),
       };
+      value.drafts.subscribe(() => reconcileCompositions(value.compositions, value.drafts.get()));
       ready.set(client, value);
       return value;
     });

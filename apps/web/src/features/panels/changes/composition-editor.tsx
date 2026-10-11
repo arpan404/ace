@@ -29,6 +29,11 @@ export function CompositionEditor(props: {
         onSave={(text, suggestion) => {
           if (props.blocked) return;
           const draft = services.drafts.get().find((each) => each.key === entry.key);
+          if (entry.key !== undefined && !draft) {
+            finishComposition(services.compositions, entry.id);
+            return;
+          }
+          if (!services.compositions.get().entries.has(entry.id)) return;
           saveDraft(services.drafts, {
             key: draft && !draft.commentId ? draft.key : entry.id,
             threadId: entry.threadId,

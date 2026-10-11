@@ -1,9 +1,12 @@
 import { coldStartReplay, facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { panelServices } from "../services.ts";
+import { discardDraft, saveDraft } from "./drafts.ts";
+import { persistReview } from "./review-store.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 const threadId = ThreadId.parse("thread-cold-start");
@@ -27,12 +30,11 @@ function edit(id: string, text: string) {
     { ...facts.endTurn("root"), nativeTurnId: id },
   ];
 }
-async function openChanges() {
-  const app = harness();
+async function openChanges(app = harness()) {
   app.play(coldStartReplay()).runThrough("test-done");
   app.daemon.apply(threadId, edit("historical", historical));
   app.daemon.apply(threadId, edit("current", current));
-  await app.open("/t/thread-cold-start");
+  const mounted = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await app.client.request({
@@ -43,8 +45,65 @@ async function openChanges() {
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("region", { name: path });
-  return { app, panel };
+  return { app, panel, mounted };
 }
+
+test("a saved-comment editor in another tab cannot revive a discarded comment after storage reconciliation", async () => {
+  const shared = memoryKeyValue();
+  const storageA = { ...shared };
+  const storageB = { ...shared };
+  const a = await openChanges(harness({ storage: storageA }));
+  const blockA = within(a.panel).getByRole("region", { name: path });
+  await begin(blockA, "Discard this finding", "const b = 4;");
+  await userEvent.click(within(blockA).getByRole("button", { name: "Comment" }));
+  const servicesA = await panelServices(a.app.client);
+  const target = servicesA.drafts.get().find((draft) => draft.text === "Discard this finding");
+  if (!target) throw new Error("Missing saved finding");
+  a.mounted.unmount();
+
+  const appB = harness({ storage: storageB });
+  const servicesB = await panelServices(appB.client);
+  let reconcile = () => { throw new Error("No storage subscription"); };
+  persistReview(servicesB, storageB, (changed) => { reconcile = changed; });
+  const b = await openChanges(appB);
+  const blockB = within(b.panel).getByRole("region", { name: path });
+  await userEvent.click(within(blockB).getByRole("button", { name: "Edit" }));
+  const editing = within(blockB).getByRole("textbox", { name: "Comment on line 2" });
+  await userEvent.clear(editing);
+  await userEvent.type(editing, "Unsaved edit in B");
+  // Independent storage views deliver cross-tab changes only when their subscription fires.
+  discardDraft(servicesA.drafts, target.key);
+  saveDraft(servicesA.drafts, { ...target, key: "unrelated", text: "Keep the unrelated finding" });
+  await act(() => reconcile());
+  await waitFor(() => expect(within(blockB).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull());
+  expect(within(b.panel).queryByRole("button", { name: /Resume .*Unsaved edit in B/ })).toBeNull();
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+  await userEvent.click(within(blockB).getByRole("button", { name: "Comment on line 2" }));
+  expect(within(blockB).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty("value", "");
+  // Reopening another tab proves the discarded edit did not acquire a fresh durable identity.
+  const reload = await panelServices(harness().client);
+  persistReview(reload, { ...shared }, () => {});
+  expect(reload.drafts.get().map((draft) => draft.text)).toEqual(["Keep the unrelated finding"]);
+  expect(appB.daemon.review.comments()).toEqual([]);
+}, 30000);
+
+test("discarding a saved comment removes its retained unsaved edit and leaves another composition intact", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await begin(block, "Discard locally", "const b = 4;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  await userEvent.click(within(block).getByRole("button", { name: "Edit" }));
+  const editing = within(block).getByRole("textbox", { name: "Comment on line 2" });
+  await userEvent.clear(editing);
+  await userEvent.type(editing, "Retained edit to discard");
+  await begin(block, "Keep this other composition", "const b = 5;");
+  await userEvent.click(within(block).getByRole("button", { name: "Discard" }));
+  expect(within(panel).queryByRole("button", { name: /Resume .*Retained edit to discard/ })).toBeNull();
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty("value", "Keep this other composition");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  expect(within(block).getAllByRole("article")).toHaveLength(1);
+  expect(within(block).getByText("Keep this other composition")).toBeTruthy();
+}, 30000);
 async function pickScope(panel: HTMLElement, name: string) {
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));

@@ -52,3 +52,20 @@ export function finishComposition(store: LocalStore<Compositions>, id: string): 
     return { entries, active };
   });
 }
+
+/** Saved-target deletion removes active and parked editors, including while tabs are unmounted. */
+export function reconcileCompositions(
+  store: LocalStore<Compositions>,
+  drafts: readonly ReviewDraft[],
+): void {
+  const keys = new Set(drafts.map((draft) => draft.key));
+  const previous = store.get();
+  const missing = [...previous.entries.values()].filter(
+    (entry) => entry.key !== undefined && !keys.has(entry.key),
+  );
+  if (!missing.length) return;
+  const entries = new Map(previous.entries);
+  for (const entry of missing) entries.delete(entry.id);
+  const active = new Map([...previous.active].filter(([, id]) => entries.has(id)));
+  store.set(() => ({ entries, active }));
+}
