@@ -65,12 +65,13 @@ export const isOpen = (draft: ReviewDraft) => draft.state === "sent" || draft.st
 
 export function saveDraft(
   store: LocalStore<readonly ReviewDraft[]>,
-  draft: Omit<ReviewDraft, "key" | "state">,
+  draft: Omit<ReviewDraft, "key" | "state"> & { key?: string },
 ): void {
-  const key = draftKey(draft.threadId, draft.file, draft.side, draft.line);
-  // Editing a recorded comment records the new words as a new comment.
+  const key =
+    draft.key ??
+    `${draftKey(draft.threadId, draft.file, draft.side, draft.line)}\u0000${draft.createdAt}`;
   store.set((drafts) => [
-    ...drafts.filter((existing) => existing.key !== key),
+    ...drafts.filter((entry) => entry.key !== key),
     { ...draft, key, state: "draft" },
   ]);
 }

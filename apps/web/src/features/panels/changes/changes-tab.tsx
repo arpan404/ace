@@ -220,6 +220,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
                 onCancel={() => setComposing(undefined)}
                 onSave={(text, suggestion) => {
                   saveDraft(services.drafts, {
+                    key: draft && !draft.commentId ? draft.key : crypto.randomUUID(),
                     threadId,
                     file: file.path,
                     side: writing.side,
