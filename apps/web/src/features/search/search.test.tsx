@@ -63,6 +63,29 @@ test("the kind filter keeps only commands", async () => {
   });
 });
 
+test("closed filters keep their scope visible and Clear filters restores all kinds", async () => {
+  await search("retry budget");
+  await results();
+  await userEvent.click(screen.getByRole("button", { name: "Filters" }));
+  await userEvent.click(screen.getByRole("button", { name: "Threads" }));
+  await userEvent.click(screen.getByRole("button", { name: "Filters (1)" }));
+  expect(screen.queryByRole("combobox", { name: "Project" })).toBeNull();
+  expect(screen.getByRole("status", { name: "Active search filters" }).textContent).toContain(
+    "Threads",
+  );
+  await waitFor(async () => expect(within(await results()).getAllByRole("option")).toHaveLength(1));
+  await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(screen.queryByRole("status", { name: "Active search filters" })).toBeNull();
+  await waitFor(async () => expect(within(await results()).getAllByRole("option")).toHaveLength(2));
+});
+
+test("a new search explains what can be searched before a query is entered", async () => {
+  await search();
+  expect(screen.getByText("Search your threads")).toBeTruthy();
+  expect(screen.getByText(/Find a message, command or file/)).toBeTruthy();
+  expect(screen.queryByRole("option")).toBeNull();
+});
+
 test("arrow keys move through results and Enter opens the thread", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();

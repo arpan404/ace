@@ -133,7 +133,12 @@ export function AutomationScreen(props: { id: string }) {
           </div>
         </div>
         <div className="mt-7">
-          <SettingRow title="Prompt" description={automation.prompt} />
+          <section aria-label="Prompt" className="mb-5">
+            <h2 className="mb-2 text-sm font-medium text-muted-foreground">Prompt</h2>
+            <p className="text-base leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {automation.prompt}
+            </p>
+          </section>
           <SettingRow
             title="When"
             description={

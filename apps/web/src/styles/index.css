@@ -231,7 +231,7 @@
   .usage-limit-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  @media (min-width: 1280px) {
+  @container (min-width: 840px) {
     .usage-limit-row {
       grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
     }
