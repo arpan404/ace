@@ -161,6 +161,7 @@
         "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/review": "workspace:*",

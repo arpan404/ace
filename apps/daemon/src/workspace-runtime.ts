@@ -32,6 +32,7 @@ import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
 import { AsyncCommands } from "./async-commands.ts";
 import type { Store } from "./store.ts";
+import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
   sourceControl?: import("./source-control.ts").SourceControl;
@@ -50,6 +51,8 @@ export interface WorkspaceRuntimeOptions {
   /** How long a remote worktree base's fetch may take; 15 s by default. */
   baseFetchTimeoutMs?: number;
   terminal?: TerminalManagerOptions;
+  /** A handle identifies one shell lifetime, including across daemon restarts. */
+  terminalId?: () => string;
   editorPath?: string;
   editorApplications?: readonly string[];
   platform?: NodeJS.Platform;
@@ -69,8 +72,8 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
+  private terminalId: () => string;
   private writing = new Set<AbortController>();
-  private nextTerminal = 0;
   constructor(
     store: Store,
     directory: string,
@@ -82,6 +85,7 @@ export class WorkspaceRuntime {
     initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
+    this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
@@ -176,7 +180,7 @@ export class WorkspaceRuntime {
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
-      const id = `terminal-${++this.nextTerminal}`;
+      const id = `terminal-${this.terminalId()}`;
       this.terminals.set(id, { threadId, terminal });
       return id;
     } finally {

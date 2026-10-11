@@ -1655,6 +1655,11 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "cascade": {
           "default": true,
           "type": "boolean"

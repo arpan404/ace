@@ -55,6 +55,7 @@
     "@ace/adapter-opencode": "workspace:*",
     "@ace/adapter-testkit": "workspace:*",
     "@ace/browser": "workspace:*",
+    "@ace/daemon": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/review": "workspace:*",
     "@babel/core": "^8.0.6",

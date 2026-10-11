@@ -1,5 +1,6 @@
-import type { ThreadReader } from "@ace/client";
 import { useIntent, useThread } from "@ace/client-react";
+import { activeRootRun, stopFence, type StopFence } from "./stop-target.ts";
+export { activeRootRun } from "./stop-target.ts";
 import { useSyncExternalStore } from "react";
 
 /*
@@ -40,20 +41,21 @@ export function clearStop(threadId: string): void {
   publish(next);
 }
 
-/** The root agent's turn in flight: the newest item's run, while that run is active. */
-export function activeRootRun(reader: ThreadReader): string | undefined {
-  const root = reader.thread?.rootAgentId;
-  for (let index = reader.order.length - 1; index >= 0; index--) {
-    const runId = reader.item(reader.order[index] ?? "")?.runId;
-    if (!runId) continue;
-    const run = reader.run(runId);
-    if (run?.agentId !== root) continue;
-    return run?.state === "active" ? runId : undefined;
-  }
-  return undefined;
-}
-
 const runKeys = ["order", "thread"] as const;
+export function useStopFence(threadId: string): StopFence | undefined {
+  return useThread(
+    threadId,
+    ["order", "thread", "cursor"],
+    stopFence,
+    (a, b) =>
+      a === b ||
+      (!!a &&
+        !!b &&
+        ("runId" in a && "runId" in b
+          ? a.runId === b.runId
+          : "beforeSeq" in a && "beforeSeq" in b && a.beforeSeq === b.beforeSeq)),
+  );
+}
 
 /** The active root run's id, for a Stop to name. */
 export function useActiveRootRun(threadId: string | undefined): string | undefined {

@@ -39,37 +39,39 @@ function draw(overrides: Partial<ModelControlView> = {}) {
   return screen.getByRole("button", { name: view.ariaLabel });
 }
 
-test("compact controls retain a quiet effort separator and Fast while the model name yields space", () => {
+test("compact controls keep effort in its own chip while the model name yields space", () => {
   const control = draw();
-  const signal = within(control).getByRole("img", { name: "High reasoning" });
-  expect(signal.textContent).toBe("·High");
-  expect(within(control).getByRole("img", { name: "Fast: on" })).toBeTruthy();
+  const signal = within(screen.getByRole("button", { name: "Reasoning: High" })).getByRole("img", {
+    name: "High reasoning",
+  });
+  expect(signal.textContent).toBe("High");
+  expect(control.getAttribute("aria-label")).toContain("fast");
 });
 
 test("an unknown provider default omits effort without inventing a level", () => {
   const control = draw({ effort: undefined });
   expect(within(control).queryByRole("img", { name: /reasoning/ })).toBeNull();
   expect(control.textContent).not.toContain("Default");
+  expect(screen.getByRole("button", { name: "Reasoning: Select effort" })).toBeTruthy();
 });
 
 test("a reported default keeps its full tooltip and short label", () => {
-  const control = draw({
+  draw({
     efforts: ["low", "medium", "high"],
     effort: "medium",
     effortDefault: true,
   });
-  expect(within(control).getByRole("img", { name: "Medium reasoning · default" }).textContent).toBe(
-    "·Med",
-  );
+  expect(
+    within(screen.getByRole("button", { name: "Reasoning: Medium" })).getByRole("img", {
+      name: "Medium reasoning · default",
+    }).textContent,
+  ).toBe("Med");
 });
 
-test.each([{ efforts: [] }, { efforts: ["high"] }])(
-  "zero or one reported effort omits the signal (%j)",
-  ({ efforts }) => {
-    const control = draw({ efforts });
-    expect(within(control).queryByRole("img", { name: /reasoning/ })).toBeNull();
-  },
-);
+test.each([{ efforts: [] }])("zero reported efforts omits the effort chip (%j)", ({ efforts }) => {
+  draw({ efforts });
+  expect(screen.queryByRole("button", { name: /^Reasoning: / })).toBeNull();
+});
 
 test("a pending switch prioritizes the target and keeps the former model in its description", () => {
   const control = draw({
