@@ -116,7 +116,7 @@ test("changing the expected account during initial backend admission prevents ev
       await f.update({ account: "other" });
       await f.release();
       expect(await operation).toMatchObject({ ok: false, error: "forge_preferences_changed" });
-      expect((await f.facts()).replies).toHaveLength(0);
+      expect((await f.facts()).writes).toEqual([]);
     } finally { await f.release(); await f.close(); }
   }
 });

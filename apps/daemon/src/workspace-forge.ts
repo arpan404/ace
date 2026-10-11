@@ -392,7 +392,8 @@ export class WorkspaceForge {
       status = await backend.status(p.link.pr.number, this.lifetime.signal);
       if (!allowed()) throw new Error("forbidden");
       this.projection.update(id, status, generation);
-    } catch {
+    } catch (error) {
+      if (p.type === "forge.pr.status") throw error;
       throw new ForgeMutationOutcome({ dispatched: true });
     }
     if (p.type === "forge.comment.reply")

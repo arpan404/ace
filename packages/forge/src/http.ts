@@ -229,6 +229,8 @@ export class GhApi {
     method: "merge" | "squash" | "rebase",
     signal: AbortSignal,
   ): Promise<void> {
+    const dispatch = new MutationDispatch();
+    try {
     const result = await this.#runner({
       command: this.#command,
       args: [
@@ -244,9 +246,11 @@ export class GhApi {
       ],
       signal,
       mode: "json",
+      dispatch,
     });
     if (result.code !== 0) throw new ForgeError("cli");
     if (result.identityChanged) throw new ForgeMutationOutcome({ number });
+    } catch (error) { throw dispatch.failure(error); }
     this.#cache.clear();
     this.#cacheBytes = 0;
   }

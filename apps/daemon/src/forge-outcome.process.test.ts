@@ -157,3 +157,17 @@ test("a concurrent retry cannot reconcile or clear a receipt while its writer is
     expect((await f.facts()).replies).toHaveLength(1);
   } finally { await f.release(); await f.close(); }
 });
+
+
+test("a failed PR status read is a read failure rather than an uncertain mutation", async () => {
+  const f = await forgeIdentityFixture();
+  try {
+    await f.update({ invalidUser: 2 });
+    const base = reply("failed-status");
+    if (!("link" in base.payload)) throw new Error("Expected link");
+    expect(await f.runtime.execute(Command.parse({ ...base,
+      payload: { type: "forge.pr.status", link: base.payload.link },
+    }))).toMatchObject({ ok: false, error: "forge_invalid_data" });
+    expect((await f.facts()).writes).toEqual([]);
+  } finally { await f.close(); }
+});

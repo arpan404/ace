@@ -14,6 +14,7 @@ import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
 const stateSchema = z.object({
   account: z.string(),
+  writes: z.array(z.string()),
   replies: z.array(
     z.object({
       id: z.number(),
@@ -30,6 +31,7 @@ const stateSchema = z.object({
   users: z.number(),
   holdUser: z.number(),
   invalidUser: z.number(),
+  prHead: z.string(),
 });
 const script = `#!${process.execPath}
 import { readFileSync,writeFileSync,existsSync,watch } from 'node:fs';
@@ -43,8 +45,9 @@ else if(args.includes('--help')) console.log('auth status');
 else if(args[0]==='auth') console.log('[]');
 else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.invalidUser) {console.log('{}');process.exit(0)} console.log(JSON.stringify({login:f.account})); }
 else {
+ if(args[0]==='pr' || (args.includes('--method') && args[args.indexOf('--method')+1]!=='GET' && path!=='graphql')) {f.writes.push(path);save()}
  if(f.holdPath===path) await hold();
- const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://git.example.com/octo/ace/pull/7',state:'open',head:{sha:'a'.repeat(40),ref:'topic'},base:{ref:'main'}};
+ const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://git.example.com/octo/ace/pull/7',state:'open',head:{sha:f.prHead,ref:'topic'},base:{ref:'main'}};
  if(path.endsWith('/replies')) {
    let input=''; for await(const chunk of process.stdin) input+=chunk;
    const body=JSON.parse(input).body;
@@ -79,6 +82,7 @@ export async function forgeIdentityFixture(options: { timeoutMs?: number } = {})
     state,
     JSON.stringify({
       account: "octo",
+      writes: [],
       replies: [],
       switchAfterReply: false,
       lostReply: false,
@@ -87,6 +91,7 @@ export async function forgeIdentityFixture(options: { timeoutMs?: number } = {})
       users: 0,
       holdUser: 0,
       invalidUser: 0,
+      prHead: "a".repeat(40),
     }),
   );
   const runner = () =>

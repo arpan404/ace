@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { ForgeError } from "./errors.ts";
-import type { MutationDispatch } from "./mutation.ts";
 import { LogTail } from "./tail.ts";
 
 export type CommandRequest = {
@@ -10,7 +9,7 @@ export type CommandRequest = {
   signal: AbortSignal;
   mode: "json" | "tail";
   /** Passed only to the actual write, never to identity probes. */
-  dispatch?: MutationDispatch;
+  dispatch?: { record(): void };
 };
 export type CommandResult = {
   code: number | null;
@@ -93,7 +92,6 @@ export function createCommandRunner(options: {
     });
     child.stderr.resume();
     child.stdin.on("error", () => {});
-    child.stdin.end(request.input);
     try {
       const code = await new Promise<number | null>((resolve) => {
         child.once("error", () => {
@@ -104,6 +102,7 @@ export function createCommandRunner(options: {
         // spawn has synchronously admitted a child when it exposes a PID. Before any await
         // or stdin delivery, record that it may contact the remote, even if it later times out.
         if (child.pid !== undefined) request.dispatch?.record();
+        child.stdin.end(request.input);
       });
       if (failure) throw failure;
       const output =

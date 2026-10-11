@@ -100,7 +100,7 @@ export class GitHubForge implements Forge {
       draft: value.draft,
     });
     const parsed = GitHubPr.safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (response.identityChanged) throw new ForgeMutationOutcome(this.#ref(parsed.data.number));
     return this.#ref(parsed.data.number);
   }
@@ -172,7 +172,7 @@ export class GitHubForge implements Forge {
         .object({ requested_reviewers: z.array(z.object({ login: z.string() })).max(100) })
         .safeParse(response.body).success
     )
-      throw new ForgeError("invalid_data");
+      throw new ForgeMutationOutcome({ dispatched: true });
     if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
   }
   async merge(
@@ -191,7 +191,7 @@ export class GitHubForge implements Forge {
       "PUT",
     );
     const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (!parsed.data.merged) throw new ForgeError("conflict");
     if (response.identityChanged) throw new ForgeMutationOutcome(parsed.data);
   }
