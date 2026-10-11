@@ -14,6 +14,7 @@ import ThreadBrowserBoundary from "./thread-browser.tsx";
 
 // Load the daemon sources before behavioral deadlines begin.
 await import("../panel-sources.ts");
+await import("@/components/ui/toast-view.tsx");
 
 const clients: Client[] = [];
 afterEach(async () => {
@@ -160,6 +161,10 @@ test.each([
     await userEvent.click(screen.getByRole("button", { name: "Close workspace" }));
   }
   await waitFor(() => expect(t.daemon.browser.view(t.threadId)?.controller).toBe("agent"));
+  await act(async () => {
+    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+  });
+  expect(screen.queryByText("Couldn't hand back the page")).toBeNull();
   await t.daemon.browser.navigateAgent(t.threadId, "http://localhost:5173/continued");
   expect(t.daemon.browser.view(t.threadId)?.url).toBe("http://localhost:5173/continued");
 });

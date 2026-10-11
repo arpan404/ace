@@ -89,7 +89,7 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
           acquired = await withControl();
           return await features.answerDialog(threadId, tabId, dialogId, accept, promptText);
         } finally {
-          if (acquired && !retainControl() && source.view(threadId)?.takeoverMode !== "private")
+          if (acquired && !retainControl() && source.heldAs(threadId) && source.view(threadId)?.takeoverMode !== "private")
             await returnControl();
         }
       }),
