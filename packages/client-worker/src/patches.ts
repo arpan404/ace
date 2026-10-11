@@ -104,6 +104,7 @@ const gained = (old: string, now: string) =>
 
 /** Whether `next` holds `previous`'s values in every field but `field`. */
 const sameBut = (previous: Record<string, unknown>, next: Record<string, unknown>, field: string) =>
+  Object.keys(previous).every((key) => key === field || Object.hasOwn(next, key)) &&
   Object.keys(next).every((key) => key === field || Object.is(previous[key], next[key]));
 
 /**
