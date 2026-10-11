@@ -17,6 +17,7 @@ export function useDraftScope(
 ): {
   draftId: string | undefined;
   adopt(): void;
+  retire(id: string): void;
   retry(): void;
 } {
   const client = useClient();
@@ -70,5 +71,15 @@ export function useDraftScope(
   const adopt = useCallback(() => {
     adopted.current = draftId;
   }, [draftId]);
-  return { draftId, adopt, retry: retryScope };
+  const retire = useCallback(
+    (id: string) => {
+      draftScopes(client).retire(id);
+      if (id === draftId) {
+        adopted.current = id;
+        retryScope();
+      }
+    },
+    [client, draftId, retryScope],
+  );
+  return { draftId, adopt, retire, retry: retryScope };
 }

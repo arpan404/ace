@@ -164,6 +164,16 @@ export class UploadStore {
       });
     });
   }
+  /** An adopted scope may be replayed by its owning thread, but cannot resume composition. */
+  async resumableDraftWorkspace(device: string, draftId: string): Promise<string> {
+    const workspace = await this.draftWorkspace(device, draftId);
+    requireContext(
+      this.metadata.get("SELECT adopted FROM drafts WHERE id=?", draftId)?.adopted === null,
+      "forbidden",
+      "Draft already adopted",
+    );
+    return workspace;
+  }
   async handle(
     device: string,
     value: unknown,
