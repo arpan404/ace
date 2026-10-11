@@ -67,7 +67,7 @@ export class WorkspaceForge {
   private async backend(cwd: string, repository: ForgeRepository): Promise<Forge> {
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
     const key = JSON.stringify({
-      repository,
+      repository: repositoryKey(repository),
       cwd,
       account: identity?.account,
       revision: identity?.revision,

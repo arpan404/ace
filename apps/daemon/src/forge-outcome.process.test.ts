@@ -3,7 +3,7 @@ import { Command } from "@ace/protocol";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { forgeIdentityFixture } from "./forge-identity-test-support.ts";
 
-const reply = (id: string) =>
+const reply = (id: string, owner = "octo", name = "ace") =>
   Command.parse({
     id,
     deviceId: "device",
@@ -13,7 +13,7 @@ const reply = (id: string) =>
         threadId: "identity-thread",
         pr: {
           number: 7,
-          repository: { forge: "github", host: "git.example.com", owner: "octo", name: "ace" },
+          repository: { forge: "github", host: "git.example.com", owner, name },
         },
       },
       commentId: 13,
@@ -121,3 +121,19 @@ test("a timed out write preflight keeps its CLI failure and a new command can re
     expect((await f.facts()).replies).toHaveLength(1);
   } finally { await f.close(); }
 }, 20000);
+
+
+test("case-equivalent repositories reconcile the same uncertain reply after a restart", async () => {
+  const f = await forgeIdentityFixture();
+  let restarted: WorkspaceRuntime | undefined;
+  try {
+    await f.update({ lostReply: true });
+    expect(await f.runtime.execute(reply("mixed-case", "Octo", "Ace"))).toMatchObject({
+      ok: false, error: "forge_outcome_uncertain",
+    });
+    await f.runtime.close();
+    restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, { sourceControl: f.sourceControl });
+    expect(await restarted.execute(reply("lower-case"))).toMatchObject({ ok: true });
+    expect((await f.facts()).replies).toHaveLength(1);
+  } finally { await restarted?.close(); await f.close(); }
+});

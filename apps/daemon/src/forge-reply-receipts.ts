@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol";
-import type { ReplyReceipts } from "@ace/forge";
+import { repositoryKey, type ReplyReceipts } from "@ace/forge";
 import type { Store } from "./store.ts";
 
 const receipt = z.object({
@@ -23,7 +23,7 @@ export class ForgeReplyReceipts {
   }
   scope(cwd: string, repository: ForgeRepository, account: string): ReplyReceipts {
     const scope = createHash("sha256")
-      .update(JSON.stringify([cwd, repository]))
+      .update(JSON.stringify([cwd, repositoryKey(repository)]))
       .digest("hex");
     return {
       account,

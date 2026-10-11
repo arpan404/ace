@@ -1,3 +1,4 @@
+import { repositoryKey } from "./store.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol";
@@ -20,7 +21,7 @@ export function replyIntent(
   body: string,
 ): string {
   return createHash("sha256")
-    .update(JSON.stringify([repository, number, commentId, body]))
+    .update(JSON.stringify([repositoryKey(repository), number, commentId, body]))
     .digest("hex");
 }
 const comment = z.object({
