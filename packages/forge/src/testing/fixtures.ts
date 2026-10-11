@@ -120,6 +120,9 @@ export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } 
     runner,
     forge,
     executable,
+    async replace(records: Fixtures) {
+      await writeFile(config, JSON.stringify(records));
+    },
     async requests() {
       return z
         .object({

@@ -1,3 +1,4 @@
+import { createCommandRunner, type CommandRunner, type CommandRequest } from "@ace/forge";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -55,7 +56,10 @@ function fixtures(): Fixtures {
   ];
   return value;
 }
-async function environment(records: Fixtures) {
+async function environment(
+  records: Fixtures,
+  transform?: (request: CommandRequest, run: CommandRunner) => ReturnType<CommandRunner>,
+) {
   const gh = await fakeGh(records);
   const root = await mkdtemp(join(tmpdir(), "ace-forge-actions-"));
   await execute("git", ["init", "-q", root]);
@@ -75,7 +79,10 @@ async function environment(records: Fixtures) {
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const create = () =>
     new WorkspaceRuntime(store, root, () => 1000, {
-      forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
+      forgeRunner: () => (request) =>
+        transform
+          ? transform(request, (next) => gh.runner({ ...next, command: gh.executable }))
+          : gh.runner({ ...request, command: gh.executable }),
     });
   let runtime = create();
   return {
@@ -293,5 +300,29 @@ test("uncertain review requests and auto-merge intents are resolved by their hos
     } finally {
       await app.close();
     }
+  }
+});
+
+test("a merge that cannot launch gh settles as failed and permits a new command after restart", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  let missing = true;
+  const app = await environment(records, (request, run) =>
+    missing && request.args[1] === mergePath
+      ? createCommandRunner({ cwd: "/" })({ ...request, command: "/ace-missing-gh" })
+      : run(request),
+  );
+  try {
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+    await app.restart();
+    missing = false;
+    expect(await app.command("new-intent")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+  } finally {
+    await app.close();
   }
 });

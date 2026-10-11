@@ -16,7 +16,7 @@ export const ForgeWriteReceipt = z.object({
       action.type !== "forge.pr.unlink" &&
       action.type !== "forge.pr.create",
   ),
-  phase: z.enum(["pending", "accepted", "reconciled"]),
+  phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
   actor: z.string().optional(),
 });
 export type ForgeWriteReceipt = z.infer<typeof ForgeWriteReceipt>;

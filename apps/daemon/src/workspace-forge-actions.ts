@@ -1,4 +1,5 @@
-import { ForgeError, repositoryKey, type GitHubForge } from "@ace/forge";
+import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
+import { WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { CommandResult, ForgePrRef, ForgePrStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
@@ -12,7 +13,9 @@ import {
 export class WorkspaceForgeActions {
   private store: Store;
   private live = new Set<string>();
-  constructor(store: Store) {
+  private owner: ForgeResourceOwner;
+  constructor(store: Store, owner = new ForgeResourceOwner()) {
+    this.owner = owner;
     this.store = store;
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS forge_action_receipts (
@@ -21,7 +24,7 @@ export class WorkspaceForgeActions {
     );
   }
   private key(pr: ForgePrRef): string {
-    return JSON.stringify([repositoryKey(pr.repository), pr.number]);
+    return forgeResourceKey(pr);
   }
   private read(key: string): ForgeWriteReceipt | undefined {
     const row = this.store.atomic((db) =>
@@ -42,7 +45,7 @@ export class WorkspaceForgeActions {
     const key = this.key(status.ref);
     if (this.live.has(key)) return "pending";
     const receipt = this.read(key);
-    if (!receipt || receipt.phase === "reconciled") return undefined;
+    if (!receipt || ["reconciled", "failed"].includes(receipt.phase)) return undefined;
     if (receipt.phase === "accepted" || observedWrite(receipt, status)) {
       this.save(key, { ...receipt, phase: "reconciled" });
       return undefined;
@@ -60,10 +63,11 @@ export class WorkspaceForgeActions {
     const key = this.key(pr);
     if (this.live.has(key) || this.live.size >= 16)
       return { ok: false, error: "forge_write_pending" };
-    const previous = this.read(key);
+    const release = this.owner.acquire(pr);
     this.live.add(key);
     try {
-      if (previous && previous.phase !== "reconciled") {
+      const previous = this.read(key);
+      if (previous && !["reconciled", "failed"].includes(previous.phase)) {
         // This command is reconciliation only. It never repeats the previous write.
         const status = await backend.status(pr.number, signal);
         if (previous.phase !== "accepted" && !observedWrite(previous, status))
@@ -77,21 +81,19 @@ export class WorkspaceForgeActions {
       signal.throwIfAborted();
       if (!allowed()) return { ok: false, error: "forbidden" };
       const receipt: ForgeWriteReceipt = { action, phase: "pending", ...(actor ? { actor } : {}) };
-      this.save(key, receipt);
+      const dispatch = new WriteDispatch(() => this.save(key, receipt));
       try {
         if (action.type === "forge.comment.reply")
-          await backend.replyComment(pr.number, action.commentId, action.body, signal);
+          await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);
         else if (action.type === "forge.review.request")
-          await backend.requestReviews(pr.number, action.reviewers, signal);
+          await backend.requestReviews(pr.number, action.reviewers, signal, dispatch);
         else if (action.type === "forge.pr.merge")
-          await backend.merge(pr.number, action.headSha, action.method, signal);
-        else await backend.enableAutoMerge(pr.number, action.headSha, action.method, signal);
+          await backend.merge(pr.number, action.headSha, action.method, signal, dispatch);
+        else
+          await backend.enableAutoMerge(pr.number, action.headSha, action.method, signal, dispatch);
       } catch (error) {
-        if (
-          error instanceof ForgeError &&
-          ["not_found", "forbidden", "rate_limit", "conflict", "unsupported"].includes(error.kind)
-        ) {
-          this.save(key, { ...receipt, phase: "reconciled" });
+        if (dispatch.definitelyFailed) {
+          this.save(key, { ...receipt, phase: "failed" });
           throw error;
         }
         return { ok: false, error: "forge_write_uncertain" };
@@ -109,6 +111,7 @@ export class WorkspaceForgeActions {
       }
     } finally {
       this.live.delete(key);
+      release();
     }
   }
 }
