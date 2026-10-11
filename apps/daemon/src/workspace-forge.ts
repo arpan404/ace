@@ -95,7 +95,7 @@ export class WorkspaceForge {
     cwd: string,
     input: ForgePrRef,
     permitted: () => boolean = () => true,
-    signal = this.lifetime.signal,
+    signal: AbortSignal = this.lifetime.signal,
   ): Promise<ForgePrStatus> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
