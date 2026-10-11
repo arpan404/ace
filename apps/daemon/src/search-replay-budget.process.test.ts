@@ -242,7 +242,9 @@ test("oversized file-write metadata rebuilds bounded previews and full file text
   expect(Math.max(...pages)).toBeLessThanOrEqual(524288);
   expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
   for (const queryText of ["writehead", "writetail"])
-    expect(f.store.search.query({ text: queryText }).hits).toMatchObject([{ itemId: "large-write" }]);
+    expect(f.store.search.query({ text: queryText }).hits).toMatchObject([
+      { itemId: "large-write" },
+    ]);
   expect(f.store.search.query({ text: "afterwriteneedle" }).hits).toMatchObject([
     { itemId: "after-write" },
   ]);

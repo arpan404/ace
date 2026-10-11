@@ -1,8 +1,27 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
-import { OutputSummary, ThreadId, ItemId } from "@ace/protocol";
-import { SearchReplayItem, outputText, appendWindow, windowText } from "@ace/search";
+import { TextSource, ThreadId, ItemId } from "@ace/protocol";
+import {
+  SearchReplayItem,
+  outputText,
+  sourceText,
+  appendWindow,
+  windowText,
+  type OutputReader,
+} from "@ace/search";
 
+import { outputStreamId } from "@ace/projection";
+
+interface Streams {
+  source(
+    thread: ThreadId,
+    item: ItemId,
+    stream: string,
+    through: number,
+  ): { bytes: number; encoding: "utf-8" | "utf-16le" } | undefined;
+  read: OutputReader;
+}
+const TextPart = z.object({ part: z.string(), source: z.string() });
 const Source = z.tuple([ThreadId, ItemId, z.number().int().nonnegative(), z.string()]);
 const Bytes = z.object({ bytes: z.instanceof(Uint8Array) });
 const Total = z.object({ category: z.string(), bytes: z.number().int().nonnegative() });
@@ -14,7 +33,9 @@ const Metadata = z.object({
   complete: z.number(),
   toolKind: z.string().nullable(),
   title: z.string(),
-  output: z.string().nullable(),
+  outputStream: z.string().nullable(),
+  source: z.string().nullable(),
+  level: z.string().nullable(),
 });
 
 // SQLite visits canonical leaves; raw/native data, source descriptors and attachments
@@ -32,10 +53,10 @@ const fields = `WITH revision AS (
       WHEN t.fullkey LIKE '$.call.detail.%' AND t.fullkey NOT LIKE '$.call.detail.output.%' THEN 'tool_output'
     END
     WHEN json_extract(r.item,'$.type')='message' THEN CASE
-      WHEN t.fullkey LIKE '$.parts[%].text' THEN 'messages'
+      WHEN t.fullkey LIKE '$.parts[%].text' AND json_type(r.item,t.path||'.source') IS NULL THEN 'messages'
       WHEN t.fullkey LIKE '$.parts[%].path' THEN 'files'
     END
-    WHEN json_extract(r.item,'$.type') IN ('reasoning','notice') AND t.fullkey='$.text' THEN json_extract(r.item,'$.type')
+    WHEN json_extract(r.item,'$.type') IN ('reasoning','notice') AND t.fullkey='$.text' AND json_type(r.item,'$.source') IS NULL THEN json_extract(r.item,'$.type')
     WHEN json_extract(r.item,'$.type')='artifact' AND t.fullkey IN ('$.path','$.mimeType') THEN 'files'
     WHEN json_extract(r.item,'$.type') LIKE 'delegation.%' AND
       (t.fullkey IN ('$.title','$.role','$.outcome.result') OR t.fullkey LIKE '$.results[%].result') THEN 'notices'
@@ -48,10 +69,12 @@ const fields = `WITH revision AS (
 /** A bounded search representation for revisions whose non-stream metadata is oversized. */
 export class HistorySearchReplay {
   private readonly db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private readonly streams: Streams;
+  constructor(db: DatabaseSync, streams: Streams) {
     this.db = db;
+    this.streams = streams;
   }
-  item(thread: ThreadId, id: ItemId, seq: number): SearchReplayItem {
+  item(thread: ThreadId, id: ItemId, seq: number, through: number): SearchReplayItem {
     const m = Metadata.parse(
       this.db
         .prepare(`SELECT
@@ -59,7 +82,8 @@ export class HistorySearchReplay {
       json_extract(item,'$.type') AS type,json_extract(item,'$.createdAt') AS createdAt,
       json_extract(item,'$.complete') AS complete,json_extract(item,'$.call.detail.kind') AS toolKind,
       COALESCE(substr(json_extract(item,'$.call.title'),1,8192),'') AS title,
-      json_extract(item,'$.call.detail.output') AS output
+      json_extract(item,'$.call.detail.output.streamId') AS outputStream,
+      json_extract(item,'$.source') AS source,json_extract(item,'$.level') AS level
       FROM history_item_revisions WHERE item_id=? AND seq=?`)
         .get(id, seq),
     );
@@ -68,7 +92,7 @@ export class HistorySearchReplay {
         `${fields} SELECT category,sum(length(value)) AS bytes FROM fields GROUP BY category`,
       )
       .all(thread, id, seq);
-    const segments = totals.map((row) => {
+    const segments: SearchReplayItem["segments"] = totals.map((row) => {
       const total = Total.parse(row);
       return {
         name: total.category,
@@ -81,25 +105,44 @@ export class HistorySearchReplay {
         },
       };
     });
-    if (m.output) {
-      const output = OutputSummary.parse(JSON.parse(m.output));
-      segments.push({
-        name: "output",
-        category: "tool_output",
-        text: output.tail,
-        source: { streamId: output.streamId, bytes: output.bytes, encoding: "utf-8" },
-      });
+    const addSource = (name: string, category: string, streamId: string) => {
+      const version = this.streams.source(thread, id, streamId, through);
+      if (version) segments.push({ name, category, text: "", source: { streamId, ...version } });
+    };
+    if (m.type === "message") {
+      for (const row of this.db
+        .prepare(`SELECT CAST(p.key AS TEXT) AS part,
+        json_extract(p.value,'$.source') AS source FROM history_item_revisions r,json_each(r.item,'$.parts') p
+        WHERE r.item_id=? AND r.seq=? AND json_extract(p.value,'$.type')='text'
+        AND json_type(p.value,'$.source')='object' ORDER BY p.key`)
+        .iterate(id, seq)) {
+        const part = TextPart.parse(row);
+        addSource(
+          `part:${part.part}`,
+          "messages",
+          TextSource.parse(JSON.parse(part.source)).streamId,
+        );
+      }
+    } else if ((m.type === "notice" || m.type === "reasoning") && m.source) {
+      addSource(
+        "text",
+        m.type === "notice" && m.level === "error" ? "errors" : m.type,
+        TextSource.parse(JSON.parse(m.source)).streamId,
+      );
+    } else if (m.toolKind === "shell") {
+      // Creation may have no output summary; a later delta still has a durable version.
+      addSource("output", "tool_output", m.outputStream ?? outputStreamId(id));
     }
     let window = { head: "", tail: "", size: 0 };
     for (const segment of segments) {
       if (window.size) window = appendWindow(window, "\n");
-      const text = segment.source.streamId.startsWith("history-search:")
-        ? outputText((_thread, stream, offset, limit) => this.read(stream, offset, limit), thread, {
-            ...segment.source,
-            tail: segment.text,
-            truncated: true,
-          })
-        : segment.text;
+      const read: OutputReader = segment.source.streamId.startsWith("history-search:")
+        ? (_thread, stream, offset, limit) => this.read(stream, offset, limit)
+        : this.streams.read;
+      const text =
+        segment.source.encoding === "utf-16le"
+          ? sourceText(read, thread, TextSource.parse(segment.source), segment.text)
+          : outputText(read, thread, { ...segment.source, tail: segment.text, truncated: true });
       window = appendWindow(window, text);
     }
     return SearchReplayItem.parse({

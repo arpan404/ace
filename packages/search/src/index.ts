@@ -18,7 +18,7 @@ import { querySearch } from "./query.ts";
 import type { OutputReader } from "./output.ts";
 export type { OutputReader } from "./output.ts";
 export { FIELD_CAP, GAP, appendWindow, windowText } from "./text.ts";
-export { outputText } from "./output.ts";
+export { outputText, sourceText } from "./output.ts";
 export { SearchReplayItem, SearchReplayEvent } from "./replay.ts";
 import type { SearchReplayEvent } from "./replay.ts";
 

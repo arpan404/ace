@@ -45,7 +45,16 @@ export class HistoryIndex {
     archiveOutput: ArchiveOutput,
   ) {
     this.db = db;
-    this.searchReplay = new HistorySearchReplay(db);
+    this.searchReplay = new HistorySearchReplay(db, {
+      source: (thread, item, stream, through) => {
+        const source = this.latest(stream, through);
+        if (!source) return;
+        if (source.thread_id !== thread || source.item_id !== item)
+          throw new Error("search_replay_source_owner");
+        return { bytes: source.size, encoding: source.encoding };
+      },
+      read: (_thread, stream, offset, limit) => this.readBytes(stream, offset, limit).bytes,
+    });
     this.statement = statement;
     this.readBytes = readBytes;
     this.archiveOutput = archiveOutput;
@@ -149,7 +158,7 @@ export class HistoryIndex {
     ).get(itemId, through);
     if (!size) return;
     if (Number(size.bytes) > maxBytes)
-      return this.searchReplay.item(threadId, itemId, Number(size.seq));
+      return this.searchReplay.item(threadId, itemId, Number(size.seq), through);
     const item = this.itemAt(itemId, through);
     return item ? this.preview(threadId, item, through) : undefined;
   }
