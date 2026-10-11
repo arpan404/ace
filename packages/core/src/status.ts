@@ -390,13 +390,17 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
 export function recomputeStatuses(state: ThreadState, now: number, events: EventPayload[]): void {
   state.statusObservedAt = now;
   const resolve = statusResolver(state, now);
+  const relevant = completionRelevance(state, resolve);
   for (const [key, record] of Object.entries(state.agents)) {
     const status = resolve(key);
-    if (equal(record.agent.status, status)) continue;
+    const completionRelevant = relevant(key);
+    if (equal(record.agent.status, status) && record.completionRelevant === completionRelevant)
+      continue;
     if (isSettled(record.agent.status) && !isSettled(status))
       announceAgentBranch(state, key, events);
     record.agent.status = status;
-    emit(events, { type: "agent.status", agentId: record.agent.id, status });
+    record.completionRelevant = completionRelevant;
+    emit(events, { type: "agent.status", agentId: record.agent.id, status, completionRelevant });
   }
   const status = deriveThreadStatus(state);
   if (equal(state.status, status)) return;

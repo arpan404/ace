@@ -59,6 +59,14 @@ export class LongThreadDatabase {
       CREATE TABLE IF NOT EXISTS long_range_file_members(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(thread_id,item_id,path));
       INSERT OR IGNORE INTO long_range_migration SELECT 1,0,seq,'','',0 FROM long_meta WHERE id=1;
     `);
+    const agentColumns = new Set(
+      db
+        .prepare("PRAGMA table_info(long_agents)")
+        .all()
+        .map((row) => z.object({ name: z.string() }).parse(row).name),
+    );
+    if (!agentColumns.has("completion_relevant"))
+      db.exec("ALTER TABLE long_agents ADD COLUMN completion_relevant INTEGER NOT NULL DEFAULT 1");
   }
   sql(text: string): StatementSync {
     let statement = this.statements.get(text);
