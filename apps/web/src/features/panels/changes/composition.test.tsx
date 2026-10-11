@@ -36,13 +36,18 @@ async function openChanges(app = harness()) {
   app.daemon.apply(threadId, edit("current", current));
   const mounted = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await app.client.request({
     type: "files.request",
     threadId,
     operation: { op: "create", path, expected: null, text: current },
   });
-  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const restoredPanel = screen.queryByRole("region", { name: "Thread panel" });
+  if (restoredPanel) {
+    await userEvent.click(within(restoredPanel).getByRole("tab", { name: /^Changes/ }));
+  } else {
+    await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
+    await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  }
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("region", { name: path });
   return { app, panel, mounted };
@@ -63,8 +68,10 @@ test("a saved-comment editor in another tab cannot revive a discarded comment af
 
   const appB = harness({ storage: storageB });
   const servicesB = await panelServices(appB.client);
-  let reconcile = () => { throw new Error("No storage subscription"); };
-  persistReview(servicesB, storageB, (changed) => { reconcile = changed; });
+  let reconcile: (() => void) | undefined;
+  persistReview(servicesB, storageB, (changed) => {
+    reconcile = changed;
+  });
   const b = await openChanges(appB);
   const blockB = within(b.panel).getByRole("region", { name: path });
   await userEvent.click(within(blockB).getByRole("button", { name: "Edit" }));
@@ -74,12 +81,20 @@ test("a saved-comment editor in another tab cannot revive a discarded comment af
   // Independent storage views deliver cross-tab changes only when their subscription fires.
   discardDraft(servicesA.drafts, target.key);
   saveDraft(servicesA.drafts, { ...target, key: "unrelated", text: "Keep the unrelated finding" });
-  await act(() => reconcile());
-  await waitFor(() => expect(within(blockB).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull());
+  await act(() => {
+    if (!reconcile) throw new Error("No storage subscription");
+    reconcile();
+  });
+  await waitFor(() =>
+    expect(within(blockB).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull(),
+  );
   expect(within(b.panel).queryByRole("button", { name: /Resume .*Unsaved edit in B/ })).toBeNull();
   await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
   await userEvent.click(within(blockB).getByRole("button", { name: "Comment on line 2" }));
-  expect(within(blockB).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty("value", "");
+  expect(within(blockB).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "",
+  );
   // Reopening another tab proves the discarded edit did not acquire a fresh durable identity.
   const reload = await panelServices(harness().client);
   persistReview(reload, { ...shared }, () => {});
@@ -98,11 +113,110 @@ test("discarding a saved comment removes its retained unsaved edit and leaves an
   await userEvent.type(editing, "Retained edit to discard");
   await begin(block, "Keep this other composition", "const b = 5;");
   await userEvent.click(within(block).getByRole("button", { name: "Discard" }));
-  expect(within(panel).queryByRole("button", { name: /Resume .*Retained edit to discard/ })).toBeNull();
-  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty("value", "Keep this other composition");
+  expect(
+    within(panel).queryByRole("button", { name: /Resume .*Retained edit to discard/ }),
+  ).toBeNull();
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Keep this other composition",
+  );
   await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
   expect(within(block).getAllByRole("article")).toHaveLength(1);
   expect(within(block).getByText("Keep this other composition")).toBeTruthy();
+}, 30000);
+
+test("repeated empty selections leave only the current editor while preserving a written suggestion", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await begin(block, "Keep the written work", "const b = 4;");
+  for (let index = 0; index < 40; index++) {
+    const line = index % 2 === 0 ? 1 : 3;
+    await userEvent.click(within(block).getByRole("button", { name: `Comment on line ${line}` }));
+  }
+  expect(within(panel).getAllByRole("button", { name: /^Resume / })).toHaveLength(1);
+  expect(within(block).getByRole("textbox", { name: "Comment on line 3" })).toHaveProperty(
+    "value",
+    "",
+  );
+  await userEvent.click(
+    within(panel).getByRole("button", { name: /Resume .*Keep the written work/ }),
+  );
+  expect(within(panel).queryByRole("button", { name: /^Resume / })).toBeNull();
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Keep the written work",
+  );
+  expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+    "value",
+    "const b = 4;",
+  );
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  expect(within(block).getByText("Keep the written work")).toBeTruthy();
+}, 30000);
+
+test("the composition limit refuses a new selection while keeping written work editable and releases space after save", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  for (let number = 1; number <= 32; number++) {
+    await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+    await userEvent.type(
+      within(block).getByRole("textbox", { name: "Comment on line 2" }),
+      `Keep ${number}`,
+    );
+  }
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 1" }));
+  expect(within(panel).getByRole("alert").textContent).toBe(
+    "Save or cancel an unfinished comment before starting another.",
+  );
+  expect(within(panel).getAllByRole("button", { name: /^Resume / })).toHaveLength(31);
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Keep 32",
+  );
+  await userEvent.type(
+    within(block).getByRole("textbox", { name: "Comment on line 2" }),
+    " edited",
+  );
+  await userEvent.click(within(panel).getByRole("button", { name: /Resume .*Keep 1$/ }));
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Keep 1",
+  );
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  expect(within(block).getByRole("article").textContent).toContain("Keep 1");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 1" }));
+  expect(within(block).getByRole("textbox", { name: "Comment on line 1" })).toHaveProperty(
+    "value",
+    "",
+  );
+  expect(within(panel).queryByRole("alert")).toBeNull();
+  await userEvent.click(within(block).getByRole("button", { name: "Cancel" }));
+  await userEvent.click(within(panel).getByRole("button", { name: /Resume .*Keep 32 edited$/ }));
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Keep 32 edited",
+  );
+}, 30000);
+
+test("an unfinished deletion suggestion survives abandoning an otherwise blank comment", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  await userEvent.click(within(block).getByRole("button", { name: "Suggest change" }));
+  await userEvent.clear(within(block).getByRole("textbox", { name: "Suggested change" }));
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 1" }));
+  await userEvent.click(within(panel).getByRole("button", { name: /Resume .*unfinished comment/ }));
+  expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+    "value",
+    "",
+  );
+  await userEvent.type(
+    within(block).getByRole("textbox", { name: "Comment on line 2" }),
+    "Remove this line",
+  );
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  expect(within(block).getByRole("article").textContent).toContain("Remove this line");
+  expect(within(block).getByLabelText("Suggested change").textContent?.trim()).toBe("");
 }, 30000);
 async function pickScope(panel: HTMLElement, name: string) {
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));

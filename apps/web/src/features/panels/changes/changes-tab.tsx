@@ -20,7 +20,7 @@ import {
 } from "./drafts.ts";
 import { displayedSelection } from "./displayed-selection.ts";
 import { applySuggestion, setReviewStatus } from "./review-actions.ts";
-import { beginComposition, updateComposition } from "./compositions.ts";
+import { beginComposition, updateComposition, type ReviewComposition } from "./compositions.ts";
 import { CompositionEditor } from "./composition-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { FileActions } from "./file-actions.tsx";
@@ -85,6 +85,13 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   );
   const composing = compositionState.entries.get(compositionState.active.get(threadId) ?? "");
   const [reselecting, setReselecting] = useState<string>();
+  const [compositionError, setCompositionError] = useState<string>();
+  const startComposition = (entry: ReviewComposition) => {
+    const accepted = beginComposition(services.compositions, entry);
+    setCompositionError(
+      accepted ? undefined : "Save or cancel an unfinished comment before starting another.",
+    );
+  };
   useEffect(() => {
     if (
       composing &&
@@ -207,8 +214,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         setSelectedComment(undefined);
         setReselecting(undefined);
         const retained = unfinished.find((entry) => entry.key === draft.key);
-        beginComposition(
-          services.compositions,
+        startComposition(
           retained ?? {
             id: crypto.randomUUID(),
             threadId,
@@ -287,7 +293,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           if (composing && reselecting === composing.id) {
             updateComposition(services.compositions, composing.id, evidence);
           } else {
-            beginComposition(services.compositions, {
+            startComposition({
               ...evidence,
               id: crypto.randomUUID(),
               threadId,
@@ -376,6 +382,11 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           setSelectedComment(draft.key);
         }}
       />
+      {compositionError && (
+        <p role="alert" className="shrink-0 border-b px-2.5 py-2 text-sm text-subtle-foreground">
+          {compositionError}
+        </p>
+      )}
       {unfinished.some((entry) => entry.id !== composing?.id) && (
         <div
           aria-label="Unfinished review comments"
@@ -390,7 +401,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
                 variant="ghost"
                 onClick={() => {
                   setReselecting(undefined);
-                  beginComposition(services.compositions, entry);
+                  startComposition(entry);
                 }}
               >
                 Resume {entry.file}: {entry.text.slice(0, 80) || "unfinished comment"}

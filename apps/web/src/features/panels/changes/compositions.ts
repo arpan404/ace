@@ -22,11 +22,26 @@ export interface Compositions {
   active: ReadonlyMap<string, string>;
 }
 
-export function beginComposition(store: LocalStore<Compositions>, entry: ReviewComposition): void {
-  store.set((previous) => ({
-    entries: new Map(previous.entries).set(entry.id, entry),
-    active: new Map(previous.active).set(entry.threadId, entry.id),
-  }));
+/** At most 32 editors per client. Written work is never evicted to admit another selection. */
+const capacity = 32;
+
+export function beginComposition(
+  store: LocalStore<Compositions>,
+  entry: ReviewComposition,
+): boolean {
+  const previous = store.get();
+  const entries = new Map(
+    [...previous.entries].filter(
+      ([id, retained]) =>
+        id === entry.id || retained.text.trim().length > 0 || retained.suggestion !== undefined,
+    ),
+  );
+  if (!entries.has(entry.id) && entries.size >= capacity) return false;
+  entries.set(entry.id, entry);
+  const active = new Map([...previous.active].filter(([, id]) => entries.has(id)));
+  active.set(entry.threadId, entry.id);
+  store.set(() => ({ entries, active }));
+  return true;
 }
 
 export function updateComposition(
