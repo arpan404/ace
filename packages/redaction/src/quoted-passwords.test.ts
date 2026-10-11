@@ -22,3 +22,26 @@ it("a quoted credential crossing stream chunk boundaries preserves surrounding t
   const text = `${prefix}password="${secret}" after`;
   expect([...createStreamingRedactor({})(text)].join("")).toBe(`${prefix}<SECRET> after`);
 });
+
+it.each(["Authorization", "OPAQUE_HEADER"])(
+  "environment match %s cannot shorten a quoted credential",
+  (value) => {
+    const context = { env: { CUSTOM: value } };
+    const text = 'before Authorization: "OPAQUE_HEADER_CREDENTIAL" after';
+    expect(createTextRedactor(context)(text)).toBe("before <SECRET> after");
+    expect(createDiagnosticRedactor(context)(text)).toBe("before <SECRET> after");
+    expect(JSON.parse(createRedactor(context)(JSON.stringify({ message: text })))).toEqual({
+      message: "before <SECRET> after",
+    });
+    expect([...createStreamingRedactor(context)(text)].join("")).toBe("before <SECRET> after");
+  },
+);
+
+it("escaped configured secrets crossing a streaming boundary remain private", () => {
+  const value = 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right';
+  const prefix = "A".repeat(4090);
+  const text = prefix + JSON.stringify(value).slice(1, -1) + " after";
+  expect([...createStreamingRedactor({ env: { CUSTOM: value } })(text)].join("")).toBe(
+    `${prefix}<ENV> after`,
+  );
+});

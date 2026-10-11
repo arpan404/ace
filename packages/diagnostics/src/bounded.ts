@@ -1,4 +1,3 @@
-import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { isSecretKey } from "@ace/redaction";
 import { errorSummary, ownData } from "./error-summary.ts";
 class Fields {
@@ -12,8 +11,8 @@ export function logFields(entries: readonly (readonly [string, unknown])[]): obj
   return new Fields(entries);
 }
 /** Prepare a bounded, sanitized error summary without enumerating external payloads. */
-export function logError(error: unknown): object {
-  const summary = errorSummary(error);
+export function logError(error: unknown, redact?: (text: string) => string): object {
+  const summary = errorSummary(error, redact);
   return logFields([
     ["message", summary.message],
     ...(summary.code === undefined ? [] : [["code", summary.code] as const]),
@@ -50,6 +49,7 @@ function* metadataFields(input: object): Iterable<readonly [string, unknown]> {
 function normalize(
   value: unknown,
   fields: (input: object) => Iterable<readonly [string, unknown]>,
+  redactText?: (text: string) => string,
 ): unknown {
   let remaining = 64;
   let characters = 4096;
@@ -59,13 +59,14 @@ function normalize(
     if (typeof input === "string") {
       if (input.length > 2048 || input.length > characters) return "<OVERSIZED>";
       characters -= input.length;
-      return input;
+      const safe = redactText ? redactText(input) : input;
+      return safe.length > 2048 ? "<OVERSIZED>" : safe;
     }
     if (input === null || typeof input === "number" || typeof input === "boolean") return input;
     if (typeof input !== "object") return "<UNSUPPORTED>";
     if (seen.has(input)) return "<CYCLE>";
     seen.add(input);
-    if (input instanceof Error) return visit(logError(input), depth + 1);
+    if (input instanceof Error) return visit(logError(input, redactText), depth + 1);
     if (Array.isArray(input)) {
       const length = own(input, "length");
       if (typeof length !== "number") return "<INVALID ARRAY>";
@@ -113,14 +114,12 @@ function normalize(
 export function bounded(value: unknown): unknown {
   return normalize(value, producerFields);
 }
-export function boundedMetadata(value: unknown): unknown {
-  return normalize(value, metadataFields);
+export function boundedMetadata(value: unknown, redactText?: (text: string) => string): unknown {
+  return normalize(value, metadataFields, redactText);
 }
 
-const redactMetadata = createDiagnosticRedactor({});
-
 /** Bounded evidence for nested external metadata; redaction precedes serialization. */
-export function logMetadata(value: unknown): string {
-  const json = redactMetadata(JSON.stringify(boundedMetadata(value)) ?? "null");
+export function logMetadata(value: unknown, redact: (text: string) => string): string {
+  const json = redact(JSON.stringify(boundedMetadata(value, redact)) ?? "null");
   return json.length > 2000 ? json.slice(0, 1980) + "<TRUNCATED>" : json;
 }

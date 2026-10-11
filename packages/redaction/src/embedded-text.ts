@@ -1,4 +1,4 @@
-import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
+import { sensitiveSpans } from "./literal-spans.ts";
 
 /** One forward scan; malformed embedded records omit the remaining text. */
 export function redactEmbeddedText(
@@ -11,22 +11,15 @@ export function redactEmbeddedText(
   // Match original prose before JSON serialization changes whitespace or escapes.
   // Records are still decoded from their original bytes so environment values
   // matching a key cannot hide its credential-container classification.
-  const scans = [
-    ...(environment ? [{ pattern: environment, replacement: "<ENV>" }] : []),
-    { pattern: QUOTED_SECRET_ASSIGNMENT, replacement: "<SECRET>" },
-  ].map(({ pattern, replacement }) => {
-    const regex = new RegExp(pattern.source, pattern.flags);
-    return { regex, replacement, match: regex.exec(text) };
-  });
+  const spans = sensitiveSpans(text, environment)[Symbol.iterator]();
+  let sensitive = spans.next().value;
   const parts: string[] = [];
   let plain = 0;
   for (let start = 0; start < text.length; start++) {
-    for (const scan of scans)
-      while (scan.match && scan.match.index < start) scan.match = scan.regex.exec(text);
-    const sensitive = scans.find((scan) => scan.match?.index === start);
-    if (sensitive?.match) {
+    while (sensitive && sensitive.start < start) sensitive = spans.next().value;
+    if (sensitive?.start === start) {
       parts.push(scrubPlain(text.slice(plain, start)), sensitive.replacement);
-      start += sensitive.match[0].length - 1;
+      start = sensitive.end - 1;
       plain = start + 1;
       continue;
     }
@@ -53,6 +46,20 @@ export function redactEmbeddedText(
       } else if (char === "}" || char === "]") {
         if (stack.pop() !== char || !stack.length) break;
       }
+    }
+    let crossing: typeof sensitive;
+    while (sensitive && sensitive.start <= end) {
+      if (sensitive.end > end + 1) {
+        crossing = sensitive;
+        break;
+      }
+      sensitive = spans.next().value;
+    }
+    if (crossing) {
+      parts.push(crossing.replacement);
+      start = crossing.end - 1;
+      plain = start + 1;
+      continue;
     }
     const record = text.slice(start, end + 1);
     try {

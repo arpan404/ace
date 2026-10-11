@@ -1,4 +1,4 @@
-import { bounded } from "./bounded.ts";
+import { bounded, logMetadata } from "./bounded.ts";
 export type Level = "debug" | "info" | "warn" | "error";
 export interface LogRecord {
   at: number;
@@ -110,6 +110,7 @@ export function createLogger(options: LoggerOptions) {
   }
   return {
     ...componentLogger("ace"),
+    metadata: (value: unknown) => logMetadata(value, options.redact),
     stats: () => ({ dropped, failed, queued: size + inFlight }),
     recent() {
       const lines: string[] = [];

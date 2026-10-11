@@ -1,4 +1,6 @@
 import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
+import { redactOriginalText } from "./literal-spans.ts";
+import { redactRecordEnvironment } from "./record-environment.ts";
 
 export type RedactionContext = {
   workspace?: string | undefined;
@@ -126,14 +128,13 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
   const environment = environmentPattern(ctx);
   return (line: string): string => {
     if (shortValues.has(line)) return "<ENV>";
-    let out = line;
+    let out = redactOriginalText(line, environment);
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
     out = out.replace(/(\bfile:\/\/[^/\s"'<>]*)\/(?:Users|home)\/[^/\s"'<>?#]+/gi, "$1<HOME>");
     out = out.replace(/(?<![\w./\\-])\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
     out = out.replace(/\/(?:private\/)?var\/folders\/[^/\s"'<>]+\/[^/\s"'<>]+\/[TC]\//g, "<TEMP>/");
-    if (environment) out = out.replace(environment, "<ENV>");
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
     out = out.replace(
@@ -181,7 +182,8 @@ export function createRedactor(
 ): (line: string) => string {
   const literalFields = new Set(literalTextFields);
   const scrub = createLexicalRedactor(ctx);
-  const environment = redactText ? environmentPattern(ctx) : undefined;
+  const environment = environmentPattern(ctx);
+  const knownValues = new Set(sensitiveEnvironment(ctx).map(([, value]) => value));
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
   return (line) => {
@@ -195,13 +197,21 @@ export function createRedactor(
           return redactText(
             value,
             scrub,
-            (record) => JSON.stringify(clean(JSON.parse(record), depth + 1)),
+            (record) =>
+              JSON.stringify(
+                clean(
+                  JSON.parse(redactRecordEnvironment(record, environment, knownValues)),
+                  depth + 1,
+                ),
+              ),
             environment,
           );
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
-            const embedded: unknown = JSON.parse(value);
+            const embedded: unknown = JSON.parse(
+              redactRecordEnvironment(value, environment, knownValues),
+            );
             return JSON.stringify(clean(embedded, depth + 1));
           } catch {
             return "<INVALID STRUCTURED DATA OMITTED>";
@@ -236,7 +246,10 @@ export function createRedactor(
         return redactText(
           line,
           scrub,
-          (record) => JSON.stringify(clean(JSON.parse(record), 0)),
+          (record) =>
+            JSON.stringify(
+              clean(JSON.parse(redactRecordEnvironment(record, environment, knownValues)), 0),
+            ),
           environment,
         );
       } catch {
@@ -245,7 +258,7 @@ export function createRedactor(
     }
     let value: unknown;
     try {
-      value = JSON.parse(line);
+      value = JSON.parse(redactRecordEnvironment(line, environment, knownValues));
     } catch {
       // A damaged structured record must never fall back to weaker lexical rules.
       if (/^\s*[[{"]/.test(line)) return '"<INVALID STRUCTURED DATA OMITTED>"';
@@ -262,7 +275,7 @@ export function createRedactor(
 /** Preserve token matches across bounded chunks without rescanning the remaining text. */
 export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
   const scrub = createTextRedactor(ctx);
-  const values = sensitiveEnvironment(ctx).map(([, value]) => value);
+  const environment = environmentPattern(ctx);
   const sources = [
     ...SECRETS,
     QUOTED_SECRET_ASSIGNMENT,
@@ -271,7 +284,7 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
     /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
     /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
     /([#&](?:code|ticket|token)=)[^&#\s]+/gi,
-    ...(values.length ? [new RegExp(values.map(escape).join("|"), "g")] : []),
+    ...(environment ? [environment] : []),
   ];
   return function* (text: string) {
     const scans = sources.map((pattern) => {
