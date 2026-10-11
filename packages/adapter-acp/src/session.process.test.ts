@@ -127,7 +127,10 @@ it("passive completed child tool refreshes leave the next root prompt deliverabl
     expect(projection.state.status.state).toBe("done");
     const next = h.session.send(input("next"), "queue");
     void next.catch(() => {});
-    const delivered = await Promise.race([next.then(() => true), waitDelay(1000).then(() => false)]);
+    const delivered = await Promise.race([
+      next.then(() => true),
+      waitDelay(1000).then(() => false),
+    ]);
     expect(delivered).toBe(true);
     expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(2);
   } finally {

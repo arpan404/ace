@@ -292,6 +292,7 @@ class AcpTranslator implements Translator {
         retireTool(s, tool);
         return true;
       }
+      if (retainedRaw) s.notice(facts, frame, "session/update", undefined, agent);
       if (!tool.task && (priorStatus === undefined || live || !tool.finalized))
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
       s.finishStream(agent, facts);

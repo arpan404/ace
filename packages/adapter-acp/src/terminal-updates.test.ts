@@ -126,6 +126,32 @@ it("permission denial assembles every streamed input field in the declined snaps
   expectArguments(h);
 });
 
+it("opaque metadata on a retired tool survives in diagnostics while canonical input history stays intact", () => {
+  const h = mcp();
+  h.update({ sessionUpdate: "tool_call_update", toolCallId: "mcp", status: "completed" });
+  end(h);
+  const originalRaw = JSON.stringify(required(h.tools()[0]).call.raw);
+  const before = h.diagnostics.length;
+  h.update({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "mcp",
+    _meta: {
+      vendor: { opaque: "must survive" },
+      mcp: { server: "updated-server", tool: "updated-tool" },
+    },
+  });
+  expect(JSON.stringify(h.diagnostics.slice(before))).toContain(
+    '"vendor":{"opaque":"must survive"}',
+  );
+  expect(JSON.stringify(required(h.tools()[0]).call.raw)).toBe(originalRaw);
+  expectArguments(h);
+  expect(required(h.tools()[0]).call.detail).toMatchObject({
+    server: "updated-server",
+    tool: "updated-tool",
+  });
+  expect(h.state.status.state).toBe("done");
+});
+
 function completedRefreshBytes(fields: number) {
   const h = harness(antigravityQuirks);
   h.ready();
