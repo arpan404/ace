@@ -1,5 +1,5 @@
 import {
-  Automation,
+  type Automation,
   AutomationEvent,
   AutomationRequest,
   type AutomationResponse,
@@ -7,6 +7,7 @@ import {
 } from "@ace/protocol";
 import { type Dependencies, type ExecutionInput } from "./contracts.ts";
 import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
+import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
 import { pollGithub } from "./github.ts";
@@ -147,7 +148,7 @@ export class AutomationService {
     }
   }
   put(input: unknown): Automation {
-    const automation = Automation.parse(input);
+    const automation = normalizeAutomation(input);
     const existing = this.store.definition(automation.id);
     if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
       if (this.runtime.needsWatch(automation))
