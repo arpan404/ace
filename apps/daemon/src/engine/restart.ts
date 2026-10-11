@@ -143,7 +143,10 @@ export function recoverEngine(
       }
       if (intent.status === "running" || intent.awaiting) {
         if (
-          ["thread.send", "thread.create", "thread.fork"].includes(intent.kind) &&
+          [
+            "thread.send", "thread.create", "thread.fork",
+            "thread.resume", "queue.resume", "thread.limit",
+          ].includes(intent.kind) &&
           intent.submittedGeneration === undefined &&
           !intent.acknowledged
         ) {
@@ -152,6 +155,7 @@ export function recoverEngine(
         }
         if (
           !intent.acknowledged &&
+          intent.submittedGeneration !== undefined &&
           [
             "thread.send",
             "thread.create",
