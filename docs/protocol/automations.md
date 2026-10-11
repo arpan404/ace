@@ -30,19 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
+  "concurrency": 5,
   "enabled": true,
   "id": "example",
-  "jitterMs": 4,
+  "jitterMs": 9,
   "missedRun": "run_once",
+  "permissionMode": "example",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "pi",
   "title": "example",
   "trigger": {
     "kind": "schedule",
     "schedule": {
       "expression": "example",
-      "kind": "cron",
+      "kind": "rrule",
       "startAt": 0,
       "timezone": "example"
     }
@@ -83,7 +84,7 @@ Example:
 
 ```json
 {
-  "before": 7,
+  "before": null,
   "runs": []
 }
 ```
@@ -101,7 +102,7 @@ Example:
 
 ```json
 {
-  "at": 7,
+  "at": 3,
   "message": "example"
 }
 ```
@@ -123,14 +124,15 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 5,
-    "enabled": false,
+    "concurrency": 3,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 6,
     "missedRun": "run_once",
     "model": "example",
+    "permissionMode": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -214,7 +216,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
+  "before": 1,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -239,6 +242,7 @@ Example:
 
 ```json
 {
+  "automations": [],
   "ok": true,
   "requestId": "example",
   "type": "automation.result"
@@ -268,13 +272,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 4,
+  "finishedAt": 0,
   "id": "example",
-  "result": "example",
-  "startedAt": 8,
-  "status": "running",
+  "startedAt": 9,
+  "status": "skipped",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "manual"
 }
 ```
 
@@ -332,7 +335,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -354,10 +357,12 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60008,
-  "repository": "yAXh/nG-47YsQ"
+  "label": "example",
+  "pollIntervalMs": 60003,
+  "pullRequest": 1,
+  "repository": "2HoYK.xzOOR/2"
 }
 ```
 
