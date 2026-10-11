@@ -1,0 +1,101 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReviewState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "canComment": {
+      "type": "boolean"
+    },
+    "canReview": {
+      "type": "boolean"
+    },
+    "drafts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeReviewDraft.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "operations": {
+      "items": {
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "accepted",
+              "uncertain"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "resolvableThreads": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "viewed": {
+      "anyOf": [
+        {
+          "items": {
+            "properties": {
+              "path": {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              "state": {
+                "maxLength": 100,
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "state"
+            ],
+            "type": "object"
+          },
+          "maxItems": 3000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "viewer": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "viewer",
+    "headSha",
+    "drafts",
+    "viewed",
+    "canReview",
+    "canComment",
+    "resolvableThreads",
+    "operations"
+  ],
+  "type": "object"
+}

@@ -32,6 +32,8 @@ export function forgeError(code: string): string {
     forge_write_pending: "An action is still running for this PR. Refresh before continuing.",
     forge_write_uncertain:
       "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
+    action_outcome_uncertain:
+      "GitHub may have accepted this action. Reconcile the write before retrying; your draft is retained.",
     forge_cli: "GitHub is unavailable. Check your connection and installed gh CLI, then refresh.",
     forge_forbidden:
       "This account cannot access the repository. Check gh login and repository permissions.",

@@ -1,0 +1,291 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReviewAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "reconcile",
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "operationId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "draft": {
+          "$ref": "https://ace.local/protocol/v1/ForgeReviewDraft.json"
+        },
+        "kind": {
+          "const": "draft.save",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "draft"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "draft.delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "type": "string"
+        },
+        "draftIds": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "event": {
+          "enum": [
+            "COMMENT",
+            "APPROVE",
+            "REQUEST_CHANGES"
+          ],
+          "type": "string"
+        },
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "submit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "headSha",
+        "event",
+        "body",
+        "draftIds"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "conversation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "expectedBody": {
+          "maxLength": 60000,
+          "type": "string"
+        },
+        "kind": {
+          "const": "comment.edit",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "inline"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId",
+        "source",
+        "expectedBody",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "expectedBody": {
+          "maxLength": 60000,
+          "type": "string"
+        },
+        "kind": {
+          "const": "comment.delete",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "issue",
+            "inline"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId",
+        "source",
+        "expectedBody"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "thread.resolve",
+          "type": "string"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "thread.unresolve",
+          "type": "string"
+        },
+        "threadId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file.view",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "headSha"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "file.unview",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "headSha"
+      ],
+      "type": "object"
+    }
+  ]
+}

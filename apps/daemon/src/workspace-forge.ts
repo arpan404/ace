@@ -1,3 +1,4 @@
+import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import {
   GitHubForge,
   ForgeError,
@@ -27,6 +28,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 export class WorkspaceForge {
   private store: Store;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
@@ -41,6 +43,7 @@ export class WorkspaceForge {
     runner: (cwd: string) => CommandRunner,
   ) {
     this.store = store;
+    this.reviews = new WorkspaceForgeReviews(store);
     this.git = git;
     this.now = now;
     this.runner = runner;
@@ -74,6 +77,11 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
+    if (operation.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: await this.reviews.state({ repository, number: operation.number }, backend, signal),
+      };
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -411,6 +419,23 @@ export class WorkspaceForge {
     const status = value.status;
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
+  }
+  async hostedReview(
+    input: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedReviewCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = input.payload;
+    await this.reviews.execute(
+      p,
+      input.id,
+      this.backend(cwd, p.pr.repository),
+      this.lifetime.signal,
+      allowed,
+    );
+    return { ok: true };
   }
   close(): void {
     this.lifetime.abort();

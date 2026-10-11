@@ -10,6 +10,7 @@
     "./preview": "./src/preview.ts",
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
+    "./forge-review": "./src/forge-review.ts",
     "./forge-browser": "./src/forge-browser.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",

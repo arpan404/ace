@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./review-anchor": "./src/review-anchor.ts",
     "./pr-reference": "./src/pr-reference.ts",
     "./testing": "./src/testing/fixtures.ts"
   },
