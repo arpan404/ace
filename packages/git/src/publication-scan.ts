@@ -15,7 +15,7 @@ export async function scanPublication(cli: GitCli, input: {
   const read = async (args: string[], stdin?: string, capacity = metadataLimit) => {
     input.guard?.(); input.signal.throwIfAborted();
     const result = await cli.call(input.worktree, args, {
-      directoryFd: input.directoryFd, signal: input.signal, captureBytes: capacity,
+      directoryFd: input.directoryFd, signal: input.signal, captureBytes: capacity, beforeSpawn: input.guard,
       ...(stdin === undefined ? {} : { input: stdin }),
       env: { GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0",
         GCM_INTERACTIVE: "never", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },

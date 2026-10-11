@@ -4,7 +4,7 @@ import { projectInfo, validateCloneUrl, type ProjectGitPolicy } from "./projects
 import { GitError } from "./types.ts";
 import { hash } from "./decode.ts";
 
-export type PublicationGitInput = { worktree: string; directoryFd: number; signal: AbortSignal };
+export type PublicationGitInput = { worktree: string; directoryFd: number; signal: AbortSignal; guard?: () => void };
 export async function publicationInfo(repository: Repository, input: PublicationGitInput) {
   const info = await projectInfo(repository.cli, input.worktree, input.directoryFd, input.signal);
   const head = await repository.cli.call(input.worktree, ["rev-parse", "--verify", "HEAD"], {
@@ -34,7 +34,9 @@ export async function attachPublicationOrigin(
 ): Promise<void> {
   validateCloneUrl(input.url);
   await repository.serial(input.worktree, async () => {
+    input.guard?.();
     const info = await publicationInfo(repository, input);
+    input.guard?.();
     if (info.root !== input.worktree)
       throw new GitError("invalid_argument", "Publish the repository root");
     if (info.remotes.some((entry) => entry.name === "origin")) {
@@ -45,6 +47,7 @@ export async function attachPublicationOrigin(
       directoryFd: input.directoryFd,
       signal: input.signal,
       write: true,
+      beforeSpawn: input.guard,
     });
   });
 }
@@ -55,7 +58,9 @@ export async function pushPublication(
 ): Promise<"empty" | "pushed"> {
   validateCloneUrl(input.url);
   return repository.serial(input.worktree, async () => {
+    input.guard?.();
     const info = await publicationInfo(repository, input);
+    input.guard?.();
     if (!publicationOriginMatches(info.remotes, input.url))
       throw new GitError("invalid_argument", "Publication origin changed");
     if (!info.head) return "empty";
@@ -77,6 +82,7 @@ export async function pushPublication(
         directoryFd: input.directoryFd,
         signal: input.signal,
         write: true,
+        beforeSpawn: input.guard,
         timeoutMs: 120_000,
         captureBytes: 65536,
         env: {

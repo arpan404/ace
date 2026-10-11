@@ -22,11 +22,16 @@ export class RepositoryPublications {
   private store: Store;
   private source: SourceControl;
   private now: () => number;
-  private flights = new Map<string, { device: string; controller: AbortController }>();
+  private flights = new Map<string, { device: string; controller: AbortController; git: boolean }>();
+  private stopPreferences: () => void;
   constructor(store: Store, source: SourceControl, now: () => number) {
     this.store = store;
     this.source = source;
     this.now = now;
+    this.stopPreferences = source.listen(() => {
+      for (const flight of this.flights.values()) if (flight.git)
+        flight.controller.abort(new ForgeError("preferences_changed"));
+    });
     store.atomic((db) =>
       db.exec(
         "CREATE TABLE IF NOT EXISTS repository_publications (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), record TEXT NOT NULL)",
@@ -62,6 +67,7 @@ export class RepositoryPublications {
       if (flight.device === device) flight.controller.abort();
   }
   close(): void {
+    this.stopPreferences();
     for (const flight of this.flights.values()) flight.controller.abort();
   }
   async publish(
@@ -78,7 +84,8 @@ export class RepositoryPublications {
     const value = RepositoryPublishInput.parse(input);
     const publication = publicationIntent(this.record(id), device, value, id, this.now());
     const controller = new AbortController();
-    this.flights.set(id, { device, controller });
+    const flight = { device, controller, git: false };
+    this.flights.set(id, flight);
     const signal = controller.signal;
     let checkIdentity: (() => void) | undefined;
     const check = () => {
@@ -100,7 +107,7 @@ export class RepositoryPublications {
         runner: identity.runner,
         now: this.now,
       });
-      const gitInput = { worktree: directory.path, directoryFd: directory.handle.fd, signal };
+      const gitInput = { worktree: directory.path, directoryFd: directory.handle.fd, signal, guard: check };
       const info = await git.publicationInfo(gitInput);
       check();
       if (info.root !== directory.path) throw new Error("publication_requires_repo_root");
@@ -170,6 +177,8 @@ export class RepositoryPublications {
         !publicationRemoteMatches(value, reconciled)
       )
         throw new Error("publication_remote_changed");
+      flight.git = true;
+      check();
       await git.attachPublicationOrigin({ ...gitInput, url: created.cloneUrl });
       check();
       publication.phase = "origin_added";
@@ -189,7 +198,9 @@ export class RepositoryPublications {
       this.save(device, publication);
       return publication;
     } catch (error) {
-      publication.error = signal.aborted ? "publication_cancelled" : publicationError(error);
+      publication.error = signal.reason instanceof ForgeError
+        ? publicationError(signal.reason)
+        : signal.aborted ? "publication_cancelled" : publicationError(error);
       this.save(device, publication);
       return publication;
     } finally {
