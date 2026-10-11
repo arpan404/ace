@@ -121,7 +121,11 @@ export class WorkspaceForgeActions {
             }
           : {}),
       };
-      const dispatch = new WriteDispatch(() => this.save(key, receipt));
+      const dispatch = new WriteDispatch(() => {
+        signal.throwIfAborted();
+        if (!allowed()) throw new ForgeError("forbidden", undefined, false);
+        this.save(key, receipt);
+      });
       try {
         if (action.type === "forge.comment.reply")
           await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);

@@ -240,41 +240,4 @@ export class GhApi {
     if (result.code !== 0) throw new ForgeError("cli");
     return { text: result.stdout, truncated: result.truncated };
   }
-  async autoMerge(
-    repo: string,
-    number: number,
-    sha: string,
-    method: "merge" | "squash" | "rebase",
-    signal: AbortSignal,
-    dispatch?: WriteDispatch,
-  ): Promise<void> {
-    this.#cache.clear();
-    this.#cacheBytes = 0;
-    dispatch?.begin();
-    let result;
-    try {
-      result = await this.#runner({
-        command: this.#command,
-        args: [
-          "pr",
-          "merge",
-          String(number),
-          "--repo",
-          repo,
-          "--auto",
-          `--${method}`,
-          "--match-head-commit",
-          sha,
-        ],
-        signal,
-        mode: "json",
-      });
-    } catch (error) {
-      dispatch?.reject(error);
-      throw error;
-    }
-    if (result.code !== 0) throw new ForgeError("cli");
-    this.#cache.clear();
-    this.#cacheBytes = 0;
-  }
 }

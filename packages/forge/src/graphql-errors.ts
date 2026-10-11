@@ -25,6 +25,8 @@ export function assertGraphqlResult(body: unknown): void {
     throw new ForgeError("forbidden", undefined, false);
   if (rejected && codes.every((code) => code === "NOT_FOUND"))
     throw new ForgeError("not_found", undefined, false);
+  if (rejected && codes.every((code) => code === "UNPROCESSABLE"))
+    throw new ForgeError("conflict", undefined, false);
   if (rejected && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
     throw new ForgeError("invalid_data", undefined, false);
   throw new ForgeError("invalid_data");
