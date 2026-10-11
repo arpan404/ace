@@ -118,3 +118,32 @@ test("the desktop app's folder picker adds the chosen folder", async () => {
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
+
+test("a refused native folder pick shows its exact path and allows that folder", async () => {
+  const path = "/srv/private/project";
+  desktopBridge({ chosen: path });
+  const made = host();
+  made.daemon.projects.seedFolders(home, [{ path: `${home}/code/weather`, git: true }, { path }], {
+    roots: [home, "/srv"],
+  });
+  await made.client.start();
+  await waitFor(() => expect(made.client.state).toBe("ready"));
+  await made.client.request({
+    type: "settings.set",
+    key: "projects.roots",
+    value: [home],
+    layer: { kind: "global" },
+  });
+  await made.open("/new");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Add project" });
+  const failure = await within(dialog).findByRole("alert");
+  expect(failure.textContent).toContain(path);
+  expect(failure.textContent).toContain("ace isn't allowed to open this folder yet");
+  await userEvent.click(within(failure).getByRole("button", { name: "Allow this folder…" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Allow folder" }));
+  await screen.findByRole("button", { name: "Project: project" });
+  expect(registered(made)).toEqual([path]);
+});
