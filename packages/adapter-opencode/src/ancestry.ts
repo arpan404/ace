@@ -9,14 +9,14 @@ type Ports = {
   info(value: unknown): void;
   receive(value: unknown, watermark: number): void;
   buffered(value: unknown, watermark: number): void;
-  pending(id: string, value: unknown): void;
+  pending(id: string): void;
   settled(id: string): void;
   failed(value: unknown): void;
   recovering(): boolean;
 };
 type Probe = {
   guard: string;
-  events: { data: unknown; watermark: number }[];
+  events: { data: unknown; watermark: number; bytes: number }[];
   needsRecovery: boolean;
   lookupFailed: boolean;
 };
@@ -50,21 +50,38 @@ export class AncestryProbe {
       this.p.failed(data);
       return;
     }
-    this.unknownBytes += bytes;
-    this.p.buffered(data, watermark);
-    if (queued) {
-      queued.events.push({ data, watermark });
-      return;
-    }
-    const guard = `ancestry:${++this.sequence}`;
-    const probe: Probe = {
-      guard,
-      events: [{ data, watermark }],
+    const probe: Probe = queued ?? {
+      guard: `ancestry:${++this.sequence}`,
+      events: [],
       needsRecovery: this.p.recovering(),
       lookupFailed: false,
     };
-    this.probes.set(id, probe);
-    this.p.pending(guard, data);
+    const entry = { data, watermark, bytes };
+    if (!queued) this.probes.set(id, probe);
+    probe.events.push(entry);
+    this.unknownBytes += bytes;
+    let pendingStarted = false;
+    try {
+      this.p.buffered(data, watermark);
+      if (!queued) {
+        pendingStarted = true;
+        this.p.pending(probe.guard);
+      }
+    } catch (error) {
+      // A receipt sink may throw after publication. Roll back admission before
+      // clearing any guard so a second callback failure cannot strand its bytes.
+      const index = probe.events.indexOf(entry);
+      if (this.probes.get(id) === probe && index >= 0) {
+        probe.events.splice(index, 1);
+        this.unknownBytes -= bytes;
+      }
+      if (!queued && this.probes.get(id) === probe) {
+        this.probes.delete(id);
+        if (pendingStarted) this.p.settled(probe.guard);
+      }
+      throw error;
+    }
+    if (queued) return;
     void (async () => {
       try {
         const chain = [],
@@ -146,8 +163,7 @@ export class AncestryProbe {
   }
   private finish(id: string, probe: Probe): void {
     if (this.probes.get(id) !== probe) return;
-    for (const event of probe.events)
-      this.unknownBytes -= Buffer.byteLength(JSON.stringify(event.data));
+    for (const event of probe.events) this.unknownBytes -= event.bytes;
     this.probes.delete(id);
     this.p.settled(probe.guard);
   }

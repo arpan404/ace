@@ -103,18 +103,18 @@ export class OpenCodeSession implements ProviderSession {
         if (!this.recovering || !this.evidence.covered(data, watermark)) this.receive(data);
       },
       buffered: (data, watermark) => {
-        this.emit("note", "ancestry.buffered", { data, watermark });
+        this.emit("note", "ancestry.buffered", data);
         if (this.recovering) this.evidence.observe(data, watermark);
       },
-      pending: (id, data) => this.emit("note", "lifecycle", { type: "ancestry.pending", id, data }),
+      pending: (id) => this.emit("note", "lifecycle", { type: "ancestry.pending", id }),
       settled: (id) => this.emit("note", "lifecycle", { type: "ancestry.settled", id }),
       failed: (data) => {
         if (this.closed) return;
         this.recovering = true;
+        this.emit("note", "ancestry.unverified", data);
         this.emit("note", "lifecycle", {
           type: "disconnected",
           reason: "ancestry verification incomplete",
-          data,
         });
         void this.server.reconcileNow();
       },
