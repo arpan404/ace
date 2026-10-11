@@ -164,20 +164,21 @@ export function useGitFlow(thread: ThreadRef): {
     prBlocked,
     draftBlocked,
     linkBlocked,
-    dialog: (
-      <>
-        {dialog && checkout && <Suspense fallback={null}>{form(checkout)}</Suspense>}
-        {confirm && (
-          <GitWriteConfirm
-            change={confirm}
-            branch={checkout?.branch ?? "detached HEAD"}
-            pending={pending}
-            onSubmit={submit}
-            renderError={failure}
-            onClose={() => setConfirm(undefined)}
-          />
-        )}
-      </>
-    ),
+    dialog:
+      (dialog && checkout) || confirm ? (
+        <>
+          {dialog && checkout && <Suspense fallback={null}>{form(checkout)}</Suspense>}
+          {confirm && (
+            <GitWriteConfirm
+              change={confirm}
+              branch={checkout?.branch ?? "detached HEAD"}
+              pending={pending}
+              onSubmit={submit}
+              renderError={failure}
+              onClose={() => setConfirm(undefined)}
+            />
+          )}
+        </>
+      ) : null,
   };
 }

@@ -19,7 +19,7 @@ test("an ended parent remains running while a nested child waits for a human", (
   const agents = [
     agent("root", null, { state: "idle" }),
     agent("parent", "root", { state: "interrupted" }),
-    agent("child", "parent", { state: "blocked", on: "human" }),
+    agent("child", "parent", { state: "blocked", on: "human", refs: [] }),
   ];
   const work = agentTreeWork(agents, [], []);
   expect([...work.running].toSorted()).toEqual(["child", "parent", "root"]);
@@ -69,4 +69,28 @@ test("a pending question keeps the agent and its ancestors waiting even between 
   expect([...work.running].toSorted()).toEqual(["child", "root"]);
   expect([...work.needsYou].toSorted()).toEqual(["child", "root"]);
   expect(agentTreeWork(agents, [], [{ ...question, state: "resolved" }]).running.size).toBe(0);
+});
+
+test("a working child with a non-blocking question stays active without requesting attention", () => {
+  const agents = [
+    agent("root", null, { state: "idle" }),
+    agent("child", "root", { state: "working", activity: "responding" }),
+  ];
+  const question = Interaction.parse({
+    id: "question",
+    agentId: "child",
+    threadId: "thread",
+    blocking: false,
+    state: "pending",
+    request: { kind: "question", questions: [] },
+    createdAt: 0,
+  });
+  const work = agentTreeWork(agents, [], [question]);
+  expect([...work.running].toSorted()).toEqual(["child", "root"]);
+  expect(work.needsYou.size).toBe(0);
+  expect(
+    [...agentTreeWork(agents, [], [{ ...question, blocking: true }]).needsYou].toSorted(),
+  ).toEqual(["child", "root"]);
+  const idle = agents.map((entry) => agent(entry.id, entry.parentId, { state: "idle" }));
+  expect([...agentTreeWork(idle, [], [question]).needsYou].toSorted()).toEqual(["child", "root"]);
 });

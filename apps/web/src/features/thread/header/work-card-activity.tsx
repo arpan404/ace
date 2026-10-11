@@ -132,26 +132,31 @@ function AgentLine(props: {
   const now = useTicker(running && live.fresh);
   const name = agentName(agent);
   const needsYou = props.needsYou || agentNeedsYou(agent);
-  const activity = describeActivity(agent.status);
   const state = agent.status.state;
+  const waitingOnWork = running && !agentRunning(agent);
+  const rolled = needsYou
+    ? state === "failed" || state === "unresponsive"
+      ? agentStatusLabel(agent.status)
+      : { label: "Needs you", tone: "needs-you" as const }
+    : waitingOnWork
+      ? { label: "Waiting on work", tone: "waiting" as const }
+      : agentStatusLabel(agent.status);
+  const activity =
+    !live.fresh && running
+      ? "Last seen"
+      : needsYou || waitingOnWork
+        ? rolled.label
+        : describeActivity(agent.status);
   const status =
     !live.fresh && running
       ? "Last seen"
-      : needsYou
-        ? state === "unresponsive"
-          ? "Unresponsive"
-          : state === "failed"
-            ? "Failed"
-            : "Needs you"
-        : running && !agentRunning(agent)
-          ? "Waiting on work"
-          : state === "blocked"
-            ? agentStatusLabel(agent.status).label
-            : running
-              ? formatElapsed(Math.max(0, now - agent.createdAt))
-              : state === "interrupted"
-                ? "Stopped"
-                : "done";
+      : needsYou || waitingOnWork || state === "blocked"
+        ? rolled.label
+        : running
+          ? formatElapsed(Math.max(0, now - agent.createdAt))
+          : state === "interrupted"
+            ? "Stopped"
+            : "done";
   return (
     <Tip label={`${name} · ${activity}`}>
       <RowButton
@@ -189,7 +194,7 @@ function AgentLine(props: {
           {name}
         </TruncatedText>
         <StatusLabel
-          tone={agentStatusLabel(agent.status).tone}
+          tone={!live.fresh && running ? "waiting" : rolled.tone}
           label={status}
           mark={<></>}
           className="text-2xs font-normal"

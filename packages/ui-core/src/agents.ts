@@ -1,4 +1,5 @@
 import type { Agent, AgentStatus, BackgroundTask, Interaction, Item } from "@ace/protocol";
+import { isActionableInteraction } from "@ace/core/human";
 import { providerNames } from "./providers.ts";
 
 /** How an agent is named in trees and status lines: the provider for the root, else its name. */
@@ -72,16 +73,14 @@ export function agentTreeWork(
   tasks: readonly BackgroundTask[],
   interactions: readonly Interaction[],
 ): { running: ReadonlySet<string>; needsYou: ReadonlySet<string> } {
-  const parents = new Map<string, Agent["parentId"]>(
-    agents.map((agent) => [agent.id, agent.parentId]),
-  );
+  const byId = new Map<string, Agent>(agents.map((agent) => [agent.id, agent]));
   const running = new Set<string>();
   const needsYou = new Set<string>();
   const includeAncestors = (id: string, target: Set<string>) => {
     let current: string | null | undefined = id;
     while (current && !target.has(current)) {
       target.add(current);
-      current = parents.get(current);
+      current = byId.get(current)?.parentId;
     }
   };
   for (const agent of agents) {
@@ -94,8 +93,10 @@ export function agentTreeWork(
       includeAncestors(task.agentId, running);
   for (const interaction of interactions) {
     if (interaction.state !== "pending") continue;
+    // Pending work stays unsettled even when its working owner can continue without an answer.
     includeAncestors(interaction.agentId, running);
-    includeAncestors(interaction.agentId, needsYou);
+    if (isActionableInteraction(interaction, byId.get(interaction.agentId)?.status))
+      includeAncestors(interaction.agentId, needsYou);
   }
   return { running, needsYou };
 }
