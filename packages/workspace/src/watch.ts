@@ -50,11 +50,13 @@ export async function watch(
     metadataDirty = false;
     full = false;
     try {
+      // New sources must be subscribed before the inventory reads their rules.
+      // Notifications arriving during either step remain queued for the drain.
+      if (refreshMetadata && mode === "native") await metadata.refresh();
+      if (disposed) return;
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
         : await changedSnapshot(safe, ignore, previous, changed, lifetime.signal);
-      if (disposed) return;
-      if (refreshMetadata && mode === "native") await metadata.refresh();
       if (disposed) return;
       if (complete) {
         for (const before of previous.values())
