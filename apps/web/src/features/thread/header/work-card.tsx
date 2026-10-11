@@ -48,8 +48,8 @@ export function WorkCard(props: {
     <WorkCardStateProvider scope={props.thread.id}>
       <Popover
         open={props.open}
-        onOpenChange={(open) => {
-          if (!open) props.onClose(true);
+        onOpenChange={(open, details) => {
+          if (!open) props.onClose(details.reason === "escape-key");
         }}
       >
         <PopoverContent
@@ -143,7 +143,7 @@ function CardScroll(props: { open: boolean; children: ReactNode }) {
     <div
       ref={scroll}
       data-work-card-scroll
-      className="max-h-[min(70dvh,var(--available-height))] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
+      className="max-h-[min(70dvh,calc(var(--available-height)_-_2*var(--surface-inset)_-_2px))] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
     >
       <div className="space-y-(--surface-gap)">{props.children}</div>
     </div>

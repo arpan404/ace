@@ -191,3 +191,19 @@ test("a rejected push turns the mark amber and a successful retry clears it", as
   await userEvent.click(await screen.findByRole("menuitem", { name: "Push" }));
   await waitFor(() => expect(screen.queryByRole("img", { name: "Work needs you" })).toBeNull());
 });
+
+test("outside dismissal keeps focus in the message composer so typing edits its draft", async () => {
+  const { toggle } = await open("worktree");
+  const input = screen.getByRole("combobox", { name: "Message" });
+  await userEvent.click(input);
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
+  );
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(document.activeElement).toBe(input);
+  await userEvent.keyboard("Continue this draft");
+  expect(input.textContent).toBe("Continue this draft");
+  await userEvent.click(toggle);
+  await userEvent.keyboard("{Escape}");
+  expect(document.activeElement).toBe(toggle);
+});
