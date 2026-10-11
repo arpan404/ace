@@ -1,3 +1,4 @@
+import { fileCapability } from "./access.ts";
 import { createHash, type Hash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -192,19 +193,7 @@ export function chunkFilesChannel(options: {
     try {
       assertOpening();
       const op = message.operation;
-      const access = [
-        "list",
-        "stat",
-        "download",
-        "artifact.download",
-        "artifact.support",
-        "archive.download",
-        "archive.preview",
-        "artifacts.list",
-        "trash.list",
-      ].includes(op.op)
-        ? "read"
-        : "operate";
+      const access = fileCapability(op) === "files.read" ? "read" : "operate";
       assert(binding, access);
       if (op.op === "download" || op.op === "artifact.download" || op.op === "archive.download") {
         const id = allocate();

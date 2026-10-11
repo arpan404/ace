@@ -1,3 +1,4 @@
+import { fileCapability } from "./access.ts";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -163,17 +164,8 @@ export class FilesService {
   ): Promise<unknown> {
     guard();
     const operation = FileOperation.parse(input);
-    const reading = [
-      "list",
-      "stat",
-      "archive.preview",
-      "artifacts.list",
-      "trash.list",
-      "artifact.output",
-      "artifact.raw",
-      "artifact.support",
-    ].includes(operation.op);
-    this.authorize(device, reading ? "files.read" : "files.write");
+    const capability = fileCapability(operation);
+    this.authorize(device, capability);
     if (operation.op === "list") {
       const page = await listWorkspace(this.safe, await GitIgnore.create(this.safe), {
         dir: operation.path,
@@ -243,7 +235,7 @@ export class FilesService {
     }
     return this.serial(async () => {
       guard();
-      this.authorize(device, reading ? "files.read" : "files.write");
+      this.authorize(device, capability);
       switch (operation.op) {
         case "upload.begin":
           return this.uploads.begin(device, operation.path, operation.expected, operation.size);

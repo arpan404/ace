@@ -1,3 +1,4 @@
+import { fileCapability } from "./access.ts";
 import { createHash, type Hash } from "node:crypto";
 import type { BinaryUploadDestination, FilesTransport } from "./transport.ts";
 import { z } from "zod";
@@ -31,19 +32,6 @@ interface Incoming {
     assertActive: () => void,
   ): Promise<{ uploadId: string; offset: number; size: number }>;
 }
-const readOperations = new Set([
-  "list",
-  "stat",
-  "download",
-  "artifact.download",
-  "archive.preview",
-  "archive.download",
-  "artifacts.list",
-  "trash.list",
-  "artifact.output",
-  "artifact.raw",
-  "artifact.support",
-]);
 const Upload = z.object({
   uploadId: z.string().min(1).max(128),
   offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -184,7 +172,7 @@ export function attachFilesChannel(
     )
       throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;
-    authorize(readOperations.has(operation.op) ? "files.read" : "files.write");
+    authorize(fileCapability(operation));
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
       const id = allocate();
       let download: Download;
@@ -225,9 +213,7 @@ export function attachFilesChannel(
       try {
         release = service.reserve();
         const upload = Upload.parse(
-          await service.request(device, operation, () =>
-            authorize(readOperations.has(operation.op) ? "files.read" : "files.write"),
-          ),
+          await service.request(device, operation, () => authorize(fileCapability(operation))),
         );
         if (closed) {
           release();
@@ -260,7 +246,7 @@ export function attachFilesChannel(
     if (operation.op === "upload.cancel")
       for (const [id, state] of incoming) if (state.id === operation.uploadId) await stop(id);
     const value = await service.request(device, operation, () =>
-      authorize(readOperations.has(operation.op) ? "files.read" : "files.write"),
+      authorize(fileCapability(operation)),
     );
     if (operation.op === "upload.commit" || operation.op === "upload.cancel")
       for (const [id, state] of incoming)
