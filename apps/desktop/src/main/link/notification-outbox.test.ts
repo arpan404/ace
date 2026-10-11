@@ -44,7 +44,10 @@ for (const replacement of ["same-host", "different-home", "different-url"]) {
       await first.core.start();
       first.welcome("host-a");
       first.core.networkOnline(false);
-      await first.core.enqueue({ type: "thread.archive", threadId: ThreadId.parse("thread") }, "original-action");
+      await first.core.enqueue(
+        { type: "thread.archive", threadId: ThreadId.parse("thread") },
+        "original-action",
+      );
       await first.core.close();
       const next = client(
         notificationOutbox(
@@ -86,7 +89,10 @@ test("legacy notification actions remain recoverable and are never assigned to a
     const next = client(notificationOutbox(root, "ws://localhost:4242", "device"));
     await next.core.start();
     next.welcome("host-b");
-    await next.core.enqueue({ type: "thread.archive", threadId: ThreadId.parse("barrier") }, "barrier");
+    await next.core.enqueue(
+      { type: "thread.archive", threadId: ThreadId.parse("barrier") },
+      "barrier",
+    );
     expect(next.commands).not.toContain("legacy");
     expect(await readFile(join(root, "outbox.json"), "utf8")).toBe(legacy);
     await next.core.close();

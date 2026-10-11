@@ -85,12 +85,18 @@ for (const admission of ["snapshot", "input.admitted"] as const) {
         );
       }
       await when(client.intent("send-7"), (intent) => intent?.acknowledged === true);
+      // The ninth command must reach the daemon while all eight earlier receipts are held.
+      await when(client.intent("send-8"), (intent) => intent?.state === "acked");
+      expect(effects).toEqual(Array.from({ length: 9 }, (_, i) => `send-${i}`));
       for (const receipt of receipts) receipt();
       await barrier(client, h.thread.id);
-      expect(effects).toEqual(Array.from({ length: 9 }, (_, i) => `send-${i}`));
-      await when(client.intent("send-8"), (intent) => intent?.state === "acked");
       h.daemon.store.appendEvents(h.thread.id, [
-        { type: "input.admitted", agentId: AgentId.parse("root"), nativeInputId: "native-0", commandId: "send-0" },
+        {
+          type: "input.admitted",
+          agentId: AgentId.parse("root"),
+          nativeInputId: "native-0",
+          commandId: "send-0",
+        },
       ]);
       for (const receipt of receipts) receipt();
       await barrier(client, h.thread.id);
@@ -144,7 +150,12 @@ test("a failed admission save retains pending work and never opens a send slot b
     expect(effects).toHaveLength(8);
     fail = true;
     h.daemon.store.appendEvents(h.thread.id, [
-      { type: "input.admitted", agentId: AgentId.parse("root"), nativeInputId: "native-0", commandId: "send-0" },
+      {
+        type: "input.admitted",
+        agentId: AgentId.parse("root"),
+        nativeInputId: "native-0",
+        commandId: "send-0",
+      },
     ]);
     await when(first.client.connectionState(), (state) => state === "fatal");
     expect(first.client.intent("send-0").getSnapshot()?.state).toBe("pending");

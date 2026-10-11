@@ -311,3 +311,64 @@ test("a cancelled command reattached offline recovers its complete receipt on re
       ),
   ).toHaveLength(1);
 });
+
+for (const outcome of ["accepted", "refused"] as const) {
+  test(`an offline reattachment recovers the complete ${outcome} create receipt without another daemon effect`, async () => {
+    const effects: string[] = [];
+    const expected = CommandResult.parse(
+      outcome === "accepted"
+        ? {
+            commandId: "create-receipt",
+            ok: true,
+            threadId: "created-thread",
+            terminalId: "created-terminal",
+          }
+        : {
+            commandId: "create-receipt",
+            ok: false,
+            error: "create_refused",
+            code: "workspace_busy",
+            title: "Workspace is busy",
+            detail: "Close the active operation first",
+            alive: { agentsRunning: 1, terminalsOpen: 2, operationsRunning: 1 },
+          },
+    );
+    const h = await setup({
+      handle(command) {
+        effects.push(command.id);
+        return expected;
+      },
+    });
+    cleanup = h.cleanup;
+    const { client, faults } = h.make();
+    await ready(client);
+    let release: (() => void) | undefined;
+    faults.incoming = (message, frame, deliver) => {
+      if (message.type === "commandResult" && message.commandId === "create-receipt")
+        release = () => deliver(frame);
+      else deliver(frame);
+    };
+    const payload = {
+      type: "thread.create" as const,
+      workspaceId: h.workspaceId,
+      provider: "codex" as const,
+      input: [{ type: "text" as const, text: "Create once" }],
+    };
+    const controller = new AbortController();
+    const first = client.command(payload, { signal: controller.signal }, "create-receipt");
+    const cancelled = expect(first).rejects.toMatchObject({ code: "aborted" });
+    await faults.wait(
+      (message) => message.type === "commandResult" && message.commandId === "create-receipt",
+    );
+    controller.abort();
+    await cancelled;
+    release?.();
+    await when(
+      client.intent("create-receipt"),
+      (intent) => intent?.state === (outcome === "accepted" ? "acked" : "failed"),
+    );
+    client.networkOnline(false);
+    expect(await client.command(payload, {}, "create-receipt")).toEqual(expected);
+    expect(effects).toEqual(["create-receipt"]);
+  });
+}
