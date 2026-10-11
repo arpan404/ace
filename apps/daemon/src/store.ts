@@ -395,9 +395,23 @@ export class Store {
   isHistoryWriting(): boolean {
     return this.historyWriting;
   }
-  async writable(): Promise<void> {
-    while (this.historyWriting)
-      await new Promise<void>((resolve) => this.historyWaiters.add(resolve));
+  async writable(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    while (this.historyWriting) {
+      await new Promise<void>((resolve, reject) => {
+        const ready = () => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          this.historyWaiters.delete(ready);
+          reject(signal?.reason);
+        };
+        this.historyWaiters.add(ready);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+      signal?.throwIfAborted();
+    }
   }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
