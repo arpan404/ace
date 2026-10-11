@@ -114,6 +114,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Install Chromium and system libraries
         run: bun run --cwd packages/browser playwright-core install --with-deps chromium
+      - name: Install fake web suite Chromium
+        # System libraries are already installed above; Playwright shares its browser cache.
+        run: bun run --cwd tools/web-e2e playwright install chromium
+      - name: Fake web interaction regressions
+        timeout-minutes: 15
+        # One Vite server, two workers, in-page fixtures, no daemon or provider CLI.
+        run: bun run --filter @ace/web-e2e e2e:fake
+      - name: Upload fake web failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fake-web-failures
+          path: tools/web-e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Browser tests
         run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.process.test.ts apps/daemon/src/browser-remote.process.test.ts
       - name: Web main-thread budgets (5,000 events/s, input latency, long tasks)

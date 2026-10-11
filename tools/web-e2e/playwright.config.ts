@@ -4,6 +4,14 @@ import { daemonHome, webPort as realPort } from "./src/real-daemon-config.ts";
 const fakePort = Number(process.env.ACE_E2E_FAKE_PORT ?? 5190);
 const web = new URL("../../apps/web", import.meta.url).pathname;
 
+/** The fake browser journeys need only Vite and the in-page scripted daemon. */
+export const fakeWebServer = {
+  command: `bunx vite --mode fake --host 127.0.0.1 --port ${fakePort} --strictPort`,
+  cwd: web,
+  url: `http://127.0.0.1:${fakePort}`,
+  reuseExistingServer: !process.env.CI,
+};
+
 /**
  * End-to-end journeys through the real web app in Chromium.
  * - `fake`: the app against the in-page fake daemon (`vite --mode fake`).
@@ -49,12 +57,7 @@ export default defineConfig({
     },
   ],
   webServer: [
-    {
-      command: `bunx vite --mode fake --host 127.0.0.1 --port ${fakePort} --strictPort`,
-      cwd: web,
-      url: `http://127.0.0.1:${fakePort}`,
-      reuseExistingServer: !process.env.CI,
-    },
+    fakeWebServer,
     {
       command: `bunx vite --host 127.0.0.1 --port ${realPort} --strictPort`,
       cwd: web,
