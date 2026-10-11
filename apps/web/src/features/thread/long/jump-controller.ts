@@ -291,6 +291,12 @@ export function jumpedSource(
   live: ThreadSource,
   window: JumpWindow,
   joined: boolean,
+  deleted?: Set<string>,
 ): ThreadSource {
-  return windowSource(live, { items: window.items, before: window.before, joined });
+  return windowSource(live, {
+    items: window.items,
+    before: window.before,
+    joined,
+    ...(deleted ? { deleted } : {}),
+  });
 }

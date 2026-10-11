@@ -31,6 +31,8 @@ export class Jump {
   private tail: (() => LiveTail) | undefined;
   private client: ClientApi;
   private threadId: string;
+  private retainedWindow: JumpWindow | undefined;
+  private deleted = new Set<string>();
   constructor(client: ClientApi, threadId: string) {
     this.client = client;
     this.threadId = threadId;
@@ -75,6 +77,8 @@ export class Jump {
     return this.controller?.newer() ?? Promise.resolve();
   }
   live(): void {
+    this.retainedWindow = undefined;
+    this.deleted.clear();
     this.controller?.live();
   }
   tailMoved(): void {
@@ -85,7 +89,12 @@ export class Jump {
   }
   /** The thread through `window`; a window only exists once the jump code has loaded. */
   source(store: ThreadSource, window: JumpWindow, joined: boolean): ThreadSource | undefined {
-    return this.loaded?.jumpedSource(store, window, joined);
+    if (this.retainedWindow !== window) {
+      const retained = new Set<string>(window.items.map((item) => item.id));
+      this.deleted = new Set([...this.deleted].filter((id) => retained.has(id)));
+      this.retainedWindow = window;
+    }
+    return this.loaded?.jumpedSource(store, window, joined, this.deleted);
   }
   /** Cancel what is in flight (the thread view unmounting; StrictMode remounts it after). */
   dispose(): void {

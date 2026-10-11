@@ -8,13 +8,12 @@ import type { Item } from "@ace/protocol";
  * the tail with, so one renderer serves both.
  */
 
-const windowKey = (key: ThreadKey) =>
-  key === "order" || key === "history" || key.startsWith("item:");
-
 /** A window's items, oldest first and contiguous, and the cursor before its first item. */
 export interface ThreadWindow {
   items: readonly Item[];
   before: number | null;
+  /** Deletions retained by the window owner across joining, detachment and source replacement. */
+  deleted?: Set<string>;
   /**
    * The window overlaps the live tail: the tail's newer items follow it (deduplicated by id,
    * the tail's copy winning), and they stay live.
@@ -32,9 +31,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const own = window.items.map((item) => item.id);
   const joined = window.joined === true;
   // A joined order follows the tail's; it is rebuilt only when the tail's order changes.
-  const deleted = new Set<string>();
+  const deleted = window.deleted ?? new Set<string>();
   const isDeleted = (id: string) => {
-    if (joined && live.deleted?.(id)) {
+    if (live.deleted?.(id)) {
       if (items.has(id)) deleted.add(id);
       return true;
     }
@@ -43,9 +42,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   let tailOrder: readonly string[] | undefined;
   let order: readonly string[] = own;
   const currentOrder = () => {
-    if (!joined || live.order === tailOrder) return order;
+    if (live.order === tailOrder) return order;
     tailOrder = live.order;
-    const newer = tailOrder.filter((id) => !items.has(id));
+    const newer = joined ? tailOrder.filter((id) => !items.has(id)) : [];
     const kept = own.filter((id) => !isDeleted(id));
     order = newer.length ? [...kept, ...newer] : kept;
     return order;
@@ -92,10 +91,8 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
       selector: (reader: ThreadReader) => T,
       equal?: (a: T, b: T) => boolean,
     ): Selection<T> {
-      // A joined window follows the tail's order and items; a detached one only its own.
-      const liveKeys = joined
-        ? keys.filter((key) => key !== "history")
-        : keys.filter((key) => !windowKey(key));
+      // Detached windows keep their text, but explicit deletions remain live.
+      const liveKeys = keys.filter((key) => key !== "history");
       if (!liveKeys.length) {
         const value = selector(source);
         return { getSnapshot: () => value, subscribe: () => () => {} };

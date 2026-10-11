@@ -45,8 +45,11 @@ for (const action of ["delete", "evict"] as const) {
     view.itemSeqs = { queued: 1, newer: 2 };
     view.seq = 2;
     store.snapshot(view);
+    const items = [message("older"), message("queued")];
+    const deleted = new Set<string>();
     const source = windowSource(store, {
-      items: [message("older"), message("queued")],
+      deleted,
+      items,
       before: null,
       joined: true,
     });
@@ -79,9 +82,27 @@ for (const action of ["delete", "evict"] as const) {
       expect(selection.getSnapshot().order).toEqual(["older", "newer"]);
       expect(source.item("queued")).toBeUndefined();
       expect(seen).toHaveLength(1);
+      const detached = windowSource(store, { items, before: null, joined: false, deleted });
+      expect(detached.order).toEqual(["older"]);
+      expect(detached.item("queued")).toBeUndefined();
+      // Reconnect can replace the live snapshot and forget bounded tail tombstones.
+      store.snapshot(
+        ThreadView.parse({
+          ...view,
+          seq: 3,
+          items: { newer: message("newer") },
+          itemOrder: ["newer"],
+        }),
+      );
+      const recreated = windowSource(store, { items, before: null, joined: false, deleted });
+      expect(recreated.order).toEqual(["older"]);
+      expect(recreated.item("queued")).toBeUndefined();
     } else {
       expect(source.order).toEqual(["older", "queued", "newer", "latest"]);
       expect(source.item("queued")).toEqual(message("queued"));
+      const detached = windowSource(store, { items, before: null, joined: false, deleted });
+      expect(detached.order).toEqual(["older", "queued"]);
+      expect(detached.item("queued")).toEqual(message("queued"));
     }
     stop();
   });
