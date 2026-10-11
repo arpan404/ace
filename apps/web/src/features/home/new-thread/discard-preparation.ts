@@ -1,5 +1,10 @@
 import type { KeyValueStorage } from "@ace/ui-core";
-import { ComposerDraftSchema, discardDraft, readDraft, writeDraft } from "@/features/thread/index.ts";
+import {
+  ComposerDraftSchema,
+  discardDraft,
+  readDraft,
+  writeDraft,
+} from "@/features/thread/index.ts";
 import { preparation, savePreparation } from "./preparations.ts";
 
 /** Keep a durable recovery copy through either half of a local discard failing. */

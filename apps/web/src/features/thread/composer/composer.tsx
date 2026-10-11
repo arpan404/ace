@@ -276,14 +276,20 @@ function ComposerBody({
     setPicked(new Set(next.mentions));
     setTokens(next.tokens ?? []);
   };
-  const saved = useDraftPersistence(props.draftKey, current, (next) => {
-    // Another window changed this draft: an idle composer takes it, a focused one offers it.
-    const draft = next ?? emptyDraft;
-    if (document.activeElement === input.current) return void setTheirs(draft);
-    if (!otherFiles(draft)) return void takeText(draft);
-    props.onReplaced(draft);
-    return "replace";
-  }, props.onDraftChange, props.ownsDraft);
+  const saved = useDraftPersistence(
+    props.draftKey,
+    current,
+    (next) => {
+      // Another window changed this draft: an idle composer takes it, a focused one offers it.
+      const draft = next ?? emptyDraft;
+      if (document.activeElement === input.current) return void setTheirs(draft);
+      if (!otherFiles(draft)) return void takeText(draft);
+      props.onReplaced(draft);
+      return "replace";
+    },
+    props.onDraftChange,
+    props.ownsDraft,
+  );
   const apply = (next: ComposerDraft) => {
     if (!otherFiles(next)) return takeText(next);
     saved.drop();

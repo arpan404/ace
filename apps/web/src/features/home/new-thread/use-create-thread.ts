@@ -113,7 +113,9 @@ export function useCreateThread(
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
   const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
     undefined,

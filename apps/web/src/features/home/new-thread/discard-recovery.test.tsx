@@ -66,7 +66,9 @@ test.each(["content", "row", "final row and rollback"])(
       expect((await screen.findByLabelText("Saved message")).textContent).toBe(
         "Retain refused discard",
       );
-      expect(screen.getByRole("list", { name: "Saved attachments" }).textContent).toBe("retained.txt");
+      expect(screen.getByRole("list", { name: "Saved attachments" }).textContent).toBe(
+        "retained.txt",
+      );
     } else {
       expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
         "Retain refused discard",

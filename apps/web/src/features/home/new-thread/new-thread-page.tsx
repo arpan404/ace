@@ -345,7 +345,8 @@ function PreparationPage(props: {
           saved.draftId === id ||
           !readDraft(storage, draftKey)?.attachments.length)
       )
-        if (!savePreparation(storage, props.host, draftKey, { ...saved, draftId: id })) setSaveFailed(true);
+        if (!savePreparation(storage, props.host, draftKey, { ...saved, draftId: id }))
+          setSaveFailed(true);
     },
     owns: (id) => preparation(storage, props.host, draftKey)?.draftId === id,
     consumed(id) {
@@ -353,13 +354,19 @@ function PreparationPage(props: {
     },
   });
   const { create, error, recovering } = useCreateThread((payload) => {
-    const matched = payload.workspaceId === project && composer.current?.discardIfSubmitted(payload);
+    const matched =
+      payload.workspaceId === project && composer.current?.discardIfSubmitted(payload);
     if (payload.context?.draftId) {
       scope.retire(payload.context.draftId);
       if (payload.workspaceId === project) {
         if (matched && !discardPreparation(storage, props.host, draftKey)) {
-          if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId)) setSaveFailed(true);
-        } else if (!matched && !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)) setSaveFailed(true);
+          if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId))
+            setSaveFailed(true);
+        } else if (
+          !matched &&
+          !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)
+        )
+          setSaveFailed(true);
       }
     }
   });
@@ -448,22 +455,22 @@ function PreparationPage(props: {
   const admissionProblem = recovering
     ? "Recovering the previous thread start…"
     : missingPermission
-    ? "The saved approval mode is unavailable. Choose an available approval mode before sending."
-    : missingBase
-      ? "The saved base branch is unavailable. Choose an available branch before sending."
-      : missingSelection
-        ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
-        : missingFiles
-          ? "Saved attachments are unavailable. Remove and add them again before sending."
-          : waitingForAdmission
-            ? "Checking provider settings…"
-            : permissions.failed
-              ? "Couldn't check provider permissions. Reconnect and try again."
-              : !scope.draftId
-                ? "Preparing attachment storage…"
-                : !resolved.model
-                  ? "No model selected. Open the model menu to refresh or sign in."
-                  : admitted.fallback;
+      ? "The saved approval mode is unavailable. Choose an available approval mode before sending."
+      : missingBase
+        ? "The saved base branch is unavailable. Choose an available branch before sending."
+        : missingSelection
+          ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
+          : missingFiles
+            ? "Saved attachments are unavailable. Remove and add them again before sending."
+            : waitingForAdmission
+              ? "Checking provider settings…"
+              : permissions.failed
+                ? "Couldn't check provider permissions. Reconnect and try again."
+                : !scope.draftId
+                  ? "Preparing attachment storage…"
+                  : !resolved.model
+                    ? "No model selected. Open the model menu to refresh or sign in."
+                    : admitted.fallback;
   const send = async (draft: Draft) => {
     if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
     submitting.current = true;
@@ -509,7 +516,10 @@ function PreparationPage(props: {
       scope.retire(draftId);
       if (!discardPreparation(storage, props.host, draftKey)) {
         const retired = retainPromotedPreparation(storage, props.host, draftKey, draftId);
-        if (mounted.current) setSaveFailed(!retired || preparation(storage, props.host, draftKey)?.handoffCleanupPending === true);
+        if (mounted.current)
+          setSaveFailed(
+            !retired || preparation(storage, props.host, draftKey)?.handoffCleanupPending === true,
+          );
       }
     } else if (sent && current?.draftId === draftId) {
       // The handoff consumed this scope. Retained content now owns a new preparation.
