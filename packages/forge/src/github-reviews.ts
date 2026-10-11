@@ -1,4 +1,5 @@
 import { WriteDispatch } from "./write-dispatch.ts";
+import { hostedReviewCommentEdit } from "./review-comment-body.ts";
 import { assertGraphqlResult } from "./graphql-errors.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -186,7 +187,8 @@ export class GitHubReviews {
       const c = await this.#comment(number, action.source, action.commentId, signal);
       return action.kind === "comment.delete"
         ? !c
-        : c?.user?.login === host.viewer && c.body === action.body;
+        : c?.user?.login === host.viewer &&
+            c.body === hostedReviewCommentEdit(action.body, action.expectedBody);
     }
     if (action.kind === "thread.resolve" || action.kind === "thread.unresolve") {
       const t = host.threads.find((entry) => entry.id === action.threadId);
@@ -328,7 +330,9 @@ export class GitHubReviews {
       await this.#api.request(
         path,
         signal,
-        action.kind === "comment.edit" ? { body: action.body } : undefined,
+        action.kind === "comment.edit"
+          ? { body: hostedReviewCommentEdit(action.body, action.expectedBody) }
+          : undefined,
         action.kind === "comment.edit" ? "PATCH" : "DELETE",
         dispatch,
       );

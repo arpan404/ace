@@ -15,7 +15,8 @@ for (const source of ["issue", "inline"] as const)
         user: { login: "reviewer" },
         ...(source === "inline" ? { in_reply_to_id: 1 } : {}),
       };
-      const changed = { ...posted, body: "Edited comment" };
+      const edited = authored.slice(0, -1);
+      const changed = { ...posted, body: `${edited}\n\n${reviewWriteMarker("post")}` };
       const fixtures = reviewFixtures();
       const root = "repos/octo/ace";
       const read = `${root}/${source === "inline" ? "pulls" : "issues"}/7/comments?per_page=100`;
@@ -32,7 +33,7 @@ for (const source of ["issue", "inline"] as const)
       fixtures[mutate] = kind === "comment.edit" ? [{ body: changed }] : [{ status: 204 }];
       const action =
         kind === "comment.edit"
-          ? { kind, source, commentId: posted.id, expectedBody: hosted, body: changed.body }
+          ? { kind, source, commentId: posted.id, expectedBody: hosted, body: edited }
           : { kind, source, commentId: posted.id, expectedBody: hosted };
       const f = await setupReview(fixtures);
       try {

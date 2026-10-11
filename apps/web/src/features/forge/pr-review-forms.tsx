@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { authoredReviewComment } from "@ace/forge";
 import { z } from "zod";
 import type { ForgeComment, ForgePrDetail, ForgeReviewAnchor } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -188,41 +189,50 @@ export function PrConversationComposer(props: { prKey: string; replyTo?: number 
 }
 export function PrOwnComment({ comment }: { comment: ForgeComment }) {
   const review = usePrReview();
-  const [editing, setEditing] = useState(false);
-  const [body, setBody] = useState(comment.body);
+  const [edit, setEdit] = useState<{ body: string; expectedBody: string } | null>(null);
   if (!review?.state || comment.author !== review.state.viewer || comment.kind === "review")
     return null;
   const source = comment.kind;
   return (
     <div className="space-y-2">
-      {editing && (
+      {edit && (
         <Textarea
           aria-label="Edit GitHub comment"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
+          disabled={review.pending}
+          value={edit.body}
+          onChange={(e) => {
+            const body = e.target.value;
+            setEdit((current) => current && { ...current, body });
+          }}
           maxLength={60_000}
         />
       )}
       <Button
         disabled={review.pending}
         onClick={() => {
-          if (!editing) setEditing(true);
+          if (!edit)
+            setEdit({ body: authoredReviewComment(comment.body), expectedBody: comment.body });
           else
             void review
               .run({
                 kind: "comment.edit",
                 source,
                 commentId: comment.id,
-                expectedBody: comment.body,
-                body,
+                expectedBody: edit.expectedBody,
+                body: edit.body,
               })
               .then((ok) => {
-                if (ok) setEditing(false);
+                if (ok) setEdit((current) => (current === edit ? null : current));
               });
         }}
       >
-        {editing ? "Save comment" : "Edit comment"}
+        {edit ? "Save comment" : "Edit comment"}
       </Button>
+      {edit && (
+        <Button disabled={review.pending} onClick={() => setEdit(null)}>
+          Cancel edit
+        </Button>
+      )}
       <Button
         disabled={review.pending}
         onClick={() => {
