@@ -1,5 +1,6 @@
 import { nativeCommandInputs } from "@ace/commands/invocation";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { resumeLoadFailure } from "./resume-error.ts";
 import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
@@ -252,9 +253,14 @@ class AcpSession implements ProviderSession {
     const mcpTransport = injected.length ? (negotiated.httpMcp ? "http" : "stdio") : "unavailable";
     const resume = this.ctx.resume;
     if (resume && !negotiated.capabilities.resume)
-      throw new Error("ACP agent does not advertise safe session loading");
-    const session = object(
-      await this.rpc.request(
+      throw openingError(
+        { code: "resume_unsupported", detail: "ACP agent does not advertise safe session loading" },
+        this.ctx,
+        this.launch,
+      );
+    let opened: unknown;
+    try {
+      opened = await this.rpc.request(
         resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
         {
           cwd: this.ctx.cwd,
@@ -262,8 +268,13 @@ class AcpSession implements ProviderSession {
           ...(resume ? { sessionId: resume.nativeSessionId } : {}),
         },
         { signal: this.ctx.signal },
-      ),
-    );
+      );
+    } catch (error) {
+      const failure = resume ? resumeLoadFailure(error) : undefined;
+      if (failure) throw openingError(failure, this.ctx, this.launch);
+      throw error;
+    }
+    const session = object(opened);
     this.nativeSessionId = string(session["sessionId"]) || resume?.nativeSessionId || "";
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
