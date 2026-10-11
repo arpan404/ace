@@ -74,7 +74,7 @@ function ConversationTick(props: {
         render={
           <button
             type="button"
-            aria-label={`Turn ${props.marker.ordinal}: ${props.marker.label}`}
+            aria-label={props.marker.label}
             aria-current={props.current ? "location" : undefined}
             tabIndex={props.tabIndex}
             onFocus={props.onFocus}

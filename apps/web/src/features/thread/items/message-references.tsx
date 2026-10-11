@@ -1,4 +1,4 @@
-import { extensionDisplayName } from "@ace/ui-core";
+import { extensionDisplayName, sanitizeUserText } from "@ace/ui-core";
 // oxlint-disable react/no-array-index-key -- ordered content parts have no independent identity.
 import type { ContentPart } from "@ace/protocol";
 import { Fragment } from "react";
@@ -7,7 +7,8 @@ export function MessageReferences(props: { parts: readonly ContentPart[] }) {
   return props.parts.map((part, index) => (
     <Fragment key={index}>
       {part.type === "text" ? (
-        part.text
+        // Keep the spaces joining adjacent text and mention parts.
+        part.text.replace(part.text.trim(), () => sanitizeUserText(part.text))
       ) : part.type === "mention" ? (
         <MentionChip
           name={

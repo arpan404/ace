@@ -99,12 +99,34 @@ test("ace's own tools read as what they did, with their key argument", () => {
   expect(mcpToolLabel("ace", "ace_thread_read", { threadId: "thread-1" }).verb).toBe("Read thread");
 });
 
-test("other servers read 'server › tool' with their key argument; computer use is named", () => {
+test("other servers describe the action without native names; computer use is named", () => {
   expect(mcpToolLabel("docs", "search_pages", { query: "TypeScript" })).toMatchObject({
-    verb: "Called",
-    target: "docs › search pages TypeScript",
+    verb: "Used a tool",
+    target: "TypeScript",
   });
   expect(mcpToolLabel("cua_repl", "js", { code: "1+1" }).verb).toBe("Ran a computer-use script");
   expect(namedToolLabel("custom", "Skill")).toMatchObject({ verb: "Used", target: "Skill" });
   expect(namedToolLabel("browser", "Pair a phone")).toMatchObject({ verb: "Browsed", icon: "web" });
+});
+
+test.each([
+  ["ace_device_list", "Listed connected devices"],
+  ["ace_device_delegate", "Delegated work to another device"],
+  ["ace_device_task_publish", "Returned results from another device"],
+  ["ace_device_task_status", "Checked work on another device"],
+  ["ace_device_task_wait", "Waited for work on another device"],
+  ["ace_device_task_cancel", "Stopped work on another device"],
+])("%s describes the action without exposing task or host identifiers", (tool, expected) => {
+  const shown = mcpToolLabel("ace", tool, { hostId: "private-host-id", taskId: "private-task-id" });
+  expect([shown.verb, shown.target].filter(Boolean).join(" ")).toBe(expected);
+  expect(shown.running).not.toContain("private-");
+});
+
+test("unknown custom tool titles never expose provider namespaces", () => {
+  for (const title of ["docs › search_pages", "ace_status", "mcp__docs__search_pages"]) {
+    expect(namedToolLabel("custom", title)).toMatchObject({
+      verb: "Used a tool",
+      target: undefined,
+    });
+  }
 });

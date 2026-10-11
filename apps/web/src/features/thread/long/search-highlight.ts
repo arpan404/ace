@@ -13,28 +13,22 @@ const name = "ace-find";
 const maxRanges = 200;
 
 function terms(query: string): string[] {
-  return [
-    ...new Set(
-      query
-        .toLocaleLowerCase()
-        .split(/\s+/)
-        .filter((term) => term.length > 0),
-    ),
-  ];
+  return [...new Set(query.split(/\s+/).filter((term) => term.length > 0))];
 }
 
 function ranges(root: Element, words: readonly string[]): Range[] {
   const found: Range[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node && found.length < maxRanges; node = walker.nextNode()) {
-    const text = node.textContent?.toLocaleLowerCase() ?? "";
+    const text = node.textContent ?? "";
     for (const word of words) {
-      for (let at = text.indexOf(word); at >= 0 && found.length < maxRanges;) {
+      const pattern = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+      for (const match of text.matchAll(pattern)) {
+        if (found.length >= maxRanges) break;
         const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + word.length);
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + match[0].length);
         found.push(range);
-        at = text.indexOf(word, at + word.length);
       }
     }
   }

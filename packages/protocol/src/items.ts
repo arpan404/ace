@@ -133,6 +133,8 @@ export const AgentItem = z.discriminatedUnion("type", [
     commandId: CommandId.optional(),
     interactionId: InteractionId.optional(),
     code: z.string().optional(),
+    /** Adapter evidence; visible only when its code has reviewed user copy. */
+    diagnostic: z.boolean().optional(),
     title: z.string().optional(),
     detail: z.string().optional(),
     details: ProviderErrorDetails.optional(),

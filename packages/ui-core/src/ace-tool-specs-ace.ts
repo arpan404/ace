@@ -38,6 +38,24 @@ function prLabel(args: Record<string, unknown>): string {
 }
 
 const aceSpecs: Record<string, AceToolSpec> = {
+  ace_device_list: fixed("device", say(verbs.listed, " connected devices")),
+  ace_device_delegate: fixed(
+    "device",
+    say(["Delegated", "Delegating", "Delegate"], " work to another device"),
+  ),
+  ace_device_task_publish: fixed(
+    "device",
+    say(["Returned", "Returning", "Return"], " results from another device"),
+  ),
+  ace_device_task_status: fixed(
+    "device",
+    say(["Checked", "Checking", "Check"], " work on another device"),
+  ),
+  ace_device_task_wait: fixed("device", say(verbs.waited, " work on another device")),
+  ace_device_task_cancel: fixed(
+    "device",
+    say(["Stopped", "Stopping", "Stop"], " work on another device"),
+  ),
   delegate_task: spec("agents", ({ args }) => {
     const task = str(args, "task");
     return say(["Delegated", "Delegating", "Delegate"], ` ${task ? quote(task, 56) : "a task"}`);

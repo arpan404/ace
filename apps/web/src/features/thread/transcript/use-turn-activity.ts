@@ -7,6 +7,8 @@ import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useStopping } from "../composer/stop-state.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
+import { useStepLabels } from "../items/step-labels.ts";
+
 const off: readonly ThreadKey[] = [];
 const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: [] };
 
@@ -18,6 +20,7 @@ const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: []
  */
 export function useTurnActivity(threadId: string, enabled = true): TurnActivity | undefined {
   const live = useLiveConnection();
+  const labels = useStepLabels();
   const meta = useThreadMeta(threadId);
   const rootId = meta?.rootAgentId ?? "";
   const status = meta?.status;
@@ -33,10 +36,10 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
   const read = useCallback(
     (reader: ThreadReader): Watched<TurnActivity | undefined> => {
       if (!enabled) return nothing;
-      const reading = readTurnActivity(reader, rootId, { threadStatus: status, stopping });
+      const reading = readTurnActivity(reader, rootId, { threadStatus: status, stopping, labels });
       return { value: reading.activity, watch: reading.watch };
     },
-    [enabled, rootId, status, stopping],
+    [enabled, rootId, status, stopping, labels],
   );
   const activity = useWatched(threadId, keys, read, sameActivity);
   return activity && live.staleLabel

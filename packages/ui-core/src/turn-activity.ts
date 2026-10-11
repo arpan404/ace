@@ -6,6 +6,7 @@ import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
 import { formatClock, formatElapsed } from "./time.ts";
 import { ledgerOf } from "./thread-ledger.ts";
+import type { StepLabels } from "./tool-labels.ts";
 import { describeStep } from "./work-log.ts";
 
 /*
@@ -51,6 +52,7 @@ export type ActivityReader = Pick<
 >;
 
 export interface ActivityOptions {
+  labels?: StepLabels | undefined;
   /** The thread's list status: a limit hold the queue banner shows reads as a pause. */
   threadStatus?: ThreadStatus | undefined;
   /** A Stop is on its way to the daemon. */
@@ -173,7 +175,9 @@ function readActivity(
           : stretch.start +
             stretch.idle +
             ledger.waitedWithin(stretch.start, Number.POSITIVE_INFINITY, stretch.start);
-      const step = stretch.current ? describeStep(stretch.current) : undefined;
+      const step = stretch.current
+        ? describeStep(stretch.current, { labels: options.labels })
+        : undefined;
       const call = stretch.current?.type === "tool_call" ? stretch.current.call : undefined;
       const current =
         call?.detail.kind === "shell" && isTestCommand(call.detail.command)

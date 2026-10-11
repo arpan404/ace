@@ -164,7 +164,11 @@ function callText(call: ToolCall, context: StepContext): CallText {
     }
     case "mcp": {
       if (!context.labels)
-        return { icon: "tool", verb: "Called", target: `${detail.server} › ${detail.tool}` };
+        return {
+          icon: "tool",
+          verb: "Used a tool",
+          forms: { running: "Using a tool", awaiting: "Use a tool" },
+        };
       const label = context.labels.mcp(detail.server, detail.tool, detail.arguments);
       return {
         icon: label.icon === "agent" ? "tool" : label.icon === "shell" ? "shell" : label.icon,
@@ -189,7 +193,11 @@ function callText(call: ToolCall, context: StepContext): CallText {
       return { icon: "tool", verb: "Messaged a subagent", target: detail.message };
     default: {
       if (!context.labels)
-        return { icon: detail.kind === "browser" ? "web" : "tool", verb: call.title };
+        return {
+          icon: detail.kind === "browser" ? "web" : "tool",
+          verb: "Used a tool",
+          forms: { running: "Using a tool", awaiting: "Use a tool" },
+        };
       const label = context.labels.named(detail.kind, call.title);
       return {
         icon: label.icon === "web" ? "web" : "tool",

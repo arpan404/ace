@@ -387,6 +387,9 @@
         "details": {
           "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
         },
+        "diagnostic": {
+          "type": "boolean"
+        },
         "executionSource": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },

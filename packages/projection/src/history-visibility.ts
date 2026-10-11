@@ -1,5 +1,6 @@
 import type { Item } from "@ace/protocol";
 import { z } from "zod";
+import { diagnosticNoticeText, isDiagnosticNotice } from "./diagnostic-notice.ts";
 
 const nativeMessage = z.object({
   type: z.string().optional(),
@@ -14,6 +15,7 @@ export function isRawHistoryItem(item: Item | undefined): boolean {
   if (!item) return false;
   if (item.type === "notice")
     return (
+      (isDiagnosticNotice(item) && !diagnosticNoticeText(item)) ||
       item.code === "history.raw-only" ||
       /^Native history record: (?:event_msg|turn_context|session_meta|message|world_state)$/.test(
         item.text,

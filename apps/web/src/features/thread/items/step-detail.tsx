@@ -1,14 +1,19 @@
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible.tsx";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
-import { useMemo, useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { PermissionReviewFacts } from "@/components/permission-review.tsx";
-import { displayCommand, patchLines, stepPath } from "@ace/ui-core";
+import { displayCommand, patchLines, stepPath, stripAnsi } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 import { readOutputText } from "@/lib/output-read.ts";
@@ -119,16 +124,6 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
           {detail.url}
         </a>
       )}
-      {detail.kind === "mcp" && (
-        <>
-          <p className="text-ui text-muted-foreground">
-            {detail.server} · {detail.tool}
-          </p>
-          {detail.arguments !== undefined && (
-            <JsonBlock label="Arguments" value={detail.arguments} />
-          )}
-        </>
-      )}
       {(detail.kind === "todo" || detail.kind === "plan") && (
         <>
           {detail.kind === "plan" && detail.markdown && (
@@ -155,15 +150,52 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
       {["browser", "image", "notebook", "custom"].includes(detail.kind) && (
         <p className="text-ui text-muted-foreground">{title}</p>
       )}
-      {error && (
+      {error && detail.kind !== "mcp" && (
         <p role="alert" className="text-ui whitespace-pre-wrap text-status-failed">
           {error}
         </p>
       )}
-      {(detail.kind === "mcp" ||
-        ["browser", "image", "notebook", "custom"].includes(detail.kind)) &&
-        raw.length > 0 && <JsonBlock label="Raw" value={raw} collapsed />}
+      {detail.kind === "mcp" ? (
+        <McpDetails item={props.item} />
+      ) : (
+        ["browser", "image", "notebook", "custom"].includes(detail.kind) &&
+        raw.length > 0 && (
+          <ToolDetails>
+            <JsonText label="Raw" value={raw} />
+          </ToolDetails>
+        )
+      )}
     </div>
+  );
+}
+
+function ToolDetails({ children }: { children: ReactNode }) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline">
+        Details
+      </CollapsibleTrigger>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function McpDetails({ item }: { item: ToolItem }) {
+  if (item.call.detail.kind !== "mcp") return null;
+  const detail = item.call.detail;
+  return (
+    <ToolDetails>
+      <JsonText
+        label="Tool"
+        value={{
+          server: detail.server,
+          tool: detail.tool,
+          arguments: detail.arguments,
+          error: item.call.error,
+          raw: item.call.raw,
+        }}
+      />
+    </ToolDetails>
   );
 }
 
@@ -173,7 +205,6 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
  */
 function AceStepDetail(props: { item: Item; view: AceToolView }) {
   const { item, view } = props;
-  const [open, setOpen] = useState(false);
   const call = item.type === "tool_call" ? item.call : undefined;
   const tried = `${view.words.awaiting}${view.words.target ? ` ${view.words.target}` : ""}`;
   return (
@@ -186,15 +217,7 @@ function AceStepDetail(props: { item: Item; view: AceToolView }) {
           </span>
         </p>
       )}
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline"
-      >
-        Details
-      </button>
-      {open && (
+      <ToolDetails>
         <div className="flex flex-col gap-2">
           <p className="font-mono text-xs break-all text-muted-foreground">
             {[view.tool, view.problem?.code, item.type === "notice" ? item.text : undefined]
@@ -202,17 +225,26 @@ function AceStepDetail(props: { item: Item; view: AceToolView }) {
               .join(" · ")}
           </p>
           {call?.detail.kind === "mcp" && call.detail.arguments !== undefined && (
-            <JsonBlock label="Arguments" value={call.detail.arguments} />
+            <JsonText label="Arguments" value={call.detail.arguments} />
           )}
           {call?.error && (
             <p className="text-ui whitespace-pre-wrap text-muted-foreground">{call.error}</p>
           )}
-          {"raw" in item && item.raw.length > 0 && (
-            <JsonBlock label="Raw" value={item.raw} collapsed />
-          )}
-          {call && call.raw.length > 0 && <JsonBlock label="Raw" value={call.raw} collapsed />}
+          {"raw" in item && item.raw.length > 0 && <JsonText label="Raw" value={item.raw} />}
+          {call && call.raw.length > 0 && <JsonText label="Raw" value={call.raw} />}
         </div>
-      )}
+      </ToolDetails>
+    </div>
+  );
+}
+
+function JsonText(props: { label: string; value: unknown }) {
+  return (
+    <div>
+      <p className="text-xs text-subtle-foreground">{props.label}</p>
+      <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+        {JSON.stringify(props.value, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -245,42 +277,6 @@ function TodoList(props: { todos: readonly TodoEntry[] }) {
   );
 }
 
-/** Pretty JSON, read-only; long values fold after six lines. */
-function JsonBlock(props: { label: string; value: unknown; collapsed?: boolean }) {
-  const text = useMemo(() => {
-    try {
-      return JSON.stringify(props.value, null, 2) ?? "";
-    } catch {
-      return String(props.value);
-    }
-  }, [props.value]);
-  const lines = text.split("\n");
-  const long = lines.length > 6;
-  const [open, setOpen] = useState(!props.collapsed && !long);
-  if (!text) return null;
-  return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline"
-      >
-        {props.label}
-        {!open && long ? ` · ${lines.length} lines` : ""}
-      </button>
-      <pre
-        className={cn(
-          "overflow-auto rounded-md bg-code px-3 py-2 font-mono text-[12px] leading-[1.5] whitespace-pre-wrap text-muted-foreground",
-          open ? "max-h-80" : "max-h-[6lh]",
-        )}
-      >
-        {open || !long ? text : lines.slice(0, 6).join("\n")}
-      </pre>
-    </div>
-  );
-}
-
 function ShellOutput(props: {
   command: string;
   raw?: string | undefined;
@@ -291,7 +287,7 @@ function ShellOutput(props: {
 }) {
   const live = useLiveConnection();
   const [full, setFull] = useState<string>();
-  const text = full ?? props.output?.tail ?? "";
+  const text = stripAnsi(full ?? props.output?.tail ?? "");
   return (
     <div className="overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
       <pre className="overflow-x-auto px-3 pt-2.5 font-mono text-[12px] leading-[1.55] whitespace-pre-wrap">

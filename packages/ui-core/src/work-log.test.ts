@@ -311,7 +311,8 @@ test("before the tool wording loads (idle, after first paint), a step reads plai
     "running",
     0,
   );
-  expect(describeStep(mcp)).toMatchObject({ verb: "Calling", target: "ace › ace_browser_open" });
+  expect(describeStep(mcp).verb).toBe("Using a tool");
+  expect(describeStep(mcp).target).toBeUndefined();
   const failed = call({ kind: "custom" }, "failed", 0, 1);
   expect(describeStep(failed)).toMatchObject({ note: "Failed", failed: true });
   // Commands unwrap without it: the live line never shows the login shell.
