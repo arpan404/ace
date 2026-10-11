@@ -185,7 +185,7 @@ export class GitHubStacks {
         headSha: pr.headRefOid,
         branch: pr.headRefName,
         baseBranch: pr.baseRefName,
-        state: pr.isDraft ? "DRAFT" : pr.state,
+        state: pr.state === "OPEN" && pr.isDraft ? "DRAFT" : pr.state,
         mergeState: pr.mergeStateStatus,
         reviewDecision: pr.reviewDecision,
         checksState: pr.statusCheckRollup?.state ?? null,

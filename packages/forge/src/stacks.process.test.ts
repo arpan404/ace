@@ -320,8 +320,8 @@ test("a missing stack CLI leaves rebase unsupported and never fabricates a succe
   }
 });
 
-test.each(["closed", "queued"])(
-  "a %s dependency blocks publishing a local rebase",
+test.each(["closed", "closed draft", "queued"])(
+  "a %s dependency blocks a local rebase",
   async (state) => {
     const layers = stackLayers.map((pr) => ({
       position: pr.position,
@@ -329,8 +329,8 @@ test.each(["closed", "queued"])(
         {},
         pr,
         pr.number === 7
-          ? state === "closed"
-            ? { state: "CLOSED" }
+          ? state === "closed" || state === "closed draft"
+            ? { state: "CLOSED", isDraft: state === "closed draft" }
             : { mergeQueueEntry: { state: "AWAITING_CHECKS" } }
           : {},
       ),
@@ -401,6 +401,29 @@ test.each(["collaborator commit", "queue entry"])(
     } finally {
       await writeFile(join(f.dir, "release-rebase"), "");
       await rebase?.catch(() => {});
+      await f.cleanup();
+    }
+  },
+);
+
+test.each(["CLOSED", "MERGED"])(
+  "a draft flag cannot hide a %s dependency's terminal state",
+  async (state) => {
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [
+        stackResponse(
+          8,
+          stackLayers.map((pr) => ({
+            position: pr.position,
+            pullRequest: { ...pr, ...(pr.number === 7 ? { state, isDraft: true } : {}) },
+          })),
+        ),
+      ],
+    });
+    try {
+      expect((await f.forge.prStack(8, signal()))?.layers[0]?.state).toBe(state);
+    } finally {
       await f.cleanup();
     }
   },
