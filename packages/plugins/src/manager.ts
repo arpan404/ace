@@ -322,13 +322,7 @@ export class PluginManager {
   }
   async extensions(provider: import("@ace/protocol").ProviderKind) {
     const snapshots = await this.catalogSnapshots();
-    return pluginCatalog(
-      provider,
-      snapshots.filter((s) => {
-        const p = this.availability(s.install.name);
-        return p.enabled && p.providers.includes(provider);
-      }),
-    );
+    return pluginCatalog(provider, this.client.selected(provider, snapshots));
   }
   catalog(offset: number, limit: number) {
     return this.client.catalog(offset, limit);

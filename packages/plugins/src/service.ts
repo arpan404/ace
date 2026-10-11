@@ -19,9 +19,12 @@ export class PluginService {
   async handle(input: unknown): Promise<PluginResponse> {
     const result = await this.respond(input);
     if (
-      ["plugins.availability", "plugins.accept", "plugins.remove"].includes(
-        PluginRequest.parse(input).type,
-      )
+      [
+        "plugins.availability",
+        "plugins.skillAvailability",
+        "plugins.accept",
+        "plugins.remove",
+      ].includes(PluginRequest.parse(input).type)
     )
       for (const listener of this.listeners) listener();
     return result;
