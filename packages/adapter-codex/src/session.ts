@@ -169,8 +169,6 @@ export async function openCodexSession(
             }
           }
         }
-        if (scopedReads.has(m["id"]) && str(snapshot["id"]))
-          readRevisions.set(str(snapshot["id"]), revisions.get(str(snapshot["id"])) ?? 0);
         if (
           thread &&
           (known.has(thread) || readRevisions.has(thread)) &&
@@ -184,7 +182,10 @@ export async function openCodexSession(
           threadId: thread,
           task: `discovery:${str(obj(p["turn"])["id"])}`,
         });
-      if (dir === "send" && method === "thread/read") scopedReads.add(m["id"]);
+      if (dir === "send" && method === "thread/read") {
+        scopedReads.add(m["id"]);
+        readRevisions.set(thread, revisions.get(thread) ?? 0);
+      }
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
       emit(dir, data, scoped ? "codex-discovery" : "stdio", optionalFrames.method(dir, data));
       if (dir !== "recv") return;

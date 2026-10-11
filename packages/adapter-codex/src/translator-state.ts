@@ -2,6 +2,7 @@ import type { Fact, Key } from "@ace/core";
 import type { RunTrigger } from "@ace/protocol";
 import type { Obj } from "./native.ts";
 type OpenItem = { data: Obj; turn: string; streamStarted?: boolean };
+export type RecoveryRevision = { read: number; current: number };
 export type Agent = {
   key: Key;
   parent?: string;
@@ -38,6 +39,7 @@ export interface TranslationContext {
     now: number,
     parent?: string,
     spawnedBy?: string,
+    revision?: RecoveryRevision,
   ): Agent;
   note(agent: Key, type: string, data: unknown, text?: string): Fact;
 }

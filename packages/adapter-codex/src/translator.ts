@@ -12,6 +12,12 @@ import { translateItem } from "./translate-item.ts";
 import { isKnownDelta, translateDelta } from "./translate-delta.ts";
 import { isInteractiveRequest, openRequest, turnError } from "./interactions.ts";
 import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
+import { z } from "zod";
+
+const recoveryRevision = z.object({
+  read: z.number().int().nonnegative(),
+  current: z.number().int().nonnegative(),
+});
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
@@ -102,12 +108,15 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (message["event"] === "thread-discovered") {
         const thread = obj(message["thread"]);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
+        const revision = recoveryRevision.safeParse(message["revision"]);
         discover(
           str(thread["id"]),
           thread,
           facts,
           now,
           str(thread["parentThreadId"], str(source["parent_thread_id"])) || undefined,
+          undefined,
+          revision.success ? revision.data : undefined,
         );
       }
       // Recorded fixtures explicitly annotate an answer; ambiguous annotations close nothing.

@@ -583,6 +583,17 @@ for await (const line of createInterface({ input: process.stdin })) {
         text: "early transcript",
       });
     } else if (text === "hidden-child") {
+      if (process.env["ACE_FAKE_RESUME"]?.startsWith("read-after-observed")) {
+        item("native", "turn", {
+          id: "spawn-hidden",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "hidden",
+        });
+        active.set("hidden", "observed-A");
+        notify("turn/started", { threadId: "hidden", turn: { id: "observed-A" } });
+        end("hidden");
+      }
       active.set("hidden", "hidden-turn");
       end();
     } else if (["unrelated", "failed-discovery", "delta-shell"].includes(text)) {
@@ -692,6 +703,23 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
   } else if (method === "thread/read") {
+    if (
+      process.env["ACE_FAKE_RESUME"] === "read-after-observed-stale" &&
+      p["threadId"] === "hidden"
+    ) {
+      notify("turn/started", { threadId: "hidden", turn: { id: "newer-C" } });
+      active.set("hidden", "newer-C");
+      end("hidden");
+      respond({
+        thread: {
+          id: "hidden",
+          parentThreadId: "native",
+          status: { type: "active" },
+          turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
+        },
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
       active.delete("hidden");
       const turn = { id: "hidden-turn", status: "inProgress", items: [] };

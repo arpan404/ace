@@ -89,9 +89,14 @@ export function sessionDiscovery(config: {
     if (parent) parents.set(threadId, parent);
     const revision = readRevisions.get(threadId);
     readRevisions.delete(threadId);
-    if (revision === (revisions.get(threadId) ?? 0)) hydrateControls(thread, active, shells);
+    const current = revisions.get(threadId) ?? 0;
+    if (revision === current) hydrateControls(thread, active, shells);
     rememberHistoricalQuestions(thread, seenQuestions);
-    emit("note", { event: "thread-discovered", thread });
+    emit("note", {
+      event: "thread-discovered",
+      thread,
+      revision: { read: revision ?? 0, current },
+    });
   }
   async function refreshQueue(threadId: string): Promise<void> {
     let cursor: unknown = undefined;

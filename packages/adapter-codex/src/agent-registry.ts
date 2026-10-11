@@ -2,7 +2,7 @@ import { confirmModel } from "./model.ts";
 import { RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
-import type { Agent } from "./translator-state.ts";
+import type { Agent, RecoveryRevision } from "./translator-state.ts";
 import { obj, str, list, type Obj } from "./native.ts";
 export function createAgentRegistry(config: {
   agents: Map<string, Agent>;
@@ -68,6 +68,7 @@ export function createAgentRegistry(config: {
     now: number,
     parent?: string,
     spawnedBy?: string,
+    revision?: RecoveryRevision,
   ): Agent {
     const wasKnown = agents.get(id)?.known === true;
     const agent = ensure(id, true, facts, p, parent);
@@ -109,6 +110,7 @@ export function createAgentRegistry(config: {
     }
     if (p["status"]) {
       const preserveObserved = agent.hadTurn;
+      const currentSnapshot = !revision || revision.read === revision.current;
       const turns = list(p["turns"]);
       for (const turn of turns) {
         const t = obj(turn);
@@ -121,7 +123,11 @@ export function createAgentRegistry(config: {
               now,
             ),
           );
-        if (!preserveObserved && !agent.ended.has(turnId))
+        if (
+          currentSnapshot &&
+          !agent.ended.has(turnId) &&
+          (!preserveObserved || (!agent.turn && t["status"] === "inProgress"))
+        )
           replay("turn/started", { threadId: id, turn: t });
         for (const value of list(t["items"])) {
           const item = obj(value);
@@ -131,7 +137,12 @@ export function createAgentRegistry(config: {
         }
         if (t["status"] !== "inProgress") replay("turn/completed", { threadId: id, turn: t });
       }
-      if (!agent.hadTurn && obj(p["status"])["type"] === "active") {
+      if (
+        currentSnapshot &&
+        !agent.turn &&
+        (!agent.hadTurn || turns.length === 0) &&
+        obj(p["status"])["type"] === "active"
+      ) {
         agent.turn = `observed:${id}`;
         agent.hadTurn = true;
         facts.push({
