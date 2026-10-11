@@ -1,4 +1,7 @@
-import { configuredProviderDiscovery } from "../provider-discovery.ts";
+import {
+  configuredProviderDiscovery,
+  sameProviderExecutableConfiguration,
+} from "../provider-discovery.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
   cursorSdkLoginDriver,
@@ -164,9 +167,27 @@ export async function prepareProviderLogin(
     (!instance.implicit && !instance.managed)
   )
     throw new Error("Instance unavailable");
+  const nativeConfiguration = { ...services.providerConfigurations?.for(provider, instanceId) };
+  if (nativeConfiguration.enabled === false) throw new Error("Provider disabled");
+  const revision = instance.loginRevision;
+  const assertCurrent = () => {
+    const current = registry.get(instanceId)?.instance;
+    if (
+      !current ||
+      current.provider !== provider ||
+      current.homeDir !== instance.homeDir ||
+      current.loginRevision !== revision ||
+      !sameProviderExecutableConfiguration(
+        nativeConfiguration,
+        services.providerConfigurations?.for(provider, instanceId),
+      )
+    )
+      throw new Error("Provider configuration or account revision changed");
+  };
   const release = services.accounts.reserveAccountChange(instanceId);
   try {
     if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+    assertCurrent();
     const env = instanceEnv(
       instance,
       options.accounts?.env ?? options.providerStatus?.env ?? process.env,
@@ -180,13 +201,14 @@ export async function prepareProviderLogin(
     };
     const configured = configuredProviderDiscovery(
       target.provider,
-      configuration?.binaryPath,
+      nativeConfiguration.binaryPath,
       discovery,
     );
     const status =
       target.provider === "pi"
         ? await discoverPiStatus(configured)
         : await discoverProvider(target.provider, configured);
+    assertCurrent();
     const executable = status.path;
     if (!executable) throw new Error("CLI not installed");
     const args =
@@ -223,6 +245,7 @@ export async function prepareProviderLogin(
           })();
     signal.throwIfAborted();
     if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+    assertCurrent();
     const supportedKey = apiKeySupport(target.provider, status.version, help);
     if (target.method === "api_key" && !supportedKey.supported)
       throw new Error("API key unsupported");
@@ -264,8 +287,16 @@ export async function prepareProviderLogin(
     const result: ProviderLoginDriver = {
       ...driver,
       release,
+      async run(runSignal, emit) {
+        runSignal.throwIfAborted();
+        assertCurrent();
+        return driver.run(runSignal, emit);
+      },
       async changed(changeSignal) {
+        changeSignal.throwIfAborted();
+        assertCurrent();
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+        assertCurrent();
         const after =
           provider === "pi"
             ? await discoverPiStatus({
@@ -274,6 +305,9 @@ export async function prepareProviderLogin(
                 signal: changeSignal,
               })
             : await discoverProvider(provider, { ...configured, signal: changeSignal });
+        changeSignal.throwIfAborted();
+        if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+        assertCurrent();
         if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
           throw new Error("CLI logout unconfirmed");
         if (action === "login" && after.auth === "logged_out")

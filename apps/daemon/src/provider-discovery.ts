@@ -50,3 +50,19 @@ export function configuredProviderDiscovery(
   if (provider === "acp") return options;
   return { ...options, overrides: { ...options.overrides, [provider]: binaryPath } };
 }
+
+export interface ProviderExecutableConfiguration {
+  enabled?: boolean | undefined;
+  binaryPath?: string | undefined;
+}
+
+/** Freshness depends on the effective executable and admission policy, not display preferences. */
+export function sameProviderExecutableConfiguration(
+  observed: ProviderExecutableConfiguration,
+  current: ProviderExecutableConfiguration | undefined,
+): boolean {
+  return (
+    current?.binaryPath === observed.binaryPath &&
+    (current?.enabled !== false) === (observed.enabled !== false)
+  );
+}

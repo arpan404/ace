@@ -1,4 +1,7 @@
-import { configuredProviderDiscovery } from "./provider-discovery.ts";
+import {
+  configuredProviderDiscovery,
+  sameProviderExecutableConfiguration,
+} from "./provider-discovery.ts";
 import { inspectAccountSupport, reportedAuthMethod } from "./provider-account-support.ts";
 import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
@@ -63,7 +66,10 @@ export interface AccountManagementOptions {
       }
     | undefined;
   authChanged?(): Promise<void>;
-  configuration?(provider: ProviderInstance["provider"], instance?: string): {
+  configuration?(
+    provider: ProviderInstance["provider"],
+    instance?: string,
+  ): {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
   };
@@ -99,7 +105,8 @@ export class AccountManagement {
     for (const { instance, quota } of this.options.registry.list())
       if (instance.managed && !quota.blockers.homeUnavailable) {
         this.options.signal?.throwIfAborted();
-        if (this.options.configuration?.(instance.provider, instance.id).enabled === false) continue;
+        if (this.options.configuration?.(instance.provider, instance.id).enabled === false)
+          continue;
         await assertManagedHome(this.options.dataDir, instance);
         const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
         if (instance.provider === "cursor" && !sdk) continue;
@@ -543,8 +550,7 @@ export class AccountManagement {
   ): boolean {
     const current = this.options.configuration?.(instance.provider, instance.id);
     return (
-      current?.binaryPath === observed.binaryPath &&
-      (current?.enabled !== false) === (observed.enabled !== false) &&
+      sameProviderExecutableConfiguration(observed, current) &&
       this.options.registry.get(instance.id)?.instance.loginRevision === revision
     );
   }
