@@ -1,3 +1,4 @@
+import { DaemonTarget, type DaemonTarget as Target } from "./connection-settings.ts";
 /*
  * The desktop app's folder access, through its preload bridge (`window.ace`): the native folder
  * picker and the paths of folders dropped on the window. In a browser there is no bridge and
@@ -13,7 +14,7 @@ export interface DesktopFolders {
    * Whether the daemon runs on this computer, so a path picked here means the same folder
    * there. A desktop app attached to a remote daemon browses that machine's folders instead.
    */
-  local(): Promise<boolean>;
+  local(target?: Target): Promise<boolean>;
 }
 
 const absolute = (value: unknown): value is string =>
@@ -31,6 +32,7 @@ export function desktopFolders(scope: object = globalThis): DesktopFolders | und
   const openFolder = member(member(ace, "dialogs"), "openFolder");
   const pathForFile = member(member(ace, "files"), "pathForFile");
   const status = member(member(ace, "daemon"), "status");
+  const connection = member(member(ace, "daemon"), "connection");
   if (typeof openFolder !== "function" || typeof pathForFile !== "function") return undefined;
   return {
     async choose() {
@@ -45,12 +47,24 @@ export function desktopFolders(scope: object = globalThis): DesktopFolders | und
         return null;
       }
     },
-    async local() {
-      if (typeof status !== "function") return true;
+    async local(target) {
+      if (!target || typeof status !== "function" || typeof connection !== "function") return false;
       try {
-        return member(await status(), "source") !== "remote";
+        const state = await status();
+        if (
+          member(state, "state") !== "running" ||
+          !["app", "service", "external"].includes(String(member(state, "source")))
+        )
+          return false;
+        const current = DaemonTarget.safeParse(await connection());
+        return (
+          current.success &&
+          new URL(current.data.url).href === new URL(target.url).href &&
+          current.data.token === target.token &&
+          !target.pairedDeviceId
+        );
       } catch {
-        return true;
+        return false;
       }
     },
   };

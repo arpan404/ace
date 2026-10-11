@@ -1,4 +1,5 @@
 import { parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./actions.ts";
 import { z } from "zod";
@@ -105,10 +106,10 @@ export class ToolRegistry {
         const args = parseToolArguments(input, value);
         context.signal.throwIfAborted();
         const result = await definition.run(args, context);
-        if (!withinJsonBudget(result, 256 * 1024)) throw new ResultBudgetExceeded();
+        if (!withinJsonBudget(result, maxStructuredResultBytes)) throw new ResultBudgetExceeded();
         const structuredContent = output.parse(result);
         const text = JSON.stringify(structuredContent);
-        if (Buffer.byteLength(text) > 256 * 1024) throw new ResultBudgetExceeded();
+        if (Buffer.byteLength(text) > maxStructuredResultBytes) throw new ResultBudgetExceeded();
         return { content: [{ type: "text", text }], structuredContent };
       },
     });

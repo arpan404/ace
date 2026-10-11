@@ -469,7 +469,7 @@ export class EngineRepository {
   }
   nativeSession(
     id: ThreadId,
-    nativeId: string,
+    nativeId: string | undefined,
     backend?: ProviderBackend,
     instanceId?: string,
   ): void {

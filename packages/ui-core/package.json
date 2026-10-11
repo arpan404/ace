@@ -13,7 +13,8 @@
     "./acp-registry": "./src/acp-registry.ts",
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
-    "./interaction-measurement": "./src/interaction-measurement.ts"
+    "./interaction-measurement": "./src/interaction-measurement.ts",
+    "./editor-url": "./src/editor-url.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

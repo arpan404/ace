@@ -3,13 +3,14 @@ import { createTextRedactor } from "@ace/redaction";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
 import type { CodexSessionContext } from "./session-context.ts";
 
-type Retirement = "idle" | "user" | "shutdown" | "aborted" | "open_failed";
+type Retirement = "idle" | "user" | "shutdown" | "aborted" | "open_failed" | "rpc_failed";
 /** Process I/O and exit evidence stay outside translation and policy decision logic. */
 export function sessionLifetime(config: {
   proc: SupervisedProcess;
   ctx: CodexSessionContext;
   generation: string;
   graceMs: number;
+  schedule(callback: () => void, delayMs: number): () => void;
   cleanup(): void;
   emit(dir: "stderr" | "note", data: unknown): void;
 }) {
@@ -26,6 +27,19 @@ export function sessionLifetime(config: {
   let retirement: Retirement | null = null;
   let closePromise: Promise<void> | undefined;
   let closed = false;
+  let outputDrained = true;
+  let cancelDrain: (() => void) | undefined;
+  // Leader exit is independent of inherited pipe EOF. Preserve a bounded final prefix.
+  const drain = () => {
+    cancelDrain = config.schedule(() => {
+      outputDrained = false;
+      proc.stdout.close();
+      proc.stderr.close();
+      proc.stdin.destroy();
+    }, 250);
+  };
+  proc.signal.addEventListener("abort", drain, { once: true });
+  if (proc.signal.aborted) drain();
   proc.stderr.on("line", (line) => {
     const safe = redact(line);
     // Scrub before slicing so neither split credentials nor raw frames enter the retained tail.
@@ -37,7 +51,8 @@ export function sessionLifetime(config: {
   });
   function stop(reason: Retirement): Promise<void> {
     if (closePromise) return closePromise;
-    retirement = reason;
+    // Shutdown after leader exit only finishes draining; it cannot make the loss deliberate.
+    if (!proc.signal.aborted) retirement = reason;
     closed = true;
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
@@ -49,10 +64,13 @@ export function sessionLifetime(config: {
   };
   ctx.signal.addEventListener("abort", abort, { once: true });
   void proc.exited.then((exit) => {
+    cancelDrain?.();
+    proc.signal.removeEventListener("abort", drain);
     closed = true;
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
-    const deliberate = retirement !== null && retirement !== "open_failed";
+    const deliberate =
+      retirement !== null && retirement !== "open_failed" && retirement !== "rpc_failed";
     const diagnostic = CodexExitDiagnostic.parse({
       event: "codex-session-exit",
       generation: config.generation,
@@ -63,6 +81,7 @@ export function sessionLifetime(config: {
       signal: exit.signal,
       stderr,
       stderrSummary: stderr.slice(-1024),
+      outputDrained,
       ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
     });
     config.emit("note", diagnostic);
@@ -74,6 +93,7 @@ export function sessionLifetime(config: {
   return {
     close: (reason: "idle" | "user" | "shutdown") => stop(reason),
     failOpen: () => stop("open_failed"),
+    failTransport: () => stop("rpc_failed"),
     isClosed: () => closed,
   };
 }

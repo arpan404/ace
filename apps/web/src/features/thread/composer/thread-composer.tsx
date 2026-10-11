@@ -72,6 +72,7 @@ export function ThreadComposer({
   thread: ThreadRef;
   status: ThreadStatus | undefined;
   composer?: Ref<ComposerHandle> | undefined;
+  requestTarget?: string | undefined;
 }) {
   const client = useClient();
   const { storage } = useLayout();
@@ -252,6 +253,7 @@ export function ThreadComposer({
               <DeferredRequestStack.Component
                 threadId={props.thread.id}
                 ids={open}
+                target={props.requestTarget}
                 onLeave={toMessage}
               />
             ) : tab === "plan" ? (

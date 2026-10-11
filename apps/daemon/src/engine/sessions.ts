@@ -14,6 +14,7 @@ import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
+import { unavailableNativeHistory } from "./resume-open-error.ts";
 
 const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
@@ -118,6 +119,7 @@ export class Sessions {
     let errorSecrets: readonly string[] = [];
     let openingModel: string | undefined;
     let openingInstance: string | undefined;
+    let attemptingResume = false;
     try {
       const state = this.dependencies.repo.requireState(actor.id);
       let metadata = this.dependencies.repo.session(actor.id);
@@ -162,7 +164,9 @@ export class Sessions {
       metadata = this.dependencies.repo.session(actor.id);
       const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
-        throw new Error("Provider cannot resume this thread");
+        throw new SessionOpenError("Provider cannot resume this thread", {
+          code: "resume_unavailable",
+        });
       const rootKey = state.rootKey ?? "root";
       const thread = this.dependencies.repo.store.getThread(actor.id);
       const identity = thread?.provider === "acp" ? AcpIdentity.parse(thread) : undefined;
@@ -207,6 +211,7 @@ export class Sessions {
         interactionId: (key: string) =>
           this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
       };
+      attemptingResume = metadata.nativeSessionId !== undefined;
       const session = await adapter.openSession({
         ...context,
         outputFlow: actor.outputFlow,
@@ -348,6 +353,7 @@ export class Sessions {
             this.dependencies.wake(actor.id);
           }),
       });
+      attemptingResume = false;
       await actor.flush();
       if (
         generation !== actor.generation ||
@@ -363,13 +369,13 @@ export class Sessions {
         this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
-        if (session.sessionConfirmed !== false)
-          this.dependencies.repo.nativeSession(
-            actor.id,
-            session.nativeSessionId,
-            session.backend ?? adapter.backend,
-            session.instanceId,
-          );
+        // Account/backend selection is durable even before the native ID is confirmed.
+        this.dependencies.repo.nativeSession(
+          actor.id,
+          session.sessionConfirmed === false ? undefined : session.nativeSessionId,
+          session.backend ?? adapter.backend,
+          session.instanceId,
+        );
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;
@@ -390,17 +396,9 @@ export class Sessions {
       this.dependencies.wake(actor.id);
       opening = false;
     } catch (error) {
-      const resumeFailed = this.dependencies.repo.session(actor.id).nativeSessionId !== undefined;
-      const failure = new SessionOpenError(
+      const original = new SessionOpenError(
         `${stateBefore.config.provider} session opening failed`,
-        resumeFailed
-          ? {
-              code: "resume_unavailable",
-              title:
-                "The previous provider session could not be resumed. Start a new thread and include the context you need.",
-              detail: error instanceof Error ? error.message : "Resume failed",
-            }
-          : error,
+        error,
         { env: { ...process.env, ...errorEnvironment } },
         (value) =>
           typeof value === "string"
@@ -410,6 +408,16 @@ export class Sessions {
               )
             : value,
       );
+      const failure =
+        (attemptingResume || original.code === "resume_unavailable") &&
+        unavailableNativeHistory(original)
+          ? new SessionOpenError(original.title, {
+              code: "resume_unavailable",
+              title:
+                "The previous provider session could not be resumed. Start a new thread and include the context you need.",
+              detail: original.detail,
+            })
+          : original;
       try {
         const scrub = createDiagnosticRedactor({ env: { ...process.env, ...errorEnvironment } });
         const routeField = (value: string | undefined): string | null =>

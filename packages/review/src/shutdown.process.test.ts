@@ -91,30 +91,32 @@ it("closing the worker waits for abort cleanup even after the worker thread exit
   }
 });
 
-it("closing a review worker drains a live detached Git process and its descendant", async () => {
-  const repo = await repository();
-  const ready = Promise.withResolvers<{ parent: number; descendant: number }>();
-  const pids = z.object({
-    parent: z.number().int().positive(),
-    descendant: z.number().int().positive(),
-  });
-  const server = createServer((socket) => {
-    let data = "";
-    socket.on("data", (bytes: Buffer) => {
-      data += bytes.toString();
+it.each(["close", "unexpected exit"] as const)(
+  "a review worker %s drains its detached Git process and descendant",
+  async (mode) => {
+    const repo = await repository();
+    const ready = Promise.withResolvers<{ parent: number; descendant: number }>();
+    const pids = z.object({
+      parent: z.number().int().positive(),
+      descendant: z.number().int().positive(),
     });
-    socket.on("end", () => ready.resolve(pids.parse(JSON.parse(data))));
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing child fixture address");
-  const descendant = join(repo.directory, "git-descendant.cjs");
-  const binary = join(repo.directory, "git-fixture.cjs");
-  await writeFile(descendant, "process.send({ready:true}); setInterval(()=>{},1000);");
-  await writeFile(
-    binary,
-    `#!${process.execPath}
+    const server = createServer((socket) => {
+      let data = "";
+      socket.on("data", (bytes: Buffer) => {
+        data += bytes.toString();
+      });
+      socket.on("end", () => ready.resolve(pids.parse(JSON.parse(data))));
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing child fixture address");
+    const descendant = join(repo.directory, "git-descendant.cjs");
+    const binary = join(repo.directory, "git-fixture.cjs");
+    await writeFile(descendant, "process.send({ready:true}); setInterval(()=>{},1000);");
+    await writeFile(
+      binary,
+      `#!${process.execPath}
 const args=process.argv.slice(2);
 if(args.includes('--version')) process.stdout.write('git version 2.40.0\\n');
 else {
@@ -124,45 +126,56 @@ else {
  });
 }
 `,
-  );
-  await chmod(binary, 0o755);
-  const worker = new ReviewWorker(repo.directory + "/worker.sqlite", undefined, {
-    gitBinary: binary,
-  });
-  let child: { parent: number; descendant: number } | undefined;
-  try {
-    const pending = worker
-      .handle(repo.command({ type: "review.open", source: repo.session.source }), repo.root)
-      .catch(() => undefined);
-    child = await ready.promise;
-    const running = child;
-    await worker.close();
-    await pending;
-    expect(() => process.kill(running.parent, 0)).toThrow(
-      expect.objectContaining({ code: "ESRCH" }),
     );
-    // A killed orphan may be a zombie until the OS reaps it, but cannot be live.
-    const state = await promisify(execFile)("ps", [
-      "-o",
-      "stat=",
-      "-p",
-      String(child.descendant),
-    ]).catch((error: unknown) => {
-      expect(error).toMatchObject({ code: 1, stdout: "" });
-      return { stdout: "" };
+    await chmod(binary, 0o755);
+    let isolate: Worker | undefined;
+    const worker = new ReviewWorker(repo.directory + "/worker.sqlite", undefined, {
+      gitBinary: binary,
+      createWorker(url, options) {
+        isolate = new Worker(url, options);
+        return isolate;
+      },
     });
-    expect(state.stdout.trim()).toMatch(/^(?:Z[^\n]*|\?E[^\n]*)?$/);
-  } finally {
-    if (child)
-      for (const pid of [child.parent, child.descendant]) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          /* Already reaped. */
-        }
+    let child: { parent: number; descendant: number } | undefined;
+    try {
+      const pending = worker
+        .handle(repo.command({ type: "review.open", source: repo.session.source }), repo.root)
+        .catch(() => undefined);
+      child = await ready.promise;
+      const running = child;
+      if (mode === "close") await worker.close();
+      else {
+        if (!isolate) throw new Error("Missing isolate");
+        await isolate.terminate();
+        expect((await worker.handle(repo.command({ type: "review.list" }))).ok).toBe(true);
       }
-    await worker.close();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await repo.close();
-  }
-});
+      await pending;
+      if (mode === "close")
+        expect(() => process.kill(running.parent, 0)).toThrow(
+          expect.objectContaining({ code: "ESRCH" }),
+        );
+      // A killed orphan may be a zombie until the OS reaps it, but cannot be live.
+      for (const pid of [running.parent, running.descendant]) {
+        const state = await promisify(execFile)("ps", ["-o", "stat=", "-p", String(pid)]).catch(
+          (error: unknown) => {
+            expect(error).toMatchObject({ code: 1, stdout: "" });
+            return { stdout: "" };
+          },
+        );
+        expect(state.stdout.trim()).toMatch(/^(?:Z[^\n]*|\?E[^\n]*)?$/);
+      }
+    } finally {
+      if (child)
+        for (const pid of [child.parent, child.descendant]) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            /* Already reaped. */
+          }
+        }
+      await worker.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await repo.close();
+    }
+  },
+);

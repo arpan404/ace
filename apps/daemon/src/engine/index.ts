@@ -235,7 +235,6 @@ export class Engine {
     this.liveness = new ThreadLiveness({
       repo: this.repo,
       clock: this.clock,
-      maxThreads: this.limits.maxActiveThreads,
       sessions: this.sessions,
       sends: this.sends,
       controls: this.controls,

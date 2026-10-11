@@ -155,7 +155,6 @@ for (const evidence of ["snapshot", "canonical"] as const) {
   );
 }
 
-
 test("legacy completion replay stays pending through every batch and ready after repair and reopen", async () => {
   const h = storeFixture();
   const state = createThreadState({
@@ -165,13 +164,27 @@ test("legacy completion replay stays pending through every batch and ready after
   let serial = 0;
   const feed = (fact: Fact, now: number) => {
     const events = apply(state, fact, { now, ids: { next: () => `pending-upgrade-${++serial}` } });
-    h.store.appendEvents(h.thread.id, events.map((event) => {
-      if (event.type !== "agent.status") return event;
-      const { completionRelevant: _relevance, ...legacy } = event;
-      return legacy;
-    }), now);
+    h.store.appendEvents(
+      h.thread.id,
+      events.map((event) => {
+        if (event.type !== "agent.status") return event;
+        const { completionRelevant: _relevance, ...legacy } = event;
+        return legacy;
+      }),
+      now,
+    );
   };
-  feed({ type: "agent.seen", agent: "root", origin: "root", fidelity: "full", native: { provider: "codex" }, cwd: h.home }, 101);
+  feed(
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex" },
+      cwd: h.home,
+    },
+    101,
+  );
   feed({ type: "turn.started", agent: "root", trigger: "user" }, 102);
   feed({ type: "turn.ended", agent: "root", outcome: "completed" }, 103);
   for (let index = 1; index <= 400; index++)
@@ -187,21 +200,42 @@ test("legacy completion replay stays pending through every batch and ready after
   const pending = () => {
     expect(turns(h.store, h.thread)).toMatchObject({ ready: false, indexedSeq: 0 });
     expect(turns(h.store, h.thread).turns[0]?.status.state).toBe("unresponsive");
-    expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({ ready: false, turnsCompleted: 0 });
-    expect(catchUp(h.store, h.thread, { sinceTime: 349 })).toMatchObject({ ready: false, turnsCompleted: 0 });
+    expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({
+      ready: false,
+      turnsCompleted: 0,
+    });
+    expect(catchUp(h.store, h.thread, { sinceTime: 349 })).toMatchObject({
+      ready: false,
+      turnsCompleted: 0,
+    });
   };
   pending();
   await setImmediate();
   pending();
   for (let batch = 0; batch < 100 && !turns(h.store, h.thread).ready; batch++) await setImmediate();
   expect(turns(h.store, h.thread)).toMatchObject({ ready: true, indexedSeq: h.store.headSeq() });
-  expect(turns(h.store, h.thread).turns[0]).toMatchObject({ status: { state: "done" }, endedAt: 350 });
-  expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({ ready: true, turnsCompleted: 1 });
-  expect(catchUp(h.store, h.thread, { sinceTime: 349 })).toMatchObject({ ready: true, turnsCompleted: 1 });
+  expect(turns(h.store, h.thread).turns[0]).toMatchObject({
+    status: { state: "done" },
+    endedAt: 350,
+  });
+  expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({
+    ready: true,
+    turnsCompleted: 1,
+  });
+  expect(catchUp(h.store, h.thread, { sinceTime: 349 })).toMatchObject({
+    ready: true,
+    turnsCompleted: 1,
+  });
   const sequence = h.store.headSeq();
   await h.restart();
   expect(h.store.headSeq()).toBe(sequence);
   expect(turns(h.store, h.thread)).toMatchObject({ ready: true, indexedSeq: sequence });
-  expect(turns(h.store, h.thread).turns[0]).toMatchObject({ status: { state: "done" }, endedAt: 350 });
-  expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({ ready: true, turnsCompleted: 1 });
+  expect(turns(h.store, h.thread).turns[0]).toMatchObject({
+    status: { state: "done" },
+    endedAt: 350,
+  });
+  expect(catchUp(h.store, h.thread, { sinceSeq: 0 })).toMatchObject({
+    ready: true,
+    turnsCompleted: 1,
+  });
 });

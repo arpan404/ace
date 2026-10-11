@@ -98,8 +98,8 @@ export class LongThreadDatabase {
     return Number(this.sql("SELECT seq FROM long_meta WHERE id=1").get()?.seq);
   }
   digestIndexedSeq(): number {
-    return Number(this.sql("SELECT stage FROM long_range_migration WHERE id=1").get()?.stage) === 6 &&
-      this.sql("SELECT done FROM long_completion_migration WHERE id=1").get()?.done === 1
+    return Number(this.sql("SELECT stage FROM long_range_migration WHERE id=1").get()?.stage) ===
+      6 && this.sql("SELECT done FROM long_completion_migration WHERE id=1").get()?.done === 1
       ? this.indexedSeq()
       : 0;
   }

@@ -2,6 +2,15 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { protocol, session } from "electron";
 import { appOrigin, appScheme, contentSecurityPolicy, inlineScriptHashes } from "./csp.ts";
+import type { DaemonNetwork } from "./daemon-network.ts";
+
+/** Covers fetches and worker sockets as well as the page. Browser views use other sessions. */
+export function installDaemonNetwork(network: DaemonNetwork): void {
+  session.defaultSession.webRequest.onBeforeRequest(
+    { urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] },
+    (details, callback) => callback({ cancel: !network.allows(details.url, details.resourceType) }),
+  );
+}
 
 /** Must run before `app.ready`: `app://` behaves like https for storage, fetch and CSP. */
 export function registerAppScheme(): void {
@@ -32,11 +41,16 @@ const types: Record<string, string> = {
  * Serves the built web app from disk at `app://ace/`. Unknown paths fall back to index.html
  * so client-side routes survive a reload. Every response carries the CSP.
  */
-export async function serveRenderer(directory: string, daemonOrigins: readonly string[]) {
+export async function serveRenderer(
+  directory: string,
+  daemonOrigins: readonly string[],
+  network?: DaemonNetwork,
+) {
   const index = await readFile(join(directory, "index.html"), "utf8");
   const policy = contentSecurityPolicy({
     inlineScripts: await inlineScriptHashes(index),
     daemonOrigins,
+    dynamicDaemons: network !== undefined,
   });
   const root = normalize(directory + sep);
   protocol.handle(appScheme, async (request) => {
@@ -63,9 +77,17 @@ export async function serveRenderer(directory: string, daemonOrigins: readonly s
 }
 
 /** In development the Vite server serves the page; the CSP is added to its responses. */
-export function applyDevCsp(devUrl: string, daemonOrigins: readonly string[]): void {
+export function applyDevCsp(
+  devUrl: string,
+  daemonOrigins: readonly string[],
+  network?: DaemonNetwork,
+): void {
   const origin = new URL(devUrl).origin;
-  const policy = contentSecurityPolicy({ dev: { origin }, daemonOrigins });
+  const policy = contentSecurityPolicy({
+    dev: { origin },
+    daemonOrigins,
+    dynamicDaemons: network !== undefined,
+  });
   session.defaultSession.webRequest.onHeadersReceived(
     { urls: [`${origin}/*`] },
     (details, callback) =>

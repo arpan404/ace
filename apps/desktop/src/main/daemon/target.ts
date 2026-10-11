@@ -24,7 +24,7 @@ const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
 export type DaemonTarget =
   | { kind: "managed"; home: string; entry: string; isolated: boolean }
   | { kind: "attach"; home: string; isolated: boolean }
-  | { kind: "remote"; url: string; token: string }
+  | { kind: "remote"; url: string; token: string; pairedDeviceId?: string }
   | { kind: "fake" }
   | { kind: "remote-only"; reason: string }
   | { kind: "refused"; reason: string };
@@ -36,6 +36,7 @@ const Environment = z.object({
   ACE_HOME: z.string().min(1).optional(),
   ACE_DESKTOP_DAEMON: z.enum(["managed", "attach", "fake"]).optional(),
   ACE_DAEMON_URL: SocketUrl.optional(),
+  ACE_DAEMON_DEVICE_ID: z.string().min(1).max(256).optional(),
   ACE_DAEMON_TOKEN: z
     .string()
     .regex(/^[0-9a-f]{64}$/i)
@@ -71,7 +72,21 @@ export function resolveTarget(
       (env.ACE_DAEMON_TOKEN_FILE ? options.readToken(env.ACE_DAEMON_TOKEN_FILE).trim() : "");
     if (!/^[0-9a-f]{64}$/i.test(token))
       throw new Error("ACE_DAEMON_URL needs ACE_DAEMON_TOKEN or ACE_DAEMON_TOKEN_FILE");
-    return { kind: "remote", url: settings.ACE_DAEMON_URL, token: token.toLowerCase() };
+    const url = new URL(settings.ACE_DAEMON_URL);
+    const pairedDeviceId = settings.ACE_DAEMON_DEVICE_ID;
+    if (
+      (url.protocol === "wss:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) &&
+      !pairedDeviceId
+    )
+      throw new Error(
+        "Remote ACE_DAEMON_URL needs a paired token and ACE_DAEMON_DEVICE_ID. Pair this device first.",
+      );
+    return {
+      kind: "remote",
+      url: settings.ACE_DAEMON_URL,
+      token: token.toLowerCase(),
+      ...(pairedDeviceId ? { pairedDeviceId } : {}),
+    };
   }
   const mode = settings.ACE_DESKTOP_DAEMON ?? (options.packaged ? "managed" : "attach");
   if (mode === "fake") return { kind: "fake" };

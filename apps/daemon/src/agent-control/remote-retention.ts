@@ -36,11 +36,11 @@ export function pruneRemoteRows(store: Store, now: number) {
         table === "remote_agent_incoming"
           ? `json_extract(client,'$.deletedAt') IS NOT NULL AND updated_at<${cutoff} AND json_extract(status,'$.state') IN ('done','failed')`
           : "json_extract(client,'$.deletedAt') IS NOT NULL";
-      // Updated time measures time since the last target turn, rather than the age of admission.
+      // No target-side receipt acknowledges source delivery. A terminal thread's age
+      // cannot release an outcome whose source might still be offline.
       db.prepare(`DELETE FROM ${table} WHERE id IN (SELECT id FROM ${table} WHERE
-        EXISTS (SELECT 1 FROM threads WHERE threads.id=${thread} AND (${deleted} OR (updated_at<? AND json_extract(status,'$.state') IN ('done','failed'))))
+        EXISTS (SELECT 1 FROM threads WHERE threads.id=${thread} AND (${deleted}))
         OR (NOT EXISTS (SELECT 1 FROM threads WHERE threads.id=${thread}) AND COALESCE(json_extract(record,'$.task.createdAt'),json_extract(record,'$.createdAt'))<?) LIMIT 64)`).run(
-        cutoff,
         cutoff,
       );
     }

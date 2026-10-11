@@ -57,6 +57,11 @@ test("a thread that asked a question keeps the waiting state in the thread and r
   expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
+  expect(
+    within(header)
+      .getByRole("button", { name: /^Work card/ })
+      .getAttribute("aria-label"),
+  ).toContain("Needs you");
 });
 
 test("a thread running tests keeps its activity in the composer and row without repeating it in the transcript", async () => {

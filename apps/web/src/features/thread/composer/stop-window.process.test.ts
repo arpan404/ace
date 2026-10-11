@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThreadStore, defaultLimits } from "@ace/client";
 import { Engine, Store, AdapterRegistry } from "@ace/daemon";
-import { createScriptedAdapter, type AdapterScript, type ScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
+import {
+  createScriptedAdapter,
+  type AdapterScript,
+  type ScriptedAdapter,
+  type ScriptedStep,
+} from "@ace/adapter-testkit";
 import { Command, Capabilities, type CommandPayload } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { stopFence } from "./stop-target.ts";
@@ -37,34 +42,60 @@ function harness(steps: ScriptedStep[], frames: ReturnType<typeof scriptFrames>)
   const adapter = createScriptedAdapter({
     provider: "codex",
     capabilities: Capabilities.parse({
-      steer: false, interruptCascades: false, resume: true, fork: false,
-      subagentTranscripts: true, backgroundTaskControl: true, backgroundVisibility: "full",
-      planMode: false, tokenUsage: false, imageInput: true, rewindFiles: false,
+      steer: false,
+      interruptCascades: false,
+      resume: true,
+      fork: false,
+      subagentTranscripts: true,
+      backgroundTaskControl: true,
+      backgroundVisibility: "full",
+      planMode: false,
+      tokenUsage: false,
+      imageInput: true,
+      rewindFiles: false,
     }),
     createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
     steps,
   });
   const registry = new AdapterRegistry();
-  registry.register({
-    ...adapter,
-    async openSession(context) {
-      contexts.push(context);
-      return adapter.openSession(context);
+  registry.register(
+    {
+      ...adapter,
+      async openSession(context) {
+        contexts.push(context);
+        return adapter.openSession(context);
+      },
     },
-  }, { installed: true, auth: "logged_in", loginHint: "unused" });
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
   const engine = new Engine(store, {
     registry,
     clock: { now: () => 1000, setTimer: () => () => {} },
   });
   let serial = 0;
   const command = (payload: CommandPayload) => {
-    const value = Command.parse({ id: `stop-command-${++serial}`, deviceId: "stop-reader", payload });
+    const value = Command.parse({
+      id: `stop-command-${++serial}`,
+      deviceId: "stop-reader",
+      payload,
+    });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   };
   return {
-    store, workspace, engine, adapter, contexts, command,
+    store,
+    workspace,
+    engine,
+    adapter,
+    contexts,
+    command,
     async create() {
-      const result = command({ type: "thread.create", workspaceId: workspace, provider: "codex", model: "model", input: [{ type: "text", text: "first" }] });
+      const result = command({
+        type: "thread.create",
+        workspaceId: workspace,
+        provider: "codex",
+        model: "model",
+        input: [{ type: "text", text: "first" }],
+      });
       if (!result.ok || !result.threadId) throw new Error("Thread creation failed");
       await engine.flush();
       return result.threadId;

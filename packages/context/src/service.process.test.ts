@@ -178,7 +178,7 @@ async function storeBytes(service: ContextService, bytes: Buffer, name: string) 
     });
   await service.uploads.handle("device", { op: "upload.commit", uploadId: begin.uploadId });
 }
-test("multi-megabyte documents compose into Claude and ACP native inputs", async () => {
+test("multi-megabyte documents stay native for Claude and remain readable through ACP file fallback", async () => {
   const f = await fixture();
   const bytes = Buffer.alloc(4 * 1024 * 1024, 32);
   bytes.write("%PDF-1.7\n");
@@ -199,8 +199,14 @@ test("multi-megabyte documents compose into Claude and ACP native inputs", async
     expect(result.projection.input).toMatchObject(
       provider === "claude"
         ? [{ type: "document", source: { data: bytes.toString("base64") } }]
-        : [{ type: "resource", resource: { blob: bytes.toString("base64") } }],
+        : [{ type: "text", text: expect.stringContaining("Read the full file") }],
     );
+    if (provider === "acp") {
+      const path = result.attachmentPaths[0]?.path;
+      if (!path) throw new Error("Missing preserved PDF path");
+      expect((await readFile(path)).equals(bytes)).toBe(true);
+      expect(result.attachments[0]?.delivery).toBe("file_path");
+    }
     expect(result.diagnostics).toEqual([]);
     result.release();
   }

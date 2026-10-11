@@ -124,6 +124,18 @@ function SearchBody(props: { initial: string; onClose(): void }) {
   const left = progress
     ? Math.max(0, progress.headSeq - progress.indexedSeq) + progress.pending
     : 0;
+  const activeFilters = [
+    kind !== "all" && filters.find((filter) => filter.value === kind)?.label,
+    project && projectName(project),
+    date !== "all" && ({ "1": "Past day", "7": "Past week", "30": "Past month" }[date] ?? date),
+  ].filter(Boolean);
+  const clearFilters = () => {
+    setKind("all");
+    setProject("");
+    setDate("all");
+    setAfter(undefined);
+    setActive(0);
+  };
   const hits = query ? (results.hits ?? []) : [];
 
   // The active result stays in view as the arrows move it.
@@ -200,8 +212,20 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         aria-expanded={showFilters}
         onClick={() => setShowFilters(!showFilters)}
       >
-        Filters
+        Filters{activeFilters.length > 0 && ` (${activeFilters.length})`}
       </button>
+      {activeFilters.length > 0 && (
+        <div
+          role="status"
+          aria-label="Active search filters"
+          className="flex flex-wrap items-center gap-2 px-3 pb-2 text-xs text-muted-foreground"
+        >
+          <span>{activeFilters.join(" · ")}</span>
+          <button type="button" className="focus-ring rounded-sm text-link" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </div>
+      )}
       {showFilters && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
           <SegmentedControl
@@ -263,7 +287,14 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         ) : !query ? (
           recent.recent.length ? (
             <RecentSearches recent={recent.recent} onPick={change} onForget={recent.forget} />
-          ) : null
+          ) : (
+            <EmptyState
+              variant="inline"
+              title="Search your threads"
+              description="Find a message, command or file. Filters narrow the results by project, kind and date."
+              className="py-6"
+            />
+          )
         ) : results.isError ? (
           <EmptyState
             icon={MagnifyingGlassIcon}
