@@ -1,6 +1,7 @@
 import { cp, mkdir, stat, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { ReleaseTarget } from "@ace/protocol";
+import { copyRuntimePackage } from "./copy-runtime-package.ts";
 
 /** The bundler owns runtime dependencies, including the native PTY now used at startup. */
 export async function stagePtyRuntime(repo: string, root: string, target: string): Promise<string> {
@@ -8,7 +9,8 @@ export async function stagePtyRuntime(repo: string, root: string, target: string
   const installed = join(repo, "tools/release/node_modules/node-pty");
   const destination = join(root, "node_modules/node-pty");
   await mkdir(destination, { recursive: true });
-  for (const name of ["lib", "package.json", "LICENSE"])
+  await copyRuntimePackage(join(installed, "lib"), join(destination, "lib"));
+  for (const name of ["package.json", "LICENSE"])
     await cp(join(installed, name), join(destination, name), { recursive: true });
   const native = join(destination, "prebuilds", platform);
   // Full releases stage checksum-verified native inputs before bundling. Keep them.

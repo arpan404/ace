@@ -2,7 +2,7 @@ import { confirmModel } from "./model.ts";
 import { RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
-import type { Agent } from "./translator-state.ts";
+import type { Agent, RecoveryRevision } from "./translator-state.ts";
 import { obj, str, list, type Obj } from "./native.ts";
 export function createAgentRegistry(config: {
   agents: Map<string, Agent>;
@@ -68,6 +68,7 @@ export function createAgentRegistry(config: {
     now: number,
     parent?: string,
     spawnedBy?: string,
+    revision?: RecoveryRevision,
   ): Agent {
     const wasKnown = agents.get(id)?.known === true;
     const agent = ensure(id, true, facts, p, parent);
@@ -76,15 +77,19 @@ export function createAgentRegistry(config: {
     // Known threads receive frames directly; repeated metadata cannot imply newly lost history.
     const retained = wasKnown ? { frames: [], lost: false } : config.takeBuffer(id);
     const buffered = retained.frames;
+    if (Array.isArray(p["turns"])) agent.recoveryUncertain = revision?.uncertain === true;
     if (retained.lost) agent.bufferLost = true;
-    if (agent.bufferLost && !Array.isArray(p["turns"]) && !agent.unknownTask) {
+    if (
+      ((agent.bufferLost && !Array.isArray(p["turns"])) || agent.recoveryUncertain) &&
+      !agent.unknownTask
+    ) {
       agent.unknownTask = true;
       facts.push({
         type: "background.started",
         agent: config.rootKey,
         task: `unknown:${id}`,
         kind: "other",
-        title: "Recovering a truncated Codex thread",
+        title: "Recovering uncertain Codex child work",
         stoppable: false,
       });
     }
@@ -107,14 +112,9 @@ export function createAgentRegistry(config: {
         name: str(p["agentNickname"], str(p["agentPath"]).split("/").at(-1) ?? id),
       });
     }
-    if (
-      p["status"] &&
-      (agent.bufferLost ||
-        !buffered.some((frame) =>
-          ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
-        )) &&
-      (!agent.hadTurn || agent.bufferLost)
-    ) {
+    if (p["status"]) {
+      const preserveObserved = agent.hadTurn;
+      const currentSnapshot = !revision || revision.read === revision.current;
       const turns = list(p["turns"]);
       for (const turn of turns) {
         const t = obj(turn);
@@ -127,15 +127,26 @@ export function createAgentRegistry(config: {
               now,
             ),
           );
-        if (!agent.ended.has(turnId)) replay("turn/started", { threadId: id, turn: t });
+        if (
+          currentSnapshot &&
+          !agent.ended.has(turnId) &&
+          (!preserveObserved || (!agent.turn && t["status"] === "inProgress"))
+        )
+          replay("turn/started", { threadId: id, turn: t });
         for (const value of list(t["items"])) {
           const item = obj(value);
+          if (agent.completed.has(str(item["id"]))) continue;
           const incomplete = item["status"] === "inProgress";
           replay(incomplete ? "item/started" : "item/completed", { threadId: id, turnId, item });
         }
         if (t["status"] !== "inProgress") replay("turn/completed", { threadId: id, turn: t });
       }
-      if (!agent.hadTurn && obj(p["status"])["type"] === "active") {
+      if (
+        currentSnapshot &&
+        !agent.turn &&
+        (!agent.hadTurn || turns.length === 0) &&
+        obj(p["status"])["type"] === "active"
+      ) {
         agent.turn = `observed:${id}`;
         agent.hadTurn = true;
         facts.push({
@@ -148,7 +159,11 @@ export function createAgentRegistry(config: {
     }
     if (!agent.bufferLost || !Array.isArray(p["turns"]))
       for (const frame of buffered) facts.push(...config.replay(frame, now));
-    if (agent.unknownTask && (!agent.bufferLost || Array.isArray(p["turns"]))) {
+    if (
+      agent.unknownTask &&
+      !agent.recoveryUncertain &&
+      (!agent.bufferLost || Array.isArray(p["turns"]))
+    ) {
       facts.push({ type: "background.ended", task: `unknown:${id}`, status: "completed" });
       delete agent.unknownTask;
       delete agent.bufferLost;

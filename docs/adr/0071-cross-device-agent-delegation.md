@@ -52,6 +52,15 @@ A receiving root agent can call `ace_device_task_publish` once before finishing.
 It explicitly selects thread attachment hashes or relative workspace files under
 its current task authority. The target freezes these bytes with the same bounds
 and seals their immutable manifest together with the canonical terminal outcome.
+The first aggregate terminal state captures text and usage durably before a later
+local turn can be admitted, independently of broker polling. If selected file
+publication is still running, its immutable completion waits for that manifest.
+If publication fails, aborts or loses its producer on restart, the saved text is
+returned terminally with an explicit unavailable-files warning.
+Abort finalizes completion immediately, even if publication I/O or cleanup remains
+suspended. A resumed producer cannot replace that terminal response.
+Recovery captures terminal tasks before new requests are admitted. Background
+work and blocking human interactions keep the task unsealed.
 Selected names and aliases retain producing host/thread/path provenance. Further
 turns or changed workspace files cannot mutate that sealed outcome.
 
@@ -69,17 +78,26 @@ separate operations.
 Stop drops temporary output retention and durably records unfinished owned uploads
 for bounded cancellation cleanup at startup, during maintenance and shutdown.
 Transient cleanup failures retry without removing pre-existing attachment refs.
-Delivered terminal rows expire after seven days once their root is idle; deleting
-the owner also releases them. Active and undelivered rows remain retained.
+Delivered source terminal rows expire after seven days once their root is idle;
+deleting the owner also releases them. Target outcomes and selected manifests stay
+retained until owner deletion because no target-owned acknowledgement of source
+delivery exists. Active and undelivered rows remain retained.
+Broker polls rotate up to 64 tracked identities through source-owned liveness
+checks. The source confirms removal or reconciliation expiry using the same
+eligibility rule as routing; page omissions alone never clear routing progress or
+file-import retries. The broker enables these checks after the source advertises
+support, and skips identities with an in-flight route.
 Cancellation without target acknowledgement fails after thirty seconds and
 explicitly warns that the remote task may still be running. Sealed results survive
 cancellation and failed imports. Result text is bounded to 4,096 UTF-16 units and
 truncation propagates through the broker. Both devices need this protocol version; an older target lacking a
 sealed manifest is reported unavailable rather than treated as a completed task.
 
-Remote task roots and their local descendants cannot recursively delegate to a
-third device. This keeps parent budgets, cancellation ownership and the current
-context scope enforceable without a distributed ancestry protocol.
+Incoming remote task roots cannot create local children or delegate to a third
+device. The durable incoming ownership fence also applies to any existing local
+descendants. This interim restriction keeps source child and depth budgets
+enforceable until source-owned subtree allocation crosses the device boundary.
+Unrelated target roots retain their own delegation policy.
 
 ## Verification
 

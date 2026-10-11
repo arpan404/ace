@@ -1,7 +1,7 @@
 import type { SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
 import { displayPath, projectNameProblem } from "@ace/ui-core";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -136,6 +136,13 @@ export function RemoveProjectDialog(props: {
   const [busy, setBusy] = useState(false);
   const [refusedRunning, setRefusedRunning] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const current = useRef(true);
+  useEffect(() => {
+    current.current = true;
+    return () => {
+      current.current = false;
+    };
+  }, []);
   const name = project?.name ?? "this project";
 
   const remove = async (archiveThreads: boolean) => {
@@ -144,17 +151,19 @@ export function RemoveProjectDialog(props: {
     setProblem(undefined);
     try {
       await commands.remove(project.id, archiveThreads);
+      if (!current.current) return;
       toast.add({
         title: `Removed ${project.name}`,
         description: "Its folder is still on disk. Add it again any time.",
       });
       props.onOpenChange(false);
     } catch (error) {
+      if (!current.current) return;
       const failure = projectFailure(error);
       if (failure.code === "workspace_threads_running") setRefusedRunning(true);
       else setProblem(failure.message);
     } finally {
-      setBusy(false);
+      if (current.current) setBusy(false);
     }
   };
 

@@ -7,7 +7,7 @@ import {
   QueuedMessage,
   type QueueGet,
   QueueState,
-  type ThreadId,
+  ThreadId,
   type CommandPayload,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -53,7 +53,7 @@ export class QueueStore {
       CREATE INDEX IF NOT EXISTS engine_queue_deadline ON engine_queue(resume_at) WHERE resume_at IS NOT NULL;
       CREATE INDEX IF NOT EXISTS intents_live_positions ON intents(thread_id,position) WHERE status IN ('pending','queued','running') OR uncertain=1;
       CREATE INDEX IF NOT EXISTS intents_uncertain ON intents(thread_id) WHERE uncertain=1;
-      CREATE INDEX IF NOT EXISTS intents_queue_messages ON intents(thread_id,position,id) WHERE kind IN ('thread.send','thread.create') AND (status IN ('pending','queued') OR uncertain=1);
+      CREATE INDEX IF NOT EXISTS intents_queue_messages_recovery ON intents(thread_id,position,id) WHERE ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1));
       CREATE INDEX IF NOT EXISTS intents_queue_order ON intents(thread_id,position,id) WHERE status IN ('pending','queued');
       INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state;`);
       const queueColumns = db.prepare("PRAGMA table_info(engine_queue)").all();
@@ -86,7 +86,7 @@ export class QueueStore {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
     if (!row) throw new Error("Missing queue metadata");
     return RecoveryRecord.parse({
-      pendingCount: this.count(id) + (row.continuation ? 1 : 0),
+      pendingCount: this.count(id) + (row.continuation && !this.uncertainRecovery(id) ? 1 : 0),
       holdToken: row.hold_token,
       revision: row.revision,
       paused: row.paused === 1,
@@ -136,7 +136,8 @@ export class QueueStore {
             type: "queue.updated",
             ...QueueState.parse({
               ...value,
-              pendingCount: this.count(id) + (value.continuation ? 1 : 0),
+              pendingCount:
+                this.count(id) + (value.continuation && !this.uncertainRecovery(id) ? 1 : 0),
             }),
           },
         ],
@@ -147,15 +148,40 @@ export class QueueStore {
   count(id: ThreadId): number {
     return Number(
       this.sql(
-        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued') OR uncertain=1)",
+        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
       ).get(id)?.n,
+    );
+  }
+  private uncertainRecovery(id: ThreadId): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND kind IN ('thread.resume','queue.resume','thread.limit') AND uncertain=1 LIMIT 1",
+      ).get(id),
     );
   }
   private message(payload: unknown, uncertain: unknown) {
     const command = Command.parse(JSON.parse(String(payload)));
     const p = command.payload;
-    if (p.type !== "thread.send" && p.type !== "thread.create")
-      throw new Error("Invalid queue entry");
+    if (p.type !== "thread.send" && p.type !== "thread.create") {
+      if (
+        uncertain !== 1 ||
+        !("threadId" in p) ||
+        !["thread.resume", "queue.resume", "thread.limit"].includes(p.type)
+      )
+        throw new Error("Invalid queue entry");
+      const queue = this.get(ThreadId.parse(p.threadId));
+      return QueuedMessage.parse({
+        id: command.id,
+        input: [
+          {
+            type: "text",
+            text: queue.trigger === "restart" ? "continue" : (queue.continuation ?? "continue"),
+          },
+        ],
+        delivery: "queue",
+        state: "uncertain",
+      });
+    }
     return QueuedMessage.parse({
       id: command.id,
       input: p.input,
@@ -171,7 +197,7 @@ export class QueueStore {
   }
   snapshot(id: ThreadId): QueueSnapshot {
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued') OR uncertain=1) ORDER BY position,id LIMIT 256",
+      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
     return QueueSnapshot.parse({
       ...this.get(id),
@@ -193,7 +219,7 @@ export class QueueStore {
       : undefined;
     if (request.after && !cursor) throw new Error("invalid_queue_cursor");
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued') OR uncertain=1) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
+      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
     ).all(
       request.threadId,
       cursor?.position ?? -1,
@@ -229,7 +255,7 @@ export class QueueStore {
     message: string,
   ): { id: number; command: Command; uncertain: boolean } | undefined {
     const row = this.sql(
-      "SELECT id,payload,uncertain FROM intents WHERE thread_id=? AND command_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued') OR uncertain=1)",
+      "SELECT id,payload,uncertain FROM intents WHERE thread_id=? AND command_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
     ).get(id, message);
     return row
       ? {

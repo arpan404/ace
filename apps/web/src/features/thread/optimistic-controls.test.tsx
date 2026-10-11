@@ -1,3 +1,4 @@
+import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
@@ -46,19 +47,19 @@ async function chooseApprovals(from: string, mode: string) {
 test("an approval mode chosen offline shows at once and reaches the daemon once it's back", async () => {
   const app = await open();
   await offline(app);
-  await chooseApprovals("Provider default", "Bypass permissions");
+  await chooseApprovals("Provider default", "Full access");
 
   const pending = await screen.findByRole("button", {
-    name: "Approvals: Bypass permissions, will apply when reconnected",
+    name: "Approvals: Full access, will apply when reconnected",
   });
-  expect(pending.textContent).toBe("Bypass permissions");
+  expect(pending.textContent).toBe("Full access");
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
   await waitFor(() => expect(thread(app)?.permission?.override).toBe("bypassPermissions"));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Bypass permissions, applies at the agent's next turn",
+      name: "Approvals: Full access, applies at the agent's next turn",
     }),
   ).toBeTruthy();
 });
@@ -82,12 +83,11 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
 test("offline, the model popover still changes effort and the account, which go once the daemon is back", async () => {
   const app = await open();
   await offline(app);
+  const effortPopover = await openEffortControl();
+  await chooseEffort(effortPopover, "{End}");
+  await closeModelControl();
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   expect(within(popover).getByText("Offline: changes apply when reconnected")).toBeTruthy();
-  within(within(popover).getByRole("group", { name: "Effort" }))
-    .getByRole("button", { name: "High" })
-    .focus();
-  await userEvent.keyboard(" ");
   await chooseAccount(popover, "Work");
   await closeModelControl();
 

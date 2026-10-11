@@ -1,3 +1,9 @@
+import { createWritingCli } from "./source-control-cli.ts";
+import {
+  SourceControlContext,
+  SourceControlDraftInput,
+  type SourceControlSelection,
+} from "@ace/protocol";
 import { decodeProjectRow } from "./project-storage.ts";
 import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
@@ -25,9 +31,11 @@ import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
 import { AsyncCommands } from "./async-commands.ts";
 import type { Store } from "./store.ts";
+import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
+  writingCli?: ReturnType<typeof createWritingCli>;
   reconcileThread?(id: ThreadId): Promise<void>;
   changeWorkspace?(
     id: ThreadId,
@@ -41,6 +49,8 @@ export interface WorkspaceRuntimeOptions {
   /** How long a remote worktree base's fetch may take; 15 s by default. */
   baseFetchTimeoutMs?: number;
   terminal?: TerminalManagerOptions;
+  /** A handle identifies one shell lifetime, including across daemon restarts. */
+  terminalId?: () => string;
   editorPath?: string;
   editorApplications?: readonly string[];
   platform?: NodeJS.Platform;
@@ -60,7 +70,8 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
-  private nextTerminal = 0;
+  private terminalId: () => string;
+  private writing = new Set<AbortController>();
   constructor(
     store: Store,
     directory: string,
@@ -72,6 +83,7 @@ export class WorkspaceRuntime {
     initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
+    this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.roots = new WorkspaceRoots(
@@ -123,11 +135,11 @@ export class WorkspaceRuntime {
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;
   }
-  /** Exited shells stay listed (their output is readable) but are no longer live work. */
+  /** Include retained job groups even when their shell has exited. */
   liveTerminalCount(id: ThreadId): number {
     let count = 0;
     for (const entry of this.terminals.values())
-      if (entry.threadId === id && terminalAlive(entry.terminal)) count++;
+      if (entry.threadId === id && entry.terminal.ownsProcesses) count++;
     return count;
   }
   /** Release shells that exited, including ones killed outside ace. */
@@ -169,7 +181,7 @@ export class WorkspaceRuntime {
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
-      const id = `terminal-${++this.nextTerminal}`;
+      const id = `terminal-${this.terminalId()}`;
       this.terminals.set(id, { threadId, terminal });
       return id;
     } finally {
@@ -181,13 +193,67 @@ export class WorkspaceRuntime {
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
-  async read(request: WorkspaceActionRequest): Promise<WorkspaceActionResult> {
+  async read(
+    request: WorkspaceActionRequest,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
       type: "workspace.result",
       requestId: request.requestId,
       result,
     });
+    if (op.op === "git.draft.cancel") return wrap({ kind: "draftCancelled" });
+    if (op.op === "git.draft.context")
+      return wrap({
+        kind: "draftContext",
+        context: await this.draftContext(op.threadId, op.selection),
+      });
+    if (op.op === "git.draft.generate") {
+      if (this.writing.size >= 4) throw new Error("draft_busy");
+      const input = SourceControlDraftInput.parse(op.input);
+      const lifetime = new AbortController();
+      this.writing.add(lifetime);
+      const stop = () => lifetime.abort();
+      signal?.addEventListener("abort", stop, { once: true });
+      if (signal?.aborted) stop();
+      try {
+        lifetime.signal.throwIfAborted();
+        const root = this.root(op.threadId);
+        const context = await this.draftContext(op.threadId, input.selection);
+        if (context.fingerprint !== input.fingerprint) throw new Error("draft_changes_moved");
+        const page =
+          input.selection.kind === "pr"
+            ? this.store.readItemPage(op.threadId, this.store.headSeq() + 1, 12, 8192)
+            : undefined;
+        const messages =
+          page?.items.flatMap((item) =>
+            item.type === "message" && ["user", "assistant"].includes(item.role)
+              ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+              : [],
+          ) ?? [];
+        const threadContext = [this.store.getThread(op.threadId)?.title ?? "", ...messages]
+          .join("\n")
+          .slice(-8192);
+        const draft = await (this.options.writingCli ?? createWritingCli())(
+          input,
+          context,
+          threadContext,
+          lifetime.signal,
+        );
+        lifetime.signal.throwIfAborted();
+        if (
+          this.root(op.threadId) !== root ||
+          (await this.draftContext(op.threadId, input.selection)).fingerprint !==
+            context.fingerprint
+        )
+          throw new Error("draft_changes_moved");
+        return wrap({ kind: "draft", draft, context });
+      } finally {
+        signal?.removeEventListener("abort", stop);
+        this.writing.delete(lifetime);
+      }
+    }
     if (op.op === "editors.list")
       return wrap({
         kind: "editors",
@@ -256,6 +322,12 @@ export class WorkspaceRuntime {
       status: await this.forge.status(op.threadId, this.root(op.threadId)),
     });
   }
+  async draftContext(id: ThreadId, selection: SourceControlSelection) {
+    const root = this.root(id);
+    const context = SourceControlContext.parse(await this.git.writingContext(root, selection));
+    if (this.root(id) !== root) throw new Error("workspace_root_changed");
+    return context;
+  }
   execute(command: Command, allowed: () => boolean = allowLocalAction): Promise<CommandResult> {
     return this.commands.run(command, async () => {
       if (!allowed()) return { ok: false, error: "forbidden" };
@@ -278,6 +350,7 @@ export class WorkspaceRuntime {
       }
       if (p.type === "thread.workspace.set") {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
+        await this.reconcileTerminals(threadId);
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
         const roots = await this.roots.changeRoots(threadId, p.mode);
         await this.options.changeWorkspace(
@@ -302,6 +375,7 @@ export class WorkspaceRuntime {
             message: p.message,
             expectedHead: p.expectedHead,
             paths: p.paths,
+            draftFingerprint: p.draftFingerprint,
           }),
         };
       if (p.type === "git.push") {
@@ -336,6 +410,7 @@ export class WorkspaceRuntime {
     });
   }
   async close(): Promise<void> {
+    for (const lifetime of this.writing) lifetime.abort();
     this.forge.close();
     await this.roots.close();
     await this.commands.drained();

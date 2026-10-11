@@ -122,7 +122,12 @@ export const RemoteDelegationClient = z.discriminatedUnion("type", [
     requestId: key,
     hosts: z.array(RemoteAgentHost).max(32),
   }),
-  z.strictObject({ type: z.literal("delegation.broker.poll"), requestId: key, lease: key }),
+  z.strictObject({
+    type: z.literal("delegation.broker.poll"),
+    requestId: key,
+    lease: key,
+    trackedTaskIds: z.array(RemoteTask.shape.id).max(64).optional(),
+  }),
   z.strictObject({
     type: z.literal("delegation.broker.report"),
     requestId: key,
@@ -138,11 +143,13 @@ export const RemoteDelegationResult = z.strictObject({
   context: ContextResult.shape.result.optional(),
   relay: RemoteRelayTarget.optional(),
   artifacts: RemoteArtifactManifest.optional(),
+  artifactsUnavailable: z.boolean().optional(),
   usage: RemoteTaskUsage.optional(),
   phase: RemoteTaskPhase.optional(),
   result: z.string().max(4096).optional(),
   truncated: z.boolean().optional(),
   lease: key.optional(),
   tasks: z.array(RemoteTask).max(64).optional(),
+  inactiveTaskIds: z.array(RemoteTask.shape.id).max(64).optional(),
 });
 export type RemoteDelegationResult = z.infer<typeof RemoteDelegationResult>;

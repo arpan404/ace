@@ -268,7 +268,7 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: /);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
   await selectAccount(popover, "Your Cursor login");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));
@@ -283,18 +283,14 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
 
   // The catalog was read again: the picker no longer says the sign-in expired.
   const again = await openModelPicker(
-    screen.queryByRole("dialog", { name: "Model and effort" }) ??
-      (await openModelControl(/^Model: /)),
+    screen.queryByRole("dialog", { name: "Choose model" }) ?? (await openModelControl(/^Model: /)),
   );
   await userEvent.click(
-    within(screen.getByRole("dialog", { name: "Model and effort" })).getByRole("tab", {
-      name: "Cursor",
+    within(screen.getByRole("dialog", { name: "Choose model" })).getByRole("tab", {
+      name: "Cursor · Your Cursor login",
     }),
   );
-  await selectAccount(
-    screen.getByRole("dialog", { name: "Model and effort" }),
-    "Your Cursor login",
-  );
+  await selectAccount(screen.getByRole("dialog", { name: "Choose model" }), "Your Cursor login");
   await waitFor(() => expect(within(again).queryByText("Cursor sign-in has expired.")).toBeNull());
 }, 30_000);
 

@@ -150,6 +150,13 @@ export async function sessionHarness(
           t.callback();
         }
     },
+    expireCommands() {
+      for (const [id, timer] of timers)
+        if (timer.ms === 30_000) {
+          timers.delete(id);
+          timer.callback();
+        }
+    },
     async dispose() {
       await session.close("shutdown");
       controller.abort();

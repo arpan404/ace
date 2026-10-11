@@ -20,6 +20,7 @@ import type {
 import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
+import { previewControl } from "./preview-control.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -80,8 +81,10 @@ function reached(result: unknown, fallback: string): string {
 }
 
 interface Watch {
+  generation: number;
   count: number;
   subscribed: boolean;
+  subscribing: boolean;
   capture?: BrowserCaptureViewport;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
@@ -109,6 +112,9 @@ export interface PreviewOptions {
  * thread workspace (or losing the connection) hands it back.
  */
 export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): PreviewSource {
+  const lifetime = new AbortController();
+  const request: ClientApi["request"] = (payload, requestOptions) =>
+    client.request(payload, { ...requestOptions, signal: lifetime.signal });
   const later = options.schedule ?? defaultSchedule;
   const visibility = options.visibility ?? documentVisibility;
   const decode = options.decode ?? decodeFrame;
@@ -119,19 +125,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const watches = new Map<string, Watch>();
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
   const unwatched = new Set<string>();
-  /**
-   * Threads whose browser this client took control of, with the connection its take-control
-   * reply named as the owner (undefined when the reply named none).
-   */
-  const held = new Map<string, string | undefined>();
-  /** Threads this client took privately: their hold outlives the view (no automatic handback). */
-  const privateHolds = new Set<string>();
+  let disposed = false;
+  const stops: (() => void)[] = [];
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
   let gateway = true;
   /** A change to one thread (or, without one, to every thread: the download, the gateway). */
   const changed = (threadId?: string) => {
+    if (disposed) return;
     version++;
     for (const [listener, scope] of listeners)
       if (scope === undefined || threadId === undefined || scope === threadId) listener();
@@ -141,6 +143,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     frames.delete(threadId);
     views.delete(threadId);
     servers.delete(threadId);
+  };
+  const invalidate = (threadId: string, watch: Watch) => {
+    watch.generation++;
+    watch.latest = undefined;
+    watch.owed = undefined;
+    frames.get(threadId)?.release();
+    frames.delete(threadId);
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
@@ -153,22 +162,29 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     threadId: string,
     mode?: "shared" | "private",
   ) => {
+    if (disposed) throw new Error("preview_disposed");
     const reply =
       type === "browser.takeover" && mode
-        ? await client.request({ type, threadId: ThreadId.parse(threadId), mode })
-        : await client.request({ type, threadId: ThreadId.parse(threadId) });
+        ? await request({ type, threadId: ThreadId.parse(threadId), mode })
+        : await request({ type, threadId: ThreadId.parse(threadId) });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
+  const control = previewControl({
+    call,
+    view: (threadId) => views.get(threadId),
+    watching: (threadId) => watches.has(threadId),
+  });
   const previews = async (
     threadId: string,
     operation: { op: "list" } | { op: "forward" | "unforward"; port: number },
   ) => {
-    const reply = await client.request({
+    const reply = await request({
       type: "preview.request",
       threadId: ThreadId.parse(threadId),
       operation,
     });
+    if (disposed) return;
     const available = reply.ok || reply.error !== "preview_unavailable";
     if (available !== gateway) {
       gateway = available;
@@ -181,7 +197,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
   const link = async (threadId: string, port: number): Promise<PreviewLink> => {
-    const reply = await client.request({
+    const reply = await request({
       type: "preview.request",
       threadId: ThreadId.parse(threadId),
       operation: { op: "link", port },
@@ -191,32 +207,43 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const sendCapture = (threadId: string, watch: Watch) => {
     if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
-    void client
-      .request({
-        type: "browser.capture",
-        threadId: ThreadId.parse(threadId),
-        viewport: watch.capture,
-      })
-      .catch(() => {});
+    void request({
+      type: "browser.capture",
+      threadId: ThreadId.parse(threadId),
+      viewport: watch.capture,
+    }).catch(() => {});
   };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
-    if (!watch || client.state !== "ready" || !visibility.visible()) return;
+    if (disposed || !watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
-    if (!watch.subscribed)
-      call("browser.subscribe", threadId).then(
-        () => {
-          // A view that left and came back meanwhile (a tab replaced by another, a remount)
-          // is served by this same subscription; only nobody watching gives it up.
-          const current = watches.get(threadId);
-          if (current) {
-            current.subscribed = true;
-            sendCapture(threadId, current);
-          } else void call("browser.unsubscribe", threadId).catch(() => {});
-        },
-        () => {},
-      );
+    if (!watch.subscribed && !watch.subscribing) {
+      watch.subscribing = true;
+      const generation = watch.generation;
+      void call("browser.subscribe", threadId)
+        .then(
+          () => {
+            // A view that left and came back meanwhile (a tab replaced by another, a remount)
+            // is served by this same subscription; only nobody watching gives it up.
+            const current = watches.get(threadId);
+            if (current === watch && current.generation === generation) {
+              current.subscribed = true;
+              sendCapture(threadId, current);
+            } else if (!current && !disposed)
+              void call("browser.unsubscribe", threadId).catch(() => {});
+          },
+          () => {},
+        )
+        .finally(() => {
+          watch.subscribing = false;
+          // State can follow the initial frame. Replay resets that viewer's backpressure
+          // without acknowledging a decode from a previous lifetime.
+          if (watches.get(threadId) === watch && watch.generation !== generation) poll(threadId);
+          else if (watches.get(threadId) && watches.get(threadId) !== watch) poll(threadId);
+        });
+    }
+    watch.cancel?.();
     watch.cancel = later(() => poll(threadId), retryMs);
   };
   const ack = (threadId: string, sequence: number) => {
@@ -232,9 +259,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
   };
   /** Show a decoded frame, then ask for the next one (later, if the page is hidden). */
-  const show = (threadId: string, sequence: number, frame: Shown) => {
-    const watch = watches.get(threadId);
-    if (!watch || watch.latest !== sequence) return frame.release();
+  const currentFrame = (threadId: string, watch: Watch, generation: number, sequence: number) =>
+    watches.get(threadId) === watch && watch.generation === generation && watch.latest === sequence;
+  const show = (
+    threadId: string,
+    watch: Watch,
+    generation: number,
+    sequence: number,
+    frame: Shown,
+  ) => {
+    if (!currentFrame(threadId, watch, generation, sequence)) return frame.release();
     frames.get(threadId)?.release();
     frames.set(threadId, frame);
     changed(threadId);
@@ -242,6 +276,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     else watch.owed = sequence;
   };
   const receive = (message: ServerMessage) => {
+    if (disposed) return;
     if (message.type === "browser.download.progress") {
       download =
         message.phase === "ready"
@@ -255,10 +290,26 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     if (message.type === "browser.state") {
       const state = message.state;
-      if (!watches.has(state.threadId)) return;
+      const watch = watches.get(state.threadId);
+      if (!watch && !control.tracked(state.threadId)) return;
+      const previous = views.get(state.threadId);
+      if (
+        watch &&
+        ((state.closed && !previous?.closed) ||
+          ((state.status === "paused" || state.status === "recovering") &&
+            previous?.status !== state.status) ||
+          (previous &&
+            (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId)))
+      ) {
+        invalidate(state.threadId, watch);
+        watch.subscribed = false;
+        if (!state.closed)
+          queueMicrotask(() => {
+            if (watches.get(state.threadId) === watch) poll(state.threadId);
+          });
+      }
       views.set(state.threadId, view(state));
-      if (state.controller !== "human") held.delete(state.threadId);
-      if (state.takeoverMode !== "private") privateHolds.delete(state.threadId);
+      control.observe(state);
       changed(state.threadId);
       return;
     }
@@ -266,6 +317,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const { threadId, frame } = message;
     const watch = watches.get(threadId);
     if (!watch) return;
+    const generation = watch.generation;
     watch.latest = frame.sequence;
     if (watch.capture?.nativeShown) {
       watch.owed = frame.sequence;
@@ -273,7 +325,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     void decode(frame.data).then(
       (decoded) =>
-        show(threadId, frame.sequence, {
+        show(threadId, watch, generation, frame.sequence, {
           sequence: frame.sequence,
           src: decoded.src,
           width: frame.width,
@@ -282,50 +334,74 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         }),
       // A frame that cannot be decoded is skipped; the next one may.
       () => {
-        if (watches.get(threadId)?.latest === frame.sequence) ack(threadId, frame.sequence);
+        if (currentFrame(threadId, watch, generation, frame.sequence))
+          ack(threadId, frame.sequence);
       },
     );
   };
   try {
-    client.onMessage(receive);
-    client.connectionState().subscribe(() => {
-      const ready = client.state === "ready";
-      for (const [threadId, watch] of watches) {
-        // The daemon dropped this connection's subscriptions and control leases.
-        watch.subscribed = false;
-        watch.owed = undefined;
-        held.delete(threadId);
-        watch.cancel?.();
-        if (ready) poll(threadId);
-      }
-    });
-    visibility.watch(() => {
-      if (!visibility.visible()) return;
-      for (const [threadId, watch] of watches) {
-        if (watch.owed !== undefined) ack(threadId, watch.owed);
-        watch.owed = undefined;
-        watch.cancel?.();
-        poll(threadId);
-      }
-    });
+    stops.push(client.onMessage(receive));
+    stops.push(
+      client.connectionState().subscribe(() => {
+        const ready = client.state === "ready";
+        control.reset();
+        for (const [threadId, watch] of watches) {
+          // The daemon dropped this connection's subscriptions and control leases.
+          watch.subscribed = false;
+          invalidate(threadId, watch);
+          watch.cancel?.();
+          if (ready) poll(threadId);
+        }
+      }),
+    );
+    stops.push(
+      visibility.watch(() => {
+        if (!visibility.visible()) return;
+        for (const [threadId, watch] of watches) {
+          if (watch.owed !== undefined) ack(threadId, watch.owed);
+          watch.owed = undefined;
+          watch.cancel?.();
+          poll(threadId);
+        }
+      }),
+    );
   } catch {
     // A closed client: nothing will arrive.
   }
   return {
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      lifetime.abort();
+      for (const stop of stops) stop();
+      for (const watch of watches.values()) watch.cancel?.();
+      watches.clear();
+      for (const threadId of frames.keys()) release(threadId);
+      views.clear();
+      servers.clear();
+      unwatched.clear();
+      control.reset();
+      listeners.clear();
+      download = undefined;
+    },
     get version() {
       return version;
     },
     subscribe(listener, threadId) {
+      if (disposed) return () => {};
       listeners.set(listener, threadId);
       return () => listeners.delete(listener);
     },
     watch(threadId) {
+      if (disposed) return () => {};
       let watch = watches.get(threadId);
       if (watch) watch.count++;
       else {
         watch = {
+          generation: 0,
           count: 1,
           subscribed: false,
+          subscribing: false,
           cancel: undefined,
           latest: undefined,
           owed: undefined,
@@ -354,7 +430,9 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           release(oldest);
         }
         if (client.state !== "ready") return;
-        if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
+        // Invalidation clears subscribed to request replay, but the logical subscription
+        // still owns a slot even when a hidden page cannot replay it yet.
+        void call("browser.unsubscribe", threadId).catch(() => {});
       }
     },
     view: (threadId) => views.get(threadId),
@@ -366,22 +444,20 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     unforward: (threadId, port) => previews(threadId, { op: "unforward", port }),
     link,
     async open(threadId, workspaceId) {
-      const reply = await client
-        .request(
-          {
-            type: "browser.open",
-            options: {
-              threadId: ThreadId.parse(threadId),
-              workspaceId: WorkspaceId.parse(workspaceId),
-            },
+      const reply = await request(
+        {
+          type: "browser.open",
+          options: {
+            threadId: ThreadId.parse(threadId),
+            workspaceId: WorkspaceId.parse(workspaceId),
           },
-          { timeoutMs: openTimeoutMs },
-        )
-        .finally(() => {
-          if (!download) return;
-          download = undefined;
-          changed();
-        });
+        },
+        { timeoutMs: openTimeoutMs },
+      ).finally(() => {
+        if (disposed || !download) return;
+        download = undefined;
+        changed();
+      });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       const watch = watches.get(threadId);
       if (watch) {
@@ -390,7 +466,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       }
     },
     async navigate(threadId, url) {
-      const reply = await client.request(
+      const reply = await request(
         {
           type: "browser.execute",
           threadId: ThreadId.parse(threadId),
@@ -403,7 +479,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return reached(reply.result, url);
     },
     async navigationHistory(threadId) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "navigation_history" },
@@ -412,7 +488,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return z.object({ back: z.boolean(), forward: z.boolean() }).parse(reply.result);
     },
     async navigateHistory(threadId, direction) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "history", direction },
@@ -420,7 +496,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     },
     async findText(threadId, text, forward) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "find_text", text, forward },
@@ -429,7 +505,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return reply.result;
     },
     async emulate(threadId, emulation) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: {
@@ -445,39 +521,31 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     },
     async close(threadId) {
-      held.delete(threadId);
-      privateHolds.delete(threadId);
+      control.forget(threadId);
+      const watch = watches.get(threadId);
+      if (watch) {
+        invalidate(threadId, watch);
+        watch.subscribed = false;
+        changed(threadId);
+      }
       await call("browser.close", threadId);
     },
-    async takeover(threadId, mode) {
-      const state = BrowserState.safeParse(await call("browser.takeover", threadId, mode));
-      if (mode === "private") privateHolds.add(threadId);
-      held.set(threadId, state.success ? state.data.owner : undefined);
-    },
-    heldAs(threadId) {
-      const owner = held.get(threadId);
-      const current = views.get(threadId);
-      return owner !== undefined && current?.controller === "human" && current.owner === owner
-        ? owner
-        : undefined;
-    },
-    async handback(threadId) {
-      held.delete(threadId);
-      privateHolds.delete(threadId);
-      await call("browser.handback", threadId);
-    },
+    takeover: control.takeover,
+    heldAs: control.heldAs,
+    handback: control.handback,
+    releaseSharedControl: control.releaseSharedControl,
+    temporaryControl: control.temporaryControl,
     input(threadId, input) {
-      return client
-        .request({
-          type: "browser.input",
-          threadId: ThreadId.parse(threadId),
-          input: wireInput(input),
-        })
+      return request({
+        type: "browser.input",
+        threadId: ThreadId.parse(threadId),
+        input: wireInput(input),
+      })
         .then(() => {})
         .catch(() => {});
     },
     async selection(threadId) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "selection" },
@@ -516,13 +584,11 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       sendCapture(threadId, watch);
     },
     resize(threadId, width, height) {
-      void client
-        .request({
-          type: "browser.execute",
-          threadId: ThreadId.parse(threadId),
-          command: { action: "resize", width: clamp(width), height: clamp(height) },
-        })
-        .catch(() => {});
+      void request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "resize", width: clamp(width), height: clamp(height) },
+      }).catch(() => {});
     },
   };
 }

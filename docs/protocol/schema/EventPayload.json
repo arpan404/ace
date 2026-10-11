@@ -129,6 +129,9 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "completionRelevant": {
+          "type": "boolean"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/AgentStatus.json"
         },

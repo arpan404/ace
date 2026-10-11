@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 import { ScreenHelperRequestV2, ScreenCapabilities } from "@ace/protocol";
@@ -19,6 +21,17 @@ const capabilities = ScreenCapabilities.parse({
   permissions: { screen: "granted", input: "granted" },
   pid: process.pid,
 });
+const nativeReplies = process.env.NATIVE_UI_REPLIES
+  ? z
+      .object({
+        tree: z.object({
+          tree: z.object({ ref: z.string() }).passthrough(),
+          truncated: z.boolean(),
+        }),
+        find: z.unknown(),
+      })
+      .parse(JSON.parse(await readFile(process.env.NATIVE_UI_REPLIES, "utf8")))
+  : undefined;
 let value = "";
 let permissionReads = 0;
 const node = () => ({
@@ -58,13 +71,17 @@ input.on("line", (line) => {
       if (process.env.FAIL_STOP === "1") error = { code: "internal", message: "Stop failed" };
       break;
     case "ui.tree":
-      data = { tree: node(), truncated: r.maxDepth === 0 };
+      data = nativeReplies?.tree ?? { tree: node(), truncated: r.maxDepth === 0 };
       break;
     case "ui.find":
-      data = { nodes: r.query.name === "absent" ? [] : [node()], truncated: false };
+      data = nativeReplies?.find ?? {
+        nodes: r.query.name === "absent" ? [] : [node()],
+        truncated: false,
+      };
       break;
     case "ui.act":
-      if (r.ref !== "stable-entry") error = { code: "target_gone", message: "Unknown ref" };
+      if (r.ref !== (nativeReplies?.tree.tree.ref ?? "stable-entry"))
+        error = { code: "target_gone", message: "Unknown ref" };
       else {
         if (r.action === "setValue" && typeof r.value === "string") value = r.value;
         data = { fallback: false, method: "atspi" };

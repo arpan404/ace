@@ -146,23 +146,34 @@ test("a comment from another device shows with its replies, and a reply here rea
   ]);
 });
 
-test("Approve marks the thread's review approved for every device", async () => {
-  const { panel, remote, replay } = await openChanges();
-  expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
-  const [cell, , line] = adjacentNewLines(replay);
-  await userEvent.click(within(cell).getByRole("button", { name: `Comment on line ${line}` }));
-  await userEvent.type(
-    within(replay).getByRole("textbox", { name: `Comment on line ${line}` }),
-    "Looks good",
-  );
-  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
-  const review = await within(panel).findByRole("region", { name: "Review" });
-  await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
-  await waitFor(() => expect(within(review).getByRole("status").textContent).toMatch(/^Approved/));
-  expect(remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions).toEqual(
-    [expect.objectContaining({ status: "approved" })],
-  );
-});
+test.each([false, true])(
+  "Approve completes a no-comment review with an existing session: %s",
+  async (existing) => {
+    const { panel, remote } = await openChanges();
+    if (existing) {
+      remote({
+        type: "review.open",
+        source: {
+          workspaceId: "ace",
+          threadId,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+        },
+      });
+      await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
+    }
+    const review = await within(panel).findByRole("region", { name: "Review" });
+    await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(within(review).getByRole("status").textContent).toMatch(/^Approved/),
+    );
+    expect(
+      remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions,
+    ).toEqual([expect.objectContaining({ status: "approved" })]);
+  },
+  30000,
+);
 
 test("Request changes sends the unsent comments to the agent as a queued turn", async () => {
   const { app, panel, replay } = await openChanges();
@@ -202,3 +213,61 @@ test("Send to agent says in plain words when the agent is unavailable", async ()
   );
   expect(within(card).getByRole("button", { name: "Retry" })).toBeTruthy();
 });
+
+test("comments sharing an ending line keep independent replies and resolve actions, and the menu opens the selected conversation", async () => {
+  const { panel, replay, remote } = await openChanges();
+  const [, , line] = adjacentNewLines(replay);
+  const sessionId = remote({
+    type: "review.open",
+    source: {
+      workspaceId: "ace",
+      threadId,
+      from: { kind: "commit", ref: "HEAD" },
+      to: { kind: "working-tree" },
+    },
+  }).review?.session?.id;
+  const first = remote({
+    type: "review.comment",
+    sessionId,
+    position: { file: path, side: "new", start: line, end: line + 1 },
+    text: "First overlapping finding",
+  }).review?.comment?.id;
+  const second = remote({
+    type: "review.comment",
+    sessionId,
+    position: { file: path, side: "new", start: line + 1, end: line + 1 },
+    text: "Second same-line finding",
+  }).review?.comment?.id;
+  remote({ type: "review.status", sessionId, status: "changes-requested" });
+  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
+  const cards = await within(replay).findAllByRole("article");
+  expect(cards.map((card) => card.textContent)).toEqual([
+    expect.stringContaining("First overlapping finding"),
+    expect.stringContaining("Second same-line finding"),
+  ]);
+  const firstCard = cards[0];
+  const secondCard = cards[1];
+  if (!firstCard || !secondCard) throw new Error("Missing conversations");
+  await userEvent.type(
+    within(secondCard).getByRole("textbox", { name: "Reply" }),
+    "Second reply{Enter}",
+  );
+  await within(secondCard).findByText("Second reply");
+  expect(remote({ type: "review.list", sessionId, commentId: first }).review?.replies).toEqual([]);
+  expect(remote({ type: "review.list", sessionId, commentId: second }).review?.replies).toEqual([
+    expect.objectContaining({ text: "Second reply" }),
+  ]);
+  await userEvent.click(within(firstCard).getByRole("button", { name: "Resolve" }));
+  await within(firstCard).findByRole("button", { name: "Reopen" });
+  expect(within(secondCard).getByRole("button", { name: "Resolve" })).toBeTruthy();
+  await userEvent.click(within(firstCard).getByRole("button", { name: "Reopen" }));
+  await within(firstCard).findByRole("button", { name: "Resolve" });
+  await userEvent.click(within(replay).getByRole("button", { name: /replay.ts/, expanded: true }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Comments" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Second same-line finding/ }));
+  const conversation = await screen.findByRole("dialog", { name: "Review comment" });
+  expect(within(conversation).getByText("Second same-line finding")).toBeTruthy();
+  expect(within(conversation).queryByText("First overlapping finding")).toBeNull();
+  expect(within(conversation).getByRole("button", { name: "Resolve" })).toBeTruthy();
+}, 30000);

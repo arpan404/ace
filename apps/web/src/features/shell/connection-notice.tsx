@@ -5,6 +5,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientError } from "@ace/client";
 import { Suspense, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /** What still works offline and what waits; it loads when the connection first drops. */
@@ -40,17 +41,30 @@ export function ConnectionNotice() {
   if (state === "ready" || state === "connecting" || state === "starting") return null;
   if (state === "offline")
     return (
-      <Suspense
+      <LocalBoundary
+        label="offline actions"
         fallback={
-          <div className="text-xs text-muted-foreground">
-            <div role="status" className="flex items-center gap-2">
-              {offlineWords}
-            </div>
+          <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+            {offlineWords}
+            <IconButton
+              icon={ArrowClockwiseIcon}
+              label="Retry"
+              size="sm"
+              onClick={connection.retry}
+            />
           </div>
         }
       >
-        <DeferredOfflineNotice.Component words={offlineWords} />
-      </Suspense>
+        <Suspense
+          fallback={
+            <div role="status" className="text-xs text-muted-foreground">
+              {offlineWords}
+            </div>
+          }
+        >
+          <DeferredOfflineNotice.Component words={offlineWords} />
+        </Suspense>
+      </LocalBoundary>
     );
   return (
     <div role="status" className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">

@@ -2,6 +2,7 @@ import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/
 import { MetadataResponseError } from "./metadata-failure.ts";
 import type { Frame } from "@ace/engine-api";
 import type { Runtime } from "./runtime.ts";
+import { maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 export type Observe = (dir: Frame["dir"], channel: string, data: unknown) => void;
 export { sanitize } from "./redaction.ts";
 import { sanitize } from "./redaction.ts";
@@ -66,7 +67,7 @@ export function observedFetch(
       path = url.pathname + url.search;
     let body: unknown;
     if (typeof init?.body === "string") {
-      if (Buffer.byteLength(init.body) > 1024 * 1024)
+      if (Buffer.byteLength(init.body) > maxProviderPayloadBytes)
         throw new Error("OpenCode input exceeds byte limit");
       body = JSON.parse(init.body);
     }

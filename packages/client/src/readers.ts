@@ -44,6 +44,8 @@ export interface ThreadReader {
   contextMeter(id: string): ContextMeter | undefined;
   usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
   truncated(id: string): boolean;
+  /** An explicit canonical deletion, distinct from bounded tail eviction. */
+  deleted?(id: string): boolean;
   /**
    * Whether the client made message `next` from `previous` by appending text alone, so the
    * text it gained is known without comparing the two (false when it can't tell).

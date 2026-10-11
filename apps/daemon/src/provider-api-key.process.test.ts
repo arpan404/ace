@@ -8,6 +8,60 @@ import type { ProviderLoginProgress } from "@ace/protocol";
 import { apiKeyLoginDriver } from "./provider-api-key.ts";
 
 const sentinel = "opaque-sentinel-credential-that-is-not-a-real-key";
+test("a changed admission token after a delayed key prompt prevents secret hand-off", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-delayed-key-"));
+  const script = join(home, "prompt.cjs");
+  let fresh = true;
+  const waiting = Promise.withResolvers<void>();
+  const sessions = new ProviderLoginSessions({
+    now: () => 100,
+    id: () => "delayed-key",
+    schedule: () => () => {},
+    prepare: async () =>
+      apiKeyLoginDriver({
+        command: process.execPath,
+        args: [script],
+        cwd: home,
+        env: { ...process.env, HOME: home },
+        prompt: true,
+        assertCurrent() {
+          if (!fresh) throw new Error("Configuration changed");
+        },
+      }),
+  });
+  sessions.listen((_owner, progress) => {
+    if (progress.state === "awaiting_api_key") waiting.resolve();
+  });
+  try {
+    await writeFile(
+      script,
+      `const fs=require('node:fs');fs.writeFileSync(process.env.HOME+'/launched','yes');const timer=setInterval(()=>{if(fs.existsSync(process.env.HOME+'/prompt')){clearInterval(timer);process.stdout.write('Enter your API key:');}},10);process.stdin.on('data',chunk=>fs.writeFileSync(process.env.HOME+'/received',chunk));`,
+    );
+    await sessions.handle("owner", {
+      type: "provider.login.start",
+      requestId: "start",
+      provider: "opencode",
+      method: "api_key",
+      upstream: "openai",
+    });
+    await waiting.promise;
+    await sessions.handle("owner", {
+      type: "provider.login.apiKey",
+      requestId: "key",
+      session: "delayed-key",
+      apiKey: sentinel,
+    });
+    await expect.poll(() => readFile(join(home, "launched"), "utf8")).toBe("yes");
+    fresh = false;
+    await writeFile(join(home, "prompt"), "continue");
+    expect((await sessions.completed("owner", "delayed-key")).state).toBe("failed");
+    await expect(readFile(join(home, "received"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await sessions.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test.each(["codex", "opencode", "cursor"])(
   "%s hands a key only to stdin, discards echoed diagnostics and clears owned buffers",
   async (provider) => {

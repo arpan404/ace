@@ -14,6 +14,7 @@ import {
   startMcpServer,
   ToolRegistry,
   runStdioBridge,
+  modelImage,
 } from "./index.ts";
 test("stdio MCP forwards a six-minute tool result without ending the provider connection", async () => {
   const tools = new ToolRegistry({ scheduler: nodeScheduler });
@@ -100,6 +101,34 @@ test("stdio MCP forwards a six-minute tool result without ending the provider co
 });
 test("stdio MCP forwards scoped tools over loopback and an ended lease cannot call them again", async () => {
   const tools = new ToolRegistry({ scheduler: nodeScheduler });
+  const imageBytes = Buffer.concat([Buffer.from([255, 216, 255, 224]), Buffer.alloc(300_000, 42)]);
+  const structuredText = '"'.repeat(120_000);
+  tools.register({
+    name: "ace_large_structured",
+    description: "Escaped structured result",
+    capability: "notify",
+    timeoutMs: 1000,
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+    async run() {
+      return { text: structuredText };
+    },
+  });
+  tools.registerContent({
+    name: "ace_screenshot",
+    description: "Synthetic helper screenshot",
+    capability: "notify",
+    timeoutMs: 1000,
+    input: z.object({}),
+    async run(_args, ctx) {
+      const image = await modelImage({ payload: imageBytes, width: 640, height: 480 }, ctx.signal);
+      return {
+        content: [
+          { type: "image", mimeType: "image/jpeg", data: image.payload.toString("base64") },
+        ],
+      };
+    },
+  });
   tools.register({
     name: "ace_echo",
     description: "Synthetic scoped echo",
@@ -153,6 +182,19 @@ test("stdio MCP forwards scoped tools over loopback and an ended lease cannot ca
     });
     expect(JSON.stringify(result)).toContain("from stdio");
     expect(JSON.stringify(result)).toContain("scoped-agent");
+    const screenshot = await rpc.request("tools/call", { name: "ace_screenshot", arguments: {} });
+    const decoded = z
+      .object({ content: z.array(z.object({ type: z.literal("image"), data: z.string() })) })
+      .parse(screenshot);
+    expect(Buffer.from(decoded.content[0]?.data ?? "", "base64").equals(imageBytes)).toBe(true);
+    const structured = await rpc.request("tools/call", {
+      name: "ace_large_structured",
+      arguments: {},
+    });
+    expect(
+      z.object({ structuredContent: z.object({ text: z.string() }) }).parse(structured)
+        .structuredContent.text,
+    ).toBe(structuredText);
     lease.end();
     await expect(
       rpc.request("tools/call", { name: "ace_echo", arguments: { echo: "denied" } }),

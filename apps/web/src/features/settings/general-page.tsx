@@ -1,3 +1,4 @@
+import { useLocation } from "@tanstack/react-router";
 import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
 import { providerChoiceLabel, providerNames } from "@ace/ui-core";
@@ -35,6 +36,9 @@ export function GeneralSettings() {
     settingRow("threads.autoSettleAfter").title,
   );
   const note = useNotConnectedNote();
+  const permissionsTarget = useLocation({
+    select: (location) => location.hash === "permissions.providerModes",
+  });
   return (
     <>
       <DesktopAppPreferences />
@@ -66,7 +70,12 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
       <SettingSection label="Default permissions" anchor="permissions.providerModes" scope="daemon">
-        <PermissionDefaults />
+        <details open={permissionsTarget || undefined}>
+          <summary className="focus-ring rounded-md py-(--setting-row-padding) text-ui text-muted-foreground">
+            Per-provider defaults
+          </summary>
+          <PermissionDefaults />
+        </details>
       </SettingSection>
       <ProjectFolders />
       <RecoverySettings />

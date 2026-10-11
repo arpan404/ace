@@ -1,6 +1,8 @@
 import { useClient } from "@ace/client-react";
 import { useEffect } from "react";
-import { loadedPanelServices, panelServices } from "../services.ts";
+import { useToast } from "@/components/ui/toast.tsx";
+import { loadedPanelServices } from "../services.ts";
+import { bindTerminalEndDelivery, endPanelTerminal } from "./end-delivery.ts";
 import { onTerminalEnd, setTerminalProbe } from "./closing.ts";
 
 /**
@@ -10,7 +12,9 @@ import { onTerminalEnd, setTerminalProbe } from "./closing.ts";
  */
 export function TerminalClient() {
   const client = useClient();
+  const toast = useToast();
   useEffect(() => {
+    const delivery = bindTerminalEndDelivery(client);
     const unprobe = setTerminalProbe((threadId, terminalId) => {
       // Not loaded: this client never attached the terminal, so it can't say it ended.
       const terminals = loadedPanelServices(client)?.terminals;
@@ -18,17 +22,21 @@ export function TerminalClient() {
       if (terminals.exitCode(terminalId) !== null) return true;
       return terminals.source.list(threadId).find((terminal) => terminal.id === terminalId)?.exited;
     });
-    // A closed terminal tab ends its shell (the tab kind's onClose has no client to ask).
-    const unend = onTerminalEnd(
-      (end) =>
-        void panelServices(client).then((services) =>
-          services.terminals.end(end.threadId, end.terminalId),
-        ),
-    );
+    // Prepare shell cleanup before the tab's removal is saved (the kind has no client).
+    const unend = onTerminalEnd((end) => {
+      const accepted = endPanelTerminal(client, end);
+      if (!accepted)
+        toast.error({
+          title: "Couldn't save the terminal close",
+          description: "The tab stays open. Reconnect and try again.",
+        });
+      return accepted;
+    });
     return () => {
       unprobe();
       unend();
+      delivery.release();
     };
-  }, [client]);
+  }, [client, toast]);
   return null;
 }

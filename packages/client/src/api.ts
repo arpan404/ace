@@ -167,6 +167,7 @@ export interface ThreadExport {
   error: { code: ClientError["code"]; message: string } | undefined;
   view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
   truncated: string[];
+  deleted?: string[];
 }
 export interface SidebarExport {
   loaded?: boolean | undefined;

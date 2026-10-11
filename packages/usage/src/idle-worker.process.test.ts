@@ -64,3 +64,41 @@ test("usage coverage survives idle retirement and a later query reopens the dura
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("successive physical usage isolate failures back off and a later query can recover", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-usage-retry-"));
+  let retry: { milliseconds: number; fire(): void } | undefined;
+  let crashes = 2;
+  const worker = new UsageWorker(
+    join(home, "usage.sqlite"),
+    {},
+    {
+      spawn(url, options) {
+        const physical = new Worker(url, options);
+        if (crashes-- > 0) void physical.terminate();
+        return physical;
+      },
+      delay(callback, milliseconds) {
+        const timer = { milliseconds, fire: callback };
+        retry = timer;
+        return () => {
+          if (retry === timer) retry = undefined;
+        };
+      },
+    },
+  );
+  try {
+    await expect(worker.cursor()).rejects.toThrow("exited");
+    expect(retry?.milliseconds).toBe(250);
+    const second = expect(worker.cursor()).rejects.toThrow("exited");
+    retry?.fire();
+    await second;
+    expect(retry?.milliseconds).toBe(500);
+    const recovered = worker.cursor();
+    retry?.fire();
+    expect(await recovered).toBe(0);
+  } finally {
+    await worker.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -124,17 +124,19 @@ export function SkillSource({ skill }: { skill: Skill }) {
               This source is too large to edit here. Open it in your editor.
             </p>
           )}
-          {draft === undefined && skill.kind === "skill" ? (
+          {draft === undefined ? (
             <details className="mt-3">
               <summary className="text-sm text-muted-foreground focus-ring rounded-sm">
                 Read source
               </summary>
               <Prose text={skillMarkdown(source.data.text, skill)} />
+              <details className="mt-3">
+                <summary className="focus-ring rounded-sm text-sm text-muted-foreground">
+                  View Markdown source
+                </summary>
+                <pre className="overflow-auto whitespace-pre-wrap text-sm">{source.data.text}</pre>
+              </details>
             </details>
-          ) : draft === undefined ? (
-            <pre className="overflow-auto font-mono text-sm leading-normal whitespace-pre-wrap break-words">
-              {source.data.text}
-            </pre>
           ) : (
             <Textarea
               aria-label="Source text"

@@ -267,7 +267,12 @@ impl Source for Automation {
     fn node(&mut self, element: &Self::Element) -> Result<Node> {
         unsafe {
             let identity = runtime_id(element)?;
-            let reference = self.refs.retain(identity, element.clone());
+            let api = &self.api;
+            let reference = self
+                .refs
+                .retain_if_same(identity, element.clone(), |old, current| {
+                    same_live_control(api, old, current)
+                });
             let rect = element.CachedBoundingRectangle()?;
             let mut states = vec![];
             let mut actions = vec![];
@@ -398,5 +403,19 @@ fn runtime_id(element: &IUIAutomationElement) -> Result<String> {
         })();
         let _ = SafeArrayDestroy(array);
         result
+    }
+}
+
+/// Runtime IDs can repeat; a retained element must also answer a fresh provider query.
+pub(crate) fn same_live_control(
+    api: &IUIAutomation,
+    old: &IUIAutomationElement,
+    current: &IUIAutomationElement,
+) -> bool {
+    unsafe {
+        old.CurrentProcessId().is_ok()
+            && api
+                .CompareElements(old, current)
+                .is_ok_and(|same| same.as_bool())
     }
 }

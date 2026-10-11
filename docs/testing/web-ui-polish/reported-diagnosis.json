@@ -1,0 +1,100 @@
+{
+  "provenance": "Original issue #431 diagnosis artifacts; not re-measured by this implementation",
+  "sourceRevision": "4aa4a0fdad47778484fb0a69ba804df40c00dd55",
+  "snapshotSha256": "642b07fce3d20dff7ba3f80c15df4d0a461573b545b406f9bbf9dd15c609b8f0",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": "thread-refund-tax",
+  "samples": [
+    {
+      "condition": "optimized running",
+      "windowSeconds": 15.0,
+      "metrics": {
+        "RunTask": {
+          "count": 1590,
+          "union_ms": 209.32,
+          "full_events_thread_cpu_ms": 202.442,
+          "max_ms": 1.294
+        },
+        "Paint": {
+          "count": 558,
+          "union_ms": 14.108,
+          "full_events_thread_cpu_ms": 16.131,
+          "max_ms": 0.075
+        }
+      },
+      "frames": {
+        "DrawFrame": 900,
+        "Paint": 558
+      }
+    },
+    {
+      "condition": "optimized paused",
+      "windowSeconds": 15.0,
+      "metrics": {
+        "RunTask": {
+          "count": 109,
+          "union_ms": 21.202,
+          "full_events_thread_cpu_ms": 19.083,
+          "max_ms": 2.664
+        },
+        "Paint": {
+          "count": 0,
+          "union_ms": 0.0,
+          "full_events_thread_cpu_ms": 0.0,
+          "max_ms": 0.0
+        }
+      },
+      "frames": {
+        "DrawFrame": 0,
+        "Paint": 0
+      }
+    },
+    {
+      "condition": "headed visible",
+      "windowSeconds": 15.0,
+      "metrics": {
+        "RunTask": {
+          "count": 1882,
+          "union_ms": 212.381,
+          "full_events_thread_cpu_ms": 203.193,
+          "max_ms": 3.239
+        },
+        "Paint": {
+          "count": 472,
+          "union_ms": 14.126,
+          "full_events_thread_cpu_ms": 16.015,
+          "max_ms": 0.075
+        }
+      },
+      "frames": {
+        "DrawFrame": 1123,
+        "Paint": 472
+      }
+    },
+    {
+      "condition": "headed hidden",
+      "windowSeconds": 15.0,
+      "metrics": {
+        "RunTask": {
+          "count": 22,
+          "union_ms": 59.01,
+          "full_events_thread_cpu_ms": 4.236,
+          "max_ms": 27.315
+        },
+        "Paint": {
+          "count": 0,
+          "union_ms": 0.0,
+          "full_events_thread_cpu_ms": 0.0,
+          "max_ms": 0.0
+        }
+      },
+      "frames": {
+        "DrawFrame": 0,
+        "Paint": 0
+      }
+    }
+  ]
+}

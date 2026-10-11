@@ -1,12 +1,20 @@
-import type { PermissionCapabilities, PermissionMode, PermissionState } from "@ace/protocol";
+import type {
+  NativePermissionMode,
+  PermissionCapabilities,
+  PermissionMode,
+  PermissionState,
+} from "@ace/protocol";
+/** A shared display vocabulary; native IDs, risk and descriptions remain untouched. */
+export function permissionModeLabel(entry: NativePermissionMode): string {
+  return entry.presentation === "full-access" ? "Full access" : entry.label;
+}
 export function permissionLabel(
   mode: PermissionMode | null | undefined,
   capabilities?: PermissionCapabilities,
 ): string {
-  return mode
-    ? (capabilities?.permissionModes?.find((entry) => entry.id === mode)?.label ??
-        "Custom permissions")
-    : "Provider default";
+  if (!mode) return "Provider default";
+  const entry = capabilities?.permissionModes?.find((candidate) => candidate.id === mode);
+  return entry ? permissionModeLabel(entry) : `Unavailable mode: ${mode}`;
 }
 export const permissionShortLabel = permissionLabel;
 export function permissionChipText(
@@ -96,7 +104,7 @@ export function permissionChoices(
 ): PermissionChoice[] {
   return (capabilities?.permissionModes ?? []).map((entry) => ({
     mode: entry.id,
-    label: entry.label,
+    label: permissionModeLabel(entry),
     description: entry.description,
     coverage: entry.description,
     attention: entry.risk === "high",
@@ -161,7 +169,7 @@ export function permissionOptions(
 ): PermissionOption[] {
   return (capabilities?.permissionModes ?? []).map((entry) => ({
     id: entry.id,
-    label: entry.label,
+    label: permissionModeLabel(entry),
     description: entry.description,
     risk: entry.risk,
   }));
