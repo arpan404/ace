@@ -46,7 +46,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         aria-controls={body}
         aria-describedby={`${body}-status`}
         onClick={() => setOpen(!open)}
-        className="flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-left transition-colors duration-(--dur-1) hover:bg-accent focus-ring"
+        className="flex min-h-(--row-height) pointer-coarse:min-h-11 w-full min-w-0 items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--dur-1) hover:bg-accent focus-ring"
       >
         <span aria-hidden className="flex shrink-0 items-center -space-x-2">
           {entries.slice(0, 3).map((entry) => (
