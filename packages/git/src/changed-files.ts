@@ -1,3 +1,5 @@
+import { nul, Records, malformed } from "./decode.ts";
+import { numstatRecord } from "./parse-numstat.ts";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import type { Repository } from "./repository.ts";
@@ -27,19 +29,14 @@ const pathspecBytes = 64 * 1024;
 type Counted = { added: number; deleted: number; binary: boolean };
 
 function parseNumstat(stdout: Buffer, into: Map<string, Counted>) {
-  const records = stdout.toString("utf8").split("\0");
-  for (let at = 0; at < records.length; at++) {
-    const record = records[at];
-    if (!record) continue;
-    const [added = "", deleted = "", path = ""] = record.split("\t");
-    // Renames put both paths in the next two records; the new path is the file's.
-    const file = path || records[(at += 2)];
-    if (!file) continue;
-    // "-" marks a binary file: lines don't apply.
-    into.set(file, {
-      added: Number(added) || 0,
-      deleted: Number(deleted) || 0,
-      binary: added === "-",
+  const records = new Records(nul(stdout));
+  while (!records.done()) {
+    const counted = numstatRecord(records.next(), records);
+    if (into.has(counted.path)) throw malformed("duplicate numstat path");
+    into.set(counted.path, {
+      added: counted.additions,
+      deleted: counted.deletions,
+      binary: counted.binary,
     });
   }
 }
