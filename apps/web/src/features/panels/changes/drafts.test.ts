@@ -1,5 +1,5 @@
 import { FakeDaemon, ScenarioPlayer, coldStartReplay } from "@ace/fake-daemon";
-import { Command, ThreadId, WorkspaceId } from "@ace/protocol";
+import { Command, ThreadId, ThreadView, WorkspaceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
 import { LocalStore } from "../store.ts";
@@ -36,6 +36,21 @@ async function fixture() {
   const remote = (payload: unknown) =>
     daemon.command(Command.parse({ id: `remote-${++serial}`, deviceId: "other-device", payload }));
   return { daemon, client, remote, fileLines };
+}
+
+/** Review turns are observable transcript inputs, including ones queued for the agent. */
+function reviewTurns(f: Awaited<ReturnType<typeof fixture>>) {
+  const view = ThreadView.parse(
+    f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-cold-start") }),
+  );
+  return view.itemOrder.flatMap((id) => {
+    const item = view.items[id];
+    if (item?.type !== "message" || item.role !== "user") return [];
+    const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+    return text.startsWith("Review comments to address:\n")
+      ? [text.split("\n").filter((line) => line.startsWith("- "))]
+      : [];
+  });
 }
 
 test("an empty device discovers daemon review comments and follows resolution from another device", async () => {
@@ -246,6 +261,11 @@ test("a failed delivery batch retries only pending comments without recording du
     stop();
     expect(store.get().filter((draft) => draft.state === "sent")).toHaveLength(20);
     expect(store.get().filter((draft) => draft.state === "failed")).toHaveLength(1);
+    const firstBatch = Array.from(
+      { length: 20 },
+      (_, index) => `- apps/server/src/replay.ts:${index + 1} (new side): Finding ${index + 1}`,
+    );
+    expect(reviewTurns(f)).toEqual([firstBatch]);
     const comments = f.daemon.review.comments();
     f.daemon.restoreRequests();
     await sendDrafts(f.client, store, thread, keys);
@@ -254,6 +274,10 @@ test("a failed delivery batch retries only pending comments without recording du
       comments.map((comment) => comment.id),
     );
     expect(f.daemon.review.comments().every((comment) => comment.sent)).toBe(true);
+    expect(reviewTurns(f)).toEqual([
+      firstBatch,
+      ["- apps/server/src/replay.ts:21 (new side): Finding 21"],
+    ]);
   } finally {
     await f.client.close();
   }
