@@ -1,3 +1,4 @@
+import { configuredProviderDiscovery } from "./provider-discovery.ts";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { providerReadiness, onboardingChecklist } from "@ace/core";
 import { providerStatusRow } from "./provider-status-row.ts";
@@ -120,13 +121,11 @@ export class ProviderStatuses {
     const probe = (row: Status): Promise<DiscoveryResult | undefined> => {
       const configuration = this.options.configuration?.(row.provider);
       if (configuration?.enabled === false) return Promise.resolve(undefined);
-      const configured = {
-        ...options,
-        ...(configuration?.binaryPath &&
-        ["claude", "codex", "opencode", "cursor"].includes(row.provider)
-          ? { overrides: { ...options.overrides, [row.provider]: configuration.binaryPath } }
-          : {}),
-      };
+      const configured = configuredProviderDiscovery(
+        row.provider,
+        configuration?.binaryPath,
+        options,
+      );
       if (row.runtime === "cursor-sdk")
         return this.options.cursorSdk?.(this.controller.signal) ?? Promise.resolve(undefined);
       switch (row.provider) {

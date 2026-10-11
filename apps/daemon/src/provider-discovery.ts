@@ -16,13 +16,13 @@ export function configuredDiscovery(
           auth: "unknown" as const,
           loginHint: "Provider disabled in Settings",
         };
-      return discoverProvider(provider, {
-        ...options,
-        signal: options.signal ?? context.signal,
-        ...(config?.binaryPath
-          ? { overrides: { ...options.overrides, [provider]: config.binaryPath } }
-          : {}),
-      });
+      return discoverProvider(
+        provider,
+        configuredProviderDiscovery(provider, config?.binaryPath, {
+          ...options,
+          signal: options.signal ?? context.signal,
+        }),
+      );
     };
     const [claude, codex, opencode] = await Promise.all([
       probe("claude"),
@@ -36,4 +36,17 @@ export function configuredDiscovery(
       cursor: { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" },
     };
   };
+}
+
+/** One executable policy for status, sign-in, and managed-account restoration. */
+export function configuredProviderDiscovery(
+  provider: import("@ace/protocol").ProviderKind,
+  binaryPath: string | undefined,
+  options: import("@ace/provider-kit/discovery").DiscoveryOptions = {},
+): import("@ace/provider-kit/discovery").DiscoveryOptions & { executable?: string } {
+  if (!binaryPath) return options;
+  if (provider === "pi" || provider === "antigravity")
+    return { ...options, executable: binaryPath };
+  if (provider === "acp") return options;
+  return { ...options, overrides: { ...options.overrides, [provider]: binaryPath } };
 }

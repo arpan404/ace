@@ -1,3 +1,4 @@
+import { configuredProviderDiscovery } from "../provider-discovery.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
   cursorSdkLoginDriver,
@@ -176,22 +177,16 @@ export async function prepareProviderLogin(
       env,
       signal,
       timeoutMs: 4000,
-      ...(configuration?.binaryPath
-        ? {
-            overrides: {
-              ...options.accounts?.discovery?.overrides,
-              [target.provider]: configuration.binaryPath,
-            },
-          }
-        : {}),
     };
+    const configured = configuredProviderDiscovery(
+      target.provider,
+      configuration?.binaryPath,
+      discovery,
+    );
     const status =
       target.provider === "pi"
-        ? await discoverPiStatus({
-            ...discovery,
-            ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
-          })
-        : await discoverProvider(target.provider, discovery);
+        ? await discoverPiStatus(configured)
+        : await discoverProvider(target.provider, configured);
     const executable = status.path;
     if (!executable) throw new Error("CLI not installed");
     const args =
@@ -274,11 +269,11 @@ export async function prepareProviderLogin(
         const after =
           provider === "pi"
             ? await discoverPiStatus({
-                ...discovery,
+                ...configured,
                 executable,
                 signal: changeSignal,
               })
-            : await discoverProvider(provider, { ...discovery, signal: changeSignal });
+            : await discoverProvider(provider, { ...configured, signal: changeSignal });
         if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
           throw new Error("CLI logout unconfirmed");
         if (action === "login" && after.auth === "logged_out")
