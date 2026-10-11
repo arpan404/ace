@@ -101,6 +101,14 @@ list is maintained by hand. Standard-library global declarations and common Node
 and test-library augmentations can cause many programs to use sources;
 correctness takes priority over declaration reuse.
 
+With the current conservative rule, ordinary programs that load TypeScript's
+global standard-library declarations use source checking. Declaration maps do not
+reduce repeated dependency checking in those programs. The current benefits are
+bounded compiler concurrency and incremental reuse for unchanged programs.
+Exempting shared declarations needs a comparison with each producer's actual
+file graph and type environment, including which `@types` files and libraries it
+loads. Package-name matches alone are insufficient. That optimization is deferred.
+
 TypeScript 7.0.2 also has a confirmed declaration-emit defect:
 [microsoft/TypeScript#64059](https://github.com/microsoft/TypeScript/issues/64059).
 Const-generic inference can lose nested `readonly` properties. The issue also
