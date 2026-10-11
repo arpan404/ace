@@ -10,6 +10,7 @@ export type Agent = {
   unknownTask?: boolean;
   bufferLost?: boolean;
   turn?: string;
+  latestTurn?: string;
   hadTurn: boolean;
   mode: string;
   model?: string;

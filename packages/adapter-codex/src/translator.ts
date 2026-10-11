@@ -21,7 +21,10 @@ const recoveryRevision = z.object({
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
-  const sent = new Map<string, { method: string; params: Obj; interaction?: string }>();
+  const sent = new Map<
+    string,
+    { method: string; params: Obj; interaction?: string; observedTurn?: string }
+  >();
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
   const buffers = unknownBuffers();
@@ -158,9 +161,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     }
     if (frame.dir === "send") {
       if (method && id !== undefined) {
+        const observedTurn = agents.get(str(p["threadId"]))?.latestTurn;
         sent.set(requestKey(id), {
           method,
           params: p,
+          ...(observedTurn === undefined ? {} : { observedTurn }),
           ...(recordedAnswer && ["turn/start", "turn/steer"].includes(method)
             ? { interaction: recordedAnswer }
             : {}),
@@ -211,7 +216,17 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           str(thread["parentThreadId"], str(source["parent_thread_id"])) || undefined,
         );
       } else if (pending?.method === "turn/start" && message["error"] === undefined) {
-        userTurns.add(str(obj(result["turn"])["id"]));
+        const turn = str(obj(result["turn"])["id"]);
+        userTurns.add(turn);
+        const agent = agents.get(str(pending.params["threadId"]));
+        if (
+          turn &&
+          agent &&
+          !agent.turn &&
+          !agent.ended.has(turn) &&
+          agent.latestTurn === pending.observedTurn
+        )
+          agent.latestTurn = turn;
       }
       if (pending?.interaction && message["error"] === undefined) {
         facts.push({
@@ -294,6 +309,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "turn/started") {
       const turn = str(obj(p["turn"])["id"]);
       agent.turn = turn;
+      agent.latestTurn = turn;
       agent.hadTurn = true;
       delete agent.plan;
       delete agent.failureText;

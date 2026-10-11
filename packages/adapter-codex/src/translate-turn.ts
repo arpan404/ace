@@ -15,7 +15,12 @@ export function completeTurn(
   const turn = obj(p["turn"]);
   const turnId = str(turn["id"]);
   agent.hadTurn = true;
-  const current = !agent.turn || agent.turn === turnId;
+  // An end whose start was missed cannot supersede a newer observed/acknowledged turn.
+  // First completion-only streams remain actionable, as do acknowledged new turns.
+  const current = agent.turn
+    ? agent.turn === turnId
+    : !agent.latestTurn || agent.latestTurn === turnId;
+  if (current) agent.latestTurn = turnId;
   const outcome =
     current && agent.failureText
       ? "failed"
@@ -77,7 +82,7 @@ export function completeTurn(
     agent: agent.key,
     nativeTurnId: turnId,
     outcome,
-    ...(!actionable ? { historical: true } : {}),
+    ...(!actionable || !current ? { historical: true } : {}),
     ...(outcome === "failed"
       ? {
           error: turnError(
