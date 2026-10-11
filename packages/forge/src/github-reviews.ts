@@ -1,3 +1,4 @@
+import { WriteDispatch } from "./write-dispatch.ts";
 import { assertGraphqlResult } from "./graphql-errors.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -199,11 +200,22 @@ export class GitHubReviews {
     }
     return false;
   }
-  async #mutation(name: string, input: Record<string, unknown>, signal: AbortSignal) {
-    const response = await this.#api.request("graphql", signal, {
-      query: `mutation($input:${name[0]?.toUpperCase()}${name.slice(1)}Input!){ ${name}(input:$input){ clientMutationId } }`,
-      variables: { input },
-    });
+  async #mutation(
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    dispatch: WriteDispatch,
+  ) {
+    const response = await this.#api.request(
+      "graphql",
+      signal,
+      {
+        query: `mutation($input:${name[0]?.toUpperCase()}${name.slice(1)}Input!){ ${name}(input:$input){ clientMutationId } }`,
+        variables: { input },
+      },
+      "POST",
+      dispatch,
+    );
     assertGraphqlResult(response.body);
     const result = decode(
       z.object({
@@ -220,13 +232,9 @@ export class GitHubReviews {
     operationId: string,
     signal: AbortSignal,
     allowed: () => boolean,
-    beforeWrite: () => void = () => {},
+    dispatch = new WriteDispatch(),
   ) {
     const host = await this.host(number, signal);
-    const dispatch = () => {
-      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
-      beforeWrite();
-    };
     if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
     const marker = reviewWriteMarker(operationId);
     if (action.kind === "submit") {
@@ -252,22 +260,30 @@ export class GitHubReviews {
       const latest = await this.host(number, signal);
       if (latest.pr.headRefOid !== action.headSha || latest.pr.state !== "OPEN")
         throw new ForgeError("conflict");
-      if (!allowed()) throw new ForgeError("cancelled");
-      dispatch();
-      const response = await this.#api.request(`${this.#root}/pulls/${number}/reviews`, signal, {
-        commit_id: action.headSha,
-        event: action.event,
-        body: `${action.body}\n\n${marker}`,
-        comments: drafts.map((d) => ({
-          path: d.anchor.path,
-          line: d.anchor.line,
-          side: d.anchor.side,
-          ...(d.anchor.startLine === undefined
-            ? {}
-            : { start_line: d.anchor.startLine, start_side: d.anchor.startSide ?? d.anchor.side }),
-          body: d.body,
-        })),
-      });
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
+      const response = await this.#api.request(
+        `${this.#root}/pulls/${number}/reviews`,
+        signal,
+        {
+          commit_id: action.headSha,
+          event: action.event,
+          body: `${action.body}\n\n${marker}`,
+          comments: drafts.map((d) => ({
+            path: d.anchor.path,
+            line: d.anchor.line,
+            side: d.anchor.side,
+            ...(d.anchor.startLine === undefined
+              ? {}
+              : {
+                  start_line: d.anchor.startLine,
+                  start_side: d.anchor.startSide ?? d.anchor.side,
+                }),
+            body: d.body,
+          })),
+        },
+        "POST",
+        dispatch,
+      );
       const review = decode(Review, response.body);
       if (review.state === "PENDING" || review.commit_id !== action.headSha)
         throw new ForgeError("invalid_data");
@@ -285,13 +301,19 @@ export class GitHubReviews {
         action.kind === "reply"
           ? `pulls/${number}/comments/${action.commentId}/replies`
           : `issues/${number}/comments`;
-      dispatch();
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
       decode(
         Comment,
         (
-          await this.#api.request(`${this.#root}/${path}`, signal, {
-            body: `${action.body}\n\n${marker}`,
-          })
+          await this.#api.request(
+            `${this.#root}/${path}`,
+            signal,
+            {
+              body: `${action.body}\n\n${marker}`,
+            },
+            "POST",
+            dispatch,
+          )
         ).body,
       );
       return;
@@ -302,12 +324,13 @@ export class GitHubReviews {
       if (c.body !== action.expectedBody) throw new ForgeError("conflict");
       if (!allowed()) throw new ForgeError("cancelled");
       const path = `${this.#root}/${action.source === "inline" ? "pulls" : "issues"}/comments/${action.commentId}`;
-      dispatch();
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
       await this.#api.request(
         path,
         signal,
         action.kind === "comment.edit" ? { body: action.body } : undefined,
         action.kind === "comment.edit" ? "PATCH" : "DELETE",
+        dispatch,
       );
       return;
     }
@@ -315,11 +338,12 @@ export class GitHubReviews {
       const t = host.threads.find((entry) => entry.id === action.threadId);
       if (!t || !(action.kind === "thread.resolve" ? t.viewerCanResolve : t.viewerCanUnresolve))
         throw new ForgeError("forbidden");
-      dispatch();
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
       await this.#mutation(
         action.kind === "thread.resolve" ? "resolveReviewThread" : "unresolveReviewThread",
         { threadId: t.id, clientMutationId: operationId },
         signal,
+        dispatch,
       );
       return;
     }
@@ -327,12 +351,12 @@ export class GitHubReviews {
       if (host.pr.headRefOid !== action.headSha) throw new ForgeError("conflict");
       if (!(await this.viewed(number, action.headSha, signal)).some((f) => f.path === action.path))
         throw new ForgeError("not_found");
-      if (!allowed()) throw new ForgeError("cancelled");
-      dispatch();
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
       await this.#mutation(
         action.kind === "file.view" ? "markFileAsViewed" : "unmarkFileAsViewed",
         { pullRequestId: host.pr.id, path: action.path, clientMutationId: operationId },
         signal,
+        dispatch,
       );
     }
   }

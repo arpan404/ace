@@ -1,3 +1,4 @@
+import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import {
   GitHubForge,
@@ -26,6 +27,7 @@ import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
+  private owner = new ForgeResourceOwner();
   private store: Store;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
   private reviews: WorkspaceForgeReviews;
@@ -43,13 +45,13 @@ export class WorkspaceForge {
     runner: (cwd: string) => CommandRunner,
   ) {
     this.store = store;
-    this.reviews = new WorkspaceForgeReviews(store);
+    this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.git = git;
     this.now = now;
     this.runner = runner;
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
-    this.actions = new WorkspaceForgeActions(store);
+    this.actions = new WorkspaceForgeActions(store, this.owner);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);

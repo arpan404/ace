@@ -152,6 +152,9 @@ export async function fakeGh(
         observer.close();
       }
     },
+    async replace(records: Fixtures) {
+      await writeFile(config, JSON.stringify(records));
+    },
     async requests() {
       return z
         .object({

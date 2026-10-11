@@ -181,11 +181,12 @@ test("resolution only accepts a thread from the selected PR and host permission"
     expect(
       (await f.requests()).some(
         (r) =>
-          typeof r.body === "object" &&
-          r.body !== null &&
-          "query" in r.body &&
-          typeof r.body.query === "string" &&
-          r.body.query.trimStart().startsWith("mutation"),
+          (r.path !== "graphql" && r.args.includes("--method") && !r.args.includes("GET")) ||
+          (typeof r.body === "object" &&
+            r.body !== null &&
+            "query" in r.body &&
+            typeof r.body.query === "string" &&
+            r.body.query.trimStart().startsWith("mutation")),
       ),
     ).toBe(false);
   } finally {
