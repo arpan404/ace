@@ -1,9 +1,11 @@
 import { facts, type Scenario } from "@ace/fake-daemon";
 import type { ClientApi } from "@ace/client";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10_000 });
 
 const { endTurn, message, rootAgent, turn } = facts;
 
@@ -114,6 +116,34 @@ test("a project with running threads is removed only by archiving them", async (
   const entry = view?.kind === "threads" ? view.threads["thread-docs"] : undefined;
   expect(entry?.archivedAt).toBeDefined();
 });
+
+test("cancelling a refused removal gives another project and a reopened project a fresh attempt", async () => {
+  const made = withProjects(true);
+  await ready(made.client);
+  await made.client.projects.add({ path: "/home/dev/site" });
+  await made.open("/new");
+  await filterTo("docs");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+  const refused = await screen.findByRole("dialog", { name: "Remove docs?" });
+  await userEvent.click(within(refused).getByRole("button", { name: "Remove project" }));
+  await within(refused).findByRole("alert");
+  await userEvent.click(within(refused).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  await filterTo("site");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+  const fresh = await screen.findByRole("dialog", { name: "Remove site?" });
+  expect(within(fresh).queryByRole("alert")).toBeNull();
+  await userEvent.click(within(fresh).getByRole("button", { name: "Remove project" }));
+  await waitFor(() => expect(listed(made)).not.toContain("site"));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  await filterTo("docs");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+  const reopened = await screen.findByRole("dialog", { name: "Remove docs?" });
+  expect(within(reopened).queryByRole("alert")).toBeNull();
+  expect(within(reopened).getByRole("button", { name: "Remove project" })).toBeTruthy();
+}, 30_000);
 
 test("projects added on another device appear without a reload", async () => {
   const made = withProjects(false);

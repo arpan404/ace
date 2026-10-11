@@ -104,9 +104,14 @@ export default function ProjectDialogs(props: {
       />
     ) : null;
   if (request.kind === "remove")
-    return (
-      <RemoveProjectDialog projectId={request.projectId} open={open} onOpenChange={onOpenChange} />
-    );
+    return open ? (
+      <RemoveProjectDialog
+        key={request.projectId}
+        projectId={request.projectId}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    ) : null;
   return (
     <AddProjectDialog
       open={open && request.kind === "add"}
