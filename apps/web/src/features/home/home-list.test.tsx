@@ -358,5 +358,10 @@ test("a row's name and tooltip give its whole branch, including main", async () 
   );
 
   const onMain = card(/^Tidy the README/);
-  expect(within(onMain).getByText("main", { exact: true })).toBeTruthy();
+  expect(onMain.getAttribute("aria-label")).toContain("Branch main");
+  expect(within(onMain).queryByText("main", { exact: true })).toBeNull();
+  await userEvent.unhover(hashed);
+  onMain.focus();
+  const details = await screen.findByLabelText(/^Details for Tidy the README/);
+  expect(within(details).getByText("main", { exact: true })).toBeTruthy();
 });

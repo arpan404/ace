@@ -23,7 +23,7 @@ export function WorkLogHeader(props: {
         aria-expanded={open}
         aria-controls={props.panel}
         onClick={props.onToggle}
-        className="group inline-flex h-6 max-w-full items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground hover:underline"
+        className="group inline-flex h-6 pointer-coarse:min-h-11 max-w-full items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground hover:underline"
       >
         <span className={headline.running ? "shrink-0 shimmer" : "shrink-0"}>{headline.label}</span>
         <CaretRightIcon
