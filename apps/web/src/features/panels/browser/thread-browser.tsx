@@ -22,8 +22,7 @@ function ThreadBrowser(props: { threadId: string }) {
   useSyncExternalStore(subscribe, () => source.version);
   const opened = useRef(workspace.open);
   const release = () => {
-    if (source.heldAs(threadId) && source.view(threadId)?.takeoverMode !== "private")
-      void source.handback(threadId).catch(() => {});
+    void source.releaseSharedControl(threadId).catch(() => {});
   };
   useEffect(() => {
     const lifetime = {};

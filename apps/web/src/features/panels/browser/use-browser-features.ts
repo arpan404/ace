@@ -49,9 +49,9 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
     await withControl();
     return features.answerDialog(threadId, tabId, dialogId, accept, promptText);
   };
-  const returnControl = async () => {
+  const returnControl = async (release: () => Promise<void>) => {
     try {
-      await source.handback(threadId);
+      await release();
     } catch (error) {
       const id = toast.error({
         title: "Couldn't hand back the page",
@@ -61,7 +61,7 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
           children: "Hand back",
           onClick: async () => {
             try {
-              await source.handback(threadId);
+              await release();
               toast.close(id);
             } catch (retryError) {
               toast.update(id, { description: reason(retryError) });
@@ -84,13 +84,14 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
       promptText?: string,
     ) =>
       attempt("Couldn't answer the page", async () => {
+        const control = source.temporaryControl(threadId);
         let acquired = false;
         try {
-          acquired = await withControl();
+          await control.ready;
+          acquired = true;
           return await features.answerDialog(threadId, tabId, dialogId, accept, promptText);
         } finally {
-          if (acquired && !retainControl() && source.heldAs(threadId) && source.view(threadId)?.takeoverMode !== "private")
-            await returnControl();
+          if (!acquired || !retainControl()) await returnControl(control.release);
         }
       }),
     startRecording: () =>
