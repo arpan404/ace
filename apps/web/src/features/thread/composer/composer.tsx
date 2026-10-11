@@ -58,7 +58,7 @@ export interface ComposerHandle {
   /** Keep the current draft for the thread that replaces this provisional view. */
   preserveDraft(key: string): void;
   /** A recovered send clears its matching draft and leaves any newer message alone. */
-  discardIfSubmitted(sent: SubmittedDraft): void;
+  discardIfSubmitted(sent: SubmittedDraft): boolean;
   /** Open the + menu (files, images, a mention, a page) over the composer. */
   openAdd(): void;
   /** Put the caret in the message. */
@@ -353,7 +353,7 @@ function ComposerBody({
     takeFiles: intake,
     preserveDraft: (key) => writeDraft(storage, key, current),
     discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent)) return;
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent)) return false;
       // The recovery owner already removed the matching persisted draft. Stop a stale
       // unmount flush from restoring it while leaving newer drafts untouched.
       saved.drop();
@@ -362,6 +362,7 @@ function ComposerBody({
       setPicked(new Set());
       setCaret(0);
       attachments.clear();
+      return true;
     },
   }));
   const rememberMention = (path: string) => {
