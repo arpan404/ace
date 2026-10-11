@@ -42,6 +42,7 @@ export class WorkspaceCreations {
   async prepare(
     command: Command,
     progress?: CreationProgress,
+    signal?: AbortSignal,
   ): Promise<CreationWorkspace | undefined> {
     const p = command.payload;
     if ((p.type !== "thread.create" && p.type !== "thread.prepare") || p.mode !== "worktree")
@@ -53,7 +54,7 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, requestedBase(p), progress);
+    const task = this.create(id, project, requestedBase(p), progress, signal);
     this.pending.set(id, task);
     try {
       return await task;
@@ -67,7 +68,13 @@ export class WorkspaceCreations {
     root: string,
     requested: RequestedBase,
     progress?: CreationProgress,
+    callerSignal?: AbortSignal,
   ): Promise<CreationWorkspace> {
+    const signal =
+      progress && callerSignal
+        ? AbortSignal.any([progress.controller.signal, callerSignal])
+        : (progress?.controller.signal ?? callerSignal);
+    signal?.throwIfAborted();
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
     const parent = join(this.directory, "worktrees");
@@ -84,14 +91,14 @@ export class WorkspaceCreations {
       if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
     }
     // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
-    progress?.controller.signal.throwIfAborted();
+    signal?.throwIfAborted();
     if (requested.kind === "branch" && requested.remote) progress?.update("fetching");
     const { head, record } = await resolveWorktreeBase(
       this.git,
       project,
       requested,
       this.fetchTimeoutMs,
-      progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {},
+      { ...(signal ? { signal } : {}), ...(progress ? { stderr: progress.stderr } : {}) },
     );
     const resource: CreationResource = {
       id,
@@ -111,9 +118,9 @@ export class WorkspaceCreations {
         path,
         branch,
         baseRef: head,
+        ...(signal ? { signal } : {}),
         ...(progress
           ? {
-              signal: progress.controller.signal,
               stderr: progress.stderr,
               onProgress: (value) => progress.update(value.step, value.percent),
             }
@@ -124,7 +131,7 @@ export class WorkspaceCreations {
       resource.uncertain = 0;
       const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
       for (const script of scripts) {
-        progress?.controller.signal.throwIfAborted();
+        signal?.throwIfAborted();
         progress?.update("setup");
         ranSetup = true;
         this.journal.setup(id);
@@ -132,10 +139,11 @@ export class WorkspaceCreations {
         await this.git.setupWorktree({
           worktree: path,
           command: script.command,
-          ...(progress ? { stderr: progress.stderr, signal: progress.controller.signal } : {}),
+          ...(signal ? { signal } : {}),
+          ...(progress ? { stderr: progress.stderr } : {}),
         });
       }
-      progress?.controller.signal.throwIfAborted();
+      signal?.throwIfAborted();
     } catch (error) {
       if (
         error instanceof GitError &&

@@ -39,6 +39,11 @@ export class DelegationAdmission {
   validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    try {
+      this.deps.engine.childPermissionMode(caller.threadId, input.provider, input.permissionMode);
+    } catch {
+      throw controlAdmissionError("permission_ceiling_unverifiable");
+    }
     if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
       throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
     if (!this.deps.engine.providerAvailability(input.provider).installed)
@@ -46,6 +51,11 @@ export class DelegationAdmission {
         "provider_unavailable",
         `No installed provider adapter for ${input.provider}`,
       );
+    if (
+      this.deps.engine.providerAvailability(input.provider).auth === "logged_out" &&
+      !input.accountId
+    )
+      throw new AgentControlError("account_unavailable", "Provider CLI is signed out");
 
     if (
       this.journal.get(caller.threadId)?.phase === "cancelling" ||
@@ -185,6 +195,7 @@ export class DelegationAdmission {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
     },
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ) {
     return this.deps.store.atomic(() => {
       const requested = reservation.record;
@@ -228,6 +239,10 @@ export class DelegationAdmission {
           deviceId: "ace-agent",
           payload: {
             type: "thread.prepare",
+            ...(prepared?.preparedWorkspace ? { mode: "worktree" } : {}),
+            ...(r.request.workspace?.kind === "new_worktree"
+              ? { base: r.request.workspace.base }
+              : {}),
             ...(ownership?.handoffFrom ? { handoffFrom: ownership.handoffFrom } : {}),
             threadId: r.childId,
             workspaceId: workspace,
@@ -244,6 +259,7 @@ export class DelegationAdmission {
           parentThreadId: r.parentId,
           ...(r.request.permissionMode ? { permissionMode: r.request.permissionMode } : {}),
         },
+        prepared,
       );
       if (!result.ok) throw controlAdmissionError(result.error ?? "Child creation failed");
       const child = this.deps.store.getThread(r.childId);

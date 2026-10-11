@@ -470,9 +470,232 @@ Example:
 }
 ```
 
+## ace_agents_catalog
+
+Page the composer's live provider/account/model catalog, model options and allowed native permission/runtime modes. Preserve instance when selecting an account. Stale or unknown authentication is explicit; no credentials or account homes are returned.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_agents_catalog.input
+
+[JSON Schema](schema/ace_agents_catalog.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
+| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
+| instance | no | string | {"minLength":1,"maxLength":256} |
+| offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
+| limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
+| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
+| permissionOffset | no | integer | {"default":0,"minimum":0,"maximum":256} |
+
+Example:
+
+```json
+{
+  "instanceId": "example",
+  "instanceOffset": 8,
+  "permissionOffset": 6
+}
+```
+
+## ace_agents_catalog.output
+
+[JSON Schema](schema/ace_agents_catalog.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "not_ready",
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_agent_status
+
+Read an owned child's aggregate state, including descendants and human waits.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_agent_status.input
+
+[JSON Schema](schema/ace_agent_status.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_agent_status.output
+
+[JSON Schema](schema/ace_agent_status.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_agent_result
+
+Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## ace_agent_result.input
+
+[JSON Schema](schema/ace_agent_result.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_agent_result.output
+
+[JSON Schema](schema/ace_agent_result.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_agent_cancel
+
+Cancel an owned child and all descendants. Acceptance is not proof that its tree has stopped; read status for settlement.
+
+Required capability: agents. Timeout: 10000 ms.
+
+## ace_agent_cancel.input
+
+[JSON Schema](schema/ace_agent_cancel.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "requestId": "QmHGy",
+  "threadId": "example"
+}
+```
+
+## ace_agent_cancel.output
+
+[JSON Schema](schema/ace_agent_cancel.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_agent_message
+
+Send follow-up work to the same owned child, retaining its permissions and delegation budget. Use a stable requestId.
+
+Required capability: agents. Timeout: 10000 ms.
+
+## ace_agent_message.input
+
+[JSON Schema](schema/ace_agent_message.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | string | {"minLength":1,"maxLength":16384} |
+| delivery | no | ["queue","steer"] | {"default":"queue"} |
+
+Example:
+
+```json
+{
+  "delivery": "steer",
+  "requestId": "nag",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+## ace_agent_message.output
+
+[JSON Schema](schema/ace_agent_message.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
 ## delegate_task
 
-Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe.
+Delegate child work under the caller's permission ceiling and delegation budget, choosing provider, model, account and optional workspace. Async by default: settled results wake the parent. waitMs bounds observation without cancelling the child; wait uses a four-minute bound. Cross-provider work requires a provably contained native permission mode. Stable request IDs make retries safe. Discover selections with ace_agents_catalog.
 
 Required capability: agents. Timeout: 300000 ms.
 
@@ -494,20 +717,20 @@ Required capability: agents. Timeout: 300000 ms.
 | accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
 | options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
 | wait | no | boolean | {"default":false} |
+| waitMs | no | integer | {"minimum":1,"maximum":240000} |
+| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | estimatedLoad | no | number | {"default":0,"minimum":0,"maximum":100} |
 
 Example:
 
 ```json
 {
-  "accountId": "example",
+  "acpAgentId": "example",
   "installationId": "example",
-  "permissionMode": "example",
-  "provider": "acp",
-  "requestId": "Xe6VT",
+  "provider": "cursor",
+  "requestId": "iqaxI7MKy5Q",
   "role": "example",
-  "task": "example",
-  "wait": false
+  "task": "example"
 }
 ```
 
@@ -525,7 +748,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -556,14 +779,13 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "instanceId": "example",
-  "model": "example",
   "options": {
-    "effort": "none"
+    "effort": "none",
+    "serviceTier": "default"
   },
-  "provider": "cursor",
-  "requestId": "AQmH",
+  "provider": "opencode",
+  "requestId": "XXE4vWLEpX5",
   "title": "example"
 }
 ```
@@ -582,6 +804,7 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "ok": true
 }
 ```
@@ -606,7 +829,7 @@ Example:
 
 ```json
 {
-  "requestId": "iqaxI7MKy5Q",
+  "requestId": "OlL1",
   "text": "example",
   "threadId": "example"
 }
@@ -626,7 +849,7 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "not_ready",
   "ok": true
 }
 ```
@@ -652,7 +875,7 @@ Example:
 
 ```json
 {
-  "requestId": "X",
+  "requestId": "RO-",
   "text": "example",
   "threadId": "example"
 }
@@ -712,7 +935,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -754,7 +978,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -779,7 +1004,8 @@ Example:
 
 ```json
 {
-  "offset": 7,
+  "limit": 5,
+  "offset": 1,
   "streamId": "example",
   "threadId": "example"
 }
@@ -799,8 +1025,8 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -825,7 +1051,6 @@ Example:
 
 ```json
 {
-  "limit": 8,
   "query": "example",
   "threadId": "example"
 }
@@ -845,6 +1070,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -868,7 +1094,7 @@ Example:
 
 ```json
 {
-  "requestId": "GtLMenaoja",
+  "requestId": "wY",
   "threadId": "example"
 }
 ```
@@ -911,8 +1137,7 @@ Example:
 
 ```json
 {
-  "requestId": "OlL1",
-  "runId": "QxmR",
+  "requestId": "iKTl6jfk",
   "threadId": "example"
 }
 ```
@@ -931,7 +1156,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -954,7 +1179,7 @@ Example:
 
 ```json
 {
-  "requestId": "_3xlPO82f",
+  "requestId": "ZN2W",
   "threadId": "example"
 }
 ```
@@ -973,7 +1198,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "unavailable",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -998,8 +1225,8 @@ Example:
 
 ```json
 {
-  "entryId": "T",
-  "requestId": "pGs",
+  "entryId": "4eTfjc9.WfW",
+  "requestId": "_ejTe",
   "text": "example",
   "threadId": "example"
 }
@@ -1019,7 +1246,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "limit",
+  "ok": true
 }
 ```
 
@@ -1044,9 +1272,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "iKTl6jfk"
+    "dy"
   ],
-  "requestId": "-ckwYzXP",
+  "requestId": "yLl6dzaO2s5",
   "threadId": "example"
 }
 ```
@@ -1065,6 +1293,8 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
+  "data": null,
   "ok": false
 }
 ```
@@ -1092,11 +1322,11 @@ Example:
 {
   "answer": {
     "answers": {},
-    "dismissed": true,
+    "feedback": "example",
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "xZN2WTr3qD_",
+  "requestId": "S6Ra8AS",
   "threadId": "example"
 }
 ```
@@ -1115,7 +1345,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1139,7 +1369,6 @@ Example:
 
 ```json
 {
-  "onlyIfProvisional": false,
   "threadId": "example",
   "title": "example"
 }
@@ -1159,8 +1388,8 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1200,8 +1429,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1229,7 +1457,6 @@ Example:
 
 ```json
 {
-  "repo": "example",
   "url": "https://example.invalid/"
 }
 ```
@@ -1248,7 +1475,7 @@ Example:
 
 ```json
 {
-  "number": 4
+  "number": 8
 }
 ```
 
@@ -1266,7 +1493,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -1313,7 +1539,7 @@ Example:
 
 ```json
 {
-  "number": 7
+  "number": 4
 }
 ```
 
@@ -1349,8 +1575,8 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1426,7 +1652,7 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
+  "data": null,
   "ok": false
 }
 ```
@@ -1469,6 +1695,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": true
 }
 ```
@@ -1492,29 +1719,10 @@ Example:
 ```json
 {
   "request": {
-    "automation": {
-      "concurrency": 10,
-      "enabled": true,
-      "id": "example",
-      "jitterMs": 2,
-      "missedRun": "run_once",
-      "prompt": "example",
-      "provider": "codex",
-      "title": "example",
-      "trigger": {
-        "kind": "schedule",
-        "schedule": {
-          "expression": "example",
-          "kind": "cron",
-          "startAt": 0,
-          "timezone": "example"
-        }
-      },
-      "workspace": "example",
-      "worktree": true
-    },
+    "automationId": "example",
+    "limit": 2,
     "requestId": "example",
-    "type": "automation.put"
+    "type": "automation.inbox"
   }
 }
 ```
@@ -1533,8 +1741,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1574,8 +1781,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1617,8 +1823,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1643,7 +1848,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "x",
+  "requestId": "3eiT",
   "threadId": "example"
 }
 ```
@@ -1662,6 +1867,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -1702,7 +1908,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1725,7 +1931,7 @@ Example:
 
 ```json
 {
-  "previewId": "yqF5I_E",
+  "previewId": "zzQA",
   "threadId": "example"
 }
 ```
@@ -1744,8 +1950,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1769,7 +1974,6 @@ Example:
 
 ```json
 {
-  "limit": 9,
   "sourceThreadId": "example"
 }
 ```
@@ -1789,7 +1993,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 2,
+  "itemsBefore": 1,
   "threadId": "example"
 }
 ```
@@ -1815,7 +2019,7 @@ Example:
 
 ```json
 {
-  "offset": 0,
+  "limit": 9,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1838,8 +2042,8 @@ Example:
 {
   "bytes": "example",
   "encoding": "utf-8",
-  "eof": false,
-  "nextOffset": 4
+  "eof": true,
+  "nextOffset": 1
 }
 ```
 
@@ -1878,7 +2082,7 @@ Example:
 {
   "agentId": "example",
   "groups": [],
-  "permissionMode": null,
+  "permissionMode": "example",
   "threadId": "example"
 }
 ```

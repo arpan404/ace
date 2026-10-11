@@ -106,8 +106,8 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
-  prepareCreation(command: Command, progress?: CreationProgress) {
-    return this.roots.prepareCreation(command, progress);
+  prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
+    return this.roots.prepareCreation(command, progress, signal);
   }
   localCreation(command: Command) {
     return this.roots.localCreation(command);

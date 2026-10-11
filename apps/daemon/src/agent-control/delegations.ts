@@ -28,6 +28,7 @@ import { OutcomeWaiters } from "./waiters.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { readAgentCatalog } from "./catalog.ts";
 
 export interface DelegationDependencies {
   store: Store;
@@ -102,6 +103,12 @@ export class DelegationService {
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
       (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
     );
+  }
+  catalog(
+    caller: McpAttribution,
+    input: import("zod").z.infer<typeof import("@ace/protocol").AgentCatalogInput>,
+  ) {
+    return readAgentCatalog(this.deps, caller, input);
   }
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);
@@ -233,8 +240,29 @@ export class DelegationService {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
     },
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ) {
-    return this.admission.commit(caller, reservation, workspace, ownership);
+    return this.admission.commit(caller, reservation, workspace, ownership, prepared);
+  }
+  /** Observation timeout releases the waiter so the existing durable wake can deliver. */
+  async waitBounded(
+    caller: McpAttribution,
+    child: ThreadId,
+    signal: AbortSignal,
+    milliseconds: number,
+  ) {
+    const deadline = new AbortController();
+    const cancel = this.deps.clock.setTimer(() => deadline.abort(), milliseconds);
+    try {
+      return await this.wait(caller, child, AbortSignal.any([signal, deadline.signal]));
+    } catch (error) {
+      signal.throwIfAborted();
+      if (!deadline.signal.aborted) throw error;
+      return undefined;
+    } finally {
+      cancel();
+      this.arm();
+    }
   }
   watchReservation(reservation: DelegationReservation) {
     return this.reservationLifetimes.watch(reservation);
@@ -399,6 +427,7 @@ export class DelegationService {
     const outcome = ["done", "failed"].includes(thread.status.state)
       ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
       : await this.waiters.wait(threadId, signal, caller.threadId);
+    signal.throwIfAborted();
     const edge = this.journal.get(threadId);
     if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
       this.deps.store.atomic(() => {

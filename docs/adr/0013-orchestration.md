@@ -173,8 +173,9 @@ ordinary launched conversations retain their caller's native permission ceiling
 across restarts, settings changes and provider/model switches. The engine checks
 explicit policies using a conservative known-policy comparison; a display risk
 label is not evidence of containment. Unknown policies may only retain an exact
-same-provider policy. Unverifiable cross-provider/default policies are rejected
-before launch. Native sandbox and approval choices are the runtime modes in ace;
+same-provider policy. A cross-provider default is pinned to a known native mode
+only when containment is proven; otherwise reject it before launch. Native sandbox
+and approval choices are the runtime modes in ace;
 there is no additional provider-independent runtime-mode flag.
 
 Child completion continues through `DelegationService`: aggregate canonical

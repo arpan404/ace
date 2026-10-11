@@ -6,6 +6,30 @@ type Action = {
 };
 /** Shared by advertised tools and the daemon's approval attribution. */
 export const controlActions: Record<AgentControlOperation["op"], Action> = {
+  "agents.catalog": {
+    description:
+      "Page the composer's live provider/account/model catalog, model options and allowed native permission/runtime modes. Preserve instance when selecting an account. Stale or unknown authentication is explicit; no credentials or account homes are returned.",
+    riskClass: "read-only",
+  },
+  "agent.status": {
+    description: "Read an owned child's aggregate state, including descendants and human waits.",
+    riskClass: "read-only",
+  },
+  "agent.result": {
+    description:
+      "Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.",
+    riskClass: "read-only",
+  },
+  "agent.message": {
+    description:
+      "Send follow-up work to the same owned child, retaining its permissions and delegation budget. Use a stable requestId.",
+    riskClass: "agent-execution",
+  },
+  "agent.cancel": {
+    description:
+      "Cancel an owned child and all descendants. Acceptance is not proof that its tree has stopped; read status for settlement.",
+    riskClass: "thread-write",
+  },
   "device.task_publish": {
     description:
       "Publish selected owned attachment hashes or relative files from this remote task to its originating thread. One immutable selection per task, stable requestId, at most 16 items/128 MiB. No workspace overwrite or merge.",

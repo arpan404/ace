@@ -91,8 +91,8 @@ export class WorkspaceRoots {
     });
     return path;
   }
-  prepareCreation(command: Command, progress?: CreationProgress) {
-    return this.creations.prepare(command, progress);
+  prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
+    return this.creations.prepare(command, progress, signal);
   }
   async localCreation(command: Command): Promise<void> {
     const p = command.payload;

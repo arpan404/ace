@@ -203,12 +203,13 @@ export function setup(
     if (!agentId) throw new Error("Root not materialized");
     return { sessionId: "test-lease", threadId, agentId };
   }
-  async function parent() {
+  async function parent(permissionMode = ":danger-full-access") {
     await (models ?? catalog).refresh();
     const result = service.command(randomUUID(), {
       type: "thread.create",
       workspaceId: workspace,
       provider: "codex",
+      permissionMode,
       input: [{ type: "text", text: "plan" }],
     });
     if (!result.ok || !result.threadId) throw new Error("Creation failed");

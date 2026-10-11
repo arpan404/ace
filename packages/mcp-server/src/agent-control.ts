@@ -20,7 +20,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe."
+        ? "Delegate child work under the caller's permission ceiling and delegation budget, choosing provider, model, account and optional workspace. Async by default: settled results wake the parent. waitMs bounds observation without cancelling the child; wait uses a four-minute bound. Cross-provider work requires a provably contained native permission mode. Stable request IDs make retries safe. Discover selections with ace_agents_catalog."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"
@@ -46,7 +46,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
           ? ("automations" as const)
           : op.startsWith("project.")
             ? ("projects" as const)
-            : op === "delegate_task" || op === "device.delegate"
+            : op === "delegate_task" || op === "device.delegate" || op.startsWith("agent.")
               ? ("agents" as const)
               : ("thread_control" as const),
     timeoutMs:

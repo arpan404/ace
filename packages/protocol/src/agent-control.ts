@@ -8,6 +8,7 @@ import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
 import { AutomationRequest } from "./automations.ts";
+import { AgentCatalogInput, AgentWorkspace } from "./agent-orchestration.ts";
 
 const key = z
   .string()
@@ -34,6 +35,8 @@ export const DelegationRequest = z.strictObject({
   role: z.string().min(1).max(1024),
   ...AgentSelection.shape,
   wait: z.boolean().default(false),
+  waitMs: z.number().int().min(1).max(240000).optional(),
+  workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
 });
 export type DelegationRequest = z.infer<typeof DelegationRequest>;
@@ -100,6 +103,17 @@ export const RemoteAgentOperation = z.discriminatedUnion("op", [
 export type RemoteAgentOperation = z.infer<typeof RemoteAgentOperation>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
   ...RemoteAgentOperation.options,
+  z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
+  z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
+  z.strictObject({
+    op: z.literal("agent.message"),
+    threadId: ThreadId,
+    requestId: key,
+    text: z.string().min(1).max(16384),
+    delivery: z.enum(["queue", "steer"]).default("queue"),
+  }),
   z.strictObject({ op: z.literal("delegate_task"), ...DelegationRequest.shape }),
   z.strictObject({
     op: z.literal("thread.create"),
