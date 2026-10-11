@@ -28,6 +28,7 @@ const stateSchema = z.object({
   holdPath: z.string(),
   users: z.number(),
   holdUser: z.number(),
+  invalidUser: z.number(),
 });
 const script = `#!${process.execPath}
 import { readFileSync,writeFileSync,existsSync,watch } from 'node:fs';
@@ -39,7 +40,7 @@ async function hold(){writeFileSync(dir+'/held','held'); await new Promise(resol
 if(args[0]==='--version') console.log('gh version 2.90.0');
 else if(args.includes('--help')) console.log('auth status');
 else if(args[0]==='auth') console.log('[]');
-else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); console.log(JSON.stringify({login:f.account})); }
+else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.invalidUser) {console.log('{}');process.exit(0)} console.log(JSON.stringify({login:f.account})); }
 else {
  if(f.holdPath===path) await hold();
  const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://git.example.com/octo/ace/pull/7',state:'open',head:{sha:'a'.repeat(40),ref:'topic'},base:{ref:'main'}};
@@ -57,7 +58,7 @@ else {
  else http([]);
 }
 `;
-export async function forgeIdentityFixture() {
+export async function forgeIdentityFixture(options: { timeoutMs?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-identity-"));
   const execute = promisify(execFile);
   await execute("git", ["init", "-q", "-b", "main", root]);
@@ -83,10 +84,11 @@ export async function forgeIdentityFixture() {
       holdPath: "",
       users: 0,
       holdUser: 0,
+      invalidUser: 0,
     }),
   );
   const runner = () =>
-    createCommandRunner({ cwd: root, env: { PATH: root, ACE_FORGE_FIXTURE: root } });
+    createCommandRunner({ ...options, cwd: root, env: { PATH: root, ACE_FORGE_FIXTURE: root } });
   const settings = new SettingsService({ dataDir: root });
   const preferences = {
     hosts: [

@@ -14,6 +14,6 @@ export { StatusRevisions } from "./revisions.ts";
 
 export * from "./readiness.ts";
 
-export { ForgeMutationOutcome } from "./mutation.ts";
+export { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 export type { ReplyReceipts } from "./reply-receipts.ts";
 export { replyIntent } from "./reply-receipts.ts";

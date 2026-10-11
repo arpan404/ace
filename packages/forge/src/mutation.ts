@@ -29,3 +29,17 @@ export class ForgeMutationOutcome extends ForgeError {
     this.receipt = receipt;
   }
 }
+
+/** Certainty comes from process admission, never from the error produced by a probe. */
+export class MutationDispatch {
+  #dispatched = false;
+  #rejected = false;
+  get dispatched(): boolean { return this.#dispatched; }
+  record(): void { this.#dispatched = true; }
+  reject(): void { this.#rejected = true; }
+  failure(error: unknown): unknown {
+    return !this.#dispatched || this.#rejected || error instanceof ForgeMutationOutcome
+      ? error
+      : new ForgeMutationOutcome({ dispatched: true });
+  }
+}

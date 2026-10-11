@@ -1,4 +1,4 @@
-import { ForgeMutationOutcome } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
@@ -43,7 +43,15 @@ export class GhApi {
     signal: AbortSignal,
     body?: unknown,
     method = body === undefined ? "GET" : "POST",
+    dispatch = new MutationDispatch(),
   ): Promise<Page> {
+    const request = { command: this.#command, args: ["api", path, "--method", method],
+      ...(body === undefined ? {} : { input: JSON.stringify(body) }), signal, mode: "json" as const };
+    try { return await this.#request(path, signal, body, method, dispatch); }
+    catch (error) { throw isForgeMutation(request) ? dispatch.failure(error) : error; }
+  }
+  async #request(path: string, signal: AbortSignal, body: unknown, method: string,
+    dispatch: MutationDispatch): Promise<Page> {
     const args = [
       "api",
       path,
@@ -73,6 +81,7 @@ export class GhApi {
       signal,
       mode: "json",
       ...(input === undefined ? {} : { input }),
+      dispatch,
     });
     const split = /\r?\n\r?\n/.exec(output.stdout);
     if (!split) throw new ForgeError("cli");
@@ -116,8 +125,10 @@ export class GhApi {
           : Number.isFinite(reset) && reset > this.#now()
             ? reset
             : this.#now() + 60_000;
+      dispatch.reject();
       throw new ForgeError("rate_limit", retryAt);
     }
+    if ([401, 403, 404, 409, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found");
     if (code === 401 || code === 403) throw new ForgeError("forbidden");
     if (code === 409 || code === 422) throw new ForgeError("conflict");

@@ -92,3 +92,32 @@ test("a lost reply response reconciles a new comment instead of an identical old
     await f.close();
   }
 });
+
+
+test("a malformed write preflight fails without reserving an uncertain reply and a fresh command can write", async () => {
+  const f = await forgeIdentityFixture();
+  try {
+    await f.update({ invalidUser: 4 });
+    expect(await f.runtime.execute(reply("invalid-preflight"))).toMatchObject({
+      ok: false, error: "forge_invalid_data",
+    });
+    expect((await f.facts()).replies).toHaveLength(0);
+    expect(await f.runtime.execute(reply("fresh-after-preflight"))).toMatchObject({ ok: true });
+    expect((await f.facts()).replies).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+
+test("a timed out write preflight keeps its CLI failure and a new command can retry", async () => {
+  const f = await forgeIdentityFixture({ timeoutMs: 5000 });
+  try {
+    await f.update({ holdUser: 4 });
+    const pending = f.runtime.execute(reply("timed-out-preflight"));
+    await f.held();
+    expect(await pending).toMatchObject({ ok: false, error: "forge_cli" });
+    expect((await f.facts()).replies).toHaveLength(0);
+    await f.release();
+    expect(await f.runtime.execute(reply("retry-after-timeout"))).toMatchObject({ ok: true });
+    expect((await f.facts()).replies).toHaveLength(1);
+  } finally { await f.close(); }
+}, 20000);

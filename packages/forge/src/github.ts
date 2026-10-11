@@ -1,4 +1,4 @@
-import { ForgeMutationOutcome } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
 import { z } from "zod";
 import {
@@ -134,25 +134,21 @@ export class GitHubForge implements Forge {
         return reconcile(pending);
       }
     }
+    const dispatch = new MutationDispatch();
     let response: import("./http.ts").Page;
     try {
       response = await this.#api.request(
         `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
         signal,
         { body },
+        "POST",
+        dispatch,
       );
     } catch (error) {
-      if (
-        error instanceof ForgeError &&
-        ["forbidden", "preferences_changed", "not_found", "conflict", "rate_limit"].includes(
-          error.kind,
-        )
-      ) {
-        this.#replyReceipts?.remove(intent);
-        throw error;
-      }
-      throw new ForgeMutationOutcome({ id: null });
+      if (!(error instanceof ForgeMutationOutcome)) this.#replyReceipts?.remove(intent);
+      throw error;
     }
+
     const parsed = z.object({ id: positive }).safeParse(response.body);
     if (!parsed.success) throw new ForgeMutationOutcome({ id: null });
     this.#replyReceipts?.put(intent, parsed.data.id);
