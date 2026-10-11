@@ -159,7 +159,7 @@ export class DelegationAdmission {
     )
       throw new Error("Request identity conflict");
   }
-  commit(
+  createThread(
     caller: McpAttribution,
     reservation: DelegationReservation,
     workspace: WorkspaceId,
@@ -178,7 +178,7 @@ export class DelegationAdmission {
       const r = current.record;
       if (ownership) r.resultDelivery = ownership.resultDelivery;
       this.validate(caller, r.request);
-      const tree = this.journal.tree(caller.threadId, this.deps.clock.now());
+      const tree = this.capacity(caller.threadId, this.deps.clock.now());
       const rejection = tree.cancelled
         ? "cancelled"
         : delegationBudget(tree, this.policy, this.deps.clock.now());
@@ -227,6 +227,24 @@ export class DelegationAdmission {
       if (!result.ok) throw controlAdmissionError(result.error ?? "Child creation failed");
       const child = this.deps.store.getThread(r.childId);
       if (!child) throw new Error("Child creation failed");
+      return { record: r, child };
+    });
+  }
+  commit(
+    caller: McpAttribution,
+    reservation: DelegationReservation,
+    workspace: WorkspaceId,
+    ownership?: { resultDelivery: "owner"; handoffFrom?: ThreadId },
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
+  ) {
+    return this.deps.store.atomic(() => {
+      const { record: r, child } = this.createThread(
+        caller,
+        reservation,
+        workspace,
+        ownership,
+        prepared,
+      );
       this.journal.add(r);
       this.deps.engine.attachChild(
         r.parentId,

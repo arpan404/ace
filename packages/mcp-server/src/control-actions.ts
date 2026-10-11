@@ -6,6 +6,21 @@ type Action = {
 };
 /** Shared by advertised tools and the daemon's approval attribution. */
 export const controlActions: Record<AgentControlOperation["op"], Action> = {
+  "threads.list": {
+    description:
+      "List or search ordinary and child threads in the calling thread's project. Page with the returned cursor; unrelated projects are forbidden.",
+    riskClass: "read-only",
+  },
+  "thread.start": {
+    description:
+      "Start an ordinary top-level conversation with explicit project/new-worktree/existing-worktree selection and an initial message. It retains caller ownership and a permission ceiling, but has no child attachment or result wakeup. Use a stable requestId. Use delegate_task for child work.",
+    riskClass: "agent-execution",
+  },
+  "thread.configure": {
+    description:
+      "Set an owned thread's catalog model and launch options, preserving provider/account and its permission ceiling. The engine applies the configuration through its existing model-switch lifecycle.",
+    riskClass: "thread-write",
+  },
   "agents.catalog": {
     description:
       "Page the composer's live provider/account/model catalog, model options and allowed native permission/runtime modes. Preserve instance when selecting an account. Stale or unknown authentication is explicit; no credentials or account homes are returned.",
@@ -74,7 +89,8 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
     riskClass: "agent-execution",
   },
   "thread.message": {
-    description: "Send follow-up work to an owned thread under its existing permissions.",
+    description:
+      "Send to an owned thread under its existing permissions. queue waits for settlement, steer uses the provider's native steering or queue fallback, and restart atomically accepts a cascade interrupt followed by queued replacement input. Stable request IDs deduplicate the whole restart.",
     riskClass: "agent-execution",
   },
   "thread.wait": {

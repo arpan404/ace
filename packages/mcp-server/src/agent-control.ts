@@ -51,6 +51,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
               : ("thread_control" as const),
     timeoutMs:
       op === "delegate_task" ||
+      op === "thread.start" ||
       op === "thread.wait" ||
       op === "device.task_wait" ||
       op === "device.task_publish"

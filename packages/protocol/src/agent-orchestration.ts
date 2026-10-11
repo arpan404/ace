@@ -26,6 +26,7 @@ export const AgentCatalogInstance = ModelInstanceStatus.omit({ sources: true }).
   availability: z.string().max(64).optional(),
   launchOptions: z.array(z.enum(["effort", "serviceTier"])).max(2),
   allowedPermissionModes: z.array(NativePermissionMode).max(256),
+  allowedDefault: z.boolean(),
   nextPermissionOffset: z.number().int().nonnegative().optional(),
 });
 export const AgentCatalogPage = z.object({

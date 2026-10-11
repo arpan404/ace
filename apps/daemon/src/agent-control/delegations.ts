@@ -32,6 +32,10 @@ import { readAgentCatalog } from "./catalog.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
+import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
+import { delegationModel } from "./models.ts";
+import { ConversationJournal } from "./conversation-journal.ts";
+import { matchesModel, isDefaultSelection, selectionModelFilter } from "@ace/models";
 
 export interface DelegationDependencies {
   store: Store;
@@ -58,6 +62,7 @@ export interface DelegationDependencies {
 export class DelegationService {
   readonly journal: DelegationJournal;
   readonly policy: DelegationPolicy;
+  readonly conversations: ConversationJournal;
   private admission: DelegationAdmission;
   private deps: DelegationDependencies;
   private unsubscribe: () => void;
@@ -73,8 +78,22 @@ export class DelegationService {
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
     recoverLocalUsage(deps.store, this.journal);
+    this.conversations = new ConversationJournal(deps.store);
+    const external = deps.externalCapacity;
+    this.deps = {
+      ...deps,
+      externalCapacity: (parent, root) => {
+        const remote = external?.(parent, root);
+        const conversations = this.conversations.capacity(parent, root);
+        return {
+          concurrent: (remote?.concurrent ?? 0) + conversations.concurrent,
+          children: (remote?.children ?? 0) + conversations.children,
+          usage: remote?.usage ?? { tokens: 0, cost: 0 },
+        };
+      },
+    };
     this.admission = new DelegationAdmission(
-      deps,
+      this.deps,
       this.journal,
       this.policy,
       () => !this.closed && deps.admitsWork?.() !== false,
@@ -91,6 +110,21 @@ export class DelegationService {
         cancel: (thread, request) => this.cancelDescendants(thread, request),
         changed: () => this.arm(),
         suspending: (thread) => this.suspending.has(thread),
+        capacity: (parent) => this.admission.capacity(parent, deps.clock.now()),
+        conversationAdmission: (thread) => {
+          const owner = this.conversations.get(thread);
+          if (!owner) return undefined;
+          if (this.closed || deps.admitsWork?.() === false) return "admission_closed";
+          const capacity = this.admission.capacity(owner.ownerThreadId, deps.clock.now());
+          const rejected = delegationBudget(capacity, this.policy, deps.clock.now());
+          if (rejected) return rejected;
+          const state = deps.store.getThread(thread)?.status.state;
+          return state &&
+            ["done", "failed", "new"].includes(state) &&
+            capacity.concurrent >= this.policy.maxConcurrent
+            ? "concurrency_limit"
+            : undefined;
+        },
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
@@ -106,7 +140,10 @@ export class DelegationService {
       (thread.workspaceId === source.workspaceId ||
         (this.journal.get(target)?.rootId ?? target) ===
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
-      (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
+      (!write ||
+        target === caller.threadId ||
+        this.journal.isDescendant(target, caller.threadId) ||
+        this.conversations.owns(caller, this.journal.get(target)?.rootId ?? target))
     );
   }
   catalog(
@@ -248,6 +285,130 @@ export class DelegationService {
     prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ) {
     return this.admission.commit(caller, reservation, workspace, ownership, prepared);
+  }
+  /** Reuse selection/admission and permission ancestry without attaching a child edge. */
+  prepareConversation(
+    caller: McpAttribution,
+    reservation: DelegationReservation,
+    workspace: WorkspaceId,
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
+  ) {
+    return this.deps.store.atomic(() => {
+      const { child } = this.admission.createThread(
+        caller,
+        reservation,
+        workspace,
+        undefined,
+        prepared,
+      );
+      this.journal.release(reservation);
+      return child;
+    });
+  }
+  restartMessage(caller: McpAttribution, requestId: string, threadId: ThreadId, text: string) {
+    if (
+      !this.authorize(caller, threadId, true) ||
+      this.closed ||
+      this.deps.admitsWork?.() === false
+    )
+      throw new Error("Forbidden restart");
+    const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
+    return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
+      const tree = this.journal.tree(threadId, this.deps.clock.now());
+      for (const child of this.journal
+        .family(tree.root)
+        .filter((edge) => edge.parentId === threadId && edge.phase !== "settled")) {
+        this.cancelDescendants(child.childId, id);
+        const cancelled = this.command(
+          controlCommandId(child.childId, requestId, "restart.child_interrupt"),
+          { type: "thread.interrupt", threadId: child.childId, cascade: true },
+        );
+        if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
+      }
+      this.onRemoteCancel?.(threadId);
+      this.suspending.add(threadId);
+      try {
+        const stopped = this.command(
+          controlCommandId(caller.threadId, requestId, "restart.interrupt"),
+          { type: "thread.interrupt", threadId, cascade: true },
+        );
+        if (!stopped.ok) throw controlAdmissionError(stopped.error ?? "Restart interrupt failed");
+      } finally {
+        this.suspending.delete(threadId);
+      }
+      // Explicit replacement clears obsolete recovery/limit holds. Ordinary Stop
+      // still retains its queue; restart moves this new message before retained input.
+      this.deps.engine.discardRecovery(threadId);
+      const sent = this.message(caller, requestId, threadId, text, "queue");
+      if (!sent.ok) throw controlAdmissionError(sent.error ?? "Restart send failed");
+      const queue = this.deps.engine.queue(threadId);
+      if (queue.messages.length > 1) {
+        const moved = this.command(controlCommandId(caller.threadId, requestId, "restart.first"), {
+          type: "queue.move",
+          threadId,
+          messageId: sent.commandId,
+          after: null,
+          expectedRevision: queue.revision,
+        });
+        if (!moved.ok) throw controlAdmissionError(moved.error ?? "Restart input unavailable");
+      }
+      return { ...sent, commandId: CommandId.parse(id) };
+    });
+  }
+  async configure(
+    caller: McpAttribution,
+    operation: Extract<import("@ace/protocol").AgentControlOperation, { op: "thread.configure" }>,
+    signal: AbortSignal,
+  ) {
+    if (!this.authorize(caller, operation.threadId, true))
+      throw new Error("Forbidden configuration");
+    const thread = this.deps.store.getThread(operation.threadId);
+    if (!thread) throw new Error("Thread missing");
+    const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
+    const request = DelegationRequest.parse({
+      requestId: operation.requestId,
+      provider: thread.provider,
+      ...identity,
+      instanceId: thread.execution?.instanceId ?? identity?.instanceId,
+      permissionMode: this.deps.engine.permissionMode(thread.id) ?? undefined,
+      model: operation.model,
+      options: operation.options,
+      role: "configuration",
+      task: "configure",
+    });
+    await this.prepareModels(caller, request);
+    signal.throwIfAborted();
+    const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
+    const selected =
+      filter &&
+      this.deps.models.resolve({ role: "configuration", ...filter, model: operation.model });
+    if (
+      !selected?.ok ||
+      (!isDefaultSelection(operation.model) && !matchesModel(selected.model, operation.model))
+    )
+      throw new AgentControlError(
+        "model_unavailable",
+        "Requested configuration model is unavailable",
+      );
+    const model = delegationModel(this.deps.models, request, thread, thread.execution?.instanceId);
+    const command = Command.parse({
+      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
+      deviceId: "ace-agent",
+      payload: {
+        type: "thread.switch",
+        threadId: thread.id,
+        selection: {
+          provider: thread.provider,
+          model,
+          ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
+          ...(operation.options ? { options: operation.options } : {}),
+        },
+      },
+    });
+    await this.deps.engine.prepareCommand(command);
+    signal.throwIfAborted();
+    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
+    return this.command(command.id, command.payload);
   }
   /** Observation timeout releases the waiter so the existing durable wake can deliver. */
   async waitBounded(
