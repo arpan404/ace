@@ -64,7 +64,7 @@ async function openCard() {
 async function gitStep(name: string) {
   const card = await openCard();
   if (name === "Commit & push" || name === "Push") {
-    await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
+    await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
     return screen.findByRole("menuitem", { name: name === "Push" ? "Push" : "Commit & push…" });
   }
   return within(card).findByRole("button", { name });
@@ -73,7 +73,7 @@ async function gitStep(name: string) {
 /** A git action from the card's branch row ⋯. */
 async function gitMenu(item: RegExp) {
   const card = await openCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await within(card).findByRole("button", { name: "Project actions" }));
   return screen.findByRole("menuitem", { name: item });
 }
 
@@ -147,7 +147,7 @@ test("the work card opens under its button and closes on Escape, giving focus ba
   const button = within(header()).getByRole("button", { name: /^Work card/ });
   const card = await openCard();
   expect(button.getAttribute("aria-pressed")).toBe("true");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relay · Local");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relayLocal");
 
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
@@ -343,7 +343,7 @@ test("the branch keeps its complete status and one commit entry point", async ()
     within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
   );
   expect(within(card).getAllByRole("button", { name: /^Commit/ })).toHaveLength(1);
-  await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await screen.findByRole("menu");
   expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
 });
@@ -508,7 +508,7 @@ test("the card says when the thread's directory isn't a git checkout, and offers
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
   expect(await within(card).findByText("Not a git checkout")).toBeTruthy();
-  expect(within(card).queryByRole("button", { name: "Git actions" })).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Project actions" })).toBeNull();
   expect(within(card).queryByRole("button", { name: "Commit" })).toBeNull();
 });
 
