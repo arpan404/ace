@@ -67,6 +67,57 @@ test("an already pending native merge adopts GitHub's existing UUID for reconcil
     await f.cleanup();
   }
 });
+test("a future native 409 result with a validated UUID remains uncertain and recoverable", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "repos/octo/ace/pulls/8/merge-async": [
+      {
+        status: 409,
+        code: 1,
+        body: {
+          status: "future_result",
+          details: { uuid: stackUuid, message: "Inspect the existing request" },
+          future_field: "retained",
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.mergeStack(8, expectedStack, "squash", signal(), allowed)).toMatchObject({
+      state: "uncertain",
+      uuid: stackUuid,
+      raw: { future_field: "retained" },
+    });
+    expect((await f.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+test.each([
+  { message: "Conflict" },
+  {
+    status: "pending",
+    details: { message: "A pending result without a UUID is not an acknowledgement" },
+  },
+])(
+  "an ordinary native HTTP 409 refuses the write instead of claiming acknowledgement: %j",
+  async (body) => {
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [stackResponse()],
+      "repos/octo/ace/pulls/8/merge-async": [{ status: 409, code: 1, body }],
+    });
+    try {
+      await expect(
+        f.forge.mergeStack(8, expectedStack, "squash", signal(), allowed),
+      ).rejects.toMatchObject({ kind: "conflict", dispatched: false });
+      expect((await f.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(1);
+    } finally {
+      await f.cleanup();
+    }
+  },
+);
 test("a native merge refusal stays visible without reporting success or retrying it", async () => {
   const f = await fakeGh({
     ...stackChecksFixture,

@@ -1,3 +1,4 @@
+import { decodeStackMergeOperation } from "./github-stack-operation.ts";
 import { WriteDispatch } from "./write-dispatch.ts";
 import { assertGraphqlResult } from "./graphql-errors.ts";
 import { createHash } from "node:crypto";
@@ -146,11 +147,25 @@ export class GhApi {
     }
     if (code === 404) throw new ForgeError("not_found", undefined, false);
     if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
-    // Native async merges can acknowledge an existing request with HTTP 409.
-    const mergeResult =
+    // Only a validated native result can turn an error status into acknowledgement.
+    const nativeResultCandidate =
       (code === 409 || code === 400) &&
       method === "PUT" &&
       /^repos\/[\w.-]+\/[\w.-]+\/pulls\/[1-9]\d*\/merge-async$/.test(path);
+    let nativeBody: unknown;
+    if (nativeResultCandidate) {
+      try {
+        nativeBody = immutable(redactData(JSON.parse(text)));
+      } catch {
+        // An unreadable error body cannot establish a native acknowledgement.
+      }
+    }
+    const operation = nativeResultCandidate ? decodeStackMergeOperation(nativeBody) : undefined;
+    // A known native result or a validated polling UUID establishes acknowledgement.
+    // Unknown native states with a UUID remain uncertain and recoverable.
+    const mergeResult =
+      operation !== undefined &&
+      (code !== 409 || operation.state !== "uncertain" || operation.uuid !== undefined);
     if ((code === 409 && !mergeResult) || code === 422)
       throw new ForgeError("conflict", undefined, false);
     if (!mergeResult && (code < 200 || code >= 300)) throw new ForgeError("cli");
@@ -167,11 +182,13 @@ export class GhApi {
       this.#cache.set(cacheKey, cached);
       return cached;
     }
-    let data: unknown;
-    try {
-      data = text.trim() ? immutable(redactData(JSON.parse(text))) : null;
-    } catch {
-      throw new ForgeError("invalid_data");
+    let data: unknown = nativeBody;
+    if (!mergeResult) {
+      try {
+        data = text.trim() ? immutable(redactData(JSON.parse(text))) : null;
+      } catch {
+        throw new ForgeError("invalid_data");
+      }
     }
     if (graphqlResponse) assertGraphqlResult(data);
     if (output.code !== 0 && !mergeResult) throw new ForgeError("cli");

@@ -491,27 +491,63 @@ test.each([
   },
 );
 
-test("a definite HTTP 422 stack merge refusal releases the receipt for a reviewed retry", async () => {
+test("a native HTTP 409 acknowledgement keeps its existing UUID across restart without resubmission", async () => {
   const f = await fixture({
-    graphql: [stackResponse()],
+    graphql: [stackResponse(), stackResponse(), stackResponse(8, queued)],
     "stack-view": [{ code: 1 }],
     "repos/octo/ace/pulls/8/merge-async": [
-      { status: 422, code: 1, body: { message: "Validation failed" } },
-      { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
+      {
+        status: 409,
+        code: 1,
+        body: { status: "pending", details: { uuid: stackUuid, message: "Existing request" } },
+      },
+    ],
+    [`repos/octo/ace/pulls/8/merge-async/${stackUuid}`]: [
+      { body: { status: "enqueued", details: { message: "Accepted by queue" } } },
     ],
   });
   try {
-    expect(await f.command("rejected")).toMatchObject({ ok: false, error: "forge_conflict" });
-    expect(await f.read()).toMatchObject({
-      result: { kind: "forge", data: { value: { operation: { state: "failed" } } } },
-    });
-    await f.restart();
-    expect(await f.command("retry")).toMatchObject({
+    expect(await f.command("adopt")).toMatchObject({
       ok: true,
       stackOperation: { state: "pending", uuid: stackUuid },
     });
-    expect((await f.gh.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(2);
+    await f.restart();
+    expect(await f.read()).toMatchObject({
+      result: {
+        kind: "forge",
+        data: { value: { operation: { state: "enqueued", uuid: stackUuid } } },
+      },
+    });
+    expect((await f.gh.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(1);
   } finally {
     await f.close();
   }
 });
+
+test.each([409, 422])(
+  "a definite HTTP %s stack merge refusal releases the receipt across restart for a reviewed retry",
+  async (status) => {
+    const f = await fixture({
+      graphql: [stackResponse()],
+      "stack-view": [{ code: 1 }],
+      "repos/octo/ace/pulls/8/merge-async": [
+        { status, code: 1, body: { message: status === 409 ? "Conflict" : "Validation failed" } },
+        { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
+      ],
+    });
+    try {
+      expect(await f.command("rejected")).toMatchObject({ ok: false, error: "forge_conflict" });
+      expect(await f.read()).toMatchObject({
+        result: { kind: "forge", data: { value: { operation: { state: "failed" } } } },
+      });
+      await f.restart();
+      expect(await f.command("retry")).toMatchObject({
+        ok: true,
+        stackOperation: { state: "pending", uuid: stackUuid },
+      });
+      expect((await f.gh.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(2);
+    } finally {
+      await f.close();
+    }
+  },
+);

@@ -1,3 +1,4 @@
+import { decodeStackMergeOperation } from "./github-stack-operation.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { sameStack, stackPrState } from "./stack-plan.ts";
 import { readStackMergeScope } from "./github-stack-scope.ts";
@@ -62,28 +63,10 @@ const stateSchema = z.looseObject({
 });
 const layerFields =
   "number title url headRefOid headRefName baseRefName state isDraft mergeStateStatus reviewDecision statusCheckRollup{state} mergeQueueEntry{state}";
-const operationSchema = z.looseObject({
-  status: text,
-  details: z.looseObject({ uuid: z.uuid().optional(), message: text }),
-});
-
 function mergeOperation(body: unknown): ForgeStackOperation {
-  const result = operationSchema.safeParse(body);
-  if (!result.success || (result.data.status === "pending" && !result.data.details.uuid))
-    throw new ForgeError("invalid_data");
-  return {
-    action: "merge",
-    raw: body,
-    state:
-      result.data.status === "pending" ||
-      result.data.status === "merged" ||
-      result.data.status === "enqueued" ||
-      result.data.status === "failed"
-        ? result.data.status
-        : "uncertain",
-    message: result.data.details.message,
-    ...(result.data.details.uuid ? { uuid: result.data.details.uuid } : {}),
-  };
+  const result = decodeStackMergeOperation(body);
+  if (!result) throw new ForgeError("invalid_data");
+  return result;
 }
 export class GitHubStacks {
   readonly #api: GhApi;

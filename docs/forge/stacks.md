@@ -29,7 +29,9 @@ claim that the API accepts a revision lock for every layer.
 
 The daemon records an operation before submission, persists its UUID, and polls
 the documented result endpoint. An existing pending request's HTTP 409 returns
-that UUID too. `enqueued` is an acknowledgement, not a merged result. Later reads
+that UUID too. Only a validated native result qualifies for the HTTP 409
+exception; an ordinary conflict response is a definite refusal and permits a
+reviewed retry after restart. `enqueued` is an acknowledgement, not a merged result. Later reads
 inspect layer states for completion or queue ejection. After a lost acknowledgement
 or expired result, ace reconciles host facts and blocks a repeated write while
 the outcome remains uncertain. Records remain visible when native membership
