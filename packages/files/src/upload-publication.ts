@@ -65,6 +65,21 @@ export class UploadPublication {
     let verified = false;
     try {
       const target = await this.safe.target(record.path);
+      if (record.verified) {
+        const { info } = await this.safe.metadata(record.path);
+        const current = await lstat(target.path);
+        if (!current.isFile() || `${current.dev}:${current.ino}` !== record.identity ||
+          current.dev !== info.dev || current.ino !== info.ino || current.size !== record.bytes ||
+          current.mtimeMs !== record.verified.mtimeMs ||
+          current.birthtimeMs !== record.verified.birthtimeMs ||
+          (current.mode & 0o777) !== record.verified.mode) return;
+        // Rename may change ctime. Identity, content mtime, birthtime, size and
+        // permissions attest to the inode hashed before publication without opening it.
+        await target.verify();
+        if (version(await lstat(target.path)) !== version(current)) return;
+        verified = true;
+      } else {
+      // Compatibility for durable intents written before metadata attestation.
       const { handle, info } = await this.safe.file(record.path);
       try {
         if (`${info.dev}:${info.ino}` !== record.identity || info.size !== record.bytes) return;
@@ -76,6 +91,7 @@ export class UploadPublication {
         verified = true;
       } finally {
         await handle.close();
+      }
       }
     } catch {
       // Inaccessible, missing or replaced destinations retain their reservation.

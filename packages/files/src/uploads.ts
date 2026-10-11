@@ -142,7 +142,8 @@ export class Uploads {
     try {
       if ((await handle.stat()).size !== record.bytes)
         throw new FileError("INCOMPLETE", "Upload is incomplete");
-      const before = version(await handle.stat());
+      const hashed = await handle.stat();
+      const before = version(hashed);
       if ((await hashFile(handle)) !== sha256)
         throw new FileError("CHECKSUM", "Upload SHA-256 mismatch");
       if (version(await handle.stat()) !== before)
@@ -154,9 +155,18 @@ export class Uploads {
         publishing: sha256,
         ...(record.expected === null ? {} : { mode: await replacementMode(target.path) }),
       };
-      // Keep the owned temp readable until a durable completion receipt exists. Its
-      // pending permission step can finish even when the final mode forbids reads.
+      // The already-open descriptor can be synced and verified after restrictive
+      // permissions are applied. No readable replacement is ever published.
+      if (publishing.mode !== undefined) await handle.chmod(publishing.mode);
       await handle.sync();
+      const verified = await handle.stat();
+      if (verified.size !== hashed.size || verified.mtimeMs !== hashed.mtimeMs)
+        throw new FileError("CONFLICT", "Upload changed before publication");
+      publishing.verified = {
+        mtimeMs: verified.mtimeMs,
+        birthtimeMs: verified.birthtimeMs,
+        mode: verified.mode & 0o777,
+      };
       await target.verify();
       await verify();
       const temp = join(dirname(target.path), record.temp);

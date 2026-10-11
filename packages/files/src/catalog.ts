@@ -18,6 +18,13 @@ export const UploadRecord = z.object({
   expected: z.string().nullable(),
   cleanup: z.boolean().default(false),
   mode: z.number().int().min(0).max(0o777).optional(),
+  verified: z
+    .object({
+      mtimeMs: z.number(),
+      birthtimeMs: z.number(),
+      mode: z.number().int().min(0).max(0o777),
+    })
+    .optional(),
   publishing: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

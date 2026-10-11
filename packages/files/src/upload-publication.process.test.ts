@@ -161,8 +161,8 @@ for (const alteration of ["replace", "relocate", "edit"]) {
   });
 }
 
-for (const lostAt of ["publication", "permissions"]) {
-  test(`a write-only replacement recovers after losing ${lostAt} completion and preserves its mode`, async () => {
+for (const mode of [0o200, 0o000, 0o100]) {
+  test(`a replacement publishes mode ${mode.toString(8)} before losing publication completion and recovers without read access`, async () => {
     let lose = true;
     const runtime = workspaceRuntime();
     const filesystem = runtime.filesystem;
@@ -171,18 +171,13 @@ for (const lostAt of ["publication", "permissions"]) {
       async realpath(path) {
         const resolved = await filesystem.realpath(path);
         const final = await filesystem.lstat(join(resolved, "final")).catch(() => undefined);
-        if (
-          lose &&
-          final?.size === 4 &&
-          (lostAt === "publication" || (final.mode & 0o777) === 0o200)
-        )
-          throw new Error("lost publication completion");
+        if (lose && final?.size === 4) throw new Error("lost publication completion");
         return resolved;
       },
     };
     const f = await fixture({ workspaceRuntime: runtime, maxReservedBytes: 4 });
     try {
-      await writeFile(join(f.root, "final"), "old", { mode: 0o200 });
+      await writeFile(join(f.root, "final"), "old", { mode });
       const expected = Stat.parse(
         await f.service.request("writer", { op: "stat", path: "final" }),
       ).version;
@@ -197,7 +192,12 @@ for (const lostAt of ["publication", "permissions"]) {
           sha256: digest,
         }),
       ).rejects.toThrow("lost publication");
+      expect((await filesystem.lstat(join(f.root, "final"))).mode & 0o777).toBe(mode);
       lose = false;
+      if (process.getuid?.() !== 0)
+        await expect(
+          f.service.download("readonly", { op: "download", path: "final" }),
+        ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
       await f.restart();
       await expect(
         f.service.request("writer", {
@@ -206,7 +206,7 @@ for (const lostAt of ["publication", "permissions"]) {
           sha256: digest,
         }),
       ).resolves.toMatchObject({ path: "final" });
-      expect((await filesystem.lstat(join(f.root, "final"))).mode & 0o777).toBe(0o200);
+      expect((await filesystem.lstat(join(f.root, "final"))).mode & 0o777).toBe(mode);
       if (process.getuid?.() !== 0)
         await expect(readFile(join(f.root, "final"))).rejects.toMatchObject({ code: "EACCES" });
       const current = Stat.parse(
@@ -221,7 +221,7 @@ for (const lostAt of ["publication", "permissions"]) {
           expected: current,
         }),
       ).resolves.toMatchObject({ destination: "moved" });
-      expect((await filesystem.lstat(join(f.root, "moved"))).mode & 0o777).toBe(0o200);
+      expect((await filesystem.lstat(join(f.root, "moved"))).mode & 0o777).toBe(mode);
       await expect(
         f.service.request("writer", { op: "upload.begin", path: "next", expected: null, size: 4 }),
       ).resolves.toMatchObject({ offset: 0 });
