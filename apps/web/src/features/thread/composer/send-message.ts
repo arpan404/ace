@@ -35,13 +35,14 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
   const ready = files.uploading ? undefined : await files.settled;
   if (!ready || ready.length < files.local.length) {
     stagedSends(request.storage);
-    stage(
+    const admitted = stage(
       {
         ...heldMessage(request),
         attachments: files.local,
       },
       local,
     );
+    if (!admitted) return refuseStage(request);
     void sendWhenUploaded(client, commandId, files.outcomes);
     return true;
   }
@@ -55,7 +56,7 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
       Object.assign({}, file, { sha256: ready[index]?.sha256 }),
     ),
   };
-  stage(held, local);
+  if (!stage(held, local)) return refuseStage(request);
   try {
     await client.enqueue(
       {
@@ -108,4 +109,12 @@ function heldMessage(request: SendRequest): Omit<StagedSend, "owner" | "attachme
     ...(request.options ? { options: request.options } : {}),
     ...(request.delivery ? { delivery: request.delivery } : {}),
   };
+}
+
+function refuseStage(request: SendRequest): false {
+  request.notify(
+    "Message not sent",
+    "This device couldn't keep another message. Retry or edit the messages waiting to send, then try again.",
+  );
+  return false;
 }

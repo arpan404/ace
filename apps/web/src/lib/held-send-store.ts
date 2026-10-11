@@ -46,8 +46,9 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
   return all;
 }
 
-export function saveHeldSends(values: readonly Metadata[], persisted: readonly unknown[]): void {
-  const kept = values.slice(-limit);
+export function saveHeldSends(values: readonly Metadata[], persisted: readonly unknown[]): boolean {
+  if (values.length > limit) return false;
+  const kept = values;
   all.set(
     kept.map((value) => ({
       commandId: value.commandId,
@@ -57,7 +58,8 @@ export function saveHeldSends(values: readonly Metadata[], persisted: readonly u
       value,
     })),
   );
-  writeJson(storage, key, persisted.slice(-limit));
+  writeJson(storage, key, persisted);
+  return true;
 }
 
 export function holdPageLock(): void {

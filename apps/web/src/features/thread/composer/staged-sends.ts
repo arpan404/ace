@@ -79,8 +79,8 @@ const all = {
     return parsed;
   },
 };
-function save(next: readonly StagedSend[]): void {
-  saveHeldSends(
+function save(next: readonly StagedSend[]): boolean {
+  return saveHeldSends(
     next,
     next.map((send) => ({
       ...send,
@@ -97,13 +97,17 @@ export function stagedSends(store: KeyValueStorage | undefined): typeof all {
 }
 
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
-export function stage(send: Omit<StagedSend, "owner">, local: Held): void {
+export function stage(send: Omit<StagedSend, "owner">, local: Held): boolean {
+  if (
+    !save([
+      ...all.get().filter((s) => s.commandId !== send.commandId),
+      { ...send, owner: currentPageId },
+    ])
+  )
+    return false;
   held.set(send.commandId, local);
   holdPageLock();
-  save([
-    ...all.get().filter((s) => s.commandId !== send.commandId),
-    { ...send, owner: currentPageId },
-  ]);
+  return true;
 }
 
 function patch(commandId: string, change: Partial<StagedSend>): void {
