@@ -81,7 +81,10 @@ export class WorkspaceRuntime {
       directory,
       now,
       this.machine,
-      options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {},
+      {
+        ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
+        ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
+      },
     );
     this.forge = new WorkspaceForge(
       store,

@@ -1,7 +1,7 @@
+import { workspaceRepository } from "./workspace-repository.ts";
 import {
   GitHubForge,
   ForgeError,
-  repositoryFromRemote,
   repositoryKey,
   prFromUrl,
   prUrl,
@@ -52,17 +52,11 @@ export class WorkspaceForge {
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
     const preferences = await this.sourceControl?.preferences();
-    const remote = (
-      info.remotes.find((entry) => entry.name === (preferences?.remote ?? "origin")) ??
-      (preferences ? undefined : info.remotes[0])
-    )?.fetchUrls[0];
-    return repositoryFromRemote(
-      remote,
-      preferences
-        ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
-        : {},
-    );
+    const repository = workspaceRepository(info.remotes, preferences);
+    if (!repository) throw new ForgeError("unsupported");
+    return repository;
   }
+
   private async backend(cwd: string, repository: ForgeRepository): Promise<Forge> {
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
     const key = JSON.stringify({ repository, cwd, account: identity?.account });
