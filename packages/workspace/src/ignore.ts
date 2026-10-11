@@ -1,5 +1,5 @@
 import { ignoreStream } from "./ignore-stream.ts";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import { command } from "./process.ts";
 import { errorCode, WorkspaceError } from "./types.ts";
@@ -62,6 +62,40 @@ export class GitIgnore {
     for (let i = 0; i < fields.length - 1; i += 2) {
       const origin = fields[i];
       if (origin?.startsWith("file:")) paths.push(resolve(this.safe.root, origin.slice(5)));
+    }
+    // Origins alone omit included files without settings. Git expands pathname
+    // values for us; relative include targets belong to the declaring file.
+    const includes = await command(
+      "git",
+      [
+        "config",
+        "--includes",
+        "--null",
+        "--show-origin",
+        "--path",
+        "--get-regexp",
+        "^include(if\\..*)?\\.path$",
+      ],
+      { cwd: this.safe.root, outputCap: 1_048_576, ...(signal ? { signal } : {}) },
+      this.safe.runtime,
+    ).catch(missingGit);
+    if (!includes) return [];
+    if (includes.code !== 0 && includes.code !== 1)
+      throw new WorkspaceError("IO_ERROR", includes.stderr || "Cannot resolve Git includes");
+    const declarations = includes.stdout.toString("utf8").split("\0");
+    for (let i = 0; i < declarations.length - 1; i += 2) {
+      const origin = declarations[i];
+      const setting = declarations[i + 1];
+      if (!origin?.startsWith("file:") || setting === undefined) continue;
+      const separator = setting.indexOf("\n");
+      if (separator < 0) continue;
+      const target = z
+        .string()
+        .min(1)
+        .max(4096)
+        .parse(setting.slice(separator + 1));
+      const declaring = z.string().min(1).max(4096).parse(origin.slice(5));
+      paths.push(resolve(dirname(resolve(this.safe.root, declaring)), target));
     }
     const excludes = await command(
       "git",
