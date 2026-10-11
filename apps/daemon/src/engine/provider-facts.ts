@@ -258,7 +258,31 @@ export function foldProviderFacts(
         : admitted || started
           ? ports.admission.ack.all(id, id)
           : [];
-    for (const row of acknowledged) repo.queue.prune(Number(row.id));
+    for (const row of acknowledged) {
+      repo.queue.prune(Number(row.id));
+      const key = `intent:${row.id}`;
+      const notice = state.items[key];
+      if (notice?.type === "notice" && notice.code === "delivery_uncertain") {
+        const confirmed = {
+          ...notice,
+          level: "info" as const,
+          code: "delivery_confirmed",
+          title: "Message received",
+          text: "The provider confirmed this message",
+        };
+        state.items[key] = confirmed;
+        inputUpdates.push({ type: "item.updated", item: confirmed });
+      }
+    }
+    if (acknowledged.length) {
+      const queue = repo.queue.get(id);
+      if (queue.reason === "uncertain" && !repo.queue.hasUncertain(id))
+        repo.queue.set(
+          id,
+          !queue.limited && !queue.continuation ? { paused: false, reason: null } : {},
+          now,
+        );
+    }
   }
   events.push(...inputUpdates);
   if (continuationStarted && repo.queue.get(id).trigger) {

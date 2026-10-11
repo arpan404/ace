@@ -114,7 +114,7 @@ export class EngineRepository {
         "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
       ),
       correlated: this.store.statement(
-        `UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND command_id=? AND awaiting=1 RETURNING id`,
+        `UPDATE intents SET awaiting=0, acknowledged=1, uncertain=0, status=CASE WHEN uncertain=1 THEN 'done' ELSE status END, error=NULL WHERE thread_id=? AND command_id=? AND submitted_generation IS NOT NULL AND (awaiting=1 OR uncertain=1) RETURNING id`,
       ),
       ack: this.store
         .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
