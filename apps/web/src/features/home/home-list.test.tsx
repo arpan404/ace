@@ -44,18 +44,17 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Home lists every project's threads as one list, in the order of what needs you", async () => {
+test("Home groups project threads and keeps requests first within each project", async () => {
   await openHome(workbenchApp());
-  // No folders: threads from billing-api, ace-mobile, relay, ace and docs-site interleave, by
-  // what needs you, then working tasks, then everything else by recency.
+  // Project order follows its first thread in Home priority; requests lead within each project.
   expect(order()).toEqual([
     "Partial refunds double-count tax",
+    "Invoice PDF locale fallback",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
+    "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
-    "Backpressure on broadcast fan-out",
-    "Invoice PDF locale fallback",
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
@@ -81,19 +80,20 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
 test("tasks expose status, linked PR, provider and branch details", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
-  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
+  expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
   expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
     "Waiting for your approval",
   );
-  // Its linked pull request shows by number, and its name exposes the branch and project.
-  expect(refund.textContent).toContain("77");
+  // The accessible name retains the PR, branch and project.
+  expect(refund.getAttribute("aria-label")).toContain("Pull request #77");
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
-  expect(within(refund).getByText("billing-api")).toBeTruthy();
+  expect(within(refund).queryByText("billing-api")).toBeNull();
+  expect(within(threads()).getByRole("heading", { name: "billing-api" })).toBeTruthy();
 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
+  expect(within(dedupe).queryByText("fix/replay-dedupe")).toBeNull();
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
@@ -101,7 +101,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(install.getAttribute("aria-label")).toContain("OpenCode");
-  expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
+  expect(install.getAttribute("aria-label")).toContain("docs/install-daemon");
   expect(within(install).queryByText("+120")).toBeNull();
   expect(install.getAttribute("aria-label")).not.toMatch(/lines added|removed/);
 });
