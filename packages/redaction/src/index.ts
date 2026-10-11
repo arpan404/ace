@@ -1,3 +1,5 @@
+import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
+
 export type RedactionContext = {
   workspace?: string | undefined;
   home?: string | undefined;
@@ -134,6 +136,7 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
       /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
       '$1"<SECRET>"',
     );
+    out = out.replace(QUOTED_SECRET_ASSIGNMENT, "<SECRET>");
     out = out.replace(/\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "<SECRET>");
     out = out.replace(IDENTIFYING_KEYS, (_match, key: string) => `"${key}":"<ID>"`);
     out = out.replace(EMAIL, (match) => (KEEP_EMAILS.has(match) ? match : "<EMAIL>"));
@@ -241,6 +244,7 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
   const values = sensitiveEnvironment(ctx).map(([, value]) => value);
   const sources = [
     ...SECRETS,
+    QUOTED_SECRET_ASSIGNMENT,
     EMAIL,
     IDENTIFYING_KEYS,
     /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
