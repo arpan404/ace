@@ -106,6 +106,8 @@ export class Catalog {
       db.exec(`CREATE TEMP VIEW visible_sources AS SELECT sources.* FROM sources
         JOIN registered_instances r ON sources.instance=r.id
         WHERE json_extract(summary,'$.provider')=r.provider
+        AND EXISTS (SELECT 1 FROM files f WHERE f.instance=sources.instance AND f.path=sources.path
+          AND f.home=r.home AND f.provider=r.provider)
         AND history_home_contains(r.home,path)=1`);
     }
     this.db.exec(
