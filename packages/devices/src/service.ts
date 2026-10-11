@@ -224,6 +224,7 @@ export class DevicesService {
     for (const listener of this.listeners) listener(state);
   }
   private authorize(session: DeviceSession, actor: Actor): void {
+    actor.guard?.();
     if (this.closed || !this.enabled || session.changingApproval)
       throw new DeviceError(
         "permission_denied",
@@ -265,6 +266,7 @@ export class DevicesService {
     }
   }
   private async perform(operation: DeviceOperation, actor: Actor): Promise<unknown> {
+    actor.guard?.();
     if (
       ["enable", "approve", "controller", "stream.configure", "stream.keyframe"].includes(
         operation.op,
@@ -326,8 +328,9 @@ export class DevicesService {
         ),
         enabled: this.isEnabled(),
       };
-    const viewer =
-      operation.op === "stream.configure" ? this.streamOwners.scope(actor.owner) : undefined;
+    const viewer = ["stream.configure", "logs.start", "logs"].includes(operation.op)
+      ? this.streamOwners.scope(actor.owner)
+      : undefined;
     const session = await this.session(operation.deviceId);
     viewer?.guard();
     if (operation.op === "approve") {
@@ -451,14 +454,14 @@ export class DevicesService {
             : this.options.platform.uiAct(session.device, operation, guard),
         );
       case "logs.start":
-        await this.startLogs(session, actor);
+        await this.startLogs(session, actor, () => viewer?.guard());
         return { started: true };
       case "logs.stop":
         session.logOwners.delete(actor.owner);
         if (!session.logOwners.size) await session.logs.stop();
         return { stopped: true };
       case "logs":
-        await this.startLogs(session, actor);
+        await this.startLogs(session, actor, () => viewer?.guard());
         return session.logs.tail(operation.limit);
       case "record.start":
         await this.record(session);
@@ -543,21 +546,26 @@ export class DevicesService {
     this.authorize(session, actor);
     return result;
   }
-  private async startLogs(session: DeviceSession, actor: Actor): Promise<void> {
+  private async startLogs(session: DeviceSession, actor: Actor, guard: () => void): Promise<void> {
     if (!session.logOwners.has(actor.owner) && session.logOwners.size >= 64)
       throw new DeviceError("limit", "Too many device log readers", "Close an unused log view.");
     const retained = session.logOwners.has(actor.owner);
-    session.logOwners.add(actor.owner);
+    const lifetime = session.logOwners.get(actor.owner) ?? {};
+    session.logOwners.set(actor.owner, lifetime);
     if (session.logs.running) return;
     try {
       const generation = session.generation;
       const spec = await this.options.platform.logs(session.device);
+      guard();
       this.authorize(session, actor);
+      if (session.logOwners.get(actor.owner) !== lifetime)
+        throw new DeviceError("busy", "Device logs stopped during startup", "Start logs again.");
       if (session.generation !== generation)
         throw new DeviceError("busy", "Device stopped during log startup", "Restart logs.");
       await session.logs.start(spec, this.options.env, this.options.spawnLogs);
     } catch (error) {
-      if (!retained) session.logOwners.delete(actor.owner);
+      if (!retained && session.logOwners.get(actor.owner) === lifetime)
+        session.logOwners.delete(actor.owner);
       throw error;
     }
   }
@@ -656,7 +664,9 @@ export class DevicesService {
     actor: Actor,
     sink: Parameters<DeviceSession["logs"]["subscribe"]>[0],
   ): Promise<() => void> {
+    const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
+    viewer.guard();
     this.authorize(session, actor);
     const epoch = session.approvalEpoch;
     return session.logs.subscribe(async (batch) => {

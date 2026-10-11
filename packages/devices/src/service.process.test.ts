@@ -302,6 +302,9 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
       if (!native) throw new Error("No native capture");
       return native.exited;
     },
+    logStarted() {
+      return logProcess !== undefined;
+    },
     logExit() {
       if (!logProcess) throw new Error("No log process");
       return logProcess.exited;
@@ -1299,4 +1302,99 @@ it("a supported long agent typing request stays live for six minutes through MCP
   });
   expect(h.service.states()[0]?.controller).toBe("agent");
   expect(h.effects).toEqual(["-s emulator-5554 shell 'input' 'text' '" + "x".repeat(4096) + "'"]);
+});
+
+it.each(["disconnect", "stop"] as const)(
+  "%s while log discovery is pending prevents a child starting",
+  async (cancel) => {
+    const h = await harness();
+    await approve(h);
+    const lookup = deferred<void>();
+    const entered = deferred<void>();
+    const logs = h.platform.logs.bind(h.platform);
+    h.platform.logs = async (device) => {
+      entered.resolve();
+      await lookup.promise;
+      return logs(device);
+    };
+    const started = h.request({ op: "logs.start", deviceId });
+    const rejected = expect(started).rejects.toThrow();
+    await entered.promise;
+    if (cancel === "disconnect") h.service.disconnect(human.owner);
+    else await h.request({ op: "logs.stop", deviceId });
+    lookup.resolve();
+    await rejected;
+    expect(h.logStarted()).toBe(false);
+  },
+);
+
+it("a cancelled older log lookup cannot remove a fresh reader or its shared stream", async () => {
+  const h = await harness();
+  await approve(h);
+  const lookup = deferred<void>();
+  const entered = deferred<void>();
+  const logs = h.platform.logs.bind(h.platform);
+  h.platform.logs = async (device) => {
+    entered.resolve();
+    await lookup.promise;
+    return logs(device);
+  };
+  const old = h.request({ op: "logs.start", deviceId });
+  const rejected = expect(old).rejects.toThrow();
+  await entered.promise;
+  await h.request({ op: "logs.stop", deviceId });
+  h.platform.logs = logs;
+  await h.request({ op: "logs.start", deviceId });
+  await h.request({ op: "logs", deviceId, limit: 10 }, agent);
+  lookup.resolve();
+  await rejected;
+  h.service.disconnect(agent.owner);
+  const received = deferred<void>();
+  const lines: string[] = [];
+  const unsubscribe = await h.service.subscribeLogs(deviceId, human, async (batch) => {
+    lines.push(...batch.lines);
+    received.resolve();
+  });
+  h.log("fresh reader remains");
+  await received.promise;
+  expect(lines).toContain("fresh reader remains");
+  unsubscribe();
+  await h.request({ op: "logs.stop", deviceId });
+  expect((await h.logExit()).reason).toBe("stopped");
+});
+
+it("revoking a device peer during log discovery cannot start an unauthorized process", async () => {
+  const h = await harness();
+  await approve(h);
+  const lookup = deferred<void>();
+  const entered = deferred<void>();
+  const logs = h.platform.logs.bind(h.platform);
+  h.platform.logs = async (device) => {
+    entered.resolve();
+    await lookup.promise;
+    return logs(device);
+  };
+  let authorized = true;
+  const channel = connectDevices(h.service, "revoked-reader", {
+    authorize: () => authorized,
+    canReadThread: () => true,
+    agentExists: () => true,
+    async send() {},
+    async frame() {},
+    async image() {},
+  });
+  try {
+    const started = channel.request({
+      type: "devices.request",
+      requestId: "logs",
+      operation: { op: "logs.start", deviceId },
+    });
+    await entered.promise;
+    authorized = false;
+    lookup.resolve();
+    await started;
+    expect(h.logStarted()).toBe(false);
+  } finally {
+    channel.close();
+  }
 });

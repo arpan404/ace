@@ -17,7 +17,7 @@ export interface DevicePeer {
 /** A transport owner supplies authenticated identity and revocation checks. */
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const frames = new DeviceFrameWriter(peer.frame);
-  const actor: Actor = { kind: "human", owner };
+  const actor: Actor = { kind: "human", owner, guard: () => access() };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
   let closed = false;
