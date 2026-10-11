@@ -92,6 +92,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
         }
         pending++;
         try {
+          let requestActor = actor;
           if (operation.op === "subscribe") {
             const slot = streams.reserve(operation.deviceId);
             try {
@@ -114,11 +115,15 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
           }
           if (operation.op === "logs.start") {
             const slot = logs.reserve(operation.deviceId);
+            const guard = () => {
+              deviceAccess(operation.deviceId);
+              if (!slot.active()) throw new Error("Device log subscription superseded");
+            };
+            requestActor = { ...actor, guard };
             try {
               slot.attach(
-                await service.subscribeLogs(operation.deviceId, actor, async (batch) => {
-                  deviceAccess(operation.deviceId);
-                  if (!slot.active()) throw new Error("Device log subscription superseded");
+                await service.subscribeLogs(operation.deviceId, requestActor, async (batch) => {
+                  guard();
                   await send({ type: "devices.logs", deviceId: operation.deviceId, ...batch });
                 }),
               );
@@ -141,7 +146,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
               ? { watching: inventoryView !== undefined }
               : operation.op === "screenshot"
                 ? undefined
-                : await service.request(operation, actor);
+                : await service.request(operation, requestActor);
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (operation.op === "screenshot") {

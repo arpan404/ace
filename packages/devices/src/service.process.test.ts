@@ -1398,3 +1398,47 @@ it("revoking a device peer during log discovery cannot start an unauthorized pro
     channel.close();
   }
 });
+
+it("stopping logs during first subscription discovery prevents startup and permits a fresh reader", async () => {
+  const h = await harness();
+  await h.request({ op: "enable", enabled: true });
+  const inventory = h.blockInventory();
+  const received = deferred<void>();
+  const lines: string[] = [];
+  const channel = connectDevices(h.service, "first-log-reader", {
+    authorize: () => true,
+    canReadThread: () => true,
+    agentExists: () => true,
+    async send(message) {
+      if (message.type !== "devices.logs") return;
+      lines.push(...message.lines);
+      received.resolve();
+    },
+    async frame() {},
+    async image() {},
+  });
+  const request = (requestId: string, op: "logs.start" | "logs.stop") =>
+    channel.request({
+      type: "devices.request",
+      requestId,
+      operation: { op, deviceId },
+    });
+  try {
+    const old = request("old", "logs.start");
+    await h.inventoryEntered.promise;
+    const stopped = request("stop", "logs.stop");
+    inventory.resolve();
+    await Promise.all([old, stopped]);
+    expect(h.logStarted()).toBe(false);
+    await request("fresh", "logs.start");
+    h.log("fresh subscription receives logs");
+    h.deadlines(100);
+    await received.promise;
+    expect(lines).toContain("fresh subscription receives logs");
+    await request("fresh-stop", "logs.stop");
+    expect((await h.logExit()).reason).toBe("stopped");
+  } finally {
+    inventory.resolve();
+    channel.close();
+  }
+});

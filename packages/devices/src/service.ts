@@ -641,6 +641,8 @@ export class DevicesService {
     return result;
   }
   private async startLogs(session: DeviceSession, actor: Actor, guard: () => void): Promise<void> {
+    guard();
+    this.authorize(session, actor);
     if (!session.logOwners.has(actor.owner) && session.logOwners.size >= 64)
       throw new DeviceError("limit", "Too many device log readers", "Close an unused log view.");
     const retained = session.logOwners.has(actor.owner);
