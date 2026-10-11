@@ -16,8 +16,11 @@ test("item-only invalidation keeps unseen active child recovery pending until a 
     await h.wait((f) => {
       const data = obj(f.data);
       const params = obj(data["params"]);
-      return data["method"] === "turn/completed" && params["threadId"] === "hidden" &&
-        obj(params["turn"])["id"] === "hidden-turn";
+      return (
+        data["method"] === "turn/completed" &&
+        params["threadId"] === "hidden" &&
+        obj(params["turn"])["id"] === "hidden-turn"
+      );
     });
     expect(h.replay.state.status.state).toBe("done");
   } finally {

@@ -5,6 +5,7 @@ import { createExtensionCatalog, optionalCatalogFrames } from "./extension-catal
 import { codexMcpControls } from "./mcp-controls.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
+import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { configuredTurnPolicy } from "./default-permissions.ts";
@@ -81,7 +82,7 @@ export async function openCodexSession(
   const active = new Map<string, string>();
   const controlRequests = new Map<
     unknown,
-    { method: string; thread: string; mode: string | null }
+    { method: string; thread: string; mode: string | null; completed: Set<string> }
   >();
   const revisions = new Map<string, number>();
   const reading = new Set<string>();
@@ -145,9 +146,18 @@ export async function openCodexSession(
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
       )
-        controlRequests.set(m["id"], { method, thread, mode: submittedMode });
+        controlRequests.set(m["id"], {
+          method,
+          thread,
+          mode: submittedMode,
+          completed: new RecentSet(),
+        });
       if (dir === "recv") {
         observeRecovery(thread, method, str(obj(p["turn"])["id"]));
+        if (method === "turn/completed")
+          for (const submitted of controlRequests.values())
+            if (submitted.method === "turn/start" && submitted.thread === thread)
+              submitted.completed.add(str(obj(p["turn"])["id"]));
         const control = method ? undefined : controlRequests.get(m["id"]);
         if (!method) controlRequests.delete(m["id"]);
         const result = obj(m["result"]);
@@ -155,7 +165,7 @@ export async function openCodexSession(
         if (control && m["error"] === undefined) {
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
-            if (id) active.set(control.thread, id);
+            if (id && !control.completed.has(id)) active.set(control.thread, id);
             if (id && control.thread === nativeSessionId) {
               appliedPermissionMode = control.mode;
               emit("note", { event: "permission-mode-applied", mode: control.mode });

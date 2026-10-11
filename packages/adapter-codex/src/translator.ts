@@ -13,11 +13,12 @@ import { isKnownDelta, translateDelta } from "./translate-delta.ts";
 import { isInteractiveRequest, openRequest, turnError } from "./interactions.ts";
 import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 import { z } from "zod";
+import { PendingCompletions } from "./pending-completions.ts";
 
 const recoveryRevision = z.object({
   read: z.number().int().nonnegative(),
   current: z.number().int().nonnegative(),
-  uncertain: z.boolean().optional(),
+  uncertain: z.boolean().default(false),
 });
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
@@ -28,6 +29,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
   >();
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
+  const completions = new PendingCompletions();
   const buffers = unknownBuffers();
   const asyncOwners: TranslationContext["asyncOwners"] = new Map();
   let unknownGuard = false;
@@ -171,6 +173,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
             ? { interaction: recordedAnswer }
             : {}),
         });
+        if (method === "turn/start")
+          completions.open(requestKey(id), str(p["threadId"], root), observedTurn);
         recordedAnswer = undefined;
       }
       if (method === "thread/start") cwd = str(p["cwd"]);
@@ -216,10 +220,16 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           now,
           str(thread["parentThreadId"], str(source["parent_thread_id"])) || undefined,
         );
-      } else if (pending?.method === "turn/start" && message["error"] === undefined) {
-        const turn = str(obj(result["turn"])["id"]);
-        userTurns.add(turn);
-        const agent = agents.get(str(pending.params["threadId"]));
+      } else if (pending?.method === "turn/start") {
+        const native = str(pending.params["threadId"], root);
+        const agent = agents.get(native);
+        const turn = message["error"] === undefined ? str(obj(result["turn"])["id"]) : "";
+        const correlated = completions.resolve(
+          requestKey(id),
+          turn || undefined,
+          agent?.latestTurn,
+        );
+        if (turn) userTurns.add(turn);
         if (
           turn &&
           agent &&
@@ -228,6 +238,29 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           agent.latestTurn === pending.observedTurn
         )
           agent.latestTurn = turn;
+        if (agent && correlated) {
+          if (correlated.current) {
+            if (agent.turn !== turn && !agent.ended.has(turn))
+              facts.push(
+                ...handle(
+                  {
+                    ...frame,
+                    data: {
+                      method: "turn/started",
+                      params: { threadId: native, turn: { id: turn } },
+                    },
+                  },
+                  now,
+                ),
+              );
+            completeTurn(agent, native, correlated.current, translation, facts);
+            userTurns.delete(turn);
+          }
+          for (const params of correlated.historical)
+            completeTurn(agent, native, params, translation, facts, false);
+          if (correlated.settled)
+            facts.push({ type: "background.ended", task: correlated.task, status: "completed" });
+        }
       }
       if (pending?.interaction && message["error"] === undefined) {
         facts.push({
@@ -329,6 +362,34 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       delete agent.pendingTrigger;
       facts.push({ type: "turn.started", agent: agent.key, nativeTurnId: turn, trigger });
     } else if (method === "turn/completed") {
+      const turn = str(obj(p["turn"])["id"]);
+      const held =
+        !agent.ended.has(turn) &&
+        (completions.has(native, turn) ||
+          (frame.channel !== "hydration" && turn !== agent.turn && turn !== agent.latestTurn))
+          ? completions.hold(native, p, agent.latestTurn)
+          : undefined;
+      if (held) {
+        if (held.first)
+          facts.push({
+            type: "background.started",
+            agent: agent.key,
+            task: held.task,
+            kind: "other",
+            title: "Correlating a Codex turn completion",
+            stoppable: false,
+          });
+        if (held.overflow)
+          facts.push(
+            note(
+              agent.key,
+              "turn-correlation-overflow",
+              frame.data,
+              "Codex turn correlation limit exceeded. Execution remains unresolved until session exit.",
+            ),
+          );
+        return facts;
+      }
       completeTurn(agent, native, p, translation, facts, frame.channel !== "hydration");
       if (agent.unmatchedFlag)
         facts.push({

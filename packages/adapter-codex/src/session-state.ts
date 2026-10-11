@@ -8,9 +8,13 @@ export function recoveryUncertain(
   observed: ReadObservation,
 ): boolean {
   if (revision.read === revision.current || observed.started) return false;
-  const active = list(thread["turns"]).map(obj).filter((turn) => turn["status"] === "inProgress");
-  return active.some((turn) => !observed.completed.has(str(turn["id"]))) ||
-    (obj(thread["status"])["type"] === "active" && active.length === 0);
+  const active = list(thread["turns"])
+    .map(obj)
+    .filter((turn) => turn["status"] === "inProgress");
+  return (
+    active.some((turn) => !observed.completed.has(str(turn["id"]))) ||
+    (obj(thread["status"])["type"] === "active" && active.length === 0)
+  );
 }
 /** Parse native thread ancestry once, for control and discovery decisions. */
 export function parentOf(thread: Obj): string {

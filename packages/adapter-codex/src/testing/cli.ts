@@ -247,6 +247,26 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "complete-before-ack") {
+      const turnId = `late-${++policyTurn}`;
+      if (policyTurn === 2) {
+        notify("turn/completed", {
+          threadId: "native",
+          turn: {
+            id: turnId,
+            status: "failed",
+            error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+          },
+        });
+        respond({ turn: { id: turnId } });
+      } else {
+        respond({ turn: { id: turnId } });
+        active.set("native", turnId);
+        notify("turn/started", { threadId: "native", turn: { id: turnId } });
+        end();
+      }
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "overlap-reads") {
       const turnId = `overlap-${++overlapTurn}`;
       respond({ turn: { id: turnId } });
@@ -254,7 +274,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       notify("turn/started", { threadId: "native", turn: { id: turnId } });
       if (text === "hidden-child") {
         item("native", turnId, {
-          id: "spawn-hidden", type: "subAgentActivity", kind: "started", agentThreadId: "hidden",
+          id: "spawn-hidden",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "hidden",
         });
         active.set("hidden", "A");
         notify("turn/started", { threadId: "hidden", turn: { id: "A" } });
@@ -265,10 +288,17 @@ for await (const line of createInterface({ input: process.stdin })) {
         notify("turn/started", { threadId: "hidden", turn: { id: "C" } });
         end("hidden");
       } else if (text === "release-read") {
-        write({ id: heldRead, result: { thread: {
-          id: "hidden", parentThreadId: "native", status: { type: "active" },
-          turns: [{ id: "B", status: "inProgress", items: [] }],
-        } } });
+        write({
+          id: heldRead,
+          result: {
+            thread: {
+              id: "hidden",
+              parentThreadId: "native",
+              status: { type: "active" },
+              turns: [{ id: "B", status: "inProgress", items: [] }],
+            },
+          },
+        });
       }
       end();
       continue;
@@ -754,12 +784,20 @@ for await (const line of createInterface({ input: process.stdin })) {
     ) {
       if (!discoveryFailed) {
         discoveryFailed = true;
-        item("hidden", "hidden-turn", { id: "mid-turn", type: "agentMessage", text: "Still working" });
+        item("hidden", "hidden-turn", {
+          id: "mid-turn",
+          type: "agentMessage",
+          text: "Still working",
+        });
       }
-      respond({ thread: {
-        id: "hidden", parentThreadId: "native", status: { type: "active" },
-        turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
-      } });
+      respond({
+        thread: {
+          id: "hidden",
+          parentThreadId: "native",
+          status: { type: "active" },
+          turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
+        },
+      });
       continue;
     }
     if (process.env["ACE_FAKE_RESUME"] === "overlap-reads" && p["threadId"] === "hidden") {
