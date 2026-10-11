@@ -60,6 +60,10 @@ export class OpenCodeTranslator implements Translator {
     }
     if (frame.channel === "transport.activity") return [{ type: "signal" }];
     if (frame.channel === "lifecycle") {
+      if (data.type === "ancestry.pending")
+        return state.background(string(data.id), state.rootNative, "other");
+      if (data.type === "ancestry.settled")
+        return state.finishBackground(string(data.id), "completed");
       if (data.type === "started") return [{ type: "process.started" }];
       if (data.type === "exited") {
         state.pending.clear();

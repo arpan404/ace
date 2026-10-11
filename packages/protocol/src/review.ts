@@ -155,6 +155,7 @@ export const ReviewCommands = [
     type: z.literal("review.comment"),
     sessionId: id,
     position: ReviewPosition,
+    expectedFingerprint: ReviewFingerprint.optional(),
     text,
     suggestion: z.string().max(8192).optional(),
   }),

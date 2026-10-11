@@ -124,6 +124,13 @@ export interface Checkpoint {
   createdAt: string;
 }
 
+/** Selected immutable file lines, with EOF facts for review admission. */
+export interface RevisionLines {
+  lines: string[];
+  atEof: boolean;
+  noFinalNewline: boolean;
+}
+
 export type DiffSide =
   | { kind: "working-tree" }
   | { kind: "commit"; ref: string }

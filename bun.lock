@@ -161,8 +161,10 @@
         "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/review": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
         "@rolldown/plugin-babel": "^0.2.4",
@@ -215,6 +217,7 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/context": "workspace:*",
       },
     },
     "packages/adapter-claude": {
@@ -278,6 +281,7 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/context": "workspace:*",
         "@ace/projection": "workspace:*",
       },
     },

@@ -1,49 +1,87 @@
 import type { OpenCodeClient } from "@opencode/client";
 import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
 import type { SessionOwnership } from "./ownership.ts";
-import { string } from "./data.ts";
+import { object, string } from "./data.ts";
 type Ports = {
   client: OpenCodeClient;
   ownership: SessionOwnership;
   directory(): string;
   info(value: unknown): void;
-  receive(value: unknown): void;
+  receive(value: unknown, watermark: number): void;
+  buffered(value: unknown, watermark: number): void;
+  pending(id: string): void;
+  settled(id: string): void;
+  failed(value: unknown): void;
+  recovering(): boolean;
+};
+type Probe = {
+  guard: string;
+  events: { data: unknown; watermark: number; bytes: number }[];
+  needsRecovery: boolean;
+  lookupFailed: boolean;
 };
 /** Unknown facts are bounded evidence until a GET chain proves ownership. */
 export class AncestryProbe {
   private p: Ports;
-  private unknown = new Map<string, unknown[]>();
+  private probes = new Map<string, Probe>();
   private unknownBytes = 0;
-  private unknownFailures = new Set<string>();
+  private sequence = 0;
   constructor(p: Ports) {
     this.p = p;
   }
-  prove(data: unknown): void {
+  prove(data: unknown, watermark: number): void {
     const e = NativeEvent.safeParse(data);
     if (!e.success || !e.data.location) return;
     const id = eventSession(data);
     if (
       !id ||
       this.p.ownership.sessions.has(id) ||
-      this.unknownFailures.has(id) ||
       e.data.location.directory !== this.p.directory() ||
       e.data.type === "session.created"
     )
       return;
-    const queued = this.unknown.get(id);
+    const queued = this.probes.get(id);
     const bytes = Buffer.byteLength(JSON.stringify(data));
     if (
       this.unknownBytes + bytes > 1024 * 1024 ||
-      (queued?.length ?? 0) >= 32 ||
-      (!queued && this.unknown.size >= 8)
-    )
-      return;
-    this.unknownBytes += bytes;
-    if (queued) {
-      queued.push(data);
+      (queued?.events.length ?? 0) >= 32 ||
+      (!queued && this.probes.size >= 8)
+    ) {
+      this.p.failed(data);
       return;
     }
-    this.unknown.set(id, [data]);
+    const probe: Probe = queued ?? {
+      guard: `ancestry:${++this.sequence}`,
+      events: [],
+      needsRecovery: this.p.recovering(),
+      lookupFailed: false,
+    };
+    const entry = { data, watermark, bytes };
+    if (!queued) this.probes.set(id, probe);
+    probe.events.push(entry);
+    this.unknownBytes += bytes;
+    let pendingStarted = false;
+    try {
+      this.p.buffered(data, watermark);
+      if (!queued) {
+        pendingStarted = true;
+        this.p.pending(probe.guard);
+      }
+    } catch (error) {
+      // A receipt sink may throw after publication. Roll back admission before
+      // clearing any guard so a second callback failure cannot strand its bytes.
+      const index = probe.events.indexOf(entry);
+      if (this.probes.get(id) === probe && index >= 0) {
+        probe.events.splice(index, 1);
+        this.unknownBytes -= bytes;
+      }
+      if (!queued && this.probes.get(id) === probe) {
+        this.probes.delete(id);
+        if (pendingStarted) this.p.settled(probe.guard);
+      }
+      throw error;
+    }
+    if (queued) return;
     void (async () => {
       try {
         const chain = [],
@@ -53,9 +91,18 @@ export class AncestryProbe {
           if (chain.length >= 16 || visited.has(cursor))
             throw new Error("Unverified OpenCode ancestry");
           visited.add(cursor);
-          const info = SessionInfo.parse(await this.p.client.session.get({ sessionID: cursor }));
-          if (info.fork || !info.parentID || info.id !== cursor)
-            throw new Error("Unowned OpenCode root/fork");
+          const value = await this.p.client.session.get({ sessionID: cursor });
+          if (this.probes.get(id) !== probe) return;
+          if (probe.needsRecovery && this.p.ownership.sessions.has(id)) {
+            if (!this.p.recovering()) this.p.failed(data);
+            return;
+          }
+          const info = SessionInfo.parse(value);
+          if (info.id !== cursor) throw new Error("Mismatched OpenCode ancestry identity");
+          if (info.fork || !info.parentID) {
+            this.finish(id, probe);
+            return;
+          }
           chain.push(info);
           cursor = info.parentID;
         }
@@ -63,18 +110,61 @@ export class AncestryProbe {
           this.p.ownership.admit(info, string(info.parentID));
           this.p.info(info);
         }
-        for (const event of this.unknown.get(id) ?? []) this.p.receive(event);
-      } catch {
-        this.unknownFailures.add(id);
-        if (this.unknownFailures.size > 128) {
-          const first = this.unknownFailures.values().next().value;
-          if (first) this.unknownFailures.delete(first);
+        if (probe.needsRecovery || this.p.recovering()) {
+          probe.needsRecovery = true;
+          this.p.failed(data);
+          return;
         }
+        for (const event of probe.events) this.p.receive(event.data, event.watermark);
+      } catch {
+        if (this.probes.get(id) !== probe) return;
+        probe.needsRecovery = true;
+        probe.lookupFailed = true;
+        this.p.failed(data);
       } finally {
-        for (const event of this.unknown.get(id) ?? [])
-          this.unknownBytes -= Buffer.byteLength(JSON.stringify(event));
-        this.unknown.delete(id);
+        if (!probe.needsRecovery) this.finish(id, probe);
       }
     })();
+  }
+  observePending(observe: (data: unknown, watermark: number) => void): void {
+    for (const probe of this.probes.values()) {
+      probe.needsRecovery = true;
+      for (const event of probe.events) observe(event.data, event.watermark);
+    }
+  }
+  needsSnapshots(complete: (id: string) => boolean): boolean {
+    for (const id of this.probes.keys())
+      if (this.p.ownership.sessions.has(id) && !complete(id)) return true;
+    return false;
+  }
+  shells(): ReadonlyMap<string, string> {
+    const shells = new Map<string, string>();
+    for (const [owner, probe] of this.probes)
+      for (const event of probe.events) {
+        const envelope = object(event.data);
+        if (envelope.type !== "shell.created") continue;
+        const id = string(object(object(envelope.data).info).id);
+        if (id) shells.set(id, owner);
+      }
+    return shells;
+  }
+  needsShellSnapshots(complete: (id: string, owner: string) => boolean): boolean {
+    for (const [id, owner] of this.shells())
+      if (this.p.ownership.sessions.has(owner) && !complete(id, owner)) return true;
+    return false;
+  }
+  reconciled(): void {
+    for (const [id, probe] of this.probes) {
+      const owned = this.p.ownership.sessions.has(id);
+      if (!owned && !probe.lookupFailed) continue;
+      if (owned) for (const event of probe.events) this.p.receive(event.data, event.watermark);
+      this.finish(id, probe);
+    }
+  }
+  private finish(id: string, probe: Probe): void {
+    if (this.probes.get(id) !== probe) return;
+    for (const event of probe.events) this.unknownBytes -= event.bytes;
+    this.probes.delete(id);
+    this.p.settled(probe.guard);
   }
 }

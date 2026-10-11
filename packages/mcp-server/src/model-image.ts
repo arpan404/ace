@@ -1,4 +1,5 @@
 import { PublicToolError } from "./public-error.ts";
+import { maxModelImageBytes } from "./result-budgets.ts";
 import { modelImageGeometry } from "./image-geometry.ts";
 import { systemModelImageRuntime, type ModelImageRuntime } from "./model-image-runtime.ts";
 
@@ -21,7 +22,11 @@ export async function modelImage(
 ): Promise<ModelImage> {
   signal.throwIfAborted();
   const { width, height, scale } = modelImageGeometry(frame.width, frame.height, frame.scale);
-  if (width === frame.width && height === frame.height && frame.payload.length <= 1024 * 1024)
+  if (
+    width === frame.width &&
+    height === frame.height &&
+    frame.payload.length <= maxModelImageBytes
+  )
     return { ...frame, scale };
   const command = await runtime.encoder();
   if (!command)
@@ -65,7 +70,7 @@ export async function modelImage(
       lifetime.addEventListener("abort", abort, { once: true });
       child.stdout.on("data", (chunk: Buffer) => {
         bytes += chunk.length;
-        if (bytes > 1024 * 1024) {
+        if (bytes > maxModelImageBytes) {
           failure = new ModelImageError("Resized screenshot exceeds 1 MiB");
           child.kill("SIGKILL");
         } else chunks.push(chunk);

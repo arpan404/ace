@@ -1,6 +1,10 @@
 import { backup } from "node:sqlite";
 import { join } from "node:path";
-import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
+import {
+  createScriptedAdapter,
+  type ScriptedCommand,
+  type ScriptedStep,
+} from "@ace/adapter-testkit";
 import { Command, type CommandPayload, type ThreadId } from "@ace/protocol";
 import { Engine, Store, type EngineOptions } from "@ace/daemon";
 import { harness, scriptFrames } from "./test-support.ts";
@@ -81,6 +85,6 @@ export function resume(h: RecoveryHarness, engine: Engine, id: ThreadId) {
     expectedRevision: engine.queue(id).revision,
   });
 }
-export function sends(adapter: { commands: readonly { type: string }[] }) {
+export function sends(adapter: { commands: readonly ScriptedCommand[] }) {
   return adapter.commands.filter((command) => command.type === "send");
 }

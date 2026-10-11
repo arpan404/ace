@@ -50,12 +50,13 @@ export function agentActivityCounters(facts: {
   root: boolean;
   status: AgentStatus;
   linkedChildStatus: ThreadStatus | undefined;
+  completionRelevant: boolean;
 }): Record<string, number> {
   const ownSettled = turnIsSettled(agentThreadStatus(facts.status));
   const childLive =
     facts.linkedChildStatus !== undefined && !turnIsSettled(facts.linkedChildStatus);
   return {
-    "live:agents": Number(!ownSettled || childLive),
+    "live:agents": Number((facts.completionRelevant && !ownSettled) || childLive),
     subagentsStarted: Number(!facts.root),
     subagentsFinished: Number(!facts.root && ownSettled && !childLive),
   };

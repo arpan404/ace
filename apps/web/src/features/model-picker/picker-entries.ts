@@ -47,7 +47,7 @@ export function pickerEntries(
         const account = own.find((candidate) => candidate.id === instance);
         const limit = account && accountLimit(account, now);
         const name =
-          own.length > 1
+          account || instances.length > 1
             ? `${providerNames[entry.provider]} · ${account?.label ?? models.find((model) => model.instance === instance)?.source?.label ?? "Account"}`
             : providerNames[entry.provider];
         return {

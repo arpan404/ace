@@ -28,7 +28,7 @@ export class Clock {
       if (timer.at <= this.now && this.timers.delete(timer)) timer.callback();
   }
 }
-export async function setup(extra: ServerOptions = {}) {
+export async function setup(extra: ServerOptions = {}, observeFrame?: (frame: Frame) => void) {
   const home = await mkdtemp(join(tmpdir(), "ace-opencode-session-"));
   homes.push(home);
   let origin = "",
@@ -50,6 +50,7 @@ export async function setup(extra: ServerOptions = {}) {
         waiters.delete(waiter);
         waiter.resolve(frame);
       }
+    observeFrame?.(frame);
   };
   const version = extra.discovery?.env?.ACE_TEST_OPENCODE_VERSION ?? "2.0.22";
   const network = extra.runtime?.fetch ?? fetch;

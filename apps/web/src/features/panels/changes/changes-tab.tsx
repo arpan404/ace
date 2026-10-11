@@ -2,6 +2,7 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { type FileDiff } from "@ace/ui-core";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog.tsx";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { cn } from "@/lib/cn.ts";
@@ -14,11 +15,14 @@ import {
   isPending,
   refreshDrafts,
   resolveDraft,
-  saveDraft,
   sendDrafts,
   type ReviewDraft,
 } from "./drafts.ts";
+import { displayedSelection } from "./displayed-selection.ts";
 import { applySuggestion, setReviewStatus } from "./review-actions.ts";
+import { beginComposition, updateComposition, type ReviewComposition } from "./compositions.ts";
+import { CompositionEditor } from "./composition-editor.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { FileActions } from "./file-actions.tsx";
 import {
   FileDiffBlock,
@@ -26,11 +30,10 @@ import {
   freshView,
   inRange,
   type FileView,
-  type LineRange,
   type LineTarget,
 } from "./file-diff.tsx";
 import { FileTree } from "./file-tree.tsx";
-import { CommentComposer, DraftCard, linesLabel } from "./line-comment.tsx";
+import { DraftCard, linesLabel } from "./line-comment.tsx";
 import { ReviewBar } from "./review-bar.tsx";
 import { setViewed } from "./review-store.ts";
 import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
@@ -46,9 +49,6 @@ const treeBesideFrom = 600;
 const treeWidth = 240;
 /** A chosen Split needs this much diff width; narrower it shows unified until there is room. */
 const splitNeeds = 640;
-
-/** The version of a file's diff that "Viewed" remembers: a later edit changes it. */
-const versionOf = (file: FileDiff) => `${file.rows.length}:${file.additions}:${file.deletions}`;
 
 /**
  * Changes: a review surface for what the agents changed, turn by turn. Scope, layout and the
@@ -70,7 +70,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();
-  const { scope, setScope, edited, files, pending, stat } = useScopedDiff(threadId);
+  const { scope, setScope, edited, files, pending, versions, stat } = useScopedDiff(threadId);
   const prefs = useLocal(services.diffPrefs, identity);
   const allDrafts = useLocal(services.drafts, identity);
   const drafts = useMemo(
@@ -79,21 +79,53 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   );
   const viewedAll = useLocal(services.viewed, identity);
   const viewedHere = viewedAll.get(threadId);
-  const [composing, setComposing] = useState<{ file: string; range: LineRange }>();
+  const compositionState = useLocal(services.compositions, identity);
+  const unfinished = [...compositionState.entries.values()].filter(
+    (entry) => entry.threadId === threadId,
+  );
+  const composing = compositionState.entries.get(compositionState.active.get(threadId) ?? "");
+  const [reselecting, setReselecting] = useState<string>();
+  const [compositionError, setCompositionError] = useState<string>();
+  const startComposition = (entry: ReviewComposition) => {
+    const accepted = beginComposition(services.compositions, entry);
+    setCompositionError(
+      accepted ? undefined : "Save or cancel an unfinished comment before starting another.",
+    );
+  };
+  useEffect(() => {
+    if (
+      composing &&
+      !composing.needsReselection &&
+      composing.version !== versions.get(composing.file)
+    ) {
+      updateComposition(services.compositions, composing.id, { needsReselection: true });
+    }
+  }, [composing, versions, services.compositions]);
+  const changeScope = (next: Parameters<typeof setScope>[0]) => {
+    setReselecting(undefined);
+    setScope(next);
+  };
   // Per file, by path: kept here so a file scrolled out of a long list and back keeps it.
-  const [views, setViews] = useState<ReadonlyMap<string, FileView>>(() => new Map());
+  const [views, setViews] = useState<ReadonlyMap<string, { version: string; view: FileView }>>(
+    () => new Map(),
+  );
   const [current, setCurrent] = useState<string>();
+  const [selectedComment, setSelectedComment] = useState<string>();
+  const selected = drafts.find((draft) => draft.key === selectedComment);
   const blocks = useRef<VirtualRowsHandle>(null);
   const anchor = useId();
   const [measure, width] = useElementWidth();
 
+  const versionOf = (file: FileDiff) => versions.get(file.path) ?? "";
   const rows = files.reduce((sum, file) => sum + file.rows.length, 0);
   const viewed = useMemo(
     () =>
       new Set(
-        files.filter((file) => viewedHere?.get(file.path) === versionOf(file)).map((f) => f.path),
+        files
+          .filter((file) => viewedHere?.get(file.path) === versions.get(file.path))
+          .map((f) => f.path),
       ),
-    [files, viewedHere],
+    [files, viewedHere, versions],
   );
   const comments = useMemo(() => {
     const counts = new Map<string, number>();
@@ -103,9 +135,15 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   }, [drafts]);
   // A file viewed at this version starts folded; anything opened by hand stays as left.
   const viewOf = (file: FileDiff) =>
-    views.get(file.path) ?? (viewed.has(file.path) ? { ...freshView, open: false } : freshView);
+    views.get(file.path)?.version === versionOf(file)
+      ? (views.get(file.path)?.view ?? freshView)
+      : viewed.has(file.path)
+        ? { ...freshView, open: false }
+        : freshView;
   const setView = (path: string, next: FileView) =>
-    setViews((previous) => new Map(previous).set(path, next));
+    setViews((previous) =>
+      new Map(previous).set(path, { version: versions.get(path) ?? "", view: next }),
+    );
 
   const jump = (path: string) => {
     const index = files.findIndex((file) => file.path === path);
@@ -137,7 +175,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         details={thread?.details}
         state={thread?.status.state}
         turns={edited}
-        onScope={setScope}
+        onScope={changeScope}
       />
     );
 
@@ -167,14 +205,51 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         : prefs.mode;
   const allCollapsed = files.length > 0 && files.every((file) => !viewOf(file).open);
 
+  const renderDraft = (draft: ReviewDraft) => (
+    <DraftCard
+      key={draft.key}
+      draft={draft}
+      onSend={() => void send([draft.key])}
+      onEdit={() => {
+        setSelectedComment(undefined);
+        setReselecting(undefined);
+        const retained = unfinished.find((entry) => entry.key === draft.key);
+        startComposition(
+          retained ?? {
+            id: crypto.randomUUID(),
+            threadId,
+            file: draft.file,
+            key: draft.key,
+            version: versions.get(draft.file) ?? "",
+            needsReselection: false,
+            fingerprint: draft.fingerprint,
+            source: draft.source,
+            text: draft.text,
+            suggestion: draft.suggestion,
+            range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
+          },
+        );
+      }}
+      onResolve={(resolved) => void resolveDraft(client, services.drafts, draft.key, resolved)}
+      onApply={() => thread && void applySuggestion(client, services.drafts, thread, draft.key)}
+      onDiscard={() => discardDraft(services.drafts, draft.key)}
+    />
+  );
+
   const renderFile = (file: FileDiff, index: number) => {
     const forFile = drafts.filter((draft) => draft.file === file.path);
     // A comment shows under its last line and marks every line it covers.
     const at = (target: LineTarget) =>
-      forFile.find(
+      forFile.filter(
         (draft) => draft.side === target.side && (draft.end ?? draft.line) === target.line,
       );
-    const writing = composing?.file === file.path ? composing.range : undefined;
+    const composition =
+      composing?.file === file.path &&
+      !composing.needsReselection &&
+      composing.version === versionOf(file)
+        ? composing
+        : undefined;
+    const writing = composition?.range;
     const view = viewOf(file);
     const isViewed = viewed.has(file.path);
     return (
@@ -206,59 +281,58 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           )
         }
         selection={writing}
-        onComment={(range) => setComposing({ file: file.path, range })}
+        onComment={(range) => {
+          const evidence = {
+            file: file.path,
+            range,
+            version: versionOf(file),
+            needsReselection: false,
+            fingerprint: displayedSelection(file, range),
+            source: undefined,
+          };
+          if (composing && reselecting === composing.id) {
+            updateComposition(services.compositions, composing.id, evidence);
+          } else {
+            startComposition({
+              ...evidence,
+              id: crypto.randomUUID(),
+              threadId,
+              text: "",
+              suggestion: undefined,
+            });
+          }
+          setReselecting(undefined);
+        }}
+        onExtend={(range) => {
+          if (composition)
+            updateComposition(services.compositions, composition.id, {
+              range,
+              fingerprint: displayedSelection(file, range),
+              source: undefined,
+            });
+        }}
         renderAnnotation={(target) => {
-          if (writing && writing.side === target.side && writing.end === target.line) {
-            const draft = forFile.find(
-              (each) => each.side === writing.side && each.line === writing.start,
-            );
+          if (
+            composition &&
+            writing &&
+            writing.side === target.side &&
+            writing.end === target.line
+          ) {
             return (
-              <CommentComposer
-                label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
-                {...textOf(draft)}
-                suggestFrom={writing.side === "new" ? linesOf(file, writing) : undefined}
-                onCancel={() => setComposing(undefined)}
-                onSave={(text, suggestion) => {
-                  saveDraft(services.drafts, {
-                    threadId,
-                    file: file.path,
-                    side: writing.side,
-                    line: writing.start,
-                    ...(writing.end > writing.start ? { end: writing.end } : {}),
-                    text,
-                    ...(suggestion === undefined ? {} : { suggestion }),
-                    createdAt: Date.now(),
-                  });
-                  setComposing(undefined);
-                }}
+              <CompositionEditor
+                key={composition.id}
+                composition={composition}
+                onReselect={() => setReselecting(composition.id)}
               />
             );
           }
-          const draft = at(target);
-          if (!draft) return null;
-          return (
-            <DraftCard
-              draft={draft}
-              onSend={() => void send([draft.key])}
-              onEdit={() =>
-                setComposing({
-                  file: file.path,
-                  range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
-                })
-              }
-              onResolve={(resolved) =>
-                void resolveDraft(client, services.drafts, draft.key, resolved)
-              }
-              onApply={() =>
-                thread && void applySuggestion(client, services.drafts, thread, draft.key)
-              }
-              onDiscard={() => discardDraft(services.drafts, draft.key)}
-            />
-          );
+          return at(target).map((draft) => renderDraft(draft));
         }}
       />
     );
   };
+  const detached =
+    composing && (composing.needsReselection || composing.version !== versions.get(composing.file));
   const tree = showTree && (
     <FileTree
       threadId={threadId}
@@ -278,7 +352,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       <ChangesToolbar
         scope={scope}
         turns={edited}
-        onScope={setScope}
+        onScope={changeScope}
         stat={stat}
         prefs={prefs}
         shown={mode}
@@ -286,7 +360,14 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         onPrefs={(change) => services.diffPrefs.set(change)}
         allCollapsed={allCollapsed}
         onCollapseAll={(folded) =>
-          setViews(new Map(files.map((file) => [file.path, { ...viewOf(file), open: !folded }])))
+          setViews(
+            new Map(
+              files.map((file) => [
+                file.path,
+                { version: versionOf(file), view: { ...viewOf(file), open: !folded } },
+              ]),
+            ),
+          )
         }
         canShowTree={files.length > 1}
         onRefreshReview={() => void session.refetch()}
@@ -296,8 +377,71 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         session={session.data ?? undefined}
         onReview={review}
         onSend={(keys) => void send(keys)}
-        onJump={jump}
+        onJump={(draft) => {
+          jump(draft.file);
+          setSelectedComment(draft.key);
+        }}
       />
+      {compositionError && (
+        <p role="alert" className="shrink-0 border-b px-2.5 py-2 text-sm text-subtle-foreground">
+          {compositionError}
+        </p>
+      )}
+      {unfinished.some((entry) => entry.id !== composing?.id) && (
+        <div
+          aria-label="Unfinished review comments"
+          className="flex shrink-0 flex-wrap gap-1 border-b px-2.5 py-1"
+        >
+          {unfinished
+            .filter((entry) => entry.id !== composing?.id)
+            .map((entry) => (
+              <Button
+                key={entry.id}
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setReselecting(undefined);
+                  startComposition(entry);
+                }}
+              >
+                Resume {entry.file}: {entry.text.slice(0, 80) || "unfinished comment"}
+              </Button>
+            ))}
+        </div>
+      )}
+      {composing && detached && (
+        <section
+          aria-label="Unfinished review comment"
+          className="max-h-[45%] shrink-0 overflow-auto border-b"
+        >
+          <p className="px-2.5 pt-2 text-xs text-subtle-foreground">{composing.file}</p>
+          <CompositionEditor
+            key={composing.id}
+            composition={composing}
+            blocked={
+              reselecting === composing.id
+                ? "Choose lines in the diff to attach your retained comment."
+                : "The displayed file changed. Your draft is kept. Reselect lines before saving."
+            }
+            onReselect={() => setReselecting(composing.id)}
+          />
+        </section>
+      )}
+      <Dialog
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) setSelectedComment(undefined);
+        }}
+      >
+        <DialogContent size="lg">
+          <DialogTitle>Review comment</DialogTitle>
+          <DialogDescription>
+            {selected &&
+              `${selected.file}: ${linesLabel(selected.side, selected.line, selected.end)}`}
+          </DialogDescription>
+          {selected && renderDraft(selected)}
+        </DialogContent>
+      </Dialog>
       <div className={cn("flex min-h-0 flex-1", beside ? "flex-row" : "flex-col")}>
         {!beside && tree}
         <div data-diff-scroller="" className="min-h-0 min-w-0 flex-1 overflow-auto pb-8">
@@ -325,19 +469,3 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
 }
 
 const identity = <T,>(value: T) => value;
-const textOf = (draft: ReviewDraft | undefined) =>
-  draft ? { initial: draft.text, initialSuggestion: draft.suggestion } : {};
-
-/** The text of new-side lines in a range, when the diff holds every one of them. */
-function linesOf(file: FileDiff, range: LineRange): string | undefined {
-  const lines: string[] = [];
-  for (const row of file.rows)
-    for (const line of row.kind === "fold" ? (row.lines ?? []) : [row])
-      if (
-        line.kind !== "del" &&
-        line.new !== undefined &&
-        inRange(range, { side: "new", line: line.new })
-      )
-        lines.push(line.text);
-  return lines.length === range.end - range.start + 1 ? lines.join("\n") : undefined;
-}

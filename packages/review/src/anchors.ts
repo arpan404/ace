@@ -4,8 +4,22 @@ import {
   ReviewPosition,
   type ReviewRevision,
 } from "@ace/protocol";
-import type { DiffResult } from "@ace/git";
+import type { DiffResult, RevisionLines } from "@ace/git";
 import { readPatch, type Change, type PatchFile, type Hunk } from "./patch.ts";
+
+/** Context comes from the immutable file window, independently of Git's hunk boundaries. */
+export function matchesSelection(
+  position: ReviewPosition,
+  expected: ReviewFingerprint,
+  actual: RevisionLines,
+): boolean {
+  return (
+    expected.lines.length === position.end - position.start + 1 &&
+    JSON.stringify([...expected.before, ...expected.lines, ...expected.after]) ===
+      JSON.stringify(actual.lines) &&
+    (!expected.noFinalNewline || (actual.atEof && actual.noFinalNewline))
+  );
+}
 
 export function anchorComment(
   diff: DiffResult,

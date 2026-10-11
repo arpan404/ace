@@ -5,7 +5,7 @@
 export { threadWorkspace } from "./thread-workspace.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts). */
 export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/thread-parts.ts";
-export { findRunningTerminal, useRunningTerminalNames } from "./services.ts";
+export { disposePanelServices, findRunningTerminal, useRunningTerminalNames } from "./services.ts";
 export {
   newTerminal,
   openNewTerminal,
@@ -21,3 +21,5 @@ export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+
+export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";

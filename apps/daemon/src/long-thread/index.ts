@@ -1,17 +1,24 @@
 import { setImmediate, setTimeout } from "node:timers/promises";
 import type { DatabaseSync } from "node:sqlite";
-import type { Event, Thread, ThreadId } from "@ace/protocol";
+import type { Event, EventPayload, Thread, ThreadId } from "@ace/protocol";
 import { LongThreadDatabase } from "./database.ts";
 import { TurnWriter } from "./writer.ts";
 import { TurnReader } from "./reader.ts";
 import { RangeMigration } from "./range-migration.ts";
+import { CompletionMigration } from "./completion-migration.ts";
 import { isStoreBusy } from "../store-busy.ts";
 
 interface Source {
   headSeq(): number;
   getThread(id: ThreadId): Thread | undefined;
-  readEvents(input: { afterSeq: number; limit: number }): Event[];
+  readEvents(input: {
+    afterSeq: number;
+    limit: number;
+    threadId?: ThreadId;
+    byteLimit?: number;
+  }): Event[];
   atomic<T>(run: (db: DatabaseSync) => T): T;
+  appendEvents(id: ThreadId, events: EventPayload[], at: number): unknown;
   isHistoryWriting(): boolean;
   writable(signal: AbortSignal): Promise<void>;
 }
@@ -61,7 +68,7 @@ export class LongThreadIndex {
       if (source.isHistoryWriting()) await source.writable(signal);
       if (signal.aborted) return;
       const through = source.headSeq();
-      if (this.data.indexedSeq() >= through) return;
+      if (this.data.indexedSeq() >= through) break;
       source.atomic(() => {
         const events = source.readEvents({ afterSeq: this.data.indexedSeq(), limit: 128 });
         for (const event of events) {
@@ -72,6 +79,13 @@ export class LongThreadIndex {
         if (events.length < 128) this.data.run("UPDATE long_meta SET seq=? WHERE id=1", through);
       });
       await setImmediate();
+    }
+    const completion = new CompletionMigration(this.data);
+    while (!signal.aborted && !completion.done()) {
+      if (source.isHistoryWriting()) await source.writable(signal);
+      if (signal.aborted) return;
+      source.atomic(() => completion.batch(source));
+      if (!completion.done()) await setImmediate();
     }
   }
 }

@@ -18,6 +18,8 @@ export interface IntentRecords {
   write(id: string, value: string | null): Promise<void>;
 }
 export interface Storage {
+  /** Authenticated daemon identity, persisted separately from receipt-trimmed intents. */
+  hostBinding?: { load(): Promise<string | null>; save(hostId: string): Promise<void> };
   /** Record-level persistence. Legacy load/save remain supported for portable hosts. */
   records?: IntentRecords;
   load(): Promise<string | null>;

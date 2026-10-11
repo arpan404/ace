@@ -1212,6 +1212,9 @@
     },
     {
       "properties": {
+        "expectedFingerprint": {
+          "$ref": "https://ace.local/protocol/v1/ReviewFingerprint.json"
+        },
         "position": {
           "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
         },
@@ -1622,6 +1625,11 @@
       "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "cascade": {
           "default": true,

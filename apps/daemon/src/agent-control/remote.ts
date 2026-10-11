@@ -233,6 +233,10 @@ export class RemoteDelegations {
       }),
     );
   }
+  inactive(session: string, lease: string, ids: readonly string[]): string[] | undefined {
+    if (!this.owns(session, lease)) return undefined;
+    return this.journal.inactive(ids, this.now());
+  }
   report(session: string, lease: string, report: RemoteTaskReport): RemoteTask | undefined {
     if (!this.owns(session, lease)) return undefined;
     return this.store.atomic(() => {

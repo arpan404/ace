@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { notificationOutbox } from "./link/notification-outbox.ts";
 import { join } from "node:path";
 import { webContents, type BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
@@ -111,12 +111,17 @@ export class Background {
 
   private async createLink(endpoint: Endpoint): Promise<DesktopLink> {
     const { DesktopLink } = await import("./link/desktop-link.ts");
+    const deviceId = this.deviceId();
     return new DesktopLink({
       url: endpoint.url,
       token: endpoint.token,
-      deviceId: this.deviceId(),
+      deviceId,
       ...(endpoint.pairedDeviceId ? { pairedDeviceId: endpoint.pairedDeviceId } : {}),
-      storage: this.outbox(endpoint),
+      storage: notificationOutbox(
+        this.options.userData,
+        endpoint.url,
+        endpoint.pairedDeviceId ?? deviceId,
+      ),
       quietHours: () => {
         const hours = this.options.settings().notifications.quietHours;
         return hours
@@ -293,18 +298,5 @@ export class Background {
     const created = `desktop-${randomUUID()}`;
     writeFileSync(path, created, { mode: 0o600 });
     return created;
-  }
-
-  private outbox(endpoint: Endpoint) {
-    const name = endpoint.pairedDeviceId
-      ? `outbox-${createHash("sha256")
-          .update(JSON.stringify([endpoint.url, endpoint.pairedDeviceId]))
-          .digest("hex")}.json`
-      : "outbox.json";
-    const path = join(this.options.userData, name);
-    return {
-      load: () => readFile(path, "utf8").catch(() => null),
-      save: (value: string) => writeFile(path, value, { mode: 0o600 }),
-    };
   }
 }
