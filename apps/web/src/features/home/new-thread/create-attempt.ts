@@ -40,7 +40,12 @@ export function saveCreateAttempt(
   if (!fitsUtf8(json, defaultLimits.sendBytes)) throw new ClientError("limit");
   storage.setItem(key, json);
 }
-export function forgetCreateAttempt(storage: KeyValueStorage | undefined, key: string): void {
+export function forgetCreateAttempt(
+  storage: KeyValueStorage | undefined,
+  key: string,
+  commandId: string,
+): void {
+  if (readCreateAttempt(storage, key)?.commandId !== commandId) return;
   if (storage?.removeItem) storage.removeItem(key);
   else storage?.setItem(key, "");
 }

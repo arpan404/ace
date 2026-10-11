@@ -10,9 +10,10 @@ import {
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { rememberTitle } from "@/features/thread/index.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import {
   createAttemptKey,
@@ -99,35 +100,41 @@ export function useCreateThread(): {
   const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
-  const create = useCallback(
+  const flight = useRef<Promise<boolean> | undefined>(undefined);
+
+  const submit = useCallback(
     async (request: CreateRequest) => {
       setError(undefined);
       const requested = createPayload(request);
       let commandId: string | undefined;
       let submitted = false;
       try {
-        const previous = readCreateAttempt(storage, recoveryKey);
         const hostId =
           host?.hostId ?? (await client.request({ type: "host.identity" })).identity.hostId;
-        if (previous && previous.hostId !== hostId) {
-          setError(
-            "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.",
-          );
-          return false;
-        }
-        if (previous && !sameCreate(previous.payload, requested)) {
-          setError(
-            "The previous thread start still needs recovery. Restore that message and retry before starting another.",
-          );
-          return false;
-        }
-        const attempt = previous ?? {
-          hostId,
-          commandId: crypto.randomUUID(),
-          payload: requested,
-        };
+        const attempt = await withBrowserLock(recoveryKey, () => {
+          const previous = readCreateAttempt(storage, recoveryKey);
+          if (previous && previous.hostId !== hostId) {
+            setError(
+              "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.",
+            );
+            return undefined;
+          }
+          if (previous && !sameCreate(previous.payload, requested)) {
+            setError(
+              "The previous thread start still needs recovery. Restore that message and retry before starting another.",
+            );
+            return undefined;
+          }
+          const attempt = previous ?? {
+            hostId,
+            commandId: crypto.randomUUID(),
+            payload: requested,
+          };
+          saveCreateAttempt(storage, recoveryKey, attempt);
+          return attempt;
+        });
+        if (!attempt) return false;
         commandId = attempt.commandId;
-        saveCreateAttempt(storage, recoveryKey, attempt);
         rememberTitle(commandId, provisionalTitle(attempt.payload.input));
         rememberProvider(storage, attempt.payload.provider);
         submitted = true;
@@ -135,7 +142,9 @@ export function useCreateThread(): {
         // The outbox now owns the payload. Failure to remove a recovery record is safe:
         // a later submission still reconciles the same command rather than creating another.
         try {
-          forgetCreateAttempt(storage, recoveryKey);
+          await withBrowserLock(recoveryKey, () =>
+            forgetCreateAttempt(storage, recoveryKey, attempt.commandId),
+          );
         } catch {
           /* Keep its original ID. */
         }
@@ -150,7 +159,9 @@ export function useCreateThread(): {
         }
         if (submitted && commandId) {
           try {
-            forgetCreateAttempt(storage, recoveryKey);
+            await withBrowserLock(recoveryKey, () => {
+              if (commandId) forgetCreateAttempt(storage, recoveryKey, commandId);
+            });
           } catch {
             /* Retry remains idempotent. */
           }
@@ -161,6 +172,19 @@ export function useCreateThread(): {
       }
     },
     [client, navigate, storage, recoveryKey, host],
+  );
+  const create = useCallback(
+    (request: CreateRequest) => {
+      // Share the promise before any awaited identity or persistence work. A second Enter
+      // cannot allocate another command while the first submission remains unresolved.
+      if (flight.current) return flight.current;
+      const pending = submit(request).finally(() => {
+        if (flight.current === pending) flight.current = undefined;
+      });
+      flight.current = pending;
+      return pending;
+    },
+    [submit],
   );
   return { create, error };
 }
