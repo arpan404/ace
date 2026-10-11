@@ -5,6 +5,7 @@ import { createExtensionCatalog, optionalCatalogFrames } from "./extension-catal
 import { codexMcpControls } from "./mcp-controls.ts";
 import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
+import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { configuredTurnPolicy } from "./default-permissions.ts";
@@ -81,10 +82,27 @@ export async function openCodexSession(
   const active = new Map<string, string>();
   const controlRequests = new Map<
     unknown,
-    { method: string; thread: string; mode: string | null }
+    { method: string; thread: string; mode: string | null; completed: Set<string> }
   >();
+  const correlationDeadlines = new Map<unknown, () => void>();
+  function awaitCorrelation(id: unknown, thread: string): void {
+    if (correlationDeadlines.has(id)) return;
+    const deadline = io.now() + 30_000;
+    const expire = () => {
+      if (closed || !controlRequests.has(id)) return;
+      const remaining = deadline - io.now();
+      if (remaining > 0) {
+        correlationDeadlines.set(id, io.schedule(expire, remaining));
+        return;
+      }
+      // Local RPC rejection cannot resolve translation's held completion. Retire the owned peer.
+      emit("note", { event: "turn-correlation-timeout", threadId: thread });
+      void lifetime.failTransport();
+    };
+    correlationDeadlines.set(id, io.schedule(expire, deadline - io.now()));
+  }
   const revisions = new Map<string, number>();
-  const readRevisions = new Map<string, number>();
+  const reading = new Set<string>();
   const scopedReads = new Set<unknown>();
   const parents = new Map<string, string>();
   const known = new Set<string>();
@@ -109,7 +127,11 @@ export async function openCodexSession(
     try {
       payload = new ProviderPayload(encoded);
     } catch (error) {
-      if (!optionalMethod || !(error instanceof RangeError)) throw error;
+      if (!optionalMethod || !(error instanceof RangeError)) {
+        // A rejected incoming execution frame makes the peer detach. Its process is ours.
+        if (dir === "recv") void lifetime.failTransport();
+        throw error;
+      }
       emit("note", {
         event: "optional-catalog-frame-omitted",
         method: optionalMethod,
@@ -141,16 +163,32 @@ export async function openCodexSession(
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
       )
-        controlRequests.set(m["id"], { method, thread, mode: submittedMode });
+        controlRequests.set(m["id"], {
+          method,
+          thread,
+          mode: submittedMode,
+          completed: new RecentSet(),
+        });
       if (dir === "recv") {
+        observeRecovery(thread, method, str(obj(p["turn"])["id"]));
+        if (method === "turn/completed")
+          for (const [id, submitted] of controlRequests)
+            if (submitted.method === "turn/start" && submitted.thread === thread) {
+              submitted.completed.add(str(obj(p["turn"])["id"]));
+              awaitCorrelation(id, thread);
+            }
         const control = method ? undefined : controlRequests.get(m["id"]);
-        if (!method) controlRequests.delete(m["id"]);
+        if (!method) {
+          correlationDeadlines.get(m["id"])?.();
+          correlationDeadlines.delete(m["id"]);
+          controlRequests.delete(m["id"]);
+        }
         const result = obj(m["result"]);
         const snapshot = obj(result["thread"]);
         if (control && m["error"] === undefined) {
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
-            if (id) active.set(control.thread, id);
+            if (id && !control.completed.has(id)) active.set(control.thread, id);
             if (id && control.thread === nativeSessionId) {
               appliedPermissionMode = control.mode;
               emit("note", { event: "permission-mode-applied", mode: control.mode });
@@ -165,11 +203,9 @@ export async function openCodexSession(
             }
           }
         }
-        if (scopedReads.has(m["id"]) && str(snapshot["id"]))
-          readRevisions.set(str(snapshot["id"]), revisions.get(str(snapshot["id"])) ?? 0);
         if (
           thread &&
-          (known.has(thread) || readRevisions.has(thread)) &&
+          (known.has(thread) || reading.has(thread)) &&
           ["turn/started", "turn/completed", "item/started", "item/completed"].includes(method)
         )
           revisions.set(thread, (revisions.get(thread) ?? 0) + 1);
@@ -180,7 +216,9 @@ export async function openCodexSession(
           threadId: thread,
           task: `discovery:${str(obj(p["turn"])["id"])}`,
         });
-      if (dir === "send" && method === "thread/read") scopedReads.add(m["id"]);
+      if (dir === "send" && method === "thread/read") {
+        scopedReads.add(m["id"]);
+      }
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
       emit(dir, data, scoped ? "codex-discovery" : "stdio", optionalFrames.method(dir, data));
       if (dir !== "recv") return;
@@ -258,7 +296,7 @@ export async function openCodexSession(
   });
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const { scheduleRecovery, reconcileLoaded, refreshQueue } = sessionDiscovery({
+  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery } = sessionDiscovery({
     request,
     emit,
     diagnostic,
@@ -270,7 +308,7 @@ export async function openCodexSession(
     parents,
     active,
     shells,
-    readRevisions,
+    reading,
     revisions,
     timers,
     seenQuestions,
@@ -302,9 +340,13 @@ export async function openCodexSession(
     ctx,
     generation: scope,
     graceMs: io.stopGraceMs,
+    schedule: io.schedule,
     emit,
     cleanup() {
       closed = true;
+      for (const cancel of correlationDeadlines.values()) cancel();
+      correlationDeadlines.clear();
+      controlRequests.clear();
       optionalFrames.clear();
       for (const cancel of timers.values()) cancel();
       timers.clear();
