@@ -62,7 +62,9 @@ else {
  else http([]);
 }
 `;
-export async function forgeIdentityFixture(options: { timeoutMs?: number } = {}) {
+export async function forgeIdentityFixture(
+  options: { timeoutMs?: number; settings?: (root: string) => SettingsService } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-identity-"));
   const execute = promisify(execFile);
   await execute("git", ["init", "-q", "-b", "main", root]);
@@ -95,8 +97,12 @@ export async function forgeIdentityFixture(options: { timeoutMs?: number } = {})
     }),
   );
   const runner = () =>
-    createCommandRunner({ ...options, cwd: root, env: { PATH: root, ACE_FORGE_FIXTURE: root } });
-  const settings = new SettingsService({ dataDir: root });
+    createCommandRunner({
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      cwd: root,
+      env: { PATH: root, ACE_FORGE_FIXTURE: root },
+    });
+  const settings = options.settings?.(root) ?? new SettingsService({ dataDir: root });
   const preferences = {
     hosts: [
       { host: "github.com", account: "octo" },

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { Command } from "@ace/protocol";
+import { SettingsService, type Scope } from "@ace/settings";
+import { Command, type SettingsKey } from "@ace/protocol";
 import { forgeIdentityFixture } from "./forge-identity-test-support.ts";
 
 const reply = (id: string) =>
@@ -99,16 +100,45 @@ test("a preference change during a status read prevents old capabilities from be
   }
 });
 
-test("changing the expected account during initial backend admission prevents every admitted mutation", async () => {
+function gate() {
+  let open = () => {};
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open: () => open() };
+}
+
+/** Hold admission at the public settings read. Files, validation and notifications remain real. */
+class PendingAdmissionSettings extends SettingsService {
+  readonly entered = gate();
+  readonly released = gate();
+  private reads = 0;
+  override async get<K extends SettingsKey>(key: K, scope: Scope = {}) {
+    if (key === "sourceControl.preferences" && ++this.reads === 2) {
+      this.entered.open();
+      await this.released.promise;
+    }
+    return super.get(key, scope);
+  }
+}
+
+test("preferences changed while the initial admission settings read is pending prevent every mutation", async () => {
   for (const type of [
     "forge.comment.reply",
     "forge.review.request",
     "forge.pr.merge",
     "forge.pr.auto-merge",
   ] as const) {
-    const f = await forgeIdentityFixture();
+    const entered = gate();
+    let settings: PendingAdmissionSettings | undefined;
+    const f = await forgeIdentityFixture({
+      settings: (root) => {
+        settings = new PendingAdmissionSettings({ dataDir: root });
+        void settings.entered.promise.then(() => entered.open());
+        return settings;
+      },
+    });
     try {
-      await f.update({ holdUser: 1 });
       const base = reply(`initial-${type}`);
       const link = "link" in base.payload ? base.payload.link : undefined;
       const payload =
@@ -118,14 +148,14 @@ test("changing the expected account during initial backend admission prevents ev
             ? { type, link, reviewers: ["reviewer"] }
             : { type, link, headSha: "a".repeat(40), method: "squash" };
       const operation = f.runtime.execute(Command.parse({ ...base, payload }));
-      await f.held();
+      await entered.promise;
       await changeAccount(f);
       await f.update({ account: "other" });
-      await f.release();
+      settings?.released.open();
       expect(await operation).toMatchObject({ ok: false, error: "forge_preferences_changed" });
       expect((await f.facts()).writes).toEqual([]);
     } finally {
-      await f.release();
+      settings?.released.open();
       await f.close();
     }
   }
