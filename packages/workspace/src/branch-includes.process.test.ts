@@ -28,6 +28,7 @@ test.each(["repository", "linked worktree"])(
       await exec("git", ["-C", h.root, "branch", "base"]);
       await exec("git", ["-C", h.root, "symbolic-ref", "HEAD", "refs/heads/base"]);
     }
+    const detached = (await exec("git", ["-C", h.root, "rev-parse", "HEAD"])).stdout.trim();
     const first = await fixture();
     const second = await fixture();
     await first.file("rules", "");
@@ -67,7 +68,7 @@ test.each(["repository", "linked worktree"])(
       await second.file("rules", "a.ts\n");
       expect(await hiddenAgain).toContainEqual({ path: "a.ts", kind: "deleted" });
       const deactivated = events.next("a.ts", "created");
-      await exec("git", ["-C", h.root, "symbolic-ref", "HEAD", "refs/heads/base"]);
+      await exec("git", ["-C", h.root, "update-ref", "--no-deref", "HEAD", detached]);
       expect(await deactivated).toContainEqual({ path: "a.ts", kind: "created" });
       expect(events.history.flat().every((change) => change.path === "a.ts")).toBe(true);
     } finally {

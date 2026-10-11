@@ -7,7 +7,7 @@ import { internal, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
 import { changedSnapshot, fullSnapshot } from "./watch-snapshot.ts";
 import { VisibleTree } from "./visible-tree.ts";
-import { type WatchOptions, type WorkspaceWatcher } from "./types.ts";
+import { type Entry, type WatchOptions, type WorkspaceWatcher } from "./types.ts";
 
 export async function watch(
   safe: SafeRoot,
@@ -33,9 +33,9 @@ export async function watch(
     safe,
     ignore,
     lifetime.signal,
-    () => {
+    (kind) => {
       if (disposed) return;
-      full = true;
+      full ||= kind === "visibility";
       metadataDirty = true;
       schedule();
     },
@@ -45,18 +45,24 @@ export async function watch(
   async function scan(): Promise<void> {
     const changed = dirty;
     dirty = new Set();
-    const complete = full || mode === "polling";
+    let complete = full || mode === "polling";
     const refreshMetadata = metadataDirty;
     metadataDirty = false;
     full = false;
     try {
       // New sources must be subscribed before the inventory reads their rules.
       // Notifications arriving during either step remain queued for the drain.
-      if (refreshMetadata && mode === "native") await metadata.refresh();
+      if (refreshMetadata && mode === "native") {
+        const configurationChanged = await metadata.refresh();
+        complete ||= configurationChanged;
+      }
       if (disposed) return;
+      complete ||= mode === "polling";
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
-        : await changedSnapshot(safe, ignore, previous, changed, lifetime.signal);
+        : changed.size
+          ? await changedSnapshot(safe, ignore, previous, changed, lifetime.signal)
+          : { updates: new Map<string, Entry>(), removed: new Set<string>() };
       if (disposed) return;
       if (complete) {
         for (const before of previous.values())
@@ -67,7 +73,7 @@ export async function watch(
       if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
       else {
         pollDelay = 1000;
-        if (!dirty.size && !full) {
+        if (!dirty.size && !full && !metadataDirty) {
           timer?.();
           timer = undefined;
         }
@@ -136,7 +142,13 @@ export async function watch(
           if (filename !== null) {
             const path = filename.toString().split(sep).join("/");
             if (!validRelativePath(path)) return;
-            if (metadata.includes(path)) {
+            const kind = metadata.notification(path);
+            if (kind === "head") {
+              metadataDirty = true;
+              schedule();
+              return;
+            }
+            if (kind === "visibility") {
               full = true;
               metadataDirty = true;
             } else if (internal(path)) return;
@@ -158,7 +170,7 @@ export async function watch(
     // Subscribe first, then scan, retaining notifications that race initialization.
     previous = new VisibleTree((await fullSnapshot(safe, ignore, lifetime.signal)).values());
     initializing = false;
-    if (dirty.size || full) schedule();
+    if (dirty.size || full || metadataDirty) schedule();
   } catch (error) {
     disposed = true;
     native?.close();

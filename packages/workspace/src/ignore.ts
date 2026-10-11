@@ -10,6 +10,29 @@ function missingGit(error: unknown): undefined {
   throw error;
 }
 
+export interface GitMetadata {
+  paths: string[];
+  head: string | undefined;
+  ignoreConfiguration: string;
+}
+
+/** Only effective filename/ignore settings matter when HEAD changes. */
+function ignoreConfiguration(excludes: string | undefined, fields: readonly string[]): string {
+  const settings = new Map<string, string>();
+  for (let i = 1; i < fields.length; i += 2) {
+    const setting = fields[i];
+    if (setting === undefined) continue;
+    const end = setting.indexOf("\n");
+    const name = end < 0 ? setting : setting.slice(0, end);
+    if (["core.ignorecase", "core.precomposeunicode", "core.bare", "core.worktree"].includes(name))
+      settings.set(name, end < 0 ? "true" : setting.slice(end + 1));
+  }
+  return JSON.stringify([
+    excludes ?? null,
+    [...settings].toSorted(([a], [b]) => a.localeCompare(b)),
+  ]);
+}
+
 export class GitIgnore {
   private readonly safe: SafeRoot;
   private probe: Promise<boolean> | undefined;
@@ -26,9 +49,15 @@ export class GitIgnore {
     return this.stream ? this : new GitIgnore(this.safe);
   }
   /** Linked worktrees keep index/exclude metadata outside the workspace directory. */
-  async metadataPaths(signal?: AbortSignal): Promise<string[]> {
+  async metadata(signal?: AbortSignal): Promise<GitMetadata> {
     await this.safe.resolve("");
+    const unavailable: GitMetadata = {
+      paths: [],
+      head: undefined,
+      ignoreConfiguration: "unavailable",
+    };
     const paths: string[] = [];
+    let head: string | undefined;
     for (const name of ["HEAD", "index", "info/exclude", "config", "config.worktree"]) {
       const result = await command(
         "git",
@@ -40,14 +69,16 @@ export class GitIgnore {
         },
         this.safe.runtime,
       ).catch(missingGit);
-      if (!result) return [];
+      if (!result) return unavailable;
       if (result.code !== 0) continue;
       const path = z
         .string()
         .min(1)
         .max(4096)
         .parse(result.stdout.toString("utf8").replace(/\n$/, ""));
-      paths.push(isAbsolute(path) ? path : resolve(this.safe.root, path));
+      const absolute = isAbsolute(path) ? path : resolve(this.safe.root, path);
+      paths.push(absolute);
+      if (name === "HEAD") head = absolute;
     }
     const config = await command(
       "git",
@@ -55,7 +86,7 @@ export class GitIgnore {
       { cwd: this.safe.root, outputCap: 1_048_576, ...(signal ? { signal } : {}) },
       this.safe.runtime,
     ).catch(missingGit);
-    if (!config) return [];
+    if (!config) return unavailable;
     if (config.code !== 0)
       throw new WorkspaceError("IO_ERROR", config.stderr || "Cannot read Git configuration");
     const fields = config.stdout.toString("utf8").split("\0");
@@ -79,7 +110,7 @@ export class GitIgnore {
       { cwd: this.safe.root, outputCap: 1_048_576, ...(signal ? { signal } : {}) },
       this.safe.runtime,
     ).catch(missingGit);
-    if (!includes) return [];
+    if (!includes) return unavailable;
     if (includes.code !== 0 && includes.code !== 1)
       throw new WorkspaceError("IO_ERROR", includes.stderr || "Cannot resolve Git includes");
     const declarations = includes.stdout.toString("utf8").split("\0");
@@ -103,7 +134,7 @@ export class GitIgnore {
       { cwd: this.safe.root, outputCap: 8192, ...(signal ? { signal } : {}) },
       this.safe.runtime,
     ).catch(missingGit);
-    if (!excludes) return [];
+    if (!excludes) return unavailable;
     if (excludes.code !== 0 && excludes.code !== 1)
       throw new WorkspaceError("IO_ERROR", excludes.stderr || "Cannot resolve Git excludes source");
     const env = z
@@ -114,10 +145,12 @@ export class GitIgnore {
       })
       .parse(this.safe.runtime.environment);
     const configHome = env.XDG_CONFIG_HOME || (env.HOME ? resolve(env.HOME, ".config") : undefined);
+    let excludesPath: string | undefined;
     if (excludes.code === 0) {
       const path = z.string().max(4096).parse(excludes.stdout.toString("utf8").replace(/\n$/, ""));
-      if (path) paths.push(resolve(this.safe.root, path));
-    } else if (configHome) paths.push(resolve(configHome, "git/ignore"));
+      if (path) excludesPath = resolve(this.safe.root, path);
+    } else if (configHome) excludesPath = resolve(configHome, "git/ignore");
+    if (excludesPath) paths.push(excludesPath);
     // Configuration files must be observed even before their first creation.
     if (env.GIT_CONFIG_GLOBAL) paths.push(resolve(env.GIT_CONFIG_GLOBAL));
     else {
@@ -125,7 +158,11 @@ export class GitIgnore {
       if (configHome) paths.push(resolve(configHome, "git/config"));
     }
     await this.safe.resolve("");
-    return [...new Set(paths)];
+    return {
+      paths: [...new Set(paths)],
+      head,
+      ignoreConfiguration: ignoreConfiguration(excludesPath, fields),
+    };
   }
   private repository(signal?: AbortSignal): Promise<boolean> {
     this.probe ??= this.probeRepository(signal).catch((error: unknown) => {
