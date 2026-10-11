@@ -1,4 +1,5 @@
-import type { Agent, AgentStatus, BackgroundTask, Item } from "@ace/protocol";
+import type { Agent, AgentStatus, BackgroundTask, Interaction, Item } from "@ace/protocol";
+import { isActionableInteraction } from "@ace/core/human";
 import { providerNames } from "./providers.ts";
 
 /** How an agent is named in trees and status lines: the provider for the root, else its name. */
@@ -65,6 +66,40 @@ export const isRunning = (agent: Pick<Agent, "status">) =>
   agent.status.state === "working" ||
   agent.status.state === "starting" ||
   agent.status.state === "blocked";
+
+/** Unsettled work belongs to every ancestor, even after its own turn has ended. */
+export function agentTreeWork(
+  agents: readonly Agent[],
+  tasks: readonly BackgroundTask[],
+  interactions: readonly Interaction[],
+): { running: ReadonlySet<string>; needsYou: ReadonlySet<string> } {
+  const byId = new Map<string, Agent>(agents.map((agent) => [agent.id, agent]));
+  const running = new Set<string>();
+  const needsYou = new Set<string>();
+  const includeAncestors = (id: string, target: Set<string>) => {
+    let current: string | null | undefined = id;
+    while (current && !target.has(current)) {
+      target.add(current);
+      current = byId.get(current)?.parentId;
+    }
+  };
+  for (const agent of agents) {
+    if (isRunning(agent)) includeAncestors(agent.id, running);
+    if (agent.status.state === "blocked" && agent.status.on === "human")
+      includeAncestors(agent.id, needsYou);
+  }
+  for (const task of tasks)
+    if (task.status === "running" || task.status === "unknown")
+      includeAncestors(task.agentId, running);
+  for (const interaction of interactions) {
+    if (interaction.state !== "pending") continue;
+    // Pending work stays unsettled even when its working owner can continue without an answer.
+    includeAncestors(interaction.agentId, running);
+    if (isActionableInteraction(interaction, byId.get(interaction.agentId)?.status))
+      includeAncestors(interaction.agentId, needsYou);
+  }
+  return { running, needsYou };
+}
 
 const taskStates: Record<BackgroundTask["status"], string> = {
   running: "running",
