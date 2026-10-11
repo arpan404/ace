@@ -356,6 +356,9 @@ export class PayloadStore {
   wirePage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
     return this.items.wirePage(threadId, before, limit, byteLimit);
   }
+  itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
+    return this.items.createdSeq(threadId, itemId);
+  }
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
     return this.items.window(threadId, aroundSeq, before, after, byteLimit);
   }

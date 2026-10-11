@@ -19,6 +19,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
     "requestId": {
       "maxLength": 256,
       "minLength": 1,

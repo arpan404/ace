@@ -109,7 +109,24 @@ export class FakeLongThreadWire {
       }
       case "items.window": {
         const target =
-          message.aroundSeq ?? turns.find((turn) => turn.ordinal === message.turnOrdinal)?.startSeq;
+          message.itemId !== undefined
+            ? host.creation.get(message.itemId)
+            : (message.aroundSeq ??
+              turns.find((turn) => turn.ordinal === message.turnOrdinal)?.startSeq);
+        if (message.itemId !== undefined && target === undefined) {
+          send({
+            type: "items.window",
+            requestId: message.requestId,
+            threadId: message.threadId,
+            seq,
+            targetSeq: null,
+            items: [],
+            itemSeqs: {},
+            itemsBefore: null,
+            itemsAfter: null,
+          });
+          return true;
+        }
         if (target === undefined) {
           send({
             type: "error",

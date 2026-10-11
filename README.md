@@ -90,8 +90,10 @@ daemon's demo threads into an empty dev store before the daemon starts
 spawns one. The packaged app reuses a daemon already serving `ACE_HOME` (the CLI, or the login
 service from `ace service install`) and only starts its bundled daemon when none answers. To use
 a daemon on another machine, start the app with `ACE_DAEMON_URL=wss://host:port/` and
-`ACE_DAEMON_TOKEN=<64 hex>` (or `ACE_DAEMON_TOKEN_FILE`); in the browser build, enter the
-address and a paired-device token on the connection screen.
+`ACE_DAEMON_TOKEN=<paired device token>` (or `ACE_DAEMON_TOKEN_FILE`) and
+`ACE_DAEMON_DEVICE_ID=<paired device ID>`; use the credentials issued when pairing this
+device, rather than the host token printed by `ace token`. In the browser build, enter the
+address, paired-device token and paired device ID on the connection screen.
 
 **node-pty and Electron.** node-pty 1.x is a Node-API addon, so its npm prebuilds load in
 Electron's Node (ABI 149 in Electron 44) as well as in Node 24. The desktop app runs the daemon

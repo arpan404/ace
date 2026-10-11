@@ -77,6 +77,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     },
     daemon: {
       connection: () => call("daemon.connection"),
+      authorize: (url: string) => call("daemon.authorize", url),
       status: () => call("daemon.status"),
       restart: () => call("daemon.restart"),
       diagnose: () => call("daemon.diagnose"),

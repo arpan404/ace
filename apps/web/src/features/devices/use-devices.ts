@@ -156,7 +156,11 @@ export function useDevices(threadId: string, deviceId?: string) {
       .states.find((entry) => entry.device.id === selected?.id);
     if (
       selected &&
-      !(current?.controller === "human" && (current.leaseExpiresAt ?? 0) > Date.now())
+      !(
+        current?.controller === "human" &&
+        current.ownedHere === true &&
+        (current.leaseExpiresAt ?? 0) > Date.now()
+      )
     ) {
       claim.current ??= run({
         op: "controller",

@@ -362,6 +362,7 @@ Semantic rule: Exactly one target; before + after + target is at most 200 items.
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | aroundSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| itemId | no | [ItemId.json](schema/ItemId.json) |  |
 | turnOrdinal | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | before | no | integer | {"default":50,"minimum":0,"maximum":199} |
 | after | no | integer | {"default":50,"minimum":0,"maximum":199} |
@@ -370,9 +371,9 @@ Example:
 
 ```json
 {
+  "aroundSeq": 3,
   "requestId": "example",
   "threadId": "example",
-  "turnOrdinal": 3,
   "type": "items.window"
 }
 ```
@@ -394,7 +395,9 @@ Example:
 
 ```json
 {
+  "limit": 1,
   "requestId": "example",
+  "scope": "tree",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"
@@ -418,7 +421,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sinceSeq": 3,
+  "sinceTime": 0,
   "threadId": "example",
   "type": "thread.catchUp"
 }
@@ -471,8 +474,8 @@ Example:
 ```json
 {
   "operation": {
-    "hostId": "example",
-    "op": "status"
+    "limit": 9,
+    "op": "list"
   },
   "requestId": "example",
   "type": "machines.request"
@@ -512,7 +515,7 @@ Example:
 ```json
 {
   "instance": "example",
-  "provider": "antigravity",
+  "provider": "cursor",
   "requestId": "example",
   "type": "provider.login.start"
 }
@@ -531,7 +534,7 @@ Example:
 
 ```json
 {
-  "apiKey": "y|",
+  "apiKey": "{",
   "requestId": "example",
   "session": "example",
   "type": "provider.login.apiKey"
@@ -551,7 +554,7 @@ Example:
 
 ```json
 {
-  "provider": "acp",
+  "provider": "opencode",
   "requestId": "example",
   "type": "provider.logout"
 }
@@ -648,7 +651,7 @@ Example:
 
 ```json
 {
-  "provider": "antigravity",
+  "provider": "claude",
   "requestId": "example",
   "type": "provider.install.plan"
 }
@@ -671,9 +674,8 @@ Example:
 ```json
 {
   "action": "install",
-  "agent": "claude-acp",
-  "method": "registry",
-  "provider": "codex",
+  "method": "script",
+  "provider": "antigravity",
   "requestId": "example",
   "type": "provider.install.run"
 }
@@ -764,7 +766,7 @@ Example:
 {
   "operation": {
     "op": "forward",
-    "port": 2
+    "port": 9
   },
   "requestId": "example",
   "threadId": "example",
@@ -790,20 +792,16 @@ Example:
     "id": "example",
     "jitterMs": 6,
     "missedRun": "skip",
+    "model": "example",
     "permissionMode": "example",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
-      "event": "review_comment",
-      "kind": "github",
-      "label": "example",
-      "pollIntervalMs": 60001,
-      "pullRequest": 10,
-      "repository": "Ht83/-qOuyZ3v"
+      "kind": "manual"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"

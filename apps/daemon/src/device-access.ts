@@ -1,4 +1,4 @@
-import { AgentId, ThreadId, type ScreenAgentScope } from "@ace/protocol";
+import { type ScreenAgentScope } from "@ace/protocol";
 import type { DevicesService } from "@ace/devices";
 import type { ScreenApprovals } from "./screen-approvals.ts";
 
@@ -10,14 +10,6 @@ export async function requestDeviceAccess(
   caller: ScreenAgentScope,
   signal: AbortSignal,
 ): Promise<void> {
-  const actor = { kind: "human" as const, owner: "host-device-approval" };
-  const delegation = {
-    op: "controller" as const,
-    deviceId,
-    controller: "agent" as const,
-    threadId: ThreadId.parse(caller.threadId),
-    agentId: AgentId.parse(caller.agentId),
-  };
   if (devices.approvedThread(deviceId) === caller.threadId) {
     signal.throwIfAborted();
     return;
@@ -26,11 +18,5 @@ export async function requestDeviceAccess(
   if (!device || !approvals) throw new Error("Device approval unavailable");
   await approvals.device(deviceId, device.name, caller, signal);
   signal.throwIfAborted();
-  await devices.request({ op: "enable", enabled: true }, actor);
-  await devices.request(
-    { op: "approve", deviceId, threadId: ThreadId.parse(caller.threadId), allowed: true },
-    actor,
-  );
-  signal.throwIfAborted();
-  await devices.request(delegation, actor);
+  await devices.grantAgentAccess(deviceId, caller, signal);
 }

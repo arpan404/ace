@@ -9,6 +9,7 @@ import {
 import { readFile, cp } from "node:fs/promises";
 import { join } from "node:path";
 export { stageNativeFiles } from "./native-assets.ts";
+export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export async function bundleDaemon(
   repo: string,
   root: string,

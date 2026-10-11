@@ -68,6 +68,73 @@ function exited(child: ChildProcess): Promise<number | null> {
 }
 
 describe.skipIf(process.platform === "win32")("dev process runner", () => {
+  it.each(["ignore", "inherit"])(
+    "shutdown finishes with %s pipes after a launcher exits before its TERM-resistant descendant",
+    async (pipes) => {
+      const descendant =
+        "process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000)";
+      const spec: ProcessSpec = {
+        name: "launcher",
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.on('SIGTERM',()=>process.exit(0));const c=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore',${pipes === "inherit" ? "process.stdout,process.stderr" : "'ignore','ignore'"},'ipc']});c.on('message',()=>console.log('grandchild='+c.pid));setInterval(()=>{},1000);`,
+        ],
+      };
+      const runner = startRunner([spec]);
+      let pid: number | undefined;
+      try {
+        pid = await waitFor(() => pids(runner.output(), "grandchild")[0]);
+        runner.child.kill("SIGINT");
+        expect(
+          await Promise.race([
+            exited(runner.child),
+            delay(5_000).then(() => {
+              throw new Error("Shutdown did not finish");
+            }),
+          ]),
+        ).toBe(0);
+        await waitFor(() => (pid !== undefined && !alive(pid) ? true : undefined));
+      } finally {
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+        runner.child.kill("SIGKILL");
+        await exited(runner.child);
+      }
+    },
+  );
+  it.each(["ignore", "inherit"])(
+    "cleans a surviving descendant with %s pipes when its launcher fails",
+    async (pipes) => {
+      const descendant =
+        "process.on('SIGTERM',()=>{});process.send('ready');setInterval(()=>{},1000)";
+      const spec: ProcessSpec = {
+        name: "launcher",
+        command: process.execPath,
+        args: [
+          "-e",
+          `const c=require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore',${pipes === "inherit" ? "process.stdout,process.stderr" : "'ignore','ignore'"},'ipc']});c.on('message',()=>{console.log('grandchild='+c.pid);process.exit(3);});`,
+        ],
+      };
+      const runner = startRunner([spec]);
+      let pid: number | undefined;
+      try {
+        pid = await waitFor(() => pids(runner.output(), "grandchild")[0]);
+        const code = await Promise.race([
+          exited(runner.child),
+          delay(3_000).then(() => {
+            throw new Error("Runner did not finish descendant cleanup");
+          }),
+        ]);
+        expect(code).toBe(3);
+        await delay(100);
+        expect(alive(pid)).toBe(false);
+      } finally {
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+        runner.child.kill("SIGKILL");
+        await exited(runner.child);
+      }
+    },
+  );
   it("stops every child and grandchild on Ctrl-C and exits cleanly", async () => {
     const runner = startRunner([sleeper("daemon", { grandchild: true }), sleeper("web")]);
     const started = await waitFor(() => {

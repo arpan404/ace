@@ -1,7 +1,10 @@
-import { Worker } from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import { z } from "zod";
 import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";
 import type { Store } from "./store.ts";
+import { ThreadId } from "@ace/protocol";
+
+export type HistoryPublicationWorkerFactory = (url: URL, options: WorkerOptions) => Worker;
 
 export async function publishHistory(
   store: Store,
@@ -10,6 +13,7 @@ export async function publishHistory(
   threadId: string,
   at: number,
   signal: AbortSignal,
+  spawnWorker: HistoryPublicationWorkerFactory = (url, options) => new Worker(url, options),
 ) {
   signal.throwIfAborted();
   store.setHistoryWriting(true);
@@ -18,11 +22,11 @@ export async function publishHistory(
   signal.addEventListener("abort", abort, { once: true });
   let worker: Worker | undefined;
   try {
-    const after = store.headSeq();
-    const publication = new Worker(new URL("./history-publish-worker.ts", import.meta.url), {
+    const publication = spawnWorker(new URL("./history-publish-worker.ts", import.meta.url), {
       workerData: { databasePath, archivePath, threadId, at, cancellation },
     });
     worker = publication;
+    let failure: unknown;
     await new Promise<void>((resolve, reject) => {
       let replied = false;
       publication.on("message", (value: unknown) => {
@@ -43,8 +47,16 @@ export async function publishHistory(
       publication.on("exit", () => {
         if (!replied) reject(new Error("History publication worker exited"));
       });
+    }).catch((error: unknown) => {
+      failure = error;
     });
-    await store.notifyHistory(after);
+    // The worker may commit before losing its reply. Settle it before reading the
+    // durable outcome, so neither failure nor cancellation can hide that commit.
+    await publication.terminate();
+    worker = undefined;
+    const imported = store.getThread(ThreadId.parse(threadId))?.imported;
+    await store.notifyHistory();
+    if (!imported) throw failure ?? new Error("History publication did not commit");
   } finally {
     signal.removeEventListener("abort", abort);
     try {
