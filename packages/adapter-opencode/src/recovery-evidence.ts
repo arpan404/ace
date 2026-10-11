@@ -144,6 +144,11 @@ export class RecoveryEvidence {
     this.snapshots = remaining;
     return positive;
   }
+  complete(session: string): boolean {
+    return ["snapshot.active", "snapshot.interactions"].every((channel) =>
+      this.snapshots.some((snap) => snap.session === session && snap.channel === channel),
+    );
+  }
   finish(): Snapshot[] {
     return this.snapshots.splice(0).filter((s) => {
       const clock =

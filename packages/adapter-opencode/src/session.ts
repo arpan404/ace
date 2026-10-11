@@ -96,6 +96,7 @@ export class OpenCodeSession implements ProviderSession {
     this.ancestry = new AncestryProbe({
       client: this.client,
       ownership: this.ownership,
+      recovering: () => this.recovering,
       directory: () => this.ownership.sessions.get(this.ownership.root)?.directory ?? this.ctx.cwd,
       info: (info) => this.emit("recv", "snapshot.info", { info }),
       receive: (data, watermark) => {
@@ -145,10 +146,7 @@ export class OpenCodeSession implements ProviderSession {
       reconcile: (data, watermark) => {
         if (!s.evidence.covered(data, watermark)) s.receive(data);
       },
-      prepareReplay: () => {
-        for (const snap of s.evidence.positive()) s.emit("recv", snap.channel, snap.data);
-        s.ancestry.reconciled();
-      },
+      prepareReplay: () => s.prepareReplay(),
       close: () => s.close("shutdown"),
       resync: () => s.resync(),
       finalizeSnapshots: () => s.finalizeSnapshots(),
@@ -212,7 +210,9 @@ export class OpenCodeSession implements ProviderSession {
       if (ctx.resume) {
         s.recovering = true;
         s.emit("note", "lifecycle", { type: "disconnected" });
+        s.ancestry.observePending((data, watermark) => s.evidence.observe(data, watermark));
         await s.resync();
+        await s.prepareReplay();
         s.finalizeSnapshots();
         s.recovering = false;
         s.emit("note", "lifecycle", { type: "resynced" });
@@ -464,6 +464,14 @@ export class OpenCodeSession implements ProviderSession {
     });
   }
 
+  private async prepareReplay(): Promise<void> {
+    for (let pass = 0; this.ancestry.needsSnapshots((id) => this.evidence.complete(id)); pass++) {
+      if (pass >= 8) throw new Error("OpenCode ancestry recovery incomplete");
+      await this.resync();
+    }
+    for (const snap of this.evidence.positive()) this.emit("recv", snap.channel, snap.data);
+    this.ancestry.reconciled();
+  }
   private finalizeSnapshots(): void {
     for (const snap of [...this.evidence.positive(), ...this.evidence.finish()]) {
       this.emit("recv", snap.channel, snap.data);
