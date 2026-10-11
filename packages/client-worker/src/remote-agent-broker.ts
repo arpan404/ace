@@ -207,10 +207,12 @@ export class RemoteAgentBroker {
     if (!reply.ok || !reply.phase) throw new ClientError("offline");
     if (["completed", "failed"].includes(reply.phase) && !reply.artifacts)
       throw new ClientError("protocol", "Remote device does not support sealed return manifests");
-    let artifactsUnavailable = false;
-    let importError: string | undefined;
+    let artifactsUnavailable = reply.artifactsUnavailable === true;
+    let importError: string | undefined = artifactsUnavailable
+      ? "Target file publication was interrupted. The answer is preserved; selected files are unavailable. Retrieve them on the remote computer."
+      : undefined;
     try {
-      if (reply.artifacts)
+      if (reply.artifacts && !artifactsUnavailable)
         await returnRemoteArtifacts(
           task,
           reply.artifacts,

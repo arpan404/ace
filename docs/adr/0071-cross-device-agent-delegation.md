@@ -55,6 +55,8 @@ and seals their immutable manifest together with the canonical terminal outcome.
 The first aggregate terminal state captures text and usage durably before a later
 local turn can be admitted, independently of broker polling. If selected file
 publication is still running, its immutable completion waits for that manifest.
+If publication fails, aborts or loses its producer on restart, the saved text is
+returned terminally with an explicit unavailable-files warning.
 Recovery captures terminal tasks before new requests are admitted. Background
 work and blocking human interactions keep the task unsealed.
 Selected names and aliases retain producing host/thread/path provenance. Further

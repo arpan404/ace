@@ -22,6 +22,7 @@ const Completion = z.object({
   result: z.string(),
   usage: z.object({ tokens: z.number(), cost: z.number() }),
   truncated: z.boolean(),
+  artifactsUnavailable: z.boolean().optional(),
 });
 const Publication = z.object({
   task: RemoteTask,
@@ -51,6 +52,16 @@ export class RemotePublications {
         "CREATE TABLE IF NOT EXISTS remote_agent_publications(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL,record JSON NOT NULL)",
       ),
     );
+    // A new owner has no producer for an unfinished manifest. Finish its saved
+    // completion as text-only instead of requiring a finished agent to publish again.
+    const interrupted = options.store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT id FROM remote_agent_publications WHERE json_extract(record,'$.completion') IS NOT NULL AND json_extract(record,'$.artifacts') IS NULL LIMIT 10000",
+        )
+        .all(),
+    );
+    for (const row of interrupted) this.interrupted(z.string().parse(row.id));
     options.store.atomic((db) =>
       db.exec(
         "DELETE FROM remote_agent_publications WHERE json_extract(record,'$.artifacts') IS NULL AND json_extract(record,'$.sealed') IS NULL AND json_extract(record,'$.completion') IS NULL",
@@ -82,6 +93,7 @@ export class RemotePublications {
   }
   close() {
     this.unsubscribe();
+    for (const id of this.pending) this.interrupted(id);
   }
   /** Capture aggregate completion synchronously, before another turn can be admitted. */
   capture(threadId: string) {
@@ -118,6 +130,21 @@ export class RemotePublications {
         )
         .run(id),
     );
+  }
+  private interrupted(id: string) {
+    const record = this.read(id);
+    if (!record?.completion || record.artifacts) return;
+    const task = record.task;
+    record.artifacts = {
+      taskId: task.id,
+      sourceHostId: task.sourceHostId,
+      parentThreadId: task.parentThreadId,
+      hostId: task.request.hostId,
+      threadId: task.threadId,
+      attachments: [],
+    };
+    record.sealed = { ...record.completion, artifactsUnavailable: true };
+    this.save(record);
   }
   private read(id: string) {
     const row = this.options.store.atomic((db) =>
@@ -177,6 +204,7 @@ export class RemotePublications {
         JSON.stringify(record.selection) !== JSON.stringify(selection))
     )
       return { ok: false, code: "invalid" };
+    if (record?.sealed?.artifactsUnavailable) return { ok: false, code: "unavailable" };
     if (record?.artifacts) return { ok: true, data: record.artifacts };
     if (this.pending.has(task.id) || this.pending.size >= 4 || record?.sealed)
       return { ok: false, code: "not_ready" };
@@ -230,6 +258,7 @@ export class RemotePublications {
       return { ok: false, code: "unavailable" };
     } finally {
       this.pending.delete(task.id);
+      this.interrupted(task.id);
       this.discardPending(task.id);
     }
   }

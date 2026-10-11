@@ -49,7 +49,7 @@ const reply = <Q extends ServiceRequest>(input: Q, body: object): ServiceRespons
     ...body,
   }) as ServiceResponse<Q>;
 function world(
-  status: "completed" | "not_found" | "legacy" | "files",
+  status: "completed" | "not_found" | "legacy" | "files" | "publication_failed",
   afterTransfer: "running" | "cancelling" | "expired" = "running",
   tasks: RemoteTask[] = [task],
 ) {
@@ -95,7 +95,8 @@ function world(
                 phase: "completed",
                 result: "Already finished",
                 truncated: true,
-                ...(status === "completed" || status === "files"
+                ...(status === "publication_failed" ? { artifactsUnavailable: true } : {}),
+                ...(status === "completed" || status === "files" || status === "publication_failed"
                   ? {
                       artifacts: {
                         taskId: input.taskId,
@@ -355,5 +356,23 @@ test("device discovery withdraws a connected host when its files relay is unavai
   } finally {
     broker.close();
     await client.close();
+  }
+});
+
+test("a failed target publication delivers its preserved answer and an explicit files warning without retrying forever", async () => {
+  const f = world("publication_failed");
+  try {
+    await f.broker.cycle();
+    await vi.waitFor(() =>
+      expect(f.emitted.some((report) => report.phase === "completed")).toBe(true),
+    );
+    expect(f.emitted.find((report) => report.phase === "completed")).toMatchObject({
+      result: "Already finished",
+      artifactsUnavailable: true,
+      error: expect.stringContaining("publication"),
+    });
+    expect(f.phases).not.toContain("unavailable");
+  } finally {
+    f.broker.close();
   }
 });
