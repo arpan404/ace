@@ -35,7 +35,13 @@ export function PrActions(props: {
       payload.type === "forge.pr.merge" ||
       payload.type === "forge.pr.auto-merge" ||
       payload.type === "forge.review.request";
-    if (!ready || pending || (remote && (blocked || props.detail.status.state !== "open"))) return;
+    if (
+      !ready ||
+      pending ||
+      !props.writeReady ||
+      (remote && (blocked || props.detail.status.state !== "open"))
+    )
+      return;
     setPending(true);
     if (remote) setReconciling(true);
     setMessage("");
@@ -64,10 +70,10 @@ export function PrActions(props: {
   const active = props.detail.status.state === "open";
   return (
     <section
-      aria-label="Agent tasks and pull request actions"
+      aria-label="Linked tasks and pull request actions"
       className="space-y-3 border-t border-border py-4"
     >
-      <h3 className="text-base font-medium">Agent tasks</h3>
+      <h3 className="text-sm font-medium">Linked tasks</h3>
       {props.detail.relatedThreads.length ? (
         <ul>
           {props.detail.relatedThreads.map((thread) => (
@@ -108,7 +114,7 @@ export function PrActions(props: {
           </select>
         </label>
         <Button
-          disabled={!ready || pending || !threadId || associated}
+          disabled={!ready || pending || blocked || !threadId || associated}
           onClick={() => void run({ type: "forge.pr.link", link })}
         >
           Link to task
@@ -193,7 +199,7 @@ export function PrActions(props: {
             </Button>
           </form>
           <Button
-            disabled={!ready || pending}
+            disabled={!ready || pending || blocked}
             onClick={() =>
               void run({
                 type: "forge.pr.unlink",

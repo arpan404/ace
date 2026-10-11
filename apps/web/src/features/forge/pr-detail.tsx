@@ -1,26 +1,41 @@
+import { useEffect, useState } from "react";
+import { useConnectionState } from "@ace/client-react";
+import { ChatCircleIcon, GitCommitIcon, SortAscendingIcon } from "@phosphor-icons/react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgeRepository } from "@ace/protocol";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
-import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
-import { openExternal } from "@/boot/open-external.ts";
-import { useToast } from "@/components/ui/toast.tsx";
 import { PrActivity } from "./pr-activity.tsx";
-import { PrActions } from "./pr-actions.tsx";
-import { PrCommits } from "./pr-commits.tsx";
+import { PrHeader } from "./pr-header.tsx";
+import { PrSummary } from "./pr-summary.tsx";
+import { PrComposer } from "./pr-composer.tsx";
+import { PrChecksPill } from "./pr-presentation.tsx";
 import { PrFiles } from "./pr-files.tsx";
 import { QueryState } from "./query-state.tsx";
 import { readForge } from "./source.ts";
+import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 
+export function prWorkspaceTab(tab: string): "summary" | "timeline" | "code" {
+  return tab === "timeline" || tab === "commits"
+    ? "timeline"
+    : tab === "code" || tab === "files"
+      ? "code"
+      : "summary";
+}
 export function PrDetail(props: {
   workspaceId: string;
   repository?: ForgeRepository | undefined;
   number: number;
   tab: string;
   onTab(tab: string): void;
+  onState?: ((state: import("@ace/protocol").ForgePrStatus["state"]) => void) | undefined;
+  onBack?(): void;
+  onOpen(number: number): void;
+  extensions?: PrWorkspaceExtensions | undefined;
 }) {
-  const toast = useToast();
+  const [order, setOrder] = useState<"newest" | "oldest">("newest");
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const ready = useConnectionState() === "ready";
   const query = useDaemonQuery({
     queryKey: ["forge", props.workspaceId, props.repository, "pr", props.number],
     retry: false,
@@ -42,157 +57,120 @@ export function PrDetail(props: {
     },
   });
   const detail = query.data;
-  const status = detail?.status;
+  const tab = prWorkspaceTab(props.tab);
+  const onState = props.onState;
+  useEffect(() => {
+    if (detail) onState?.(detail.status.state);
+  }, [detail, onState]);
+  const context: PrWorkspaceContext | undefined = detail
+    ? {
+        workspaceId: props.workspaceId,
+        detail,
+        disabled: !ready || query.isError || query.isFetching || detail.writeState !== undefined,
+        refresh: async () => !(await query.refetch()).isError,
+      }
+    : undefined;
+  const onOpen = props.onOpen;
   return (
-    <article aria-label={`Pull request #${props.number}`} className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button onClick={() => void query.refetch()}>Refresh PR</Button>
-        {status && (
-          <Button
-            onClick={() =>
-              void openExternal(status.url).catch(() =>
-                toast.error({ title: "Couldn't open GitHub" }),
-              )
-            }
-          >
-            Open on GitHub
-          </Button>
-        )}
+    <article
+      aria-label={`Pull request #${props.number}`}
+      className="relative flex h-full min-h-0 flex-col bg-panel"
+    >
+      <div className="px-5">
+        <QueryState query={query} />
       </div>
-      <QueryState query={query} />
-      {detail && status && (
+      {context && (
         <>
-          <div className="flex items-start gap-3">
-            <PullRequestGlyph
-              state={status.state === "unknown" ? "open" : status.state}
-              size={24}
-            />
-            <div className="min-w-0 space-y-2">
-              <h2 className="text-2xl font-semibold tracking-title">
-                {status.title} <span className="text-muted-foreground">#{props.number}</span>
-              </h2>
-              <p className="break-words text-sm text-muted-foreground">
-                {status.state} · {detail.author} · {detail.headBranch} → {detail.baseBranch}
-              </p>
-              <p className="text-sm">{detail.labels.join(" · ")}</p>
-              <p className="text-sm">
-                Review decision: {detail.reviewDecision ?? "Unknown"} · Requested reviewers:{" "}
-                {detail.reviewers.join(", ") || "None"}
-              </p>
-            </div>
-          </div>
-          <PrActions
-            key={JSON.stringify(status.ref)}
-            detail={detail}
-            writeReady={!query.isError && !query.isFetching}
-            onRefresh={async () => !(await query.refetch()).isError}
+          <PrHeader
+            context={context}
+            extensions={props.extensions}
+            onBack={props.onBack}
+            actionsOpen={actionsOpen}
+            onActionsOpen={setActionsOpen}
           />
-          <Tabs
-            value={props.tab}
-            onValueChange={(tab) => typeof tab === "string" && props.onTab(tab)}
-          >
-            <TabsList
-              aria-label="Pull request detail"
-              className="flex-wrap border-b border-border pb-3"
+          {context.disabled && (
+            <p
+              role="status"
+              className="border-b border-border px-5 py-2 text-xs text-muted-foreground"
             >
-              <TabsTab value="conversation">Conversation</TabsTab>
-              <TabsTab value="commits">Commits {detail.commits}</TabsTab>
-              <TabsTab value="checks">Checks {status.checks.length}</TabsTab>
-              <TabsTab value="files">Files changed {detail.changedFiles}</TabsTab>
-            </TabsList>
-            <TabsPanel value="conversation" className="space-y-6 pt-5">
-              <PrActivity workspaceId={props.workspaceId} pr={status.ref} />
-              <section aria-label="Description">
-                <Prose text={detail.body || "No description provided."} />
-              </section>
-              <ol aria-label="Pull request conversation" className="space-y-5">
-                {status.comments
-                  .toSorted(
-                    (a, b) =>
-                      (a.createdAt ?? a.updatedAt).localeCompare(b.createdAt ?? b.updatedAt) ||
-                      a.id - b.id,
-                  )
-                  .map((comment) => (
-                    <li
-                      key={`${comment.kind}:${comment.id}`}
-                      className="border-t border-border pt-4"
-                    >
-                      <p className="mb-2 text-sm text-muted-foreground">
-                        {comment.author} ·{" "}
-                        {comment.kind === "inline"
-                          ? "Inline review"
-                          : comment.kind === "review"
-                            ? `Review: ${comment.reviewState ?? "unknown"}`
-                            : "PR conversation"}{" "}
-                        · {comment.updatedAt}
-                        {comment.file ? ` · ${comment.file}:${comment.line ?? ""}` : ""}
-                      </p>
-                      <Prose text={comment.body} />
-                    </li>
-                  ))}
-              </ol>
-              <section aria-label="Review threads" className="space-y-3">
-                {status.reviewThreads.map((thread) => (
-                  <details key={thread.id}>
-                    <summary className="cursor-pointer text-sm focus-ring">
-                      {thread.file}:{thread.line ?? ""} ·{" "}
-                      {thread.resolved ? "Resolved" : "Unresolved"}
-                      {thread.outdated ? " · Outdated" : ""}
-                    </summary>
-                    {thread.comments.map((comment) => (
-                      <div key={comment.id} className="mt-2 border-l border-border pl-4">
-                        <p className="text-sm">{comment.author}</p>
-                        <Prose text={comment.body} />
-                      </div>
-                    ))}
-                  </details>
-                ))}
-              </section>
-            </TabsPanel>
-            <TabsPanel value="commits" className="pt-5">
-              <PrCommits
-                workspaceId={props.workspaceId}
-                repository={status.ref.repository}
-                detail={detail}
+              {detail?.writeState
+                ? "Refresh GitHub to reconcile the previous action before making another change."
+                : query.isError
+                  ? "Refresh failed. Write actions are disabled until a successful refresh."
+                  : !ready
+                    ? "Reconnect to make changes."
+                    : "Refreshing GitHub. Write actions are temporarily disabled."}
+            </p>
+          )}
+          <Tabs
+            value={tab}
+            onValueChange={(value) => typeof value === "string" && props.onTab(value)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2.5">
+              <TabsList aria-label="Pull request detail" className="rounded-card bg-muted p-0.5">
+                <TabsTab className="data-active:bg-panel data-active:shadow-sm" value="summary">
+                  Summary
+                </TabsTab>
+                <TabsTab className="data-active:bg-panel data-active:shadow-sm" value="timeline">
+                  Timeline
+                </TabsTab>
+                <TabsTab className="data-active:bg-panel data-active:shadow-sm" value="code">
+                  Code
+                </TabsTab>
+              </TabsList>
+              {tab === "summary" && (
+                <PrChecksPill ci={context.detail.status.ci} checks={context.detail.status.checks} />
+              )}
+              {tab === "timeline" && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    aria-label={`${context.detail.status.comments.length} comments`}
+                    className="inline-flex items-center gap-1"
+                  >
+                    <ChatCircleIcon aria-hidden size={14} />
+                    {context.detail.status.comments.length}
+                  </span>
+                  <span
+                    aria-label={`${context.detail.commits} commits`}
+                    className="inline-flex items-center gap-1"
+                  >
+                    <GitCommitIcon aria-hidden size={14} />
+                    {context.detail.commits}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+                  >
+                    <SortAscendingIcon aria-hidden size={14} />
+                    {order === "newest" ? "Newest first" : "Oldest first"} ⇅
+                  </Button>
+                </div>
+              )}
+            </div>
+            <TabsPanel value="summary" className="overflow-auto">
+              <PrSummary
+                context={context}
+                extensions={props.extensions}
+                onReviewers={() => setActionsOpen(true)}
+                onOpen={onOpen}
               />
             </TabsPanel>
-            <TabsPanel value="checks" className="pt-5">
-              <p className="mb-4">
-                CI: {status.ci} · Mergeability: {status.mergeability}
-              </p>
-              {!status.checks.length && <p>No checks reported.</p>}
-              <ul>
-                {status.checks.map((check) => (
-                  <li
-                    key={check.id}
-                    className="flex flex-wrap items-center gap-3 border-b border-border py-3"
-                  >
-                    <span className="flex-1">{check.name}</span>
-                    <span>{check.status}</span>
-                    {check.url && (
-                      <Button
-                        onClick={() =>
-                          check.url &&
-                          void openExternal(check.url).catch(() =>
-                            toast.error({ title: "Couldn't open the check" }),
-                          )
-                        }
-                      >
-                        Open check
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
+            <TabsPanel value="timeline" className="overflow-auto">
+              <PrActivity workspaceId={props.workspaceId} detail={context.detail} order={order} />
             </TabsPanel>
-            <TabsPanel value="files" className="pt-5">
+            <TabsPanel value="code" className="overflow-auto">
               <PrFiles
                 workspaceId={props.workspaceId}
-                repository={status.ref.repository}
-                detail={detail}
+                repository={context.detail.status.ref.repository}
+                detail={context.detail}
+                context={context}
+                extensions={props.extensions}
               />
             </TabsPanel>
           </Tabs>
+          <PrComposer context={context} extensions={props.extensions} />
         </>
       )}
     </article>

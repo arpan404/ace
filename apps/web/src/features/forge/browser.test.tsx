@@ -51,6 +51,41 @@ const detail = (
   });
 beforeEach(() => localStorage.clear());
 
+test("new PR tabs keep independent repository identities and preserve the first tab's collapsed description", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: detail(repository, "First repository PR") },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository: other, number: 42 },
+    { resource: "prDetail", value: detail(other, "Second repository PR") },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  await screen.findByRole("heading", { name: "First repository PR" });
+  const panel = await screen.findByRole("region", { name: "Pull request workspace" });
+  await userEvent.click(within(panel).getByRole("button", { name: "Description" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "New tab PR URL or number" }),
+    "https://github.com/acme/web/pull/42",
+  );
+  await userEvent.click(within(panel).getByRole("button", { name: "Open PR" }));
+  await within(panel).findByRole("heading", { name: "Second repository PR" });
+  const tabs = within(
+    within(panel).getByRole("tablist", { name: "Pull request workspace tabs" }),
+  ).getAllByRole("tab");
+  const first = tabs[0];
+  if (!first) throw new Error("The first PR tab was lost");
+  await userEvent.click(first);
+  await within(panel).findByRole("heading", { name: "First repository PR" });
+  expect(
+    within(panel).getByRole("button", { name: "Description" }).getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(within(panel).queryByText("Preserve reconnect ordering.")).toBeNull();
+});
+
 test("a successful merge followed by a failed detail refresh stays disabled until reconciliation", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -67,6 +102,7 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
   await app.open("/pull-requests?project=api&number=42");
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" });
   await waitFor(() => expect(button.disabled).toBe(false));
   app.daemon.failRequests("workspace.request");
@@ -111,6 +147,7 @@ test("an uncertain write blocks controls on a newly opened detail until GitHub c
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
   await app.open("/pull-requests?project=api&number=42");
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   expect(
     (await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" })).disabled,
   ).toBe(true);
@@ -164,9 +201,10 @@ test("a repository PR opens without a task and returning retains its filters and
   );
   await app.open("/pull-requests?project=api&state=draft&search=reconnect&page=2");
   await userEvent.click(await screen.findByRole("button", { name: /Retry reconnects/ }));
-  expect(await screen.findByRole("heading", { name: /Retry reconnects #42/ })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: /^Retry reconnects$/ })).toBeTruthy();
   expect(await screen.findByText("Preserve reconnect ordering.")).toBeTruthy();
-  expect(screen.getByText("No linked agent tasks.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Write a comment or review" })).toBeNull();
+  expect(screen.getByRole("tab", { name: "Summary" }).getAttribute("aria-selected")).toBe("true");
   await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
   expect(await screen.findByText("Page 2")).toBeTruthy();
   expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Search" }).value).toBe("reconnect");
@@ -186,9 +224,9 @@ test("the same PR number in another repository gets independent full detail and 
       workspaceId: WorkspaceId.parse("api"),
       repository: other,
       number: 42,
+      page: 1,
       headSha: "a".repeat(40),
       baseSha: "b".repeat(40),
-      page: 1,
     },
     {
       resource: "prFiles",
@@ -211,12 +249,12 @@ test("the same PR number in another repository gets independent full detail and 
     },
   );
   await app.open("/pull-requests?project=api&repo=github.com/acme/web&number=42");
-  expect(await screen.findByRole("heading", { name: /Different repository PR #42/ })).toBeTruthy();
-  await userEvent.click(screen.getByRole("tab", { name: "Files changed 1" }));
+  expect(await screen.findByRole("heading", { name: /^Different repository PR$/ })).toBeTruthy();
+  await userEvent.click(screen.getByRole("tab", { name: "Code" }));
   const files = await screen.findByRole("region", { name: "Hosted PR diff" });
-  expect(await within(files).findByText("src/page.ts")).toBeTruthy();
-  expect(within(files).getByText(/Local uncommitted changes/)).toBeTruthy();
-  expect(within(files).getByText(/-before/)).toBeTruthy();
+  expect(await within(files).findByRole("region", { name: "src/page.ts" })).toBeTruthy();
+  expect(await within(files).findByText("before")).toBeTruthy();
+  expect(await within(files).findByText("after")).toBeTruthy();
 });
 
 test("changing repositories replaces the old detail with an honest inaccessible state", async () => {
@@ -227,7 +265,7 @@ test("changing repositories replaces the old detail with an honest inaccessible 
     { resource: "prDetail", value: detail() },
   );
   await app.open("/pull-requests?project=api&number=42");
-  await screen.findByRole("heading", { name: /Retry reconnects #42/ });
+  await screen.findByRole("heading", { name: /^Retry reconnects$/ });
   await userEvent.type(
     screen.getByRole("textbox", { name: "PR URL or number" }),
     "https://github.com/acme/private/pull/42",
@@ -235,6 +273,6 @@ test("changing repositories replaces the old detail with an honest inaccessible 
   await userEvent.click(screen.getByRole("button", { name: "Open PR" }));
   await screen.findByText("This repository or pull request is missing or inaccessible.");
   await waitFor(() =>
-    expect(screen.queryByRole("heading", { name: /Retry reconnects #42/ })).toBeNull(),
+    expect(screen.queryByRole("heading", { name: /^Retry reconnects$/ })).toBeNull(),
   );
 });

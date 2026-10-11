@@ -1,0 +1,130 @@
+import {
+  ArrowLeftIcon,
+  ArrowSquareOutIcon,
+  DotsThreeIcon,
+  FileIcon,
+  WarningIcon,
+} from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { pullRequestTone } from "@/components/pull-request-state.tsx";
+import { DiffStat } from "@/components/diff-stat.tsx";
+import { openExternal } from "@/boot/open-external.ts";
+import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/markdown/code-block.tsx";
+import { PrActions } from "./pr-actions.tsx";
+import { PrAvatar, PrTime } from "./pr-presentation.tsx";
+import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+
+export function PrHeader(props: {
+  context: PrWorkspaceContext;
+  extensions?: PrWorkspaceExtensions | undefined;
+  onBack?: (() => void) | undefined;
+  actionsOpen: boolean;
+  onActionsOpen(open: boolean): void;
+}) {
+  const { detail, disabled, refresh } = props.context;
+  const { status } = detail;
+  const repository = status.ref.repository;
+  const toast = useToast();
+  const { copied, copy } = useCopy();
+  const open = () =>
+    void openExternal(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+  return (
+    <header className="space-y-4 border-b border-border px-5 pt-4 pb-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {props.onBack && (
+          <IconButton
+            icon={ArrowLeftIcon}
+            label="Back to pull requests"
+            onClick={props.onBack}
+            size="sm"
+          />
+        )}
+        <button
+          onClick={open}
+          className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground focus-ring"
+        >
+          <span className="truncate">
+            {repository.owner}/{repository.name}
+          </span>
+          <span className={status.state === "unknown" ? "" : pullRequestTone(status.state)}>
+            #{status.ref.number}
+          </span>
+          <ArrowSquareOutIcon aria-hidden size={12} />
+          <span className="sr-only">{status.state}, open on GitHub</span>
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {props.extensions?.headerActions?.(props.context)}
+          {status.mergeability === "conflicting" && (
+            <Popover>
+              <PopoverTrigger render={<Button variant="outline" className="text-destructive" />}>
+                <WarningIcon aria-hidden size={16} />
+                Resolve conflicts
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 space-y-3 p-4">
+                <PopoverTitle className="text-base font-medium">Resolve conflicts</PopoverTitle>
+                <p className="text-sm text-muted-foreground">
+                  Choose where to resolve the conflicts.
+                </p>
+                <Button onClick={open}>Open on GitHub</Button>
+                {props.extensions?.resolveInWorktree && (
+                  <Button
+                    disabled={disabled}
+                    onClick={() => props.extensions?.resolveInWorktree?.(props.context)}
+                  >
+                    Resolve in a worktree with an agent
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
+          <Popover open={props.actionsOpen} onOpenChange={props.onActionsOpen}>
+            <PopoverTrigger
+              render={<IconButton icon={DotsThreeIcon} label="Pull request actions" />}
+            />
+            <PopoverContent align="end" keepMounted className="w-80 max-w-full space-y-3 p-4">
+              <PopoverTitle className="text-base font-medium">Pull request actions</PopoverTitle>
+              <div className="flex gap-2">
+                <Button onClick={() => void refresh()}>Refresh PR</Button>
+                <Button onClick={open}>Open on GitHub</Button>
+              </div>
+              {props.extensions?.overflow?.(props.context)}
+              <PrActions detail={detail} writeReady={!disabled} onRefresh={refresh} />
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+      <h2 className="text-xl leading-snug font-semibold tracking-title">{status.title}</h2>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
+        <span>{detail.author}</span>
+        <span aria-hidden className="text-subtle-foreground">
+          ·
+        </span>
+        <PrTime at={detail.updatedAt} prefix="updated " />
+        <button
+          type="button"
+          aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
+          onClick={() => copy(`gh pr checkout ${status.ref.number}`)}
+          className="ml-auto rounded-sm px-1 py-1 font-mono text-sm text-muted-foreground hover:bg-accent focus-ring"
+        >
+          {copied ? "Copied" : `gh pr checkout ${status.ref.number}`}
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+        <span className="min-w-0 break-all font-mono">
+          {detail.baseBranch} ← {detail.headBranch}
+        </span>
+        <span className="ml-auto inline-flex items-center gap-2">
+          <FileIcon aria-hidden size={16} />
+          {detail.changedFiles} files{" "}
+          {detail.additions !== undefined && detail.deletions !== undefined && (
+            <DiffStat additions={detail.additions} deletions={detail.deletions} />
+          )}
+        </span>
+      </div>
+    </header>
+  );
+}
