@@ -293,6 +293,8 @@ export class RemoteDelegations {
     });
   }
   private revalidate(task: RemoteTask) {
+    // Reconciliation only retrieves a sealed answer; terminal ownership never reopens.
+    if (remoteTerminal(task)) return;
     if (task.phase === "cancelling") {
       task.cancellingAt ??= this.now();
       if (this.now() - task.cancellingAt >= 30000) {
