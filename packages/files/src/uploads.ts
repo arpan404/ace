@@ -155,22 +155,32 @@ export class Uploads {
         publishing: sha256,
         ...(record.expected === null ? {} : { mode: await replacementMode(target.path) }),
       };
-      // The already-open descriptor can be synced and verified after restrictive
-      // permissions are applied. No readable replacement is ever published.
+      // Save preparation while the acknowledged temp is still resumable. A crash
+      // before or after chmod can then repair that private inode without reading it.
+      publishing.verified = {
+        mtimeMs: hashed.mtimeMs,
+        birthtimeMs: hashed.birthtimeMs,
+        mode: publishing.mode ?? hashed.mode & 0o777,
+      };
+      await handle.sync();
+      await target.verify();
+      await verify();
+      if (version(await handle.stat()) !== before)
+        throw new FileError("CONFLICT", "Upload changed before preparation");
+      this.catalog.publishUpload(publishing);
+      // No readable replacement is ever published, including after a retry.
       if (publishing.mode !== undefined) await handle.chmod(publishing.mode);
       await handle.sync();
-      const verified = await handle.stat();
-      if (verified.size !== hashed.size || verified.mtimeMs !== hashed.mtimeMs)
+      const prepared = await handle.stat();
+      if (
+        prepared.size !== hashed.size ||
+        prepared.mtimeMs !== hashed.mtimeMs ||
+        (prepared.mode & 0o777) !== publishing.verified.mode
+      )
         throw new FileError("CONFLICT", "Upload changed before publication");
-      publishing.verified = {
-        mtimeMs: verified.mtimeMs,
-        birthtimeMs: verified.birthtimeMs,
-        mode: verified.mode & 0o777,
-      };
       await target.verify();
       await verify();
       const temp = join(dirname(target.path), record.temp);
-      this.catalog.publishUpload(publishing);
       if (record.expected === null) await this.exclusive.move(temp, target.path);
       else await rename(temp, target.path);
       await target.verify();

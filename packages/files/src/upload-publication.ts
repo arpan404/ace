@@ -1,8 +1,22 @@
+import type { Stats } from "node:fs";
+import { dirname, join } from "node:path";
 import { lstat } from "node:fs/promises";
 import { SafeRoot } from "@ace/workspace";
 import { Catalog, type UploadRecord, type UploadReceipt } from "./catalog.ts";
-import { hashFile } from "./filesystem.ts";
+import { hashFile, openUpload } from "./filesystem.ts";
 import { codeOf, version, type FilesOptions } from "./types.ts";
+
+function verifiedInode(record: UploadRecord, info: Stats): boolean {
+  const proof = record.verified;
+  return Boolean(
+    proof &&
+    info.isFile() &&
+    `${info.dev}:${info.ino}` === record.identity &&
+    info.size === record.bytes &&
+    info.mtimeMs === proof.mtimeMs &&
+    info.birthtimeMs === proof.birthtimeMs,
+  );
+}
 
 /** Durable intent belongs to the catalog; only the known published inode can discharge it. */
 export class UploadPublication {
@@ -62,6 +76,51 @@ export class UploadPublication {
   }
   async recover(record: UploadRecord): Promise<UploadReceipt | undefined> {
     if (!record.publishing) return;
+    const receipt = await this.recoverPublished(record);
+    if (receipt) return receipt;
+    await this.restoreUnpublished(record);
+  }
+  private async restoreUnpublished(record: UploadRecord): Promise<void> {
+    if (!record.verified) return;
+    try {
+      const target = await this.safe.target(record.path);
+      await target.verify();
+      const temp = join(dirname(record.path), record.temp);
+      const entry = await this.safe.privateFileMetadata(temp);
+      try {
+        if (
+          !verifiedInode(record, entry.info) ||
+          ![0o600, record.verified.mode].includes(entry.info.mode & 0o777)
+        )
+          return;
+        await entry.verify();
+        const current = await entry.handle.stat();
+        if (!verifiedInode(record, current) || current.nlink !== 1) return;
+        entry.handle.chmod(0o600);
+        await entry.verify();
+      } finally {
+        await entry.handle.close();
+      }
+      const { handle, verify } = await openUpload(this.safe, record);
+      try {
+        if (!verifiedInode(record, await handle.stat())) return;
+        await handle.sync();
+        await verify();
+      } finally {
+        await handle.close();
+      }
+      const resumable = { ...record };
+      delete resumable.publishing;
+      delete resumable.verified;
+      delete resumable.mode;
+      this.catalog.publishUpload(resumable);
+    } catch {
+      // Missing, replaced or inaccessible private files keep their reservation.
+      // A failed preparation repair never disables startup or unrelated uploads.
+    }
+  }
+  private async recoverPublished(record: UploadRecord): Promise<UploadReceipt | undefined> {
+    if (!record.publishing) return;
     let verified = false;
     try {
       const target = await this.safe.target(record.path);
@@ -69,13 +128,9 @@ export class UploadPublication {
         const { info } = await this.safe.metadata(record.path);
         const current = await lstat(target.path);
         if (
-          !current.isFile() ||
-          `${current.dev}:${current.ino}` !== record.identity ||
+          !verifiedInode(record, current) ||
           current.dev !== info.dev ||
           current.ino !== info.ino ||
-          current.size !== record.bytes ||
-          current.mtimeMs !== record.verified.mtimeMs ||
-          current.birthtimeMs !== record.verified.birthtimeMs ||
           (current.mode & 0o777) !== record.verified.mode
         )
           return;
