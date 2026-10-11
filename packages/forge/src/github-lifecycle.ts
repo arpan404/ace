@@ -1,3 +1,4 @@
+import { WriteDispatch } from "./write-dispatch.ts";
 import { assertGraphqlResult } from "./graphql-errors.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -38,8 +39,19 @@ export class GitHubLifecycle {
     this.#api = api;
     this.#repository = repository;
   }
-  async #graphql(query: string, variables: Record<string, unknown>, signal: AbortSignal) {
-    const response = await this.#api.request("graphql", signal, { query, variables });
+  async #graphql(
+    query: string,
+    variables: Record<string, unknown>,
+    signal: AbortSignal,
+    dispatch?: WriteDispatch,
+  ) {
+    const response = await this.#api.request(
+      "graphql",
+      signal,
+      { query, variables },
+      "POST",
+      dispatch,
+    );
     assertGraphqlResult(response.body);
     return response;
   }
@@ -166,7 +178,7 @@ export class GitHubLifecycle {
     operationId: string,
     signal: AbortSignal,
     allowed: () => boolean,
-    beforeWrite: () => void,
+    dispatch: WriteDispatch,
   ): Promise<ForgeLifecycleReceipt> {
     const action = ForgeLifecycleAction.parse(rawAction);
     const snapshot = await this.snapshot(number, signal);
@@ -202,11 +214,11 @@ export class GitHubLifecycle {
     const type = `${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input`;
     const fields =
       action.kind === "revert" ? "revertPullRequest { number }" : "pullRequest { headRefOid }";
-    beforeWrite();
     const response = await this.#graphql(
       `mutation($input:${type}!){${mutation}(input:$input){clientMutationId ${fields}}}`,
       { input },
       signal,
+      dispatch,
     );
     try {
       const data = decode(
@@ -244,9 +256,13 @@ export class GitHubLifecycle {
   ): Promise<ForgeLifecycleReceipt | null> {
     if (action.kind === "revert") {
       const path = `repos/${this.#repository.owner}/${this.#repository.name}/pulls?state=all&sort=created&direction=desc&per_page=100`;
-      const pages = await this.#api.pages(path, signal, new ReadBudget());
-      const prs = pages.flatMap((p) =>
-        decode(
+      const budget = new ReadBudget();
+      let endpoint: string | undefined = path;
+      // Search a bounded recent window and stop as soon as the unique marker is observed.
+      for (let page = 0; endpoint && page < 20; page++) {
+        const response = await this.#api.request(endpoint, signal);
+        budget.add(response.bytes);
+        const prs = decode(
           z
             .array(
               z.looseObject({
@@ -256,23 +272,25 @@ export class GitHubLifecycle {
               }),
             )
             .max(100),
-          p.body,
-        ),
-      );
-      const found = prs.filter(
-        (p) =>
-          p.body?.includes(lifecycleWriteMarker(operationId)) &&
-          p.title === action.title &&
-          p.number !== number,
-      );
-      if (found.length > 1) throw new ForgeError("conflict");
-      return found[0]
-        ? {
+          response.body,
+        );
+        const found = prs.filter(
+          (pr) =>
+            pr.body?.includes(lifecycleWriteMarker(operationId)) &&
+            pr.title === action.title &&
+            pr.number !== number,
+        );
+        if (found.length > 1) throw new ForgeError("conflict");
+        if (found[0])
+          return {
             outcome: "accepted",
             headSha: before.headSha,
             revertPr: { repository: this.#repository, number: found[0].number },
-          }
-        : null;
+          };
+        endpoint = this.#api.next(response, path);
+      }
+      // Absence within the window is uncertain and never permits another revert write.
+      return null;
     }
     const current = await this.snapshot(number, signal);
     if (action.kind === "edit")

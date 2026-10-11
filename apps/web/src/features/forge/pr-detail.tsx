@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { PrLifecycle } from "./pr-lifecycle.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgeRepository } from "@ace/protocol";
@@ -22,6 +23,7 @@ export function PrDetail(props: {
   onTab(tab: string): void;
 }) {
   const toast = useToast();
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const query = useDaemonQuery({
     queryKey: ["forge", props.workspaceId, props.repository, "pr", props.number],
     retry: false,
@@ -42,12 +44,16 @@ export function PrDetail(props: {
       return result.value;
     },
   });
+  const refresh = () => {
+    setRefreshVersion((version) => version + 1);
+    return query.refetch();
+  };
   const detail = query.data;
   const status = detail?.status;
   return (
     <article aria-label={`Pull request #${props.number}`} className="space-y-5">
       <div className="flex items-center gap-3">
-        <Button onClick={() => void query.refetch()}>Refresh PR</Button>
+        <Button onClick={() => void refresh()}>Refresh PR</Button>
         {status && (
           <Button
             onClick={() =>
@@ -86,13 +92,14 @@ export function PrDetail(props: {
             key={JSON.stringify(status.ref)}
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
-            onRefresh={async () => !(await query.refetch()).isError}
+            onRefresh={async () => !(await refresh()).isError}
           />
           <PrLifecycle
             key={JSON.stringify(status.ref)}
             workspaceId={props.workspaceId}
             detail={detail}
-            onRefresh={() => void query.refetch()}
+            refreshVersion={refreshVersion}
+            onRefresh={() => void refresh()}
           />
           <Tabs
             value={props.tab}

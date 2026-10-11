@@ -26,6 +26,7 @@ export function PrLifecycle(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   onRefresh(): void;
+  refreshVersion?: number;
 }) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
@@ -38,6 +39,7 @@ export function PrLifecycle(props: {
       props.workspaceId,
       pr,
       "lifecycle",
+      props.refreshVersion,
       props.detail.status.headSha,
       props.detail.status.state,
       props.detail.status.title,

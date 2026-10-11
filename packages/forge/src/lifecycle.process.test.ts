@@ -1,8 +1,9 @@
+import { lifecycleWriteMarker, WriteDispatch } from "./index.ts";
 import { expect, test } from "vitest";
 import { fakeGh, lifecycleFixtures, lifecycleRecord, sha, nextSha } from "./testing/fixtures.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
-const beforeWrite = () => {};
+const beforeWrite = new WriteDispatch();
 
 test("editing metadata publishes literal title, description, base and scoped label/user identities atomically", async () => {
   const original = lifecycleRecord();
@@ -368,6 +369,37 @@ test("a head changed during update verification is reported for review instead o
     expect(
       await f.forge.lifecycle.observe(7, { kind: "update.merge" }, before, "update", signal()),
     ).toEqual({ outcome: "head_changed", headSha: movedAgain.headRefOid });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a lost revert response is recovered from the first page of a large PR history", async () => {
+  const merged = lifecycleRecord({ state: "MERGED", mergeCommit: { oid: sha } });
+  const fixtures = lifecycleFixtures([merged]);
+  const path = "repos/octo/ace/pulls?state=all&sort=created&direction=desc&per_page=100";
+  fixtures[path] = [
+    {
+      body: [{ number: 9001, title: "Revert", body: lifecycleWriteMarker("large-revert") }],
+      headers: {
+        link: `<https://api.github.com/${path}&page=2>; rel="next", <https://api.github.com/${path}&page=91>; rel="last"`,
+      },
+    },
+  ];
+  // Complete history is intentionally unavailable; the matching page is enough.
+  fixtures[`${path}&page=2`] = [{ status: 503 }];
+  const f = await fakeGh(fixtures);
+  try {
+    const before = await f.forge.lifecycle.snapshot(7, signal());
+    expect(
+      await f.forge.lifecycle.observe(
+        7,
+        { kind: "revert", title: "Revert", body: "" },
+        before,
+        "large-revert",
+        signal(),
+      ),
+    ).toMatchObject({ outcome: "accepted", revertPr: { number: 9001 } });
   } finally {
     await f.cleanup();
   }

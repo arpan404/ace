@@ -1,3 +1,5 @@
+import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
+import { actionErrorCode } from "./action-errors.ts";
 import { completePendingForgeReceipt } from "./forge-write-receipts.ts";
 import { z } from "zod";
 import {
@@ -9,18 +11,28 @@ import {
   type ForgeLifecycleState,
   type ForgeLifecycleReceipt as LifecycleReceipt,
 } from "@ace/protocol";
-import { ForgeError, type GitHubForge } from "@ace/forge";
+import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { Store } from "./store.ts";
-const scope = (pr: ForgePrRef) => JSON.stringify(pr);
+const scope = forgeResourceKey;
 /** Durable receipts plus a journal that observes uncertain remote results without repeating writes. */
 export class WorkspaceForgeLifecycle {
   readonly #store: Store;
-  constructor(store: Store) {
+  readonly #owner: ForgeResourceOwner;
+  constructor(store: Store, owner = new ForgeResourceOwner()) {
+    this.#owner = owner;
     this.#store = store;
     store.atomic((db) => {
       db.exec(
         `CREATE TABLE IF NOT EXISTS forge_lifecycle_writes (id TEXT PRIMARY KEY, scope TEXT NOT NULL, action TEXT NOT NULL, before TEXT NOT NULL, state TEXT NOT NULL, receipt TEXT); CREATE INDEX IF NOT EXISTS forge_lifecycle_scope ON forge_lifecycle_writes(scope,state)`,
       );
+      // Canonicalize journals persisted before repository casing aliases were fenced.
+      for (const row of db.prepare("SELECT id,before FROM forge_lifecycle_writes").all()) {
+        const before = ForgeLifecycleSnapshot.parse(JSON.parse(z.string().parse(row.before)));
+        db.prepare("UPDATE forge_lifecycle_writes SET scope=? WHERE id=?").run(
+          scope(before.pr),
+          z.string().parse(row.id),
+        );
+      }
       // Repair receipts from the former journal/command completion crash window.
       for (const row of db
         .prepare(
@@ -44,7 +56,7 @@ export class WorkspaceForgeLifecycle {
     const rows = this.#store.atomic((db) =>
       db
         .prepare(
-          "SELECT id,action,state,receipt FROM forge_lifecycle_writes WHERE scope=? ORDER BY rowid DESC LIMIT 100",
+          "SELECT id,action,state,receipt FROM forge_lifecycle_writes WHERE scope=? AND state!='failed' ORDER BY rowid DESC LIMIT 100",
         )
         .all(scope(pr)),
     );
@@ -66,16 +78,32 @@ export class WorkspaceForgeLifecycle {
     return { snapshot, operations };
   }
   #record(id: string, receipt: LifecycleReceipt) {
-    this.#store.atomic((db) => {
-      db.prepare("UPDATE forge_lifecycle_writes SET state=?,receipt=? WHERE id=?").run(
-        receipt.outcome,
-        JSON.stringify(receipt),
-        id,
-      );
-      completePendingForgeReceipt(this.#store, id, { ok: true, forgeLifecycle: receipt });
+    return this.#store.atomic((db) => {
+      db.prepare(
+        "UPDATE forge_lifecycle_writes SET state=?,receipt=? WHERE id=? AND state IN ('pending','uncertain')",
+      ).run(receipt.outcome, JSON.stringify(receipt), id);
+      const saved = db.prepare("SELECT receipt FROM forge_lifecycle_writes WHERE id=?").get(id);
+      const result = ForgeLifecycleReceipt.parse(JSON.parse(z.string().parse(saved?.receipt)));
+      completePendingForgeReceipt(this.#store, id, { ok: true, forgeLifecycle: result });
+      return result;
     });
   }
   async execute(
+    input: unknown,
+    commandId: string,
+    backend: GitHubForge,
+    signal: AbortSignal,
+    allowed: () => boolean,
+  ): Promise<LifecycleReceipt> {
+    const { pr } = ForgeHostedLifecycleCommand.parse(input);
+    const release = this.#owner.acquire(pr);
+    try {
+      return await this.#execute(input, commandId, backend, signal, allowed);
+    } finally {
+      release();
+    }
+  }
+  async #execute(
     input: unknown,
     commandId: string,
     backend: GitHubForge,
@@ -93,7 +121,11 @@ export class WorkspaceForgeLifecycle {
           .get(operation.operationId, scope(pr)),
       );
       if (!row) throw new ForgeError("not_found");
-      if (row.state === "accepted" && row.receipt !== null) {
+      if (row.state === "failed") throw new ForgeError("conflict");
+      if (
+        ["accepted", "head_changed"].includes(z.string().parse(row.state)) &&
+        row.receipt !== null
+      ) {
         const receipt = ForgeLifecycleReceipt.parse(JSON.parse(z.string().parse(row.receipt)));
         this.#store.atomic(() => {
           completePendingForgeReceipt(this.#store, operation.operationId, {
@@ -109,7 +141,7 @@ export class WorkspaceForgeLifecycle {
       }
       const action = ForgeLifecycleAction.parse(JSON.parse(z.string().parse(row.action)));
       const before = ForgeLifecycleSnapshot.parse(JSON.parse(z.string().parse(row.before)));
-      const observed = await backend.lifecycle.observe(
+      let observed = await backend.lifecycle.observe(
         pr.number,
         action,
         before,
@@ -117,11 +149,11 @@ export class WorkspaceForgeLifecycle {
         signal,
       );
       if (!observed) throw new Error("action_outcome_uncertain");
+      const receipt = this.#record(operation.operationId, observed);
       this.#store.atomic(() => {
-        this.#record(operation.operationId, observed);
-        completePendingForgeReceipt(this.#store, commandId, { ok: true, forgeLifecycle: observed });
+        completePendingForgeReceipt(this.#store, commandId, { ok: true, forgeLifecycle: receipt });
       });
-      return observed;
+      return receipt;
     }
     // Serialize every lifecycle write to this PR across devices and restart boundaries.
     const unresolved = this.#store.atomic((db) =>
@@ -136,6 +168,25 @@ export class WorkspaceForgeLifecycle {
     if (before.version !== operation.expectedVersion) throw new ForgeError("conflict");
     if (!allowed() || signal.aborted) throw new ForgeError("cancelled");
     let started = false;
+    const dispatch = new WriteDispatch(() => {
+      this.#store.atomic((db) => {
+        if (
+          db
+            .prepare(
+              "SELECT id FROM forge_lifecycle_writes WHERE scope=? AND state IN ('uncertain','pending') LIMIT 1",
+            )
+            .get(scope(pr))
+        )
+          throw new Error("action_outcome_uncertain");
+        db.prepare("INSERT INTO forge_lifecycle_writes VALUES (?,?,?,?,'uncertain',NULL)").run(
+          commandId,
+          scope(pr),
+          JSON.stringify(operation.action),
+          JSON.stringify(before),
+        );
+      });
+      started = true;
+    });
     try {
       const receipt = await backend.lifecycle.apply(
         pr.number,
@@ -144,37 +195,21 @@ export class WorkspaceForgeLifecycle {
         commandId,
         signal,
         allowed,
-        () => {
-          this.#store.atomic((db) => {
-            if (
-              db
-                .prepare(
-                  "SELECT id FROM forge_lifecycle_writes WHERE scope=? AND state IN ('uncertain','pending') LIMIT 1",
-                )
-                .get(scope(pr))
-            )
-              throw new Error("action_outcome_uncertain");
-            db.prepare("INSERT INTO forge_lifecycle_writes VALUES (?,?,?,?,'uncertain',NULL)").run(
-              commandId,
-              scope(pr),
-              JSON.stringify(operation.action),
-              JSON.stringify(before),
-            );
-          });
-          started = true;
-        },
+        dispatch,
       );
-      this.#record(commandId, receipt);
-      return receipt;
+      return this.#record(commandId, receipt);
     } catch (error) {
       if (!started) throw error;
-      if (
-        error instanceof ForgeError &&
-        ["forbidden", "conflict", "unsupported", "not_found", "rate_limit"].includes(error.kind)
-      ) {
-        this.#store.atomic((db) =>
-          db.prepare("DELETE FROM forge_lifecycle_writes WHERE id=?").run(commandId),
-        );
+      if (dispatch.definitelyFailed) {
+        this.#store.atomic((db) => {
+          db.prepare(
+            "UPDATE forge_lifecycle_writes SET state='failed' WHERE id=? AND state IN ('pending','uncertain')",
+          ).run(commandId);
+          completePendingForgeReceipt(this.#store, commandId, {
+            ok: false,
+            error: actionErrorCode(error),
+          });
+        });
         throw error;
       }
       if (!signal.aborted) {
@@ -187,8 +222,7 @@ export class WorkspaceForgeLifecycle {
             signal,
           );
           if (observed) {
-            this.#record(commandId, observed);
-            return observed;
+            return this.#record(commandId, observed);
           }
         } catch {
           /* The durable uncertain entry is kept for explicit reconciliation. */
