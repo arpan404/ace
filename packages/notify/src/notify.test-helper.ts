@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { apply, createThreadState, type Fact } from "@ace/core";
 import {
   Event,
@@ -113,4 +114,21 @@ export function setup(result: DeliveryResult = "accepted") {
       rmSync(home, { recursive: true, force: true });
     },
   };
+}
+
+/** Recreate the predecessor's real queue layout, keeping its persisted delivery state. */
+export function writeLegacyQueue(path: string, version: 2 | 3): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE legacy_jobs (id INTEGER PRIMARY KEY, device TEXT NOT NULL,
+        thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+        due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL);
+      INSERT INTO legacy_jobs SELECT id,device,thread,body,attempts,due,expires,generation FROM jobs;
+      DROP TABLE jobs;
+      ALTER TABLE legacy_jobs RENAME TO jobs;
+      PRAGMA user_version=${version}; COMMIT;`);
+  } finally {
+    database.close();
+  }
 }

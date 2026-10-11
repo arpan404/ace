@@ -21,6 +21,13 @@ const Job = z.object({
   generation: z.number().int().nonnegative(),
 });
 export type Job = z.infer<typeof Job>;
+// Delivery can outlive row deletion; its identity must never name a later job.
+const jobColumns = `id INTEGER PRIMARY KEY AUTOINCREMENT, device TEXT NOT NULL,
+  thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL`;
+const jobIndexes = `CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
+  CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
+  CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);`;
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
@@ -48,10 +55,8 @@ export class NotificationDatabase {
       CREATE TABLE IF NOT EXISTS snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS agent_notices_expiry ON agent_notices(expires);
-      CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, device TEXT NOT NULL, thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
-      CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
-      CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);
+      CREATE TABLE IF NOT EXISTS jobs (${jobColumns});
+      ${jobIndexes}
       CREATE TABLE IF NOT EXISTS queue_size (id INTEGER PRIMARY KEY CHECK(id=1), n INTEGER NOT NULL);
       INSERT OR IGNORE INTO queue_size SELECT 1,count(*) FROM pending;
       CREATE TRIGGER IF NOT EXISTS pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
@@ -76,13 +81,24 @@ export class NotificationDatabase {
       .number()
       .int()
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
-    if (version === 0 || version === 1 || version === 2) {
-      // Replay older projections to recover deletion state, preserving device policy.
-      this.db.exec(`BEGIN IMMEDIATE; DELETE FROM threads; DELETE FROM interactions;
-        DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
-        DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;
-        PRAGMA user_version=3; COMMIT;`);
-    } else if (version !== 3) throw new Error("Unsupported notification database version");
+    if (version === 0 || version === 1 || version === 2 || version === 3) {
+      this.transaction(() => {
+        if (version !== 3) {
+          // Replay older projections to recover deletion state, preserving device policy.
+          this.db.exec(`DELETE FROM threads; DELETE FROM interactions;
+            DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
+            DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;`);
+        }
+        // Version 3 already projects deletion. Keep its queued jobs and retry deadlines.
+        this.db.exec(`CREATE TABLE jobs_v4 (${jobColumns});
+          INSERT INTO jobs_v4(id,device,thread,body,attempts,due,expires,generation)
+            SELECT id,device,thread,body,attempts,due,expires,generation FROM jobs;
+          DROP TABLE jobs;
+          ALTER TABLE jobs_v4 RENAME TO jobs;
+          ${jobIndexes}
+          PRAGMA user_version=4;`);
+      });
+    } else if (version !== 4) throw new Error("Unsupported notification database version");
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
