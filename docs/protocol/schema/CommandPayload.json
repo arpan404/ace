@@ -722,6 +722,10 @@
     },
     {
       "properties": {
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "expectedHead": {
           "anyOf": [
             {
@@ -991,6 +995,10 @@
     },
     {
       "properties": {
+        "draftFingerprint": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "input": {
           "$ref": "https://ace.local/protocol/v1/ForgeCreatePrInput.json"
         },

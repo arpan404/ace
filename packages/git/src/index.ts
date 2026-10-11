@@ -1,3 +1,5 @@
+import { writingContext } from "./writing-context.ts";
+import type { SourceControlSelection } from "@ace/protocol";
 import {
   cloneRepository,
   initRepository,
@@ -102,11 +104,17 @@ export class GitService {
     return integrateRevision(this.repository, input);
   }
 
+  async writingContext(worktree: string, selection: SourceControlSelection) {
+    const root = await this.repository.root(worktree);
+    return this.repository.serial(root, () => writingContext(this.repository, root, selection));
+  }
+
   /** Commit every change, or only `paths`; other changes stay as they were. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
+    draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);

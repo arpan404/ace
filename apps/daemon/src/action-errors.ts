@@ -11,6 +11,13 @@ export function actionErrorCode(error: unknown): string {
   if (
     error instanceof Error &&
     [
+      "draft_provider_unavailable",
+      "draft_provider_failed",
+      "draft_invalid_output",
+      "draft_timeout",
+      "draft_cancelled",
+      "draft_busy",
+      "draft_changes_moved",
       "repository_mismatch",
       "pr_link_changed",
       "forge_recovery_unavailable",

@@ -30,6 +30,16 @@ const copy: Record<string, string> = {
   pr_link_changed: "The linked pull request changed: refresh, then retry.",
   forge_recovery_unavailable:
     "This daemon can't find an existing PR: update the daemon, then retry.",
+  draft_provider_unavailable:
+    "The selected CLI is unavailable or signed out. Install it and sign in, then generate again.",
+  draft_provider_failed:
+    "The CLI couldn't generate a draft. Check its version and sign-in, then try again. Your text is unchanged.",
+  draft_invalid_output: "The CLI returned an invalid draft. Your text is unchanged.",
+  draft_timeout: "Draft generation timed out. Your text is unchanged.",
+  draft_cancelled: "Draft generation was cancelled. Your text is unchanged.",
+  draft_busy: "Draft generation is busy. Wait, then try again.",
+  draft_changes_moved:
+    "The selected changes moved. Generate again, or discard the draft to use your own text.",
   // Git.
   git_missing: "Git isn't installed: install Git, then retry.",
   git_too_old: "This Git is too old: update Git, then retry.",

@@ -1,3 +1,9 @@
+import { createWritingCli } from "./source-control-cli.ts";
+import {
+  SourceControlContext,
+  SourceControlDraftInput,
+  type SourceControlSelection,
+} from "@ace/protocol";
 import { decodeProjectRow } from "./project-storage.ts";
 import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
@@ -28,6 +34,7 @@ import type { Store } from "./store.ts";
 
 export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
+  writingCli?: ReturnType<typeof createWritingCli>;
   reconcileThread?(id: ThreadId): Promise<void>;
   changeWorkspace?(
     id: ThreadId,
@@ -60,6 +67,7 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
+  private writing = new Set<AbortController>();
   private nextTerminal = 0;
   constructor(
     store: Store,
@@ -181,13 +189,67 @@ export class WorkspaceRuntime {
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
-  async read(request: WorkspaceActionRequest): Promise<WorkspaceActionResult> {
+  async read(
+    request: WorkspaceActionRequest,
+    signal?: AbortSignal,
+  ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
       type: "workspace.result",
       requestId: request.requestId,
       result,
     });
+    if (op.op === "git.draft.cancel") return wrap({ kind: "draftCancelled" });
+    if (op.op === "git.draft.context")
+      return wrap({
+        kind: "draftContext",
+        context: await this.draftContext(op.threadId, op.selection),
+      });
+    if (op.op === "git.draft.generate") {
+      if (this.writing.size >= 4) throw new Error("draft_busy");
+      const input = SourceControlDraftInput.parse(op.input);
+      const lifetime = new AbortController();
+      this.writing.add(lifetime);
+      const stop = () => lifetime.abort();
+      signal?.addEventListener("abort", stop, { once: true });
+      if (signal?.aborted) stop();
+      try {
+        lifetime.signal.throwIfAborted();
+        const root = this.root(op.threadId);
+        const context = await this.draftContext(op.threadId, input.selection);
+        if (context.fingerprint !== input.fingerprint) throw new Error("draft_changes_moved");
+        const page =
+          input.selection.kind === "pr"
+            ? this.store.readItemPage(op.threadId, this.store.headSeq() + 1, 12, 8192)
+            : undefined;
+        const messages =
+          page?.items.flatMap((item) =>
+            item.type === "message" && ["user", "assistant"].includes(item.role)
+              ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+              : [],
+          ) ?? [];
+        const threadContext = [this.store.getThread(op.threadId)?.title ?? "", ...messages]
+          .join("\n")
+          .slice(-8192);
+        const draft = await (this.options.writingCli ?? createWritingCli())(
+          input,
+          context,
+          threadContext,
+          lifetime.signal,
+        );
+        lifetime.signal.throwIfAborted();
+        if (
+          this.root(op.threadId) !== root ||
+          (await this.draftContext(op.threadId, input.selection)).fingerprint !==
+            context.fingerprint
+        )
+          throw new Error("draft_changes_moved");
+        return wrap({ kind: "draft", draft, context });
+      } finally {
+        signal?.removeEventListener("abort", stop);
+        this.writing.delete(lifetime);
+      }
+    }
     if (op.op === "editors.list")
       return wrap({
         kind: "editors",
@@ -256,6 +318,12 @@ export class WorkspaceRuntime {
       status: await this.forge.status(op.threadId, this.root(op.threadId)),
     });
   }
+  async draftContext(id: ThreadId, selection: SourceControlSelection) {
+    const root = this.root(id);
+    const context = SourceControlContext.parse(await this.git.writingContext(root, selection));
+    if (this.root(id) !== root) throw new Error("workspace_root_changed");
+    return context;
+  }
   execute(command: Command, allowed: () => boolean = allowLocalAction): Promise<CommandResult> {
     return this.commands.run(command, async () => {
       if (!allowed()) return { ok: false, error: "forbidden" };
@@ -294,6 +362,14 @@ export class WorkspaceRuntime {
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);
+      if (p.type === "forge.pr.create" && p.draftFingerprint) {
+        const context = await this.draftContext(threadId, {
+          kind: "pr",
+          branch: p.input.branch,
+          base: p.input.base,
+        });
+        if (context.fingerprint !== p.draftFingerprint) throw new Error("draft_changes_moved");
+      }
       if (p.type === "git.commit")
         return {
           ok: true,
@@ -302,6 +378,7 @@ export class WorkspaceRuntime {
             message: p.message,
             expectedHead: p.expectedHead,
             paths: p.paths,
+            draftFingerprint: p.draftFingerprint,
           }),
         };
       if (p.type === "git.push") {
@@ -336,6 +413,7 @@ export class WorkspaceRuntime {
     });
   }
   async close(): Promise<void> {
+    for (const lifetime of this.writing) lifetime.abort();
     this.forge.close();
     await this.roots.close();
     await this.commands.drained();
