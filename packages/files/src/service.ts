@@ -370,12 +370,20 @@ export class FilesService {
       throw error;
     }
   }
+  /** Durable provenance lets the daemon authorize the source again on every download. */
+  artifactSource(artifactId: string): ArtifactRecord["sourceThread"] {
+    const record = ArtifactRecord.parse(this.catalog.get(artifactId));
+    if (record.category === "output" && !record.sourceThread)
+      throw new FileError("FORBIDDEN", "Export has no source provenance");
+    return record.sourceThread;
+  }
   /** Trusted local producers register paths; clients can only address opaque IDs. */
   async registerArtifact(input: {
     root: string;
     path: string;
     name: string;
     category: ArtifactRecord["category"];
+    sourceThread?: ArtifactRecord["sourceThread"];
     id?: string;
   }): Promise<string> {
     return this.serial(async () => {
@@ -390,7 +398,8 @@ export class FilesService {
         if (
           existing.root !== input.root ||
           existing.path !== input.path ||
-          existing.category !== input.category
+          existing.category !== input.category ||
+          existing.sourceThread !== input.sourceThread
         )
           throw new FileError("CONFLICT", "Artifact identity already belongs to another producer");
         replacing = true;

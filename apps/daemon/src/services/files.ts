@@ -1,8 +1,16 @@
 import { startSupportFiles } from "./support-files.ts";
+import { fileExportSource } from "../file-export-source.ts";
+import type { ThreadId } from "@ace/protocol";
 import { logError } from "@ace/diagnostics";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
-import { FilesService, attachFilesSocket, chunkFilesChannel, attachmentChannel } from "@ace/files";
+import {
+  FileError,
+  FilesService,
+  attachFilesSocket,
+  chunkFilesChannel,
+  attachmentChannel,
+} from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -140,6 +148,9 @@ export function createFilesSession(context: SocketContext): SocketService {
     });
     return attachments;
   };
+  const readableSource = (source: ThreadId | undefined) =>
+    source === undefined ||
+    (context.canReadThread(source) && context.options.store.hasLiveThread(source));
   const getChunks = () => {
     const device = context.device();
     const files = context.options.threadFiles;
@@ -171,6 +182,15 @@ export function createFilesSession(context: SocketContext): SocketService {
         }
         const root = files.root(threadId);
         const { service, release } = await files.acquire(threadId);
+        let source: ThreadId | undefined;
+        try {
+          source = fileExportSource(service, context.options.store, operation);
+          if (source !== undefined && (source !== threadId || !readableSource(source)))
+            throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
+        } catch (error) {
+          release();
+          throw error;
+        }
         return {
           service,
           release,
@@ -178,7 +198,8 @@ export function createFilesSession(context: SocketContext): SocketService {
             context.connected() &&
             context.authorize(access) &&
             context.canReadThread(threadId) &&
-            files.matches(threadId, root),
+            files.matches(threadId, root) &&
+            readableSource(source),
         };
       },
     });
@@ -187,8 +208,14 @@ export function createFilesSession(context: SocketContext): SocketService {
   const getChannel = () => {
     const device = context.device();
     if (!device || !context.options.files) return undefined;
-    channel ??= attachFilesSocket(context.options.files, context.socket, device, (capability) =>
-      context.authorize(capability === "files.read" ? "read" : "operate"),
+    const service = context.options.files;
+    channel ??= attachFilesSocket(
+      service,
+      context.socket,
+      device,
+      (capability, operation) =>
+        context.authorize(capability === "files.read" ? "read" : "operate") &&
+        readableSource(fileExportSource(service, context.options.store, operation)),
     );
     return channel;
   };

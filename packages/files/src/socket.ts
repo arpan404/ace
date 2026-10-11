@@ -2,13 +2,14 @@ import { fileCapability } from "./access.ts";
 import { createHash, type Hash } from "node:crypto";
 import type { BinaryUploadDestination, FilesTransport } from "./transport.ts";
 import { z } from "zod";
-import { FilesClientMessage, type FilesServerMessage } from "@ace/protocol";
+import { FilesClientMessage, type FilesServerMessage, type FileOperation } from "@ace/protocol";
 import { decodeFileFrame, fillFileFrame } from "./frame.ts";
 import { FilesService } from "./service.ts";
 import { CHUNK_SIZE, codeOf, FileError, MAX_CREDITS, type Download } from "./types.ts";
 import { drainUpload } from "./upload-lifetime.ts";
 
 interface Outgoing {
+  operation: FileOperation;
   download: Download;
   cancelIdle?: () => void;
   credits: number;
@@ -43,12 +44,15 @@ export function attachFilesChannel(
   service: FilesService,
   transport: FilesTransport,
   device: string,
-  scopedAuthorization: (capability: "files.read" | "files.write") => boolean = () => true,
+  scopedAuthorization: (
+    capability: "files.read" | "files.write",
+    operation?: FileOperation,
+  ) => boolean = () => true,
 ) {
-  const authorize = (capability: "files.read" | "files.write") => {
+  const authorize = (capability: "files.read" | "files.write", operation?: FileOperation) => {
     if (closed) throw new FileError("CLOSED", "Socket closed");
     service.authorize(device, capability);
-    if (!scopedAuthorization(capability))
+    if (!scopedAuthorization(capability, operation))
       throw new FileError("FORBIDDEN", "Device scope denies this operation");
   };
   const outgoing = new Map<number, Outgoing>();
@@ -111,9 +115,10 @@ export function attachFilesChannel(
     try {
       while (state.credits > 0 && !state.cancelled) {
         if (closed) break;
-        authorize("files.read");
+        authorize("files.read", state.operation);
         const next = await state.download.chunks.next();
         if (state.cancelled || closed) break;
+        authorize("files.read", state.operation);
         if (next.done) {
           send({
             type: "files.end",
@@ -172,7 +177,7 @@ export function attachFilesChannel(
     )
       throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;
-    authorize(fileCapability(operation));
+    authorize(fileCapability(operation), operation);
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
       const id = allocate();
       let download: Download;
@@ -181,11 +186,14 @@ export function attachFilesChannel(
       } finally {
         opening.delete(id);
       }
-      if (closed) {
+      try {
+        authorize(fileCapability(operation), operation);
+      } catch (error) {
         await download.close();
-        return;
+        throw error;
       }
       const state: Outgoing = {
+        operation,
         download,
         credits: 0,
         pumping: false,
@@ -213,7 +221,9 @@ export function attachFilesChannel(
       try {
         release = service.reserve();
         const upload = Upload.parse(
-          await service.request(device, operation, () => authorize(fileCapability(operation))),
+          await service.request(device, operation, () =>
+            authorize(fileCapability(operation), operation),
+          ),
         );
         if (closed) {
           release();
@@ -246,13 +256,14 @@ export function attachFilesChannel(
     if (operation.op === "upload.cancel")
       for (const [id, state] of incoming) if (state.id === operation.uploadId) await stop(id);
     const value = await service.request(device, operation, () =>
-      authorize(fileCapability(operation)),
+      authorize(fileCapability(operation), operation),
     );
     if (operation.op === "upload.commit" || operation.op === "upload.cancel")
       for (const [id, state] of incoming)
         if (state.id === operation.uploadId) {
           await stop(id);
         }
+    authorize(fileCapability(operation), operation);
     send({ type: "files.result", requestId: message.requestId, value });
   };
   const unsubscribe = service.subscribe((change) => {

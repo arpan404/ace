@@ -1,5 +1,6 @@
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
+import { ThreadId } from "@ace/protocol";
 import { FileError } from "./types.ts";
 
 const common = {
@@ -48,6 +49,7 @@ export const ArtifactRecord = z.object({
   path: z.string(),
   name: z.string().max(256),
   category: z.enum(["recording", "screenshot", "support", "output", "other"]),
+  sourceThread: ThreadId.optional(),
 });
 export type ArtifactRecord = z.infer<typeof ArtifactRecord>;
 const Record = z.discriminatedUnion("kind", [

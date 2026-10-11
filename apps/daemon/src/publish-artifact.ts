@@ -1,5 +1,6 @@
 import { rename, rm } from "node:fs/promises";
 import { join } from "node:path";
+import type { ThreadId } from "@ace/protocol";
 import type { FilesService } from "@ace/files";
 
 /** Reserve staged and exported bytes until a complete artifact has been registered. */
@@ -12,6 +13,7 @@ export async function publishArtifact(
     name: string;
     category: "output" | "support";
     id?: string;
+    sourceThread?: ThreadId | undefined;
     write(temporary: string): Promise<void>;
   },
   assertAuthorized: () => void,
@@ -29,6 +31,7 @@ export async function publishArtifact(
       path: input.path,
       name: input.name.slice(0, 256),
       category: input.category,
+      sourceThread: input.sourceThread,
       ...(input.id ? { id: input.id } : {}),
     });
     published = true;
