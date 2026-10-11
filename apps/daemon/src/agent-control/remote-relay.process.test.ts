@@ -856,7 +856,7 @@ test("broker disconnect during return admission preserves the owned offset for a
   expect(result.data.toString()).toBe("resume this output");
 });
 
-test("retention releases sealed target exports, incoming context and source returns together", async () => {
+test("source expiry keeps target exports until the target owner is deleted", async () => {
   const f = await world();
   const { task, caller } = await admittedReturnTask(f);
   await writeFile(join(f.target.h.home, "old-result.txt"), "retained result bytes");
@@ -890,9 +890,76 @@ test("retention releases sealed target exports, incoming context and source retu
   f.source.controls.remote.journal.prune(retentionTime);
   f.target.controls.remote.journal.prune(retentionTime);
   expect(f.source.controls.returns.retains(task.parentThreadId, file.sha256)).toBe(false);
+  expect(f.target.controls.publications.retains(task.threadId, file.sha256)).toBe(true);
+  expect(
+    await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
+  ).toMatchObject({ ok: true, phase: "completed", artifacts });
+  organizeThread(
+    f.target.daemon.store,
+    Command.parse({
+      id: "delete-expired-target",
+      deviceId: "human",
+      payload: { type: "thread.delete", threadId: task.threadId },
+    }),
+    Date.now(),
+  );
+  f.target.controls.remote.journal.prune(Date.now());
   expect(f.target.controls.publications.retains(task.threadId, file.sha256)).toBe(false);
   expect(
     await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
-  ).toMatchObject({ ok: false, error: "not_found" });
+  ).toMatchObject({ ok: true, phase: "cancelled" });
   expect(f.source.controls.remote.journal.get(task.id)).toBeUndefined();
+});
+
+test("an unacknowledged sealed target result and selected files survive an eight-day source outage", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  await writeFile(join(f.target.h.home, "retained.txt"), "Retained immutable bytes");
+  const artifacts = await publish(f, caller, ["retained.txt"]);
+  const session = f.target.h.contexts.get(task.threadId);
+  if (!session) throw new Error("Missing target session");
+  session.onFrame(
+    f.target.h.frames.frame({
+      type: "item.upsert",
+      agent: "root",
+      item: "original-answer",
+      draft: {
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text: "Original retained answer" }],
+        complete: true,
+      },
+    }),
+  );
+  await f.target.daemon.engine?.flush();
+  expect(
+    await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
+  ).toMatchObject({ ok: true, phase: "completed", result: "Original retained answer", artifacts });
+  expect(f.source.controls.remote.journal.get(task.id)).toMatchObject({ delivered: false });
+  const { pruneRemoteRows } = await import("./remote-retention.ts");
+  pruneRemoteRows(f.target.daemon.store, Date.now() + 8 * 24 * 60 * 60 * 1000);
+  const { RemotePublications } = await import("./remote-publication.ts");
+  const recovered = new RemotePublications({
+    store: f.target.daemon.store,
+    engine: f.target.daemon.engine!,
+    hostId: f.targetWire.hostId,
+  });
+  expect(recovered.manifest(task.id)).toEqual(artifacts);
+  expect(
+    await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
+  ).toMatchObject({ ok: true, phase: "completed", result: "Original retained answer", artifacts });
+  const channel = await f.relayChannel();
+  const attachment = artifacts.attachments[0];
+  if (!attachment) throw new Error("Missing selected file");
+  expect(
+    await channel.request({
+      type: "delegation.remote.output",
+      requestId: "retained-read",
+      taskId: task.id,
+      operation: { op: "read", sha256: attachment.sha256, offset: 0 },
+    }),
+  ).toMatchObject({
+    ok: true,
+    context: { data: Buffer.from("Retained immutable bytes").toString("base64") },
+  });
 });

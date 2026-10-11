@@ -69,8 +69,10 @@ separate operations.
 Stop drops temporary output retention and durably records unfinished owned uploads
 for bounded cancellation cleanup at startup, during maintenance and shutdown.
 Transient cleanup failures retry without removing pre-existing attachment refs.
-Delivered terminal rows expire after seven days once their root is idle; deleting
-the owner also releases them. Active and undelivered rows remain retained.
+Delivered source terminal rows expire after seven days once their root is idle;
+deleting the owner also releases them. Target outcomes and selected manifests stay
+retained until owner deletion because no target-owned acknowledgement of source
+delivery exists. Active and undelivered rows remain retained.
 Cancellation without target acknowledgement fails after thirty seconds and
 explicitly warns that the remote task may still be running. Sealed results survive
 cancellation and failed imports. Result text is bounded to 4,096 UTF-16 units and
