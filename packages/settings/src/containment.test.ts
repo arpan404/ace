@@ -183,8 +183,12 @@ test.each([0, 80])(
     const service = new SettingsService({ dataDir, io: f.edges.io, scheduler: f.edges.scheduler });
     cleanups.push(() => service.close());
     await service.get("threads.settleOnClose", { workspace: f.workspace });
+    // Thread-only writes leave the aliased global file inactive so it can evict.
     for (let index = 0; index < count; index++)
-      await service.get("threads.settleOnClose", { thread: `idle-${index}` });
+      await service.set("threads.settleOnClose", false, {
+        kind: "thread",
+        thread: `idle-${index}`,
+      });
     await rename(f.workspace, join(f.root, "old-repo"));
     await mkdir(dataDir, { recursive: true });
     const path = join(dataDir, "settings.json");

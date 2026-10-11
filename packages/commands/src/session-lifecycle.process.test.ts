@@ -123,16 +123,16 @@ it("closing a session during plugin replacement leaves its context evictable and
   const release = Promise.withResolvers<void>();
   const closeIo = SecureCommandIo.prototype.close;
   let pause = false;
-  const spy = vi.spyOn(SecureCommandIo.prototype, "close").mockImplementation(
-    async function (this: SecureCommandIo) {
-      await closeIo.call(this);
-      if (pause) {
-        pause = false;
-        entered.resolve();
-        await release.promise;
-      }
-    },
-  );
+  const spy = vi.spyOn(SecureCommandIo.prototype, "close").mockImplementation(async function (
+    this: SecureCommandIo,
+  ) {
+    await closeIo.call(this);
+    if (pause) {
+      pause = false;
+      entered.resolve();
+      await release.promise;
+    }
+  });
   const library = new CommandLibrary({
     aceHome: join(path, "ace"),
     instances: [{ id: "personal", provider: "claude", home: join(path, "claude") }],

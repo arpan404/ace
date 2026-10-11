@@ -35,6 +35,52 @@ test("the same review owner reopens its database after a physical exit and recov
   }
 });
 
+test("fresh comments after worker replacement persist and their receipts survive another exit", async () => {
+  const repo = await repository();
+  let isolate: Worker | undefined;
+  const owner = new ReviewWorker(join(repo.directory, "fresh-mutation.sqlite"), undefined, {
+    createWorker(url, options) {
+      isolate = new Worker(url, options);
+      return isolate;
+    },
+  });
+  try {
+    const opened = await owner.handle(
+      repo.command({ type: "review.open", source: repo.session.source }),
+      repo.root,
+    );
+    expect(opened.ok).toBe(true);
+    const sessionId = opened.review?.session?.id;
+    if (!sessionId || !isolate) throw new Error("Missing review session or isolate");
+    await isolate.terminate();
+    const command = repo.command(
+      {
+        type: "review.comment",
+        sessionId,
+        position: { file: "file.ts", side: "new", start: 3, end: 3 },
+        text: "Created after replacement",
+      },
+      "fresh-comment",
+    );
+    const created = await owner.handle(command);
+    expect(created).toMatchObject({
+      ok: true,
+      review: { comment: { sessionId, text: "Created after replacement" } },
+    });
+    expect(
+      (await owner.handle(repo.command({ type: "review.list", sessionId }))).review?.comments,
+    ).toEqual([created.review?.comment]);
+    await isolate.terminate();
+    expect(await owner.recover(command)).toEqual(created);
+    expect(
+      (await owner.handle(repo.command({ type: "review.list", sessionId }))).review?.comments,
+    ).toEqual([created.review?.comment]);
+  } finally {
+    await owner.close();
+    await repo.close();
+  }
+});
+
 test("replacement waits for old executor cleanup and never repeats or imports an interrupted review", async () => {
   const repo = await repository();
   const entered = Promise.withResolvers<void>();
