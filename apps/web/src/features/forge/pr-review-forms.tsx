@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { authoredReviewComment } from "@ace/forge";
+import { authoredReviewComment } from "@ace/forge/review-comment-body";
 import { z } from "zod";
 import type { ForgeComment, ForgePrDetail, ForgeReviewAnchor } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
