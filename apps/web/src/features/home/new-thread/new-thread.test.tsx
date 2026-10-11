@@ -529,7 +529,7 @@ test("native settings remain inherited while the menu exposes every Claude mode"
     "Plan",
     "Auto",
     "Don't ask",
-    "Bypass permissions",
+    "Full access",
   ]);
   expect(
     screen.getByRole("menuitemradio", { name: "Accept edits" }).getAttribute("aria-checked"),
@@ -556,7 +556,7 @@ test("new threads leave the CLI default unpinned without a picker interaction", 
 test.each([
   ["ask", "Manual", "default"],
   ["on-failure", "Auto", "auto"],
-  ["never", "Bypass permissions", "bypassPermissions"],
+  ["never", "Full access", "bypassPermissions"],
 ])("a persisted %s approval policy supplies inherited native %s", async (policy, label, mode) => {
   const made = app();
   made.daemon.services.settings.seed({ "approvals.policy": policy });

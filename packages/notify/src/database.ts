@@ -21,6 +21,13 @@ const Job = z.object({
   generation: z.number().int().nonnegative(),
 });
 export type Job = z.infer<typeof Job>;
+// Delivery can outlive row deletion; its identity must never name a later job.
+const jobColumns = `id INTEGER PRIMARY KEY AUTOINCREMENT, device TEXT NOT NULL,
+  thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL`;
+const jobIndexes = `CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
+  CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
+  CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);`;
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
@@ -48,10 +55,8 @@ export class NotificationDatabase {
       CREATE TABLE IF NOT EXISTS snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS agent_notices_expiry ON agent_notices(expires);
-      CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, device TEXT NOT NULL, thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
-      CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
-      CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);
+      CREATE TABLE IF NOT EXISTS jobs (${jobColumns});
+      ${jobIndexes}
       CREATE TABLE IF NOT EXISTS queue_size (id INTEGER PRIMARY KEY CHECK(id=1), n INTEGER NOT NULL);
       INSERT OR IGNORE INTO queue_size SELECT 1,count(*) FROM pending;
       CREATE TRIGGER IF NOT EXISTS pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
@@ -64,18 +69,39 @@ export class NotificationDatabase {
         .some((row) => row.name === "last_seen")
     )
       this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0");
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(devices)")
+        .all()
+        .some((row) => row.name === "expired")
+    )
+      this.db.exec("ALTER TABLE devices ADD COLUMN expired INTEGER NOT NULL DEFAULT 0");
     this.db.exec("CREATE INDEX IF NOT EXISTS devices_seen ON devices(revoked,last_seen)");
     const version = z
       .number()
       .int()
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
-    if (version === 0 || version === 1) {
-      // Rebuild older projections with owner eligibility and thread snoozes, preserving device policy.
-      this.db.exec(`BEGIN IMMEDIATE; DELETE FROM threads; DELETE FROM interactions;
-        DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
-        DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;
-        PRAGMA user_version=2; COMMIT;`);
-    } else if (version !== 2) throw new Error("Unsupported notification database version");
+    if (version === 0 || version === 1 || version === 2 || version === 3) {
+      this.transaction(() => {
+        if (version !== 3) {
+          // Replay state alerts. Accepted agent notices have no replayable source;
+          // retain their jobs and receipts until replay applies thread deletion.
+          this.db.exec(`DELETE FROM threads; DELETE FROM interactions;
+            DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
+            DELETE FROM pending;
+            DELETE FROM jobs WHERE json_extract(body,'$.status') IS NOT 'agent_says';
+            UPDATE cursor SET seq=0 WHERE id=1;`);
+        }
+        // Version 3 already projects deletion. Keep its queued jobs and retry deadlines.
+        this.db.exec(`CREATE TABLE jobs_v4 (${jobColumns});
+          INSERT INTO jobs_v4(id,device,thread,body,attempts,due,expires,generation)
+            SELECT id,device,thread,body,attempts,due,expires,generation FROM jobs;
+          DROP TABLE jobs;
+          ALTER TABLE jobs_v4 RENAME TO jobs;
+          ${jobIndexes}
+          PRAGMA user_version=4;`);
+      });
+    } else if (version !== 4) throw new Error("Unsupported notification database version");
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -118,12 +144,14 @@ export class NotificationDatabase {
         cursor = event.seq;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
         if (event.payload.type === "thread.client.updated") {
-          this.snooze(event.threadId, event.payload.snoozedUntil ?? 0);
-          continue;
+          if (event.payload.snoozedUntil !== undefined)
+            this.snooze(event.threadId, event.payload.snoozedUntil ?? 0);
+          if (event.payload.deletedAt === undefined) continue;
         }
         if (event.payload.type === "thread.created") {
           const state = CompactThread.parse({
             archived: event.payload.thread.archivedAt !== undefined,
+            deleted: event.payload.thread.deletedAt !== undefined,
             title: event.payload.thread.title.slice(0, 200),
             status: event.payload.thread.status,
           });
@@ -152,6 +180,7 @@ export class NotificationDatabase {
           JSON.stringify(CompactThread.parse(state)),
           event.threadId,
         );
+        if (state.deleted) this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
         if (pending) {
           if (!prior && this.count("pending") >= 10_000)
             // Disk spool eviction keeps replay advancing even during sustained overload.
@@ -199,7 +228,7 @@ export class NotificationDatabase {
       preferences: old ? NotificationDevice.parse(JSON.parse(String(old.body))).preferences : {},
     });
     this.statement(
-      "INSERT INTO devices(id,body,revoked,last_seen) VALUES(?,?,0,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,last_seen=excluded.last_seen",
+      "INSERT INTO devices(id,body,revoked,last_seen) VALUES(?,?,0,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,last_seen=excluded.last_seen,expired=0",
     ).run(id, JSON.stringify(device), now);
   }
   touch(id: DeviceId, now: number): void {
@@ -237,6 +266,15 @@ export class NotificationDatabase {
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
     });
   }
+  expireAddress(id: DeviceId, address: NotificationDevice["address"]): boolean {
+    return this.transaction(() => {
+      const current = this.device(id);
+      if (!current || JSON.stringify(current.address) !== JSON.stringify(address)) return false;
+      this.statement("UPDATE devices SET expired=1 WHERE id=? AND revoked=0").run(id);
+      this.statement("DELETE FROM jobs WHERE device=?").run(id);
+      return true;
+    });
+  }
   snooze(thread: ThreadId, until: number): void {
     this.thread(thread);
     z.number().int().nonnegative().parse(until);
@@ -250,7 +288,7 @@ export class NotificationDatabase {
       this.statement("DELETE FROM agent_notices WHERE expires<=?").run(now);
       if (this.statement("SELECT id FROM agent_notices WHERE id=?").get(notification.id)) return;
       const state = this.thread(notification.threadId);
-      const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
+      const devices = this.statement("SELECT id FROM devices WHERE revoked=0 AND expired=0").all();
       if (
         this.count("jobs") + devices.length > 10_000 ||
         Number(this.statement("SELECT count(*) AS n FROM agent_notices").get()?.n) >= 10_000
@@ -258,7 +296,7 @@ export class NotificationDatabase {
         throw new Error("Notification queue full");
       const expires = now + 86_400_000;
       this.statement("INSERT INTO agent_notices VALUES(?,?)").run(notification.id, expires);
-      if (state.archived || this.snoozed(notification.threadId, now)) return;
+      if (state.archived || state.deleted || this.snoozed(notification.threadId, now)) return;
       for (const device of devices)
         this.statement(
           "INSERT INTO jobs(device,thread,body,due,expires,generation) VALUES(?,?,?,?,?,?)",
@@ -285,7 +323,7 @@ export class NotificationDatabase {
         "SELECT thread,body FROM pending WHERE due<=? ORDER BY due LIMIT 64",
       ).all(now);
       if (!pending.length) return;
-      const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
+      const devices = this.statement("SELECT id FROM devices WHERE revoked=0 AND expired=0").all();
       let jobs = this.count("jobs");
       for (const row of pending) {
         const threadId = ThreadId.parse(row.thread);
@@ -323,7 +361,7 @@ export class NotificationDatabase {
   }
   current(notification: Notification, generation: number): boolean {
     const state = this.thread(notification.threadId);
-    if (state.archived) return false;
+    if (state.archived || state.deleted) return false;
     if (notification.status === "background_done" || notification.status === "agent_says")
       return true;
     return (
@@ -335,7 +373,7 @@ export class NotificationDatabase {
   }
   due(now: number): Job[] {
     const rows = this.statement(
-      "SELECT jobs.*,devices.body AS device_body FROM jobs JOIN devices ON devices.id=jobs.device WHERE jobs.due<=? AND devices.revoked=0 ORDER BY jobs.due LIMIT 16",
+      "SELECT jobs.*,devices.body AS device_body FROM jobs JOIN devices ON devices.id=jobs.device WHERE jobs.due<=? AND devices.revoked=0 AND devices.expired=0 ORDER BY jobs.due LIMIT 16",
     ).all(now);
     return rows.map((row) =>
       Job.parse({

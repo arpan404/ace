@@ -102,6 +102,39 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_SCREEN_INTEGRATION !=
     await expect(
       helper.request({ op: "ui.act", ...scope, allowlist: [], ref, action: "press" }),
     ).rejects.toMatchObject({ code: "permission_denied" });
+    // Exercise Accessibility.act through the native command channel, including
+    // unreadable state and a provider that refuses the actual AX write.
+    for (const name of ["Collapse test", "Unreadable expansion test", "Refused expansion test"]) {
+      const node = ScreenUIFindResult.parse(
+        await helper.request({ op: "ui.find", ...scope, query: { name }, limit: 1 }),
+      ).nodes[0];
+      if (!node) throw new Error(`Missing expansion fixture: ${name}`);
+      const collapse = {
+        op: "ui.act",
+        ...scope,
+        ref: node.ref,
+        action: "expand",
+        value: false,
+      } as const;
+      if (name === "Refused expansion test") {
+        await expect(helper.request(collapse)).rejects.toMatchObject({ code: "not_supported" });
+      } else {
+        const written = once(app.stdout, "line");
+        expect(ScreenUIActResult.parse(await helper.request(collapse)).fallback).toBe(false);
+        expect((await written)[0]).toBe(`expanded:${name}:false`);
+        if (name === "Collapse test") {
+          const collapsed = ScreenUIFindResult.parse(
+            await helper.request({ op: "ui.find", ...scope, query: { name }, limit: 1 }),
+          ).nodes[0];
+          expect(collapsed?.states).not.toContain("expanded");
+          expect(ScreenUIActResult.parse(await helper.request(collapse)).fallback).toBe(false);
+        }
+      }
+    }
+    // An ordinary button has no expanded state or writable AXExpanded attribute.
+    await expect(
+      helper.request({ op: "ui.act", ...scope, ref, action: "expand", value: false }),
+    ).rejects.toMatchObject({ code: "not_supported" });
     const document = ScreenUIFindResult.parse(
       await helper.request({
         op: "ui.find",

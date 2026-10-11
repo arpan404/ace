@@ -1,3 +1,5 @@
+import { configuredProviderDiscovery } from "../provider-discovery.ts";
+import { nativeLoginGuard } from "./native-login-guard.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
 import {
   cursorSdkLoginDriver,
@@ -164,34 +166,48 @@ export async function prepareProviderLogin(
   )
     throw new Error("Instance unavailable");
   const release = services.accounts.reserveAccountChange(instanceId);
+  const guard = nativeLoginGuard(
+    instance,
+    registry,
+    services.providerConfigurations,
+    signal,
+    services.models,
+  );
+  const assertCurrent = () => guard.assertCurrent();
   try {
+    assertCurrent();
+    if (guard.configuration.enabled === false) throw new Error("Provider disabled");
     if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+    assertCurrent();
     const env = instanceEnv(
       instance,
       options.accounts?.env ?? options.providerStatus?.env ?? process.env,
     );
+    const metadataProbe =
+      options.accounts?.discovery?.probe ?? options.providerStatus?.probe ?? probeOutput;
     const discovery = {
       ...options.providerStatus,
       ...options.accounts?.discovery,
       env,
-      signal,
+      signal: guard.signal,
       timeoutMs: 4000,
-      ...(configuration?.binaryPath
-        ? {
-            overrides: {
-              ...options.accounts?.discovery?.overrides,
-              [target.provider]: configuration.binaryPath,
-            },
-          }
-        : {}),
+      probe: async (...args: Parameters<typeof probeOutput>) => {
+        assertCurrent();
+        const result = await metadataProbe(...args);
+        assertCurrent();
+        return result;
+      },
     };
+    const configured = configuredProviderDiscovery(
+      target.provider,
+      guard.configuration.binaryPath,
+      discovery,
+    );
     const status =
       target.provider === "pi"
-        ? await discoverPiStatus({
-            ...discovery,
-            ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
-          })
-        : await discoverProvider(target.provider, discovery);
+        ? await discoverPiStatus(configured)
+        : await discoverProvider(target.provider, configured);
+    assertCurrent();
     const executable = status.path;
     if (!executable) throw new Error("CLI not installed");
     const args =
@@ -205,7 +221,7 @@ export async function prepareProviderLogin(
             try {
               const result = await probeOutput(executable, args, {
                 env,
-                signal,
+                signal: guard.signal,
                 timeoutMs: 4000,
               });
               return result.code === 0
@@ -228,6 +244,7 @@ export async function prepareProviderLogin(
           })();
     signal.throwIfAborted();
     if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+    assertCurrent();
     const supportedKey = apiKeySupport(target.provider, status.version, help);
     if (target.method === "api_key" && !supportedKey.supported)
       throw new Error("API key unsupported");
@@ -250,6 +267,7 @@ export async function prepareProviderLogin(
                   ],
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
+            assertCurrent,
             ...(provider === "opencode" ? { prompt: true } : {}),
           })
         : cliLoginDriver({
@@ -262,23 +280,67 @@ export async function prepareProviderLogin(
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
             manager,
+            assertCurrent,
             ...(management
               ? { openTerminal: (launch) => management.openLoginTerminal(owner, launch) }
               : {}),
           });
     const result: ProviderLoginDriver = {
       ...driver,
-      release,
+      release() {
+        guard.dispose();
+        release();
+      },
+      async drain() {
+        await driver.drain?.();
+        await guard.drain();
+      },
+      isCurrent() {
+        try {
+          assertCurrent();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      input(input) {
+        try {
+          assertCurrent();
+        } catch {
+          return false;
+        }
+        return driver.input?.(input) ?? false;
+      },
+      apiKey(key) {
+        try {
+          assertCurrent();
+        } catch {
+          return false;
+        }
+        return driver.apiKey?.(key) ?? false;
+      },
+      async run(runSignal, emit) {
+        runSignal.throwIfAborted();
+        assertCurrent();
+        return driver.run(AbortSignal.any([runSignal, guard.signal]), emit);
+      },
       async changed(changeSignal) {
+        changeSignal = AbortSignal.any([changeSignal, guard.signal]);
+        changeSignal.throwIfAborted();
+        assertCurrent();
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+        assertCurrent();
         const after =
           provider === "pi"
             ? await discoverPiStatus({
-                ...discovery,
+                ...configured,
                 executable,
                 signal: changeSignal,
               })
-            : await discoverProvider(provider, { ...discovery, signal: changeSignal });
+            : await discoverProvider(provider, { ...configured, signal: changeSignal });
+        changeSignal.throwIfAborted();
+        if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
+        assertCurrent();
         if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
           throw new Error("CLI logout unconfirmed");
         if (action === "login" && after.auth === "logged_out")
@@ -302,8 +364,11 @@ export async function prepareProviderLogin(
         });
         if (registry.get(instanceId)?.instance.loginRevision === before)
           registry.loginChanged(instanceId);
+        guard.acceptRevision();
         const models = services.models;
         if (models) {
+          assertCurrent();
+          guard.ownCatalog();
           models.registerInstance({
             id: instanceId,
             provider: instance.provider,
@@ -323,13 +388,18 @@ export async function prepareProviderLogin(
             instanceId,
             registry.get(instanceId)?.instance.loginRevision ?? "0",
           );
+          assertCurrent();
         }
+        assertCurrent();
         await services.providerStatuses?.refresh();
+        assertCurrent();
         services.providerStatuses?.publish();
+        assertCurrent();
       },
     };
     return result;
   } catch (error) {
+    guard.dispose();
     release();
     throw error;
   }

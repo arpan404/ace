@@ -1,5 +1,6 @@
-import { cp, mkdir, readFile, realpath } from "node:fs/promises";
-import { dirname, join, basename } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { z } from "zod";
 const Manifest = z.object({
   name: z.string(),
@@ -34,12 +35,7 @@ export async function stageSharpRuntime(
     if (staged.has(manifest.name)) return;
     staged.add(manifest.name);
     const output = join(destination, "node_modules", manifest.name);
-    await mkdir(output, { recursive: true });
-    await cp(root, output, {
-      recursive: true,
-      dereference: false,
-      filter: (entryPath) => basename(entryPath) !== "node_modules",
-    });
+    await copyRuntimePackage(root, output);
     manifests.push(path);
     for (const name of Object.keys(manifest.dependencies ?? {}))
       await stage(await locate(root, name));

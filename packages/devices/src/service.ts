@@ -3,6 +3,7 @@ import { watchDeviceLease } from "./lease-expiry.ts";
 import { deviceStreamSnapshot } from "./snapshot.ts";
 import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
+import { ThreadId, AgentId, type ScreenAgentScope } from "@ace/protocol";
 import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
@@ -38,6 +39,7 @@ export class DevicesService {
   private enabled = false;
   private closed = false;
   private disabling = false;
+  private temporaryEnablement: { actors: Set<Actor> } | undefined;
   private readonly sessions = new Map<string, DeviceSession>();
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
@@ -162,6 +164,92 @@ export class DevicesService {
   approvedThread(id: string): string | undefined {
     return this.sessions.get(id)?.threadId;
   }
+  /** A host-approved tool lifetime owns only the grants it creates. */
+  async grantAgentAccess(
+    deviceId: string,
+    caller: ScreenAgentScope,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const guard = () => signal.throwIfAborted();
+    guard();
+    const session = await this.session(deviceId);
+    guard();
+    const actor: Actor = { kind: "human", owner: "host-device-approval", guard };
+    const approval = {
+      op: "approve" as const,
+      deviceId,
+      threadId: ThreadId.parse(caller.threadId),
+      allowed: true,
+    };
+    const screenAccess =
+      session.device.platform === "ios"
+        ? this.options.screen?.deviceAccess(approval.threadId)
+        : undefined;
+    const temporary =
+      this.temporaryEnablement ?? (!this.enabled ? { actors: new Set<Actor>() } : undefined);
+    if (temporary) {
+      this.temporaryEnablement = temporary;
+      temporary.actors.add(actor);
+    }
+    let epoch: number | undefined;
+    try {
+      await this.perform({ op: "enable", enabled: true }, actor);
+      guard();
+      epoch = session.approvalEpoch + 1;
+      await approveDevice(
+        session,
+        approval,
+        this.options,
+        this.lifecycleOwner(),
+        guard,
+        screenAccess,
+      );
+      this.emit(session);
+      guard();
+      await this.perform(
+        {
+          op: "controller",
+          deviceId,
+          controller: "agent",
+          threadId: approval.threadId,
+          agentId: AgentId.parse(caller.agentId),
+        },
+        actor,
+      );
+      guard();
+      // Successful access is now an explicit thread grant, independent of the tool call.
+      screenAccess?.commit();
+      if (this.temporaryEnablement === temporary) this.temporaryEnablement = undefined;
+    } catch (error) {
+      if (session.approvalEpoch === epoch && session.threadId === caller.threadId) {
+        await approveDevice(
+          session,
+          { ...approval, allowed: false },
+          this.options,
+          this.lifecycleOwner(),
+          undefined,
+          screenAccess,
+        );
+        this.emit(session);
+      }
+      throw error;
+    } finally {
+      await screenAccess?.rollback();
+      temporary?.actors.delete(actor);
+      if (temporary && this.temporaryEnablement === temporary && !temporary.actors.size) {
+        this.temporaryEnablement = undefined;
+        await this.perform(
+          { op: "enable", enabled: false },
+          { kind: "human", owner: "cancelled-device-approval" },
+        );
+      }
+    }
+  }
+  /** Human control belongs to a socket lifetime, even for the same paired device. */
+  ownsControl(id: string, owner: string): boolean {
+    const lease = this.sessions.get(id)?.lease;
+    return lease?.current()?.kind === "human" && lease.owned(owner);
+  }
   states(): DeviceState[] {
     return [...this.sessions.values()].map((session) => this.state(session));
   }
@@ -224,6 +312,7 @@ export class DevicesService {
     for (const listener of this.listeners) listener(state);
   }
   private authorize(session: DeviceSession, actor: Actor): void {
+    actor.guard?.();
     if (this.closed || !this.enabled || session.changingApproval)
       throw new DeviceError(
         "permission_denied",
@@ -265,6 +354,7 @@ export class DevicesService {
     }
   }
   private async perform(operation: DeviceOperation, actor: Actor): Promise<unknown> {
+    actor.guard?.();
     if (
       ["enable", "approve", "controller", "stream.configure", "stream.keyframe"].includes(
         operation.op,
@@ -279,6 +369,7 @@ export class DevicesService {
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
+      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
       const changed = this.enabled !== operation.enabled;
       this.enabled = operation.enabled;
       this.watching();
@@ -326,14 +417,19 @@ export class DevicesService {
         ),
         enabled: this.isEnabled(),
       };
-    const viewer =
-      operation.op === "stream.configure" ? this.streamOwners.scope(actor.owner) : undefined;
+    const viewer = ["stream.configure", "logs.start", "logs"].includes(operation.op)
+      ? this.streamOwners.scope(actor.owner)
+      : undefined;
     const session = await this.session(operation.deviceId);
     viewer?.guard();
+    actor.guard?.();
     if (operation.op === "approve") {
       if (!this.enabled)
         throw new DeviceError("permission_denied", "Devices are disabled", "Enable devices first.");
-      await approveDevice(session, operation, this.options, this.lifecycleOwner());
+      await approveDevice(session, operation, this.options, this.lifecycleOwner(), () =>
+        actor.guard?.(),
+      );
+      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
       this.emit(session);
       return this.state(session);
     }
@@ -384,6 +480,7 @@ export class DevicesService {
           () => this.emit(session),
         );
       }
+      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
       this.watchLease(session);
       this.emit(session);
       return this.state(session);
@@ -451,14 +548,14 @@ export class DevicesService {
             : this.options.platform.uiAct(session.device, operation, guard),
         );
       case "logs.start":
-        await this.startLogs(session, actor);
+        await this.startLogs(session, actor, () => viewer?.guard());
         return { started: true };
       case "logs.stop":
         session.logOwners.delete(actor.owner);
         if (!session.logOwners.size) await session.logs.stop();
         return { stopped: true };
       case "logs":
-        await this.startLogs(session, actor);
+        await this.startLogs(session, actor, () => viewer?.guard());
         return session.logs.tail(operation.limit);
       case "record.start":
         await this.record(session);
@@ -543,21 +640,28 @@ export class DevicesService {
     this.authorize(session, actor);
     return result;
   }
-  private async startLogs(session: DeviceSession, actor: Actor): Promise<void> {
+  private async startLogs(session: DeviceSession, actor: Actor, guard: () => void): Promise<void> {
+    guard();
+    this.authorize(session, actor);
     if (!session.logOwners.has(actor.owner) && session.logOwners.size >= 64)
       throw new DeviceError("limit", "Too many device log readers", "Close an unused log view.");
     const retained = session.logOwners.has(actor.owner);
-    session.logOwners.add(actor.owner);
+    const lifetime = session.logOwners.get(actor.owner) ?? {};
+    session.logOwners.set(actor.owner, lifetime);
     if (session.logs.running) return;
     try {
       const generation = session.generation;
       const spec = await this.options.platform.logs(session.device);
+      guard();
       this.authorize(session, actor);
+      if (session.logOwners.get(actor.owner) !== lifetime)
+        throw new DeviceError("busy", "Device logs stopped during startup", "Start logs again.");
       if (session.generation !== generation)
         throw new DeviceError("busy", "Device stopped during log startup", "Restart logs.");
       await session.logs.start(spec, this.options.env, this.options.spawnLogs);
     } catch (error) {
-      if (!retained) session.logOwners.delete(actor.owner);
+      if (!retained && session.logOwners.get(actor.owner) === lifetime)
+        session.logOwners.delete(actor.owner);
       throw error;
     }
   }
@@ -656,7 +760,9 @@ export class DevicesService {
     actor: Actor,
     sink: Parameters<DeviceSession["logs"]["subscribe"]>[0],
   ): Promise<() => void> {
+    const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
+    viewer.guard();
     this.authorize(session, actor);
     const epoch = session.approvalEpoch;
     return session.logs.subscribe(async (batch) => {

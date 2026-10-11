@@ -16,6 +16,7 @@ export interface WorkspaceClock {
   every(callback: () => void, milliseconds: number): CancelTimer;
 }
 export interface WorkspaceRuntime {
+  environment: NodeJS.ProcessEnv;
   filesystem: WorkspaceFileSystem;
   spawn: (binary: string, args: string[], options: SpawnOptions) => ChildProcess;
   worker: (url: URL) => Worker;
@@ -29,6 +30,7 @@ export interface WorkspaceRuntime {
 /** Defaults are assembled at the I/O boundary, with no state shared by services. */
 export function workspaceRuntime(): WorkspaceRuntime {
   return {
+    environment: { ...process.env },
     filesystem,
     spawn,
     watch,

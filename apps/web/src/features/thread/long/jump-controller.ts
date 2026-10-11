@@ -214,6 +214,22 @@ export class JumpController {
     this.land(openWindow(reply), options.turn ?? undefined, options.query);
   }
 
+  /** Resolve an exact item without scanning or paging through the whole history. */
+  async toItem(itemId: string): Promise<void> {
+    const reply = await this.fetch("jump", {
+      threadId: this.threadId,
+      itemId,
+      before: aroundBefore,
+      after: 199 - aroundBefore,
+    });
+    if (!reply) return;
+    if (reply.targetSeq === null) {
+      this.set({ ...idle, failed: "That item is no longer available. Showing the latest thread." });
+      return;
+    }
+    this.land(openWindow(reply), undefined);
+  }
+
   private land(window: JumpWindow, turn: number | undefined, query?: string): void {
     const target = window.targetId;
     const tail = this.tail();

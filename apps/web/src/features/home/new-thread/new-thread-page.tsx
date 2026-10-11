@@ -126,22 +126,16 @@ export function NewThreadPage(props: {
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
-  // A selection belongs to this provider; omission retains its configured native default.
-  const [permissionChoice, setPermissionChoice] = useState<{
-    provider: ProviderKind | undefined;
-    id: PermissionMode | undefined;
-  }>();
-  if (permissionChoice && permissionChoice.provider !== provider) setPermissionChoice(undefined);
-  const permission = permissionChoice?.provider === provider ? permissionChoice?.id : undefined;
-  const setPermission = (id: PermissionMode | undefined) => setPermissionChoice({ provider, id });
+  // Keep explicit choices across account/provider changes; null is an intentional reset.
+  const [permission, setPermission] = useState<PermissionMode | null>();
   const [defaultMode] = useDaemonSetting(
     "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
   const permissions = usePermissionModes(provider, {
     instanceId: resolved.account?.id,
-    currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
-    setCurrentId: (id) => setPermission(id ?? undefined),
+    currentId: permission !== undefined ? permission : provider ? defaultMode?.[provider] : null,
+    setCurrentId: setPermission,
   });
   const admitted = {
     mode: permissions.currentId ?? undefined,
@@ -153,8 +147,7 @@ export function NewThreadPage(props: {
         )
       : undefined,
   };
-  const chosen =
-    permission && permissions.modes.some((mode) => mode.id === permission) ? permission : undefined;
+  const chosen = permission === undefined ? undefined : (permissions.currentId ?? undefined);
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -271,7 +264,7 @@ export function NewThreadPage(props: {
               ref={composer}
               key={project}
               onPlan={() => {
-                if (provider) setPermissionChoice({ provider, id: "plan" });
+                if (provider) setPermission("plan");
               }}
               thread={draftThread}
               draftKey={project ? draftKeyFor(project) : undefined}

@@ -81,7 +81,10 @@ export class PluginClientOperations {
     this.registry.configureSkill(input);
     return input;
   }
-  selected(provider: import("./types.ts").Provider, snapshots: PluginSnapshot[]): PluginSnapshot[] {
+  selected(
+    provider: import("@ace/protocol").ProviderKind,
+    snapshots: PluginSnapshot[],
+  ): PluginSnapshot[] {
     return snapshots.flatMap((snapshot) => {
       const policy = this.availability(snapshot.install.name);
       if (!policy.enabled || !policy.providers.includes(provider)) return [];

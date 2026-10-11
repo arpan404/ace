@@ -1,3 +1,4 @@
+import { SourceControlContext } from "./source-control-draft.ts";
 import { z } from "zod";
 
 const text = z.string().max(65_536);
@@ -124,6 +125,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     threadId: z.string(),
     repository: ForgeRepository,
     input: ForgeCreatePrInput,
+    draftFingerprint: SourceControlContext.shape.fingerprint.optional(),
+    draftBaseRef: z.string().min(1).max(1200).optional(),
   }),
   z.object({ type: z.literal("forge.pr.link"), link: ForgeThreadLink }),
   z

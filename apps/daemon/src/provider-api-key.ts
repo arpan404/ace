@@ -40,6 +40,7 @@ export function apiKeyLoginDriver(options: {
   env: NodeJS.ProcessEnv;
   prompt?: boolean;
   spawn?: (options: SpawnOptions) => RawSupervisedProcess;
+  assertCurrent?(): void;
 }): ProviderLoginDriver {
   let accept: ((key: Buffer) => void) | undefined;
   let child: RawSupervisedProcess | undefined;
@@ -70,6 +71,7 @@ export function apiKeyLoginDriver(options: {
       });
       try {
         signal.throwIfAborted();
+        options.assertCurrent?.();
         child = (options.spawn ?? spawnRawSupervised)({
           command: options.command,
           args: options.args,
@@ -105,6 +107,7 @@ export function apiKeyLoginDriver(options: {
           owned.stdout.resume();
           signal.throwIfAborted();
           emit({ state: "verifying" });
+          options.assertCurrent?.();
           await new Promise<void>((resolve, reject) => {
             owned.stdin.write(key, (error) =>
               error ? reject(new Error("Key hand-off failed")) : resolve(),

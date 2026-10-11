@@ -3,6 +3,7 @@ import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 export interface Endpoint {
   url: string;
   token: string;
+  pairedDeviceId?: string | undefined;
 }
 
 /** The daemon's lifecycle as the app sees it (the runtime, or its supervisor in tests). */
@@ -107,6 +108,7 @@ export class LinkKeeper<L extends KeptLink> {
       current &&
       current.endpoint.url === endpoint.url &&
       current.endpoint.token === endpoint.token &&
+      current.endpoint.pairedDeviceId === endpoint.pairedDeviceId &&
       !current.link.fatal()
     ) {
       current.link.wake();

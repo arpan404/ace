@@ -1,6 +1,6 @@
 import { useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type PermissionCapabilities, type ProviderKind } from "@ace/protocol";
-import { resolvePermissionMode, providerNames } from "@ace/ui-core";
+import { permissionModeLabel, providerNames } from "@ace/ui-core";
 import { SettingRow } from "./setting-row.tsx";
 import { Tip } from "./ui/tooltip.tsx";
 import { Select, type SelectOption } from "./ui/select.tsx";
@@ -35,18 +35,14 @@ function PermissionDefault(props: { provider: ProviderKind; workspaceId?: string
   const offline = useConnectionState() !== "ready";
   const toast = useToast();
   const title = `${providerNames[props.provider]} permissions`;
-  const automatic = resolvePermissionMode(
-    props.provider,
-    effective?.[props.provider],
-    capabilities,
-  );
+  const automatic = effective?.[props.provider];
   const value =
     local?.[props.provider] ?? (props.workspaceId ? "" : loading ? "loading" : (automatic ?? ""));
   const choices = capabilities?.permissionModes ?? [];
   const options = nativeDefaultOptions(capabilities, value, !!props.workspaceId);
   const inherited =
     props.workspaceId && !value
-      ? choices.find((mode) => mode.id === effective?.[props.provider])?.label
+      ? choices.find((mode) => mode.id === effective?.[props.provider])
       : undefined;
   return (
     <SettingRow
@@ -56,7 +52,7 @@ function PermissionDefault(props: { provider: ProviderKind; workspaceId?: string
         failed
           ? "Couldn't load permission modes. Reconnect and try again."
           : inherited
-            ? `Global default: ${inherited}`
+            ? `Global default: ${permissionModeLabel(inherited)}`
             : !loading && choices.length === 0
               ? "Uses the provider’s configured permissions."
               : undefined
@@ -106,11 +102,11 @@ function nativeDefaultOptions(
     { value: "", label: inherit ? "Use global default" : "Provider default" },
     ...choices.map((mode) => ({
       value: mode.id,
-      label: mode.label,
+      label: permissionModeLabel(mode),
     })),
   ];
   if (value && value !== "loading" && !choices.some((choice) => choice.id === value))
-    options.push({ value, label: "Saved choice unavailable" });
+    options.push({ value, label: `Unavailable mode: ${value}`, disabled: true });
   if (value === "loading") options.push({ value, label: "Loading approvals…", disabled: true });
   return options;
 }

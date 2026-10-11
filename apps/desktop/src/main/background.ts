@@ -111,11 +111,17 @@ export class Background {
 
   private async createLink(endpoint: Endpoint): Promise<DesktopLink> {
     const { DesktopLink } = await import("./link/desktop-link.ts");
+    const deviceId = this.deviceId();
     return new DesktopLink({
       url: endpoint.url,
       token: endpoint.token,
-      deviceId: this.deviceId(),
-      storage: notificationOutbox(this.options.userData, endpoint.url, this.deviceId()),
+      deviceId,
+      ...(endpoint.pairedDeviceId ? { pairedDeviceId: endpoint.pairedDeviceId } : {}),
+      storage: notificationOutbox(
+        this.options.userData,
+        endpoint.url,
+        endpoint.pairedDeviceId ?? deviceId,
+      ),
       quietHours: () => {
         const hours = this.options.settings().notifications.quietHours;
         return hours

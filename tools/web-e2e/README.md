@@ -9,13 +9,21 @@ End-to-end tests for the web app (`apps/web`) in Chromium, with Playwright.
 | `screens`     | Every screen in Dark and Light at 1440x900, written to `/tmp/aceshots-web/<screen>-<theme>.png` (`ACE_SHOTS_DIR` overrides).                                                                |
 
 ```sh
-bun run web:e2e       # fake + real-daemon
-bun run web:screens   # screenshots
+bun run web:e2e                              # fake + real-daemon
+bun run --filter @ace/web-e2e e2e:fake        # fake only
+bun run web:screens                          # screenshots
 ```
 
 Playwright starts the two Vite servers (ports 5190 fake, 5191 real) and the daemon (port 4391,
 home in the system temp dir) itself. `ACE_E2E_FAKE_PORT`, `ACE_E2E_WEB_PORT`,
 `ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` move them, so two checkouts can run side by side.
+
+The `e2e:fake` command uses `playwright.fake.config.ts`, which starts only the fake Vite
+server. It keeps the shared Chromium settings and two-worker limit while excluding the
+real-daemon, screens and walkthrough projects. The Check workflow runs this suite in its
+existing Linux browser job, with a 15-minute step limit and failure traces uploaded as
+`fake-web-failures`. It includes the sidebar hover/focus visibility and short-window Work
+action regressions.
 
 The project journeys (`real-daemon-projects.spec.ts`) work in `/tmp/<daemon home>-projects`, the
 e2e daemon's only project root. Their clone address is rewritten by the daemon home's global Git

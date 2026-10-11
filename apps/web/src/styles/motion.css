@@ -1,4 +1,5 @@
 /*
+ * Motion policy: animate actual changes briefly; working, waiting and loading stay static.
  * The motion system (DESIGN-fable.md, "Motion"). Every animation in the app uses these tokens
  * and moves only transform and opacity, so it runs on the compositor and never forces layout.
  * Durations are mirrored for JS timers in @ace/ui-core `motionMs`.
@@ -97,24 +98,21 @@
   .fx-view-in {
     animation: fx-fade-in var(--dur-2) var(--ease) both;
   }
-  /* A progress bar that doesn't know how far along it is: a short segment sweeping across. */
+  /* Indeterminate progress is a stationary segment; data updates drive real progress. */
   .fx-indeterminate {
-    animation: fx-sweep 1.4s var(--ease) infinite;
+    transform: translateX(100%);
   }
-  /* Waiting on the person elsewhere (a browser sign-in): a ring breathes out from a mark. Its
-     resting state is invisible, so with motion off it simply isn't there. */
+  /* The state glyph already identifies waiting. A second decorative ring adds no information. */
   .fx-ring {
-    opacity: 0;
-    animation: fx-ring 2.4s var(--ease) infinite;
+    display: none;
   }
   .fx-work-pulse {
-    animation: fx-breathe 2.8s ease-in-out infinite;
+    animation: none;
   }
-  /* Placeholder blocks while something loads: a slow breath of opacity. */
+  /* Loading feedback keeps its shape without perpetual opacity changes. */
   .fx-skeleton {
     background: color-mix(in oklab, var(--foreground) 6%, transparent);
     border-radius: var(--radius-sm, 6px);
-    animation: fx-breathe 1.6s ease-in-out infinite;
   }
 }
 
@@ -160,25 +158,10 @@
     transform: scale(0.6);
   }
 }
-@keyframes fx-sweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(300%);
-  }
-}
-@keyframes fx-ring {
-  from {
-    opacity: 0.55;
-    transform: scale(1);
-  }
-  to {
-    transform: scale(1.4);
-  }
-}
-@keyframes fx-breathe {
-  50% {
-    opacity: 0.45;
-  }
+
+/* Unlayered policy overrides generated Tailwind animation utilities at every consumer. */
+.animate-pulse,
+.animate-spin,
+.animate-ping {
+  animation: none;
 }
