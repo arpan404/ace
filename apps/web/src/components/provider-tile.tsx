@@ -48,7 +48,6 @@ export function ProviderTile(props: {
           brand={brand}
           size={tile.icon}
           label={props.service?.label}
-          decorative={!props.service}
         />
       )}
     </span>

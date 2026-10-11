@@ -16,7 +16,7 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/activity", "Activity"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
-    ["/accounts", "Usage & accounts"],
+    ["/accounts", "Usage"],
     ["/settings", "Settings"],
   ];
   for (const [path, name] of pages) {
@@ -48,8 +48,8 @@ test("old addresses land where their pages live now", async () => {
     ["/offshifts/old-run/lane", "Home"],
     ["/deck/old-run/lane", "Home"],
     ["/offsets/old-run/lane", "Home"],
-    ["/more", "Usage & accounts"],
-    ["/more/accounts", "Usage & accounts"],
+    ["/more", "Usage"],
+    ["/more/accounts", "Usage"],
     ["/more/files", "Home"],
   ] as const) {
     const view = await harness().open(path);

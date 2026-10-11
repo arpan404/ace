@@ -409,7 +409,7 @@ const screens: Record<string, Setup> = {
     await page.getByRole("complementary").locator('a[href^="/skills/"]').nth(2).click();
     await page.getByRole("main").waitFor();
   },
-  accounts: visit("/accounts", "Usage & accounts"),
+  accounts: visit("/accounts", "Usage"),
   // A thread's Files tab: the checkout tree pinned in its side panel.
   files: rightTab("/t/thread-cold-start", "Files"),
   search: async (page) => {
@@ -478,12 +478,12 @@ const screens: Record<string, Setup> = {
       .waitFor();
   }),
   "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
-    await visit("/accounts", "Usage & accounts")(page);
-    await page.getByRole("status", { name: /Loading accounts/ }).waitFor();
+    await visit("/accounts", "Usage")(page);
+    await page.getByRole("status", { name: /Loading usage/ }).waitFor();
   }),
   "state-accounts-error": staged('daemon.failRequests("accounts.list");', async (page) => {
-    await visit("/accounts", "Usage & accounts")(page);
-    await page.getByText("Accounts unavailable").waitFor();
+    await visit("/accounts", "Usage")(page);
+    await page.getByText("Couldn't load usage").waitFor();
   }),
   "state-automations-loading": staged('daemon.holdRequests("automation.list");', async (page) => {
     await page.goto("/automations");

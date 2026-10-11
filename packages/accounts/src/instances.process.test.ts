@@ -208,3 +208,35 @@ test("checking one account does not execute unrelated provider programs", async 
   expect((await loginStatus(account, { env: { PATH: root } })).auth).toBe("logged_out");
   await expect(readFile(sentinel, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+test("account listing identifies the normal CLI home while keeping isolated homes private", async () => {
+  const root = await temp();
+  const registry = await openRegistry(join(root, "registry.sqlite"));
+  try {
+    await registry.register({
+      ...createInstance({
+        id: "codex-default",
+        provider: "codex",
+        label: "CLI",
+        homeDir: join(root, ".codex"),
+      }),
+      implicit: true,
+      env: {},
+    });
+    await registry.register(
+      createInstance({
+        id: "codex-work",
+        provider: "codex",
+        label: "Work",
+        homeDir: join(root, "private"),
+      }),
+    );
+    expect(registry.summary("codex-default", 1234)?.cliHome).toBe(join(root, ".codex"));
+    expect(JSON.stringify(registry.summary("codex-work", 1234))).not.toContain(
+      join(root, "private"),
+    );
+    expect(JSON.stringify(registry.summaries(1234))).not.toContain('"env"');
+  } finally {
+    registry.close();
+  }
+});

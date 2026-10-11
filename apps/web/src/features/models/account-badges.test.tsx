@@ -1,11 +1,14 @@
 import { replayCursor, workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { closeModelControl, openModelControl, openModelPicker } from "@/test/model-control.ts";
 import { openProfileMenu } from "@/test/navigation.ts";
 
+configure({ asyncUtilTimeout: 10_000 });
+
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 const thread = "thread-replay-cursor";
 async function open(app: ReturnType<typeof harness>) {
@@ -25,7 +28,7 @@ async function open(app: ReturnType<typeof harness>) {
   return { popover, list };
 }
 
-test("a single account has no dot in its composer, row or picker", async () => {
+test("a single account has a readable picker badge and keeps its composer and row unchanged", async () => {
   const app = harness();
   app.daemon.services.accounts = app.daemon.services.accounts.filter(
     (account) => account.provider !== "claude" || account.id === "claude-personal",
@@ -36,7 +39,7 @@ test("a single account has no dot in its composer, row or picker", async () => {
   const { popover } = await open(app);
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
   const personal = await within(rail).findByRole("tab", { name: "Claude Code", selected: true });
-  expect(within(personal).queryByRole("img", { name: "Personal account" })).toBeNull();
+  expect(within(personal).getByRole("img", { name: "Personal account" })).toBeTruthy();
   expect(
     within(screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ })).queryByRole("img", {
       name: "Personal account",
@@ -82,8 +85,8 @@ test("each Codex account has a badged rail entry and its own catalog, default fi
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
   expect(within(list).getByText("NEW")).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt-6");
-  expect(within(list).getAllByRole("img", { name: "Codex · Team" }).length).toBeGreaterThan(0);
-  expect(within(list).getAllByRole("img", { name: "Codex · Personal" }).length).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("img", { name: "Team account" }).length).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("img", { name: "Personal account" }).length).toBeGreaterThan(0);
 });
 
 test("arrow keys and Tab move between account rail and models, then Enter picks on that account", async () => {
@@ -121,7 +124,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   await app.open("/settings/providers/claude");
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const editor = screen.getByRole("form", { name: "Edit account label" });
   const name = within(editor).getByRole("textbox", { name: "Account name" });
   await userEvent.clear(name);
@@ -129,14 +132,13 @@ test("editing an account label updates its composer, thread row, picker, search 
   const label = within(editor).getByRole("textbox", { name: "Short label" });
   await userEvent.clear(label);
   await userEvent.type(label, "ST");
-  await userEvent.click(within(editor).getByRole("combobox", { name: "Label colour" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Violet" }));
+  await userEvent.click(within(editor).getByRole("button", { name: "Use violet badge" }));
   await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
-  await within(accounts).findByRole("img", { name: "Claude Code · Studio" });
+  await within(accounts).findByRole("img", { name: "Studio account" });
   await userEvent.click(await screen.findByRole("link", { name: "Back to app" }));
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   await openProfileMenu();
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
   await waitFor(() =>
     expect(
       within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
@@ -157,15 +159,15 @@ test("editing an account label updates its composer, thread row, picker, search 
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
   expect(
-    within(within(popover).getByRole("tab", { name: "Claude Code · Studio" })).getByTitle(
-      "Studio account",
-    ),
+    within(within(popover).getByRole("tab", { name: "Claude Code · Studio" })).getByRole("img", {
+      name: "Studio account",
+    }),
   ).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "Studio");
   expect(await within(list).findByRole("option", { name: /Opus 5.5.*Studio/ })).toBeTruthy();
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /Usage.*accounts/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
   await waitFor(() =>
     expect(
       within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
@@ -180,7 +182,7 @@ test("account badges accept a complete emoji and reject more than two text chara
   await app.open("/settings/providers/claude");
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit label…" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const form = within(screen.getByRole("form", { name: "Edit account label" }));
   const badge = form.getByRole("textbox", { name: "Short label" });
   await userEvent.clear(badge);

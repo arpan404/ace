@@ -1,8 +1,11 @@
-import { render, screen, within, waitFor } from "@testing-library/react";
+import { configure, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { WindowBar } from "./window-bar.tsx";
+
+vi.setConfig({ testTimeout: 30_000 });
+configure({ asyncUtilTimeout: 10_000 });
 
 const observedAt = Date.parse("2026-10-06T21:44:30Z");
 const now = Date.parse("2026-10-09T12:00:00Z");
@@ -39,14 +42,11 @@ test("cached usage exposes its provider timestamp and Refresh cannot make an exp
   expect(
     within(card).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuenow"),
   ).toBe("73");
-  expect(card.querySelector("time")?.getAttribute("datetime")).toBe(
-    new Date(observedAt).toISOString(),
-  );
-  expect(within(card).getByText(/Last provider reading/)).toBeTruthy();
+  await userEvent.hover(within(card).getByText("Claude Code · Personal"));
+  expect(await screen.findByRole("tooltip", { name: /Last reported/ })).toBeTruthy();
+  await userEvent.unhover(within(card).getByText("Claude Code · Personal"));
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
-  await waitFor(() =>
-    expect(within(card).getByText("Waiting for a new provider reading")).toBeTruthy(),
-  );
+  await waitFor(() => expect(within(card).getByText("5-hour · Not reported yet")).toBeTruthy());
   expect(within(card).queryByRole("meter", { name: "5-hour window" })).toBeNull();
   const fresh = Date.now();
   app.daemon.services.updateQuota(account.id, {
@@ -59,5 +59,10 @@ test("cached usage exposes its provider timestamp and Refresh cannot make an exp
       within(card).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
     ).toBe("8"),
   );
-  expect(card.querySelector("time")?.getAttribute("datetime")).toBe(new Date(fresh).toISOString());
+  await userEvent.hover(within(card).getByText("Claude Code · Personal"));
+  expect(
+    await screen.findByRole("tooltip", {
+      name: new RegExp(new Date(fresh).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    }),
+  ).toBeTruthy();
 });

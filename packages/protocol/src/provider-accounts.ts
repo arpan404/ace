@@ -36,6 +36,7 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     ...target,
     label,
     shortLabel: AccountBadgeInput.optional(),
+    badgeUsesInitial: z.boolean().optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
   }),
   z.strictObject({ type: z.literal("provider.accounts.setDefault"), requestId: id, ...target }),

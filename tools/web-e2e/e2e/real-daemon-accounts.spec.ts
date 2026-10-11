@@ -16,21 +16,17 @@ async function connect(page: Page, path: string) {
   await expect(page.getByRole("button", { name: /, account$/ })).toBeAttached();
 }
 
-test("the run-out policy is stored by the daemon and read back after a reload", async ({
-  page,
-}) => {
+test("Usage is read-only and directs account management to Providers", async ({ page }) => {
   await connect(page, "/accounts");
-  const policy = page.getByRole("radiogroup", { name: "When an account runs out" });
-  const resume = policy.getByRole("radio", { name: /Resume when the window resets/ });
-  const manual = policy.getByRole("radio", { name: /Stop and let me decide/ });
-
-  await resume.click();
-  await expect(resume).toHaveAttribute("aria-checked", "true");
-  await page.reload();
-
-  await expect(resume).toHaveAttribute("aria-checked", "true");
-  await manual.click();
-  await expect(manual).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("heading", { level: 1, name: "Usage", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Add account|Rename|Remove|Make default/ }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("radiogroup", { name: "When an account runs out" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Manage accounts in Settings › Providers." }).click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Providers", exact: true }),
+  ).toBeVisible();
 });
 
 test("the web app on another origin lists and revokes paired devices through the daemon access routes", async ({

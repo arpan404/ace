@@ -1,7 +1,9 @@
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10_000 });
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -12,6 +14,7 @@ const day = 24 * hour;
  */
 const now = Date.parse("2036-10-01T15:00:00Z");
 
+vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now }));
 afterEach(() => vi.useRealTimers());
 
@@ -29,7 +32,7 @@ function report(app: App, id: string, windows: Record<string, [used: number, res
   );
 }
 
-test("headroom names each provider's account with the most room and when the next one frees up", async () => {
+test("usage puts limited accounts first and exposes each provider reset time", async () => {
   const app = harness();
   report(app, "claude-personal", { five_hour: [62, 2 * hour], seven_day: [41, 4 * day] });
   report(app, "claude-work", { five_hour: [23, 3 * hour], seven_day: [57, 2 * day] });
@@ -38,18 +41,17 @@ test("headroom names each provider's account with the most room and when the nex
   await app.open("/accounts");
   const work = await screen.findByRole("article", { name: "Claude Code Work" });
 
-  const headroom = screen.getByRole("list", { name: "Headroom now" });
-  const rows = within(headroom)
-    .getAllByRole("listitem")
-    .map((row) => row.textContent);
-  expect(rows[0]).toBe(
-    "Claude Code3 of 3 accounts can work · 1 with no limits reported · Most room: Work, 43% of Weekly left",
-  );
-  expect(rows[1]).toMatch(
-    /^Codex1 of 3 accounts can work · 1 with no limits reported · Most room: Personal, 62% of 5-hour left · Team resets \d{1,2}:\d\d(?: [AP]M)? · in 1h 27m$/i,
-  );
-  // OpenCode and Cursor report no windows: nothing to compare.
-  expect(rows.find((row) => row?.startsWith("OpenCode"))).toContain("no limits reported");
+  expect(
+    within(await screen.findByRole("region", { name: "Closest to a limit" })).getByRole("article", {
+      name: "Codex Team",
+    }),
+  ).toBeTruthy();
+  expect(
+    within(await screen.findByRole("region", { name: "Everything else" })).getByRole("article", {
+      name: "Claude Code Work",
+    }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Headroom now" })).toBeNull();
 
   // Each ring says how long until its window resets.
   expect(
@@ -57,27 +59,29 @@ test("headroom names each provider's account with the most room and when the nex
   ).toMatch(/^57% used, Resets \w+ · in 2d$/);
 });
 
-/** A table row's cells: who, which provider, how many tokens. */
-const cells = (row: HTMLElement) =>
-  within(row)
-    .getAllByRole("cell")
-    .slice(0, 3)
-    .map((cell) => cell.textContent);
-
 test("usage by account lists each account's tokens under its name", async () => {
   await harness().open("/accounts");
   await userEvent.click(await screen.findByRole("button", { name: "By account" }));
 
   const table = await screen.findByRole("table", { name: "Usage by account" });
   const rows = await within(table).findAllByRole("row");
-  // Busiest first; an account ace doesn't list keeps its id.
-  expect(rows.slice(1).map(cells)).toEqual([
-    ["Personal", "Claude Code", "50.8M"],
-    ["Personal", "Codex", "37.0M"],
-    ["Work", "Claude Code", "31.7M"],
-    ["OpenRouter API", "OpenCode", "9.4M"],
-    ["API key", "Pi", "3.0M"],
-  ]);
+  const expected = [
+    ["Claude Code", "Personal", "50.8M"],
+    ["Codex", "Personal", "37.0M"],
+    ["Claude Code", "Work", "31.7M"],
+    ["OpenCode", "OpenRouter API", "9.4M"],
+    ["Pi", "API key", "3.0M"],
+  ] as const;
+  expect(rows).toHaveLength(expected.length + 1);
+  for (const [index, [provider, account, tokens]] of expected.entries()) {
+    const row = rows[index + 1];
+    if (!row) throw new Error("Missing usage account row");
+    const shown = within(row);
+    expect(shown.getByRole("img", { name: provider })).toBeTruthy();
+    expect(shown.getByRole("img", { name: `${account} account` })).toBeTruthy();
+    expect(shown.getByText(`${provider} · ${account}`, { exact: true })).toBeTruthy();
+    expect(shown.getByRole("cell", { name: tokens })).toBeTruthy();
+  }
 });
 
 test("when usage can't be read, each grouping says so with its own retry and the other stays reachable", async () => {

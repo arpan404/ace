@@ -1,4 +1,4 @@
-/* Accounts joined with the thread counts for Usage & accounts. */
+/* Accounts joined with the thread counts for Usage. */
 import type { AccountThreadCounts, AccountView } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccountViews } from "@/lib/account-views.ts";

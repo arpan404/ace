@@ -136,6 +136,7 @@ export function BrowserStep(props: {
   progress: ProviderLoginProgress;
   /** True the first time it's asked for this sign-in: the page opens by itself only once. */
   claimOpen(): boolean;
+  compact?: boolean;
   footer: React.ReactNode;
 }) {
   const { url } = props.progress;
@@ -148,14 +149,16 @@ export function BrowserStep(props: {
   }, [url]);
   return (
     <>
-      <StepTitle
-        title="Continue in your browser"
-        line={
-          opened
-            ? "The sign-in page is open in your browser. Come back here when you're done."
-            : "Open the sign-in page and finish there. ace picks it up on its own."
-        }
-      />
+      {!props.compact && (
+        <StepTitle
+          title="Continue in your browser"
+          line={
+            opened
+              ? "The sign-in page is open in your browser. Come back here when you're done."
+              : "Open the sign-in page and finish there. ace picks it up on its own."
+          }
+        />
+      )}
       {url && (
         <Actions>
           <a
@@ -169,12 +172,22 @@ export function BrowserStep(props: {
               openPage(url);
             }}
           >
-            {opened ? "Open sign-in page again" : "Open sign-in page"}
+            {props.compact
+              ? "Open again"
+              : opened
+                ? "Open sign-in page again"
+                : "Open sign-in page"}
             <ArrowSquareOutIcon aria-hidden size={14} />
           </a>
         </Actions>
       )}
-      <Waiting text="Waiting for you to finish in your browser" />
+      <Waiting
+        text={
+          props.compact
+            ? "Waiting for you to finish signing in…"
+            : "Waiting for you to finish in your browser"
+        }
+      />
       {props.footer}
     </>
   );

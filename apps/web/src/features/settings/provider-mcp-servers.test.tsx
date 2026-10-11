@@ -6,6 +6,10 @@ import { harness } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 async function claudeServers() {
+  if (!screen.queryByRole("list", { name: "Claude Code MCP servers" }))
+    await userEvent.click(
+      await screen.findByText("Advanced", { selector: "summary" }, { timeout: 10_000 }),
+    );
   return screen.findByRole("list", { name: "Claude Code MCP servers" });
 }
 const row = (list: HTMLElement, name: string) => {
@@ -30,7 +34,7 @@ test("a server waiting for its own sign-in reads Not signed in calmly, and Claud
   expect(screen.queryAllByRole("alert")).toHaveLength(0);
   expect(screen.queryByText("Needs attention")).toBeNull();
   expect(screen.queryByText("Sign in needed")).toBeNull();
-  expect((await screen.findAllByText("Signed in as ada@example.com")).length).toBeGreaterThan(0);
+  expect(screen.queryByText("Signed in")).toBeNull();
 });
 
 test("Reconnect, Turn off and Turn on change a server through the daemon", async () => {
@@ -66,6 +70,7 @@ test("with no live Claude session the page says where the servers come from, wit
   const app = harness();
   app.daemon.mcp.idle.add("claude");
   await app.open("/settings/providers/claude");
+  await claudeServers();
   expect(
     await screen.findByText(
       "Claude Code's MCP servers show here while one of its threads is running.",

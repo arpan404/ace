@@ -1,3 +1,4 @@
+import { renameAccount } from "./accounts.ts";
 import {
   ProviderAccountsRequest,
   ProviderAccountSummary,
@@ -106,14 +107,7 @@ export function fakeProviderAccounts(
     return true;
   }
   if (request.type === "provider.accounts.rename" && account) {
-    if (account.implicit) {
-      fail("failed");
-      return true;
-    }
-    account.label = request.label;
-    if (request.shortLabel !== undefined) account.shortLabel = request.shortLabel;
-    if (request.badgeColor === null) delete account.badgeColor;
-    else if (request.badgeColor !== undefined) account.badgeColor = request.badgeColor;
+    renameAccount(account, request);
   }
   if (request.type === "provider.accounts.setDefault" && account)
     for (const row of accounts)

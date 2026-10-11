@@ -175,6 +175,8 @@ export const AccountAvailability = z.enum([
   "unknown",
 ]);
 export const AccountSummary = z.object({
+  /** Display-only normal CLI home; isolated account homes remain private. */
+  cliHome: z.string().max(4096).optional(),
   implicit: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   id: AccountInstanceId,
@@ -189,6 +191,8 @@ export const AccountSummary = z.object({
   provider: AccountProvider,
   label: z.string().max(128),
   shortLabel: AccountShortLabel.optional(),
+  /** True when the badge follows the label's initial rather than an explicit symbol. */
+  badgeUsesInitial: z.boolean().optional(),
   badgeColor: AccountBadgeColor.optional(),
   quota: AccountQuota,
   availability: AccountAvailability,
@@ -225,6 +229,8 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
     instanceId: AccountInstanceId,
     label: z.string().min(1).max(128).regex(/\S/),
     shortLabel: AccountBadgeInput.optional(),
+    /** Reset an explicit badge to the initial of the account name. */
+    badgeUsesInitial: z.boolean().optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
   }),
   z.object({

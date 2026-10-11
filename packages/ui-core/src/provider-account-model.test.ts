@@ -22,7 +22,7 @@ const account = (
     AccountSummary.parse({
       id,
       provider: "codex",
-      label: id,
+      label: implicit ? "Your CLI login" : id,
       implicit,
       availability: "unknown",
       quota: {
@@ -201,4 +201,21 @@ test("a signed-in account with a missing home cannot advertise that it can run",
   expect(
     providerAccountModel({ provider: "codex", accounts: [unavailable], row, now: 10 }).view,
   ).toMatchObject({ ready: false, summary: "Account folder unavailable" });
+});
+
+test("account colours distinguish default identities, survive renaming and preserve chosen colours", () => {
+  const personal = account("claude-personal", "logged_in");
+  const work = account("claude-work", "logged_in");
+  const other = account("codex-personal", "logged_in");
+  expect(new Set([personal.badgeColor, work.badgeColor, other.badgeColor]).size).toBe(3);
+  const summary = AccountSummary.parse({
+    id: "claude-personal",
+    provider: "claude",
+    label: "Renamed",
+    availability: "available",
+    quota: personal.quota,
+  });
+  expect(accountView(summary).badgeColor).toBe(personal.badgeColor);
+  expect(accountView({ ...summary, badgeColor: "rose" }).badgeColor).toBe("rose");
+  expect(accountView({ ...summary, badgeColor: "neutral" }).badgeColor).toBe("neutral");
 });

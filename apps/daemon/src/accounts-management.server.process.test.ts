@@ -41,7 +41,7 @@ test("socket account lifecycle isolates login, refreshes models, persists defaul
         }),
       ]),
     });
-    expect(JSON.stringify(list)).not.toContain(f.root);
+    expect(JSON.stringify(list)).not.toContain(home);
     const second = await f.add();
     await f.flow(second.id, "login");
     await poll(async () => (await f.status(second.id))?.quota.auth).toBe("logged_in");
@@ -368,15 +368,10 @@ createInterface({input:process.stdin}).on('line', requestLine => {
   }
 });
 
-test("normal CLI accounts are immutable and a replaced managed home cannot delete an outside directory", async () => {
+test("normal CLI homes cannot be removed and a replaced managed home cannot delete an outside directory", async () => {
   const f = await harness();
   try {
-    for (const type of [
-      "accounts.rename",
-      "accounts.remove",
-      "accounts.login",
-      "accounts.logout",
-    ] as const) {
+    for (const type of ["accounts.remove", "accounts.login", "accounts.logout"] as const) {
       const message = {
         type,
         requestId: f.rid(),

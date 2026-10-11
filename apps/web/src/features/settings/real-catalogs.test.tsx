@@ -27,11 +27,12 @@ test("a connected source with no enabled models offers Refresh and the working a
     },
   ]);
   await userEvent.click(within(copilot).getByRole("button", { name: "Refresh" }));
-  await waitFor(() => expect(within(copilot).getByText("Connected")).toBeTruthy());
+  await within(copilot).findByRole("button", { name: "Disconnect GitHub Copilot" });
   expect(within(copilot).queryByText("No models enabled")).toBeNull();
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
   expect(within(accounts).queryByText("Connection needs attention")).toBeNull();
-  expect(within(screen.getByRole("region", { name: "Setup" })).getByText("Ready")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Setup" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Sign in to OpenCode" })).toBeNull();
 });
 
 test("an open slash menu receives discovered skills without a reload", async () => {

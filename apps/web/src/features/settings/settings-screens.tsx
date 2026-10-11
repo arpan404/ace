@@ -15,6 +15,7 @@ const RemoteDevices = lazy(() =>
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
 
@@ -70,6 +71,7 @@ export function ProviderSettingsScreen() {
   return (
     <SettingsBody
       page="Providers"
+      titleActions={<RediscoverButton />}
       lede="The coding agents on this computer. ace runs each one with its own sign-in."
     >
       <Suspense

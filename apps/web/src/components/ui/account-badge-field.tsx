@@ -1,15 +1,15 @@
-import { AccountBadgeInput } from "@ace/protocol/accounts";
+import { AccountBadgeInput, AccountBadgeColor } from "@ace/protocol/accounts";
 import type { ProviderKind } from "@ace/protocol";
-import { useId, type CSSProperties } from "react";
+import { useId } from "react";
+import { Tip } from "./tooltip.tsx";
 import { Input } from "./input.tsx";
 import { Button } from "./button.tsx";
-import { ProviderIcon } from "./provider-icons.tsx";
-import { accountBadge, accountBadgeOverlayStyle } from "./account-badge.ts";
+import { AccountBadge, accountColors } from "./provider-account-icon.tsx";
 
 const symbols = ["💼", "🏠", "🧪", "🚀", "🌙", "🔧"];
 
 export function accountBadgeProblem(value: string): string | undefined {
-  return AccountBadgeInput.safeParse(value.trim()).success
+  return !value.trim() || AccountBadgeInput.safeParse(value.trim()).success
     ? undefined
     : "Use up to two characters or one emoji.";
 }
@@ -19,7 +19,9 @@ export function AccountBadgeField(props: {
   provider: ProviderKind;
   value: string;
   onChange(value: string): void;
-  name?: string;
+  name?: string | undefined;
+  color?: AccountBadgeColor | undefined;
+  onColorChange?(color: AccountBadgeColor): void;
 }) {
   const id = useId();
   const help = useId();
@@ -39,21 +41,13 @@ export function AccountBadgeField(props: {
           onChange={(event) => props.onChange(event.target.value)}
           className="h-8 w-16 text-center"
         />
-        <span
-          className="inline-flex items-center gap-1 rounded-sm bg-secondary px-2 py-1 text-xs"
-          title={props.name}
-          aria-label={`Account badge preview${props.name ? ` for ${props.name}` : ""}`}
-        >
-          <span
-            className="relative inline-flex size-4.5 items-center justify-center"
-            style={{ "--account-color": "var(--foreground)" } as CSSProperties}
-          >
-            <ProviderIcon provider={props.provider} size={16} decorative />
-            <span className={accountBadgeOverlayStyle}>
-              {issue ? "?" : accountBadge(props.name ?? "Account", props.value)}
-            </span>
-          </span>
-        </span>
+        <AccountBadge
+          account={{
+            label: props.name ?? "Account",
+            shortLabel: issue ? "?" : props.value,
+            badgeColor: props.color,
+          }}
+        />
       </div>
       <p
         id={help}
@@ -61,20 +55,86 @@ export function AccountBadgeField(props: {
       >
         {issue ?? "Up to two characters, or one emoji."}
       </p>
+      <BadgeColours {...props} />
       <div role="group" aria-label="Badge icons" className="flex flex-wrap gap-1">
         {symbols.map((symbol) => (
-          <Button
-            key={symbol}
-            size="sm"
-            variant="ghost"
-            aria-label={`Use ${symbol} badge`}
-            aria-pressed={props.value === symbol}
-            onClick={() => props.onChange(symbol)}
-          >
-            {symbol}
-          </Button>
+          <Tip key={symbol} label={`Use ${symbol} badge`}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Use ${symbol} badge`}
+              aria-pressed={props.value === symbol}
+              onClick={() => props.onChange(symbol)}
+            >
+              {symbol}
+            </Button>
+          </Tip>
         ))}
       </div>
+    </div>
+  );
+}
+
+function BadgeColours(props: {
+  value: string;
+  name?: string | undefined;
+  color?: AccountBadgeColor | undefined;
+  onColorChange?(color: AccountBadgeColor): void;
+}) {
+  return (
+    props.onColorChange && (
+      <div role="group" aria-label="Badge colours" className="flex gap-2">
+        {AccountBadgeColor.options.map((color) => (
+          <Tip key={color} label={`Use ${color} badge`}>
+            <button
+              type="button"
+              aria-label={`Use ${color} badge`}
+              aria-pressed={props.color === color}
+              onClick={() => props.onColorChange?.(color)}
+              className="rounded-full p-1 focus-ring hover:bg-accent active:bg-accent"
+              style={{
+                color: accountColors[color],
+                outline: props.color === color ? "1px solid currentColor" : undefined,
+              }}
+            >
+              <AccountBadge
+                decorative
+                account={{
+                  label: props.name ?? "Account",
+                  shortLabel: props.value,
+                  badgeColor: color,
+                }}
+              />
+            </button>
+          </Tip>
+        ))}
+      </div>
+    )
+  );
+}
+
+/** Compact initial-first chooser for adding an account. */
+export function AccountBadgeChooser(props: Parameters<typeof AccountBadgeField>[0]) {
+  return (
+    <div className="grid gap-2 py-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Badge</span>
+        <BadgeColours {...props} />
+      </div>
+      <details>
+        <summary className="cursor-pointer text-xs text-subtle-foreground focus-ring">
+          Or use an emoji…
+        </summary>
+        <div className="pt-2">
+          <AccountBadgeField
+            provider={props.provider}
+            value={props.value}
+            onChange={props.onChange}
+            name={props.name}
+            color={props.color}
+          />
+        </div>
+      </details>
     </div>
   );
 }

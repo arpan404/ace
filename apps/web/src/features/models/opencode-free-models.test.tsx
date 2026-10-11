@@ -70,10 +70,10 @@ test("OpenCode with only free models is ready and offers connecting a service as
   freeModels(app);
   await app.open("/settings/providers/opencode");
   const services = await screen.findByRole("list", { name: "OpenCode services" });
-  expect(within(services).getByText("Free models available")).toBeTruthy();
+  expect(within(services).getByRole("img", { name: "OpenCode Zen" })).toBeTruthy();
   expect(within(services).queryByRole("button", { name: "Disconnect OpenCode Zen" })).toBeNull();
   expect(screen.queryByText("Sign in to use OpenCode")).toBeNull();
-  await userEvent.click(await screen.findByRole("button", { name: "Show models" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage" }));
   const models = await screen.findByRole("list", { name: "Models" });
   for (const name of ["Big Pickle", "MiMo Free", "Ling Free"])
     expect(within(models).getByText(name)).toBeTruthy();
@@ -82,6 +82,7 @@ test("OpenCode with only free models is ready and offers connecting a service as
       .filter((model) => model.provider === "opencode")
       .every((model) => model.free && model.source?.requiresAuth === false),
   ).toBe(true);
+  await userEvent.keyboard("{Escape}");
   await userEvent.click(within(services).getByRole("button", { name: "Connect a service" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to OpenCode" })).toBeTruthy();
 });

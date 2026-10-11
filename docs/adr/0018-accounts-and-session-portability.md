@@ -32,7 +32,7 @@ Every source file is streamed into a private staging directory on the destinatio
 
 ## Protocol and wire additions
 
-Add schema-only account definitions in a new protocol file and an additive `./accounts` export. Requests and responses cover `accounts.list`, `accounts.status`, and `accounts.migrate`; login and home registration stay host-local CLI operations. Public snapshots contain ID, provider, label, auth and quota, not paths or environment. A migration response reports `migrated`, `unsupported`, or `refused` and a safe reason. The existing wire unions include the new schemas through additive option spreads. Authenticated daemon routes invoke `AccountService`, enforcing the merged remote-access scopes (`read` for list/status, `operate` for migration). The daemon CLI delegates `ace accounts` to the accounts command shell, avoiding competing bins; eight in-flight account requests per connection bound pending work. The daemon and accounts CLI share `$ACE_HOME/accounts.sqlite`, with an optional `ACE_ACCOUNTS_DB` override. `SessionContext.env` carries the selected environment to adapters; `AccountService.openSession` binds quota observations and writer lifetime to that instance. `bindAdapter(factory, assignmentFor?)` produces an ordinary `ProviderAdapter` for engine registration, invoking the native factory only after environment selection. The factory receives selected context for per-instance model resolution and MCP/plugin/context composition by those feature owners. `ProviderSession.instanceId` is persisted with the native ID and supplied on resume; unpinned resume refuses. Natural exit and completed close revoke the selected session lifetime, releasing lifetime-bound resources. Pending engine and adapter workstreams must register these factories and propagate encoded-frame certificates; their combined execution needs run at merge.
+Add schema-only account definitions in a new protocol file and an additive `./accounts` export. Requests and responses cover `accounts.list`, `accounts.status`, and `accounts.migrate`; login and home registration stay host-local CLI operations. Public snapshots contain ID, provider, label, auth and quota, not isolated-account paths or environment. Normal CLI logins include a display-only `cliHome` from registry metadata, so Settings can identify which home is in use without reading its files. A migration response reports `migrated`, `unsupported`, or `refused` and a safe reason. The existing wire unions include the new schemas through additive option spreads. Authenticated daemon routes invoke `AccountService`, enforcing the merged remote-access scopes (`read` for list/status, `operate` for migration). The daemon CLI delegates `ace accounts` to the accounts command shell, avoiding competing bins; eight in-flight account requests per connection bound pending work. The daemon and accounts CLI share `$ACE_HOME/accounts.sqlite`, with an optional `ACE_ACCOUNTS_DB` override. `SessionContext.env` carries the selected environment to adapters; `AccountService.openSession` binds quota observations and writer lifetime to that instance. `bindAdapter(factory, assignmentFor?)` produces an ordinary `ProviderAdapter` for engine registration, invoking the native factory only after environment selection. The factory receives selected context for per-instance model resolution and MCP/plugin/context composition by those feature owners. `ProviderSession.instanceId` is persisted with the native ID and supplied on resume; unpinned resume refuses. Natural exit and completed close revoke the selected session lifetime, releasing lifetime-bound resources. Pending engine and adapter workstreams must register these factories and propagate encoded-frame certificates; their combined execution needs run at merge.
 
 ## Security
 
@@ -111,7 +111,7 @@ operate. Existing Cursor browser-auth mutations require the same accounts scope,
 so they cannot bypass this policy. Read-only account listing still requires read.
 
 The backend exposes `accounts.changed` with the updated public summary, or null
-after removal. Public summaries include `implicit` and `isDefault`, never home
+after removal. Public summaries include `implicit` and `isDefault`, the display-only normal CLI home, never isolated-account home
 paths or launch environments. The fake daemon implements the same lifecycle and
 catalog behavior. Socket behavior tests use controlled executable CLIs, temporary
 homes and local paired devices. They verify isolation, status/model refresh,
@@ -175,8 +175,8 @@ The owner's one-click sign-in request permits the new `provider.login.*` and
 `provider.logout` service to authenticate the implicit native CLI account under
 `operate` authority. It preserves the normal launch environment and home, so the
 terminal CLI uses the resulting login. Explicit managed profiles remain supported.
-These requests do not change the existing `accounts.*` authority or allow renaming,
-removing or migrating implicit accounts. SDK identity, fencing and isolated default
+These requests do not change the existing `accounts.*` authority or allow removing
+or migrating implicit accounts. The metadata-only rename amendment below applies. SDK identity, fencing and isolated default
 stores remain governed by ADR 0043. Browser challenges are device-owned and ephemeral;
 only a per-device onboarding dismissal flag is persisted by first-run setup.
 
@@ -202,3 +202,20 @@ supersedes this ADR's prohibition on accepting a credential over the wire. Only
 non-secret auth method and identity metadata enter the account registry. A Cursor
 instance with pasted-key authentication suppresses the ambient `CURSOR_API_KEY`
 override so future launches use the SDK's selected credential store.
+
+## Amendment: normal CLI account names and badges
+
+Accepted 2026-10-10. The provider page can rename and change the badge of the normal
+CLI login through the existing account rename commands and validation. The registry
+stores the label and optional symbol or colour as metadata. Discovery preserves that
+metadata; it never moves, creates or writes the CLI home. Existing implicit records
+receive a deterministic palette colour derived from their account id. Theme tokens
+keep each colour readable in light and dark. Earlier automatic neutral metadata is
+converted once; chosen colours survive reopening and discovery, including an explicit
+neutral choice. Removal and session migration remain refused.
+Renaming does not change default selection.
+
+Optional `badgeUsesInitial` on summaries distinguishes a name-derived initial from an
+explicit symbol. Optional `badgeUsesInitial: true` on either rename command resets a
+custom symbol to the current name's initial. Older requests retain explicit symbols.
+No credentials or provider execution are involved in these metadata changes.

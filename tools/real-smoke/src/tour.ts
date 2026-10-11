@@ -1,6 +1,6 @@
 import { expect as playwrightExpect, type Page } from "@playwright/test";
 import { checkPage, type Finding, type PageFacts } from "./checks.ts";
-import { pageFacts, privateScreenshot } from "./dom.ts";
+import { pageFacts, privateScreenshot, usageScreenshot } from "./dom.ts";
 import { writeReport, type Report } from "./report.ts";
 import { sidebarThreads } from "./sidebar.ts";
 import { join } from "node:path";
@@ -90,7 +90,11 @@ export async function runTour(options: Tour) {
     try {
       const facts = await page.evaluate(pageFacts, { catalogsReady: ready, expected });
       for (const finding of checkPage(facts)) add(finding);
-      await privateScreenshot(page, join(options.out, screenshot), options.scrub);
+      await (stepName === "usage-accounts" ? usageScreenshot : privateScreenshot)(
+        page,
+        join(options.out, screenshot),
+        options.scrub,
+      );
       await page.evaluate(() => {
         window.aceSmokeAlerts = [];
       });

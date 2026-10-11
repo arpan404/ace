@@ -1,1 +1,1 @@
-export { ProviderSetupRow } from "./provider-row.tsx";
+export { ProviderSetupRow, type ProviderSetupActions } from "./provider-row.tsx";
