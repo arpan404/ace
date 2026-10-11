@@ -53,6 +53,40 @@ const ended = (state: RunFacts["state"]): RunFacts => ({ state, trigger: "user",
 const shown = (blocks: readonly Block[]) =>
   blocks.map((block) => ("itemId" in block ? block.itemId : `${block.kind}:${block.key}`));
 
+test("subagents that run in the background retain one launch card rather than separate task lines", () => {
+  const items = ["first", "second"].map((id) =>
+    Item.parse({
+      id,
+      type: "tool_call",
+      agentId: "root",
+      createdAt: 1000,
+      complete: true,
+      call: {
+        id,
+        agentId: "root",
+        kind: "agent.spawn",
+        title: id,
+        detail: { kind: "agent.spawn", childAgentId: `child-${id}` },
+        status: "succeeded",
+        startedAt: 1000,
+        raw: [],
+      },
+    }),
+  );
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => byId.get(id),
+    background: new Map([
+      ["first", "background-first"],
+      ["second", "background-second"],
+    ]),
+  });
+  expect(blocks).toEqual([
+    { kind: "subagents", key: "subagents:first", itemIds: ["first", "second"] },
+  ]);
+});
+
 test("a message queued while the agent worked reads after the answer it waited for", () => {
   // The daemon admitted the queued ask while the first turn still worked, so it sits between
   // that turn's commentary and its answer; it was answered by the second turn.

@@ -12,7 +12,7 @@ export { isInlineInteraction } from "@ace/ui-core";
 
 /**
  * The transcript reads like a document: a turn's tool work collapses into one "Worked for" line
- * and its spawns into one "Started N subagents" line (subagents' own work interleaves with the
+ * and its launches into one subagent card (subagents' own work interleaves with the
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
  * below it. Background tasks, questions and notices show where they happened without opening a
@@ -249,8 +249,8 @@ function lastWorkOf(
 }
 
 /**
- * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
- * line) is a turn's output until its answer or the person's next message, never across turns:
+ * The transcript's blocks. A stretch of work (one "Worked for" log, one subagent
+ * card) is a turn's output until its answer or the person's next message, never across turns:
  * the agent's words between steps join the log in order, and notices, background tasks,
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
@@ -390,13 +390,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           break;
         case "tool_call": {
           const taskId = source.background.get(id);
-          if (taskId !== undefined)
-            push({ kind: "background", key: id, itemId: id, taskId }, false);
-          else if (item.call.kind === "agent.spawn") {
+          if (item.call.kind === "agent.spawn") {
             group("subagents", id);
             if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
               mark?.agents.add(item.call.detail.childAgentId);
-          } else {
+          } else if (taskId !== undefined)
+            push({ kind: "background", key: id, itemId: id, taskId }, false);
+          else {
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);
           }
@@ -404,6 +404,9 @@ export function buildBlocks(source: BlockSource): Block[] {
         }
         case "reasoning":
           group("work", id);
+          break;
+        case "delegation.started":
+          group("subagents", id);
           break;
         case "notice": {
           // A measurement, or the daemon's audit of a computer-use action: both are steps of the
