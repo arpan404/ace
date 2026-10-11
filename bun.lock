@@ -525,6 +525,7 @@
     "packages/git": {
       "name": "@ace/git",
       "dependencies": {
+        "@ace/redaction": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "koffi": "3.3.2",

@@ -1,0 +1,58 @@
+import { containsSecretText } from "@ace/redaction";
+import { decode, hashSchema, count } from "./decode.ts";
+import { z } from "zod";
+import { GitError } from "./types.ts";
+
+export function sensitivePublicationPath(path: string): boolean {
+  return path.split("/").some((part) =>
+    /^\.env/i.test(part) || /^(?:\.ssh|\.gnupg|\.aws|\.azure|\.netrc|\.npmrc|\.pypirc|\.git-credentials)$/i.test(part) ||
+    /^(?:id_(?:rsa|dsa|ecdsa|ed25519)|credentials?(?:[._-].*)?|.*[._-]credentials?(?:[._-].*)?|service[-_]account.*\.json|secrets?(?:[._-].*)?)$/i.test(part) ||
+    /\.(?:pem|der|key|p12|pfx|jks|keystore)$/i.test(part),
+  );
+}
+export function assertPublicationText(bytes: Buffer): void {
+  const text = bytes.toString("utf8");
+  if (containsSecretText(text) || /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(text) ||
+      /(?:https?|ssh):\/\/[^\s/@:]+:[^\s/@]+@/i.test(text))
+    throw new GitError("sensitive_publication", "Sensitive publication content");
+  if (text.startsWith("version https://git-lfs.github.com/spec/v1")) incompletePublicationScan();
+}
+export function incompletePublicationScan(): never {
+  throw new GitError("publication_scan_incomplete", "Publication safety scan incomplete");
+}
+export type ScanObject = { id: string; type: "blob" | "tree" | "commit" | "tag"; size: number };
+const objectType = z.enum(["blob", "tree", "commit", "tag"]);
+export function objectHeader(line: string): ScanObject {
+  const parts = /^(\S+) (\S+) (\d+)$/.exec(line);
+  if (!parts) incompletePublicationScan();
+  return { id: decode(hashSchema, parts[1], "publication object"),
+    type: decode(objectType, parts[2], "publication object type"), size: count(parts[3]) };
+}
+/** Binary tree names are inspected independently of blobs, including reused/renamed content. */
+export function assertPublicationTree(bytes: Buffer, hashBytes: number): void {
+  let offset = 0;
+  while (offset < bytes.length) {
+    const space = bytes.indexOf(32, offset), end = bytes.indexOf(0, space + 1);
+    if (space < offset || end < space || end + 1 + hashBytes > bytes.length) incompletePublicationScan();
+    const name = new TextDecoder("utf8", { fatal: true }).decode(bytes.subarray(space + 1, end));
+    if (sensitivePublicationPath(name)) throw new GitError("sensitive_publication", "Sensitive publication path");
+    offset = end + 1 + hashBytes;
+  }
+}
+/** Parse the byte-framed batch result. Raw content never becomes diagnostics or a receipt. */
+export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanObject[]): void {
+  let offset = 0;
+  for (const object of expected) {
+    const end = bytes.indexOf(10, offset);
+    if (end < 0) incompletePublicationScan();
+    const actual = objectHeader(bytes.subarray(offset, end).toString("ascii"));
+    if (actual.id !== object.id || actual.type !== object.type || actual.size !== object.size) incompletePublicationScan();
+    offset = end + 1;
+    const content = bytes.subarray(offset, offset + object.size);
+    if (content.length !== object.size || bytes[offset + object.size] !== 10) incompletePublicationScan();
+    if (object.type === "tree") assertPublicationTree(content, object.id.length / 2);
+    else assertPublicationText(content);
+    offset += object.size + 1;
+  }
+  if (offset !== bytes.length) incompletePublicationScan();
+}

@@ -1,5 +1,9 @@
 /** Stable daemon error codes never surface raw CLI stderr or credential-bearing URLs. */
 export function publicationProblem(code: string): string {
+  if (code === "publication_sensitive_history")
+    return "Publication blocked: tracked files or unpushed Git history contain sensitive paths or credential patterns. Deleting a file or adding it to .gitignore does not remove earlier commits. Rotate any exposed credentials, then use your own Git tools to remove sensitive files and content from every commit that would be pushed, or prepare a clean repository. Review the cleaned history and Resume publication. ace never rewrites history.";
+  if (code === "publication_scan_incomplete")
+    return "Publication blocked because the complete history could not be scanned within safety limits. Fetch complete history if this is a shallow or partial clone; inspect oversized objects and Git LFS content, then prepare a smaller, fully inspectable history with your own Git tools. ace never rewrites history.";
   if (code === "forge_outcome_uncertain")
     return "GitHub completed creation before the account or settings changed. The created repository is preserved. Restore the intended Source control identity and Resume publication to verify it before adding origin or pushing.";
   if (code === "forge_preferences_changed")

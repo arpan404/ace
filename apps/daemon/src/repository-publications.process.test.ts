@@ -1,42 +1,11 @@
 import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, WorkspaceId } from "@ace/protocol";
+import { Command } from "@ace/protocol";
 import { Projects } from "./projects.ts";
-import { projectFixture } from "./projects-test-support.ts";
-import { publicationCli } from "./publication-test-support.ts";
 
-const input = {
-  host: "github.com",
-  account: "octo",
-  owner: "octo",
-  name: "engine",
-  description: "A project",
-  visibility: "private",
-} as const;
-async function setup(options: Parameters<typeof publicationCli>[0] = {}) {
-  const cli = await publicationCli(options);
-  const f = await projectFixture({
-    sourceControl: cli.source,
-    gitPolicy: { protocols: ["https", "ssh", "file"] },
-  });
-  const path = join(f.root, "project");
-  await mkdir(path);
-  await f.git(path, ["init"]);
-  const added = await f.command({ type: "workspace.add", path });
-  const id = WorkspaceId.parse(added.workspace?.id);
-  return {
-    ...f,
-    cli,
-    path,
-    id,
-    async cleanup() {
-      await f.close();
-      await cli.close();
-    },
-    publish: () => f.command({ type: "workspace.publish", workspaceId: id, input }),
-  };
-}
+import { input, setup } from "./publication-project-test-support.ts";
+
 test("an empty local repository creates one remote and explains that its first push needs a commit", async () => {
   const f = await setup();
   try {

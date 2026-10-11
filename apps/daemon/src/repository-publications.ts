@@ -11,7 +11,7 @@ import {
   RepositoryPublishInput,
   type WorkspaceId,
 } from "@ace/protocol";
-import { publicationOriginMatches, type GitService, type ProjectGitPolicy } from "@ace/git";
+import { GitError, publicationOriginMatches, type GitService, type ProjectGitPolicy } from "@ace/git";
 import type { Store } from "./store.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { ProjectDirectory } from "./project-directory.ts";
@@ -179,7 +179,8 @@ export class RepositoryPublications {
           { ...gitInput, url: created.cloneUrl },
           policy,
         );
-      } catch {
+      } catch (error) {
+        if (error instanceof GitError && ["sensitive_publication", "publication_scan_incomplete"].includes(error.code)) throw error;
         signal.throwIfAborted();
         throw new Error("publication_git_transport_failed");
       }

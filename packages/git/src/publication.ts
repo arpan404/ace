@@ -1,3 +1,4 @@
+import { scanPublication } from "./publication-scan.ts";
 import type { Repository } from "./repository.ts";
 import { projectInfo, validateCloneUrl, type ProjectGitPolicy } from "./projects.ts";
 import { GitError } from "./types.ts";
@@ -59,16 +60,14 @@ export async function pushPublication(
       throw new GitError("invalid_argument", "Publication origin changed");
     if (!info.head) return "empty";
     if (!info.branch) throw new GitError("invalid_argument", "Select a branch before publishing");
+    const transport = ["-c", "protocol.allow=never",
+      ...(policy.protocols ?? ["https", "ssh"]).flatMap((protocol) => ["-c", `protocol.${protocol}.allow=always`])];
+    await scanPublication(repository.cli, { ...input, head: info.head, transport });
     // Pin both destination and revision. External edits to origin/HEAD cannot redirect this push.
     await repository.cli.call(
       input.worktree,
       [
-        "-c",
-        "protocol.allow=never",
-        ...(policy.protocols ?? ["https", "ssh"]).flatMap((protocol) => [
-          "-c",
-          `protocol.${protocol}.allow=always`,
-        ]),
+        ...transport,
         "push",
         "--",
         input.url,

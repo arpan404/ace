@@ -80,6 +80,17 @@ const SECRETS: readonly RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi,
 ];
+const SECRET_JSON =
+  /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
+const SECRET_ASSIGNMENT = /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi;
+const SECRET_DETECTORS = [...SECRETS, SECRET_JSON, SECRET_ASSIGNMENT].map(
+  (pattern) => new RegExp(pattern.source, pattern.flags.replace("g", "")),
+);
+/** Detect the same credential patterns used for redaction, without returning matched values. */
+export function containsSecretText(text: string): boolean {
+  return SECRET_DETECTORS.some((pattern) => pattern.test(text));
+}
+
 /** JSON string fields that identify a device, account or organisation. */
 const IDENTIFYING_KEYS =
   /"(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)":"[^"]*"/g;
@@ -131,10 +142,10 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
     out = out.replace(
-      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
+      SECRET_JSON,
       '$1"<SECRET>"',
     );
-    out = out.replace(/\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "<SECRET>");
+    out = out.replace(SECRET_ASSIGNMENT, "<SECRET>");
     out = out.replace(IDENTIFYING_KEYS, (_match, key: string) => `"${key}":"<ID>"`);
     out = out.replace(EMAIL, (match) => (KEEP_EMAILS.has(match) ? match : "<EMAIL>"));
     if (user) out = out.replace(user, "<USER>");
