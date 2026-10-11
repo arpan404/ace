@@ -26,6 +26,11 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#failure = error;
     this.#notifications.emit(["error"]);
   }
+  recover(): void {
+    if (!this.#failure) return;
+    this.#failure = undefined;
+    this.#notifications.emit(["error"]);
+  }
   #view: ThreadView | undefined;
   #notifications: Notifications;
   #limits: Limits;
