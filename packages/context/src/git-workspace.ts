@@ -4,8 +4,23 @@ import { StringDecoder } from "node:string_decoder";
 import { constants } from "node:fs";
 import { lstat, open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { requireContext } from "./errors.ts";
+import { ContextError, requireContext } from "./errors.ts";
 import { PathIndex } from "./path-index.ts";
+
+/** Only filesystem absence proves deletion; an absent Git executable does not. */
+async function pathMetadata(path: string) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    )
+      throw new ContextError("not_found", "Mention path no longer exists");
+    throw error;
+  }
+}
 
 export interface WorkspaceFiles {
   readonly root: string;
@@ -105,7 +120,7 @@ export class GitWorkspace implements WorkspaceFiles {
     let current = this.root;
     for (const part of local.split(sep).filter(Boolean)) {
       current = join(current, part);
-      const info = await lstat(current);
+      const info = await pathMetadata(current);
       requireContext(!info.isSymbolicLink(), "outside_workspace", "Symlinks cannot be mentioned");
     }
     requireContext(
@@ -123,7 +138,7 @@ export class GitWorkspace implements WorkspaceFiles {
     return absolute;
   }
   async inspect(path: string): Promise<"file" | "folder"> {
-    const info = await lstat(await this.checked(path));
+    const info = await pathMetadata(await this.checked(path));
     requireContext(
       info.isFile() || info.isDirectory(),
       "invalid_request",
@@ -183,7 +198,12 @@ export class GitWorkspace implements WorkspaceFiles {
           for (const child of this.index.under(path)) this.index.update(child, false);
           for (const child of next.under(path)) this.index.update(child, true);
         }
-      } catch {
+      } catch (error) {
+        if (
+          !(error instanceof ContextError) ||
+          !["not_found", "ignored", "outside_workspace"].includes(error.code)
+        )
+          throw error;
         this.index.update(path, false);
         for (const child of this.index.under(path)) this.index.update(child, false);
       }
