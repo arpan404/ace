@@ -28,6 +28,7 @@ export class SearchReplay {
   private readonly sizes;
   private readonly payload;
   private readonly itemKey;
+  private readonly threadPayload;
   private readonly history: HistoryIndex;
   constructor(db: DatabaseSync, history: HistoryIndex) {
     this.history = history;
@@ -35,6 +36,17 @@ export class SearchReplay {
       "SELECT seq,id,thread_id,at,type,length(CAST(payload AS BLOB)) AS bytes FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT ?",
     );
     this.payload = db.prepare("SELECT payload FROM events WHERE seq=?");
+    this.threadPayload = db.prepare(`SELECT json_extract(payload,'$.thread.id') AS id,
+      json_extract(payload,'$.thread.workspaceId') AS workspaceId,
+      json_extract(payload,'$.thread.provider') AS provider,
+      json_extract(payload,'$.thread.createdAt') AS createdAt,
+      json_extract(payload,'$.thread.updatedAt') AS updatedAt,
+      COALESCE(json_extract(payload,'$.thread.status'),json_extract(payload,'$.status')) AS status,
+      substr(COALESCE(json_extract(payload,'$.thread.title'),json_extract(payload,'$.title')),1,8192) ||
+      CASE WHEN length(COALESCE(json_extract(payload,'$.thread.title'),json_extract(payload,'$.title'))) > 16384 THEN
+        '\n[… omitted …]\n' || substr(COALESCE(json_extract(payload,'$.thread.title'),json_extract(payload,'$.title')),-8192)
+      ELSE substr(COALESCE(json_extract(payload,'$.thread.title'),json_extract(payload,'$.title')),8193) END AS title
+      FROM events WHERE seq=?`);
     this.itemKey = db.prepare(
       "SELECT COALESCE(json_extract(payload,'$.item.id'),json_extract(payload,'$.itemId')) AS id FROM events WHERE seq=?",
     );
@@ -74,28 +86,58 @@ export class SearchReplay {
         }
         continue;
       }
+      const envelope = { seq: row.seq, id: row.id, threadId: row.thread_id, at: row.at };
+      const overhead = Buffer.byteLength(JSON.stringify({ ...envelope, payload: null })) - 4 + 1;
+      const capacity = q.maxBytes - bytes - overhead;
+      const oversized = row.bytes > q.maxBytes - 2 - overhead;
+      if (!oversized && row.bytes > capacity) {
+        complete = false;
+        break;
+      }
       let payload: unknown;
-      if (
-        row.bytes + 1024 > q.maxBytes &&
-        ["item.created", "item.updated", "item.delta"].includes(row.type)
-      ) {
+      if (oversized && ["item.created", "item.updated", "item.delta"].includes(row.type)) {
         const key = ItemKey.parse(this.itemKey.get(row.seq));
         const item = this.history.searchItem(
           row.thread_id,
           key.id,
           row.seq,
-          q.maxBytes - bytes - 1024,
+          capacity - (Buffer.byteLength(JSON.stringify({ type: "item.updated", item: null })) - 4),
         );
         if (!item) throw new Error("search_replay_source_unavailable");
         payload = item.type === "search.item" ? item : { type: "item.updated", item };
+      } else if (oversized && (row.type === "thread.created" || row.type === "thread.updated")) {
+        const bounded = z
+          .object({
+            id: z.string().nullable(),
+            workspaceId: z.string().nullable(),
+            provider: z.string().nullable(),
+            createdAt: z.number().nullable(),
+            updatedAt: z.number().nullable(),
+            status: z.string().nullable(),
+            title: z.string().nullable(),
+          })
+          .parse(this.threadPayload.get(row.seq));
+        const status: unknown = bounded.status ? JSON.parse(bounded.status) : undefined;
+        payload =
+          row.type === "thread.created"
+            ? { type: "thread.created", thread: { ...bounded, status } }
+            : {
+                type: "thread.updated",
+                ...(bounded.title === null ? {} : { title: bounded.title }),
+                ...(status === undefined ? {} : { status }),
+              };
       } else {
-        if (row.bytes > q.maxBytes - bytes - 1024) {
-          complete = false;
-          break;
-        }
+        if (oversized) throw new Error("search_replay_identity_limit");
         payload = JSON.parse(String(this.payload.get(row.seq)?.payload));
       }
-      const event = (typeof payload === "object" && payload !== null && "type" in payload && payload.type === "search.item" ? SearchReplayEvent : Event).parse({
+      const event = (
+        typeof payload === "object" &&
+        payload !== null &&
+        "type" in payload &&
+        payload.type === "search.item"
+          ? SearchReplayEvent
+          : Event
+      ).parse({
         seq: row.seq,
         id: row.id,
         threadId: row.thread_id,

@@ -185,26 +185,154 @@ test("byte-limited replay crosses deleted sequence gaps and never treats a short
 
 test("oversized file-write metadata rebuilds bounded previews and full file text without blocking later events", async () => {
   const f = storeFixture();
-  const text = "writehead " + "x ".repeat(180000) + " writeinterior " + "y ".repeat(180000) + " writetail";
-  f.store.appendEvents(f.thread.id, [{
-    type: "item.created",
-    item: Item.parse({
-      type: "tool_call", id: "large-write", agentId: root, createdAt: 10, complete: true,
-      call: { id: "large-write", agentId: root, kind: "file.write", title: "Write giant-file.ts", status: "succeeded", startedAt: 10, raw: [],
-        detail: { kind: "file.write", changes: [{ kind: "add", path: "giant-file.ts", newText: text }] } },
-    }),
-  }, {
-    type: "item.created", item: Item.parse({ type: "message", id: "after-write", agentId: root, createdAt: 11, complete: true, role: "assistant", parts: [{ type: "text", text: "afterwriteneedle" }] }),
-  }]);
+  const text =
+    "writehead " + "x ".repeat(180000) + " writeinterior " + "y ".repeat(180000) + " writetail";
+  f.store.appendEvents(f.thread.id, [
+    {
+      type: "item.created",
+      item: Item.parse({
+        type: "tool_call",
+        id: "large-write",
+        agentId: root,
+        createdAt: 10,
+        complete: true,
+        call: {
+          id: "large-write",
+          agentId: root,
+          kind: "file.write",
+          title: "Write giant-file.ts",
+          status: "succeeded",
+          startedAt: 10,
+          raw: [],
+          detail: {
+            kind: "file.write",
+            changes: [{ kind: "add", path: "giant-file.ts", newText: text }],
+          },
+        },
+      }),
+    },
+    {
+      type: "item.created",
+      item: Item.parse({
+        type: "message",
+        id: "after-write",
+        agentId: root,
+        createdAt: 11,
+        complete: true,
+        role: "assistant",
+        parts: [{ type: "text", text: "afterwriteneedle" }],
+      }),
+    },
+  ]);
   await f.restart();
   const pages: number[] = [];
-  await f.store.search.rebuild({
-    headSeq: () => f.store.headSeq(), getThread: f.store.getThread.bind(f.store), readEvents: f.store.readEvents.bind(f.store),
-    readSearchPage(options) { const page = f.store.readSearchPage(options); pages.push(page.bytes); return page; },
-  }, { signal: new AbortController().signal });
+  await f.store.search.rebuild(
+    {
+      headSeq: () => f.store.headSeq(),
+      getThread: f.store.getThread.bind(f.store),
+      readEvents: f.store.readEvents.bind(f.store),
+      readSearchPage(options) {
+        const page = f.store.readSearchPage(options);
+        pages.push(page.bytes);
+        return page;
+      },
+    },
+    { signal: new AbortController().signal },
+  );
   expect(Math.max(...pages)).toBeLessThanOrEqual(524288);
   expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
-  for (const text of ["writehead", "writetail"]) expect(f.store.search.query({ text }).hits).toMatchObject([{ itemId: "large-write" }]);
-  expect(f.store.search.query({ text: "afterwriteneedle" }).hits).toMatchObject([{ itemId: "after-write" }]);
-  expect(f.store.threadSearch({ threadId: f.thread.id, text: "writeinterior", scope: "thread", limit: 10 }).hits).toMatchObject([{ itemId: "large-write" }]);
+  for (const queryText of ["writehead", "writetail"])
+    expect(f.store.search.query({ text: queryText }).hits).toMatchObject([{ itemId: "large-write" }]);
+  expect(f.store.search.query({ text: "afterwriteneedle" }).hits).toMatchObject([
+    { itemId: "after-write" },
+  ]);
+  expect(
+    f.store.threadSearch({
+      threadId: f.thread.id,
+      text: "writeinterior",
+      scope: "thread",
+      limit: 10,
+    }).hits,
+  ).toMatchObject([{ itemId: "large-write" }]);
+});
+
+for (const payloadBytes of [523262, 523263, 523264, 523265, 524288]) {
+  test(`replay advances across a ${payloadBytes}-byte message at the page boundary`, async () => {
+    const f = storeFixture();
+    const item = Item.parse({
+      type: "message",
+      id: "boundary",
+      agentId: root,
+      createdAt: 10,
+      complete: true,
+      role: "assistant",
+      parts: [{ type: "text", text: "boundaryneedle " }],
+    });
+    if (item.type !== "message" || item.parts[0]?.type !== "text") throw new Error("Wrong item");
+    const payload = { type: "item.created" as const, item };
+    item.parts[0].text += "x".repeat(payloadBytes - Buffer.byteLength(JSON.stringify(payload)));
+    const before = f.store.headSeq();
+    const [created] = f.store.appendEvents(f.thread.id, [payload]);
+    if (!created) throw new Error("Missing event");
+    expect(Buffer.byteLength(JSON.stringify(created.payload))).toBe(payloadBytes);
+    f.store.appendEvents(f.thread.id, [
+      {
+        type: "item.created",
+        item: Item.parse({
+          type: "message",
+          id: "past-boundary",
+          agentId: root,
+          createdAt: 11,
+          complete: true,
+          role: "assistant",
+          parts: [{ type: "text", text: "pastboundaryneedle" }],
+        }),
+      },
+    ]);
+    const page = f.store.readSearchPage({ afterSeq: before, limit: 256, maxBytes: 524288 });
+    expect(page.throughSeq).toBeGreaterThanOrEqual(created.seq);
+    expect(page.bytes).toBeLessThanOrEqual(524288);
+    await f.store.search.rebuild(f.store, { signal: new AbortController().signal });
+    expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
+    expect(f.store.search.query({ text: "boundaryneedle" }).hits).toMatchObject([
+      { itemId: "boundary" },
+    ]);
+    expect(f.store.search.query({ text: "pastboundaryneedle" }).hits).toMatchObject([
+      { itemId: "past-boundary" },
+    ]);
+  });
+}
+
+test("an oversized thread metadata row yields a bounded searchable title and advances to later items", async () => {
+  const f = storeFixture();
+  const before = f.store.headSeq();
+  const [updated] = f.store.appendEvents(f.thread.id, [
+    { type: "thread.updated", title: "titlehead " + "x".repeat(700000) + " titletail" },
+  ]);
+  if (!updated) throw new Error("Missing update");
+  f.store.appendEvents(f.thread.id, [
+    {
+      type: "item.created",
+      item: Item.parse({
+        type: "message",
+        id: "after-title",
+        agentId: root,
+        createdAt: 11,
+        complete: true,
+        role: "assistant",
+        parts: [{ type: "text", text: "aftertitleneedle" }],
+      }),
+    },
+  ]);
+  const page = f.store.readSearchPage({ afterSeq: before, limit: 256, maxBytes: 524288 });
+  expect(page.throughSeq).toBe(updated.seq);
+  expect(page.bytes).toBeLessThanOrEqual(524288);
+  await f.store.search.rebuild(f.store, { signal: new AbortController().signal });
+  expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
+  expect(f.store.search.query({ text: "aftertitleneedle" }).hits).toMatchObject([
+    { itemId: "after-title" },
+  ]);
+  expect(f.store.search.query({ text: "titletail", scope: "threads" }).hits).toMatchObject([
+    { threadId: f.thread.id },
+  ]);
 });
