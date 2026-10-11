@@ -35,6 +35,7 @@ export async function scan(
       bytes: number;
       skipped: number;
       unsupported: { instanceId: string; reason: string }[];
+      retry: { instanceId: string; path: string }[];
     },
   ) => void | Promise<void> = () => undefined,
   changes?: InventoryChanges,

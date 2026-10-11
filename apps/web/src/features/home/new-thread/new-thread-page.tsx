@@ -356,7 +356,7 @@ export function NewThreadPage(props: {
               </p>
             )}
             <SignInNotice provider={provider} />
-            {project && <PastSessions projectId={project} />}
+            <PastSessions />
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 {error}

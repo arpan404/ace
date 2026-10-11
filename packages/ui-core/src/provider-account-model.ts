@@ -68,7 +68,6 @@ export function providerAccountModel(input: {
   readinessFailed?: boolean | undefined;
   catalog?: CatalogSignal | undefined;
   catalogForAccount?: ((id: string) => CatalogSignal | undefined) | undefined;
-  readinessFailed?: boolean | undefined;
   now: number;
 }): ProviderAccountModel {
   const base: ReadinessView | undefined = input.row

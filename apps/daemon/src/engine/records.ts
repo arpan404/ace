@@ -100,11 +100,15 @@ export class Records<T> {
     this.access(true);
     const decorated = this.decorate(key, value);
     const previous = this.cache.get(key)?.json ?? "";
-    this.cache.set(key, {
-      value: decorated,
-      json: previous,
-      bytes: Buffer.byteLength(previous),
-    }, Buffer.byteLength(previous));
+    this.cache.set(
+      key,
+      {
+        value: decorated,
+        json: previous,
+        bytes: Buffer.byteLength(previous),
+      },
+      Buffer.byteLength(previous),
+    );
     this.replaced.add(key);
     this.touched.set(key, decorated);
     this.enumerated?.add(key);

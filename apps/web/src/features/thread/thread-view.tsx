@@ -226,7 +226,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 thread={thread}
                 onRename={() => setRenaming(true)}
                 onFork={setForking}
-                onMerge={setMerging}
+                onMerge={() => setMerging(true)}
               />
             </Suspense>
           )

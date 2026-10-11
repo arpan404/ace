@@ -1,9 +1,5 @@
 import type { ThreadListEntry } from "@ace/protocol";
-import {
-  InlineRename,
-  useOrganizeOverlay,
-  useHomeSelection,
-} from "@/features/organize/index.ts";
+import { InlineRename, useOrganizeOverlay, useHomeSelection } from "@/features/organize/index.ts";
 
 /** Only the title line changes; drafts survive a sidebar remount and refused saves reopen. */
 export function RenameField(props: { entry: ThreadListEntry; title: string; onDone(): void }) {

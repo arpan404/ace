@@ -33,7 +33,10 @@ export function subscribeSettings(
         if (stopped || generation !== current) return;
         if (!reply.ok) throw new Error("Couldn't read settings");
         attempts = 0;
-        receive([...reply.entries.filter((entry) => !changed.has(entry.key)), ...changed.values()], true);
+        receive(
+          [...reply.entries.filter((entry) => !changed.has(entry.key)), ...changed.values()],
+          true,
+        );
       })
       .catch(() => {
         if (stopped || generation !== current) return;

@@ -30,23 +30,25 @@ Example:
 
 ```json
 {
-  "concurrency": 2,
+  "concurrency": 1,
   "enabled": true,
   "id": "example",
   "jitterMs": 4,
-  "missedRun": "skip",
-  "model": "example",
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "acp",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "cron",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -81,7 +83,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 7,
   "runs": []
 }
 ```
@@ -99,7 +101,7 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 7,
   "message": "example"
 }
 ```
@@ -121,13 +123,14 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 7,
+    "concurrency": 5,
     "enabled": false,
     "id": "example",
-    "jitterMs": 5,
-    "missedRun": "skip",
+    "jitterMs": 0,
+    "missedRun": "run_once",
+    "model": "example",
     "prompt": "example",
-    "provider": "cursor",
+    "provider": "claude",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -211,7 +214,6 @@ Example:
 
 ```json
 {
-  "automationId": "example",
   "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
@@ -237,8 +239,6 @@ Example:
 
 ```json
 {
-  "automations": [],
-  "error": "example",
   "ok": true,
   "requestId": "example",
   "type": "automation.result"
@@ -268,13 +268,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 1,
+  "finishedAt": 4,
   "id": "example",
   "result": "example",
-  "startedAt": 6,
-  "status": "skipped",
+  "startedAt": 8,
+  "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "schedule"
 }
 ```
 
@@ -294,7 +294,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "rrule",
+  "kind": "cron",
   "startAt": 0,
   "timezone": "example"
 }
@@ -354,11 +354,10 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60001,
-  "pullRequest": 7,
-  "repository": "0fU9/TnZ21"
+  "pollIntervalMs": 60008,
+  "repository": "yAXh/nG-47YsQ"
 }
 ```
 

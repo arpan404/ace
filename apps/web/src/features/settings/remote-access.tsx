@@ -87,19 +87,18 @@ export function RemoteAccess() {
             : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
       </p>
       <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
-          <Input
-            id={`${id}-relay`}
-            aria-label="Relay address"
-            key={relay.value}
-            defaultValue={relay.value}
-            placeholder="wss://relay.example.com/"
-            disabled={relay.offline || relay.pending || overridden}
-            onBlur={(event) => {
-              if (event.target.value !== relay.value) relay.set(event.target.value.trim());
-            }}
-          />
-        </SettingRow>
-      }
-    </SettingSection>
+        <Input
+          id={`${id}-relay`}
+          aria-label="Relay address"
+          key={relay.value}
+          defaultValue={relay.value}
+          placeholder="wss://relay.example.com/"
+          disabled={relay.offline || relay.pending || overridden}
+          onBlur={(event) => {
+            if (event.target.value !== relay.value) relay.set(event.target.value.trim());
+          }}
+        />
+      </SettingRow>
+    </div>
   );
 }

@@ -84,10 +84,13 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     let timedOut = false;
     // Registry tools may run for five minutes. A bridge deadline settles only
     // this request, preserving the provider's connection for subsequent tools.
-    const cancelTimer = (options.scheduler ?? nodeScheduler).after(message.method === "tools/call" ? maxToolTimeoutMs : 120_000, () => {
-      timedOut = true;
-      controller.abort();
-    });
+    const cancelTimer = (options.scheduler ?? nodeScheduler).after(
+      message.method === "tools/call" ? maxToolTimeoutMs : 120_000,
+      () => {
+        timedOut = true;
+        controller.abort();
+      },
+    );
     const requestSignal = AbortSignal.any([signal, controller.signal]);
     try {
       const response = await (options.fetch ?? fetch)(connection.url, {

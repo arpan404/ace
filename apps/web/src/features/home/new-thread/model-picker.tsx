@@ -39,7 +39,7 @@ export function ModelPicker(props: {
 }) {
   const { model, account, effort, fast, provider } = props.resolved;
   const compact = useComposerCompact();
-  const error = useProviderReadError();
+  const readError = useProviderReadError();
   const statuses = useProviderStatuses();
   const catalog = useModelCatalogState();
   const catalogQuery = useCatalogQuery();
@@ -123,8 +123,8 @@ export function ModelPicker(props: {
     // New thread waits for the catalog before the chip opens; the accounts and providers too.
     catalog: props.options ? catalog : "loading",
   };
-  const problem = error.providers ?? error.models;
-  if (!model && problem) return <ProviderReadError message={problem} retry={error.retry} />;
+  const problem = readError.providers ?? readError.models;
+  if (!model && problem) return <ProviderReadError message={problem} retry={readError.retry} />;
   return (
     <>
       <ModelControl
@@ -147,10 +147,7 @@ export function ModelPicker(props: {
           icon={ArrowClockwiseIcon}
           label="Retry loading models"
           size="sm"
-          onClick={() => {
-            void catalogQuery.refetch();
-            void statuses.refetch();
-          }}
+          onClick={readError.retry}
         />
       )}
     </>

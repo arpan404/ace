@@ -205,6 +205,7 @@ function NextRun(props: {
 }
 
 function useAutomationControls(automation: Automation | undefined) {
+  const navigate = useNavigate();
   const { setEnabled, remove, runNow, setHidden, save } = useAutomationActions();
   const list = useAutomations().data;
   const toast = useToast();

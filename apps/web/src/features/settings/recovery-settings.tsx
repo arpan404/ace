@@ -23,7 +23,10 @@ export function RecoverySettings() {
   const send = useKeys("send");
   return (
     <SettingSection label="While agents work" card scope="daemon">
-      <SettingRow {...followRow} description={`Queue waits for the turn to finish; Steer adds it to the running turn. ${formatKeys(send)} does the other.`}>
+      <SettingRow
+        {...followRow}
+        description={`Queue waits for the turn to finish; Steer adds it to the running turn. ${formatKeys(send)} does the other.`}
+      >
         <DaemonSlot control={followUp}>
           <Select
             label={followRow.title}
