@@ -9,7 +9,11 @@ it.each([
   ["sk-ant-", "sk-ant-OPAQUE_PROVIDER_CREDENTIAL"],
 ])("configured %s prefixes cannot expose the rest of a credential", (value, evidence) => {
   const context = { env: { CUSTOM: value } };
-  for (const redact of [createTextRedactor(context), createRedactor(context), createDiagnosticRedactor(context)]) {
+  for (const redact of [
+    createTextRedactor(context),
+    createRedactor(context),
+    createDiagnosticRedactor(context),
+  ]) {
     for (const input of [evidence, JSON.stringify({ message: evidence })]) {
       const safe = redact(input);
       expect(safe).not.toContain("OPAQUE");

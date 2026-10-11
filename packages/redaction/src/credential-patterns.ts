@@ -25,7 +25,8 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
     /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
   ].map((pattern) => ({ pattern })),
   {
-    pattern: /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*")(?:[^"\\]|\\.)+"/gi,
+    pattern:
+      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*")(?:[^"\\]|\\.)+"/gi,
     prefix: 0,
     suffix: 1,
   },

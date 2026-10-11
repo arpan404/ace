@@ -1,12 +1,8 @@
-import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-
-const scrubStructured = createDiagnosticRedactor({});
 function short(value: string, redact: (text: string) => string): string {
   if (value.length > 512) return "<OVERSIZED ERROR MESSAGE OMITTED>";
   if (/[\r\n]/.test(value)) return "<MULTILINE ERROR MESSAGE OMITTED>";
   // Contextual exact values must be scrubbed before embedded records normalize.
-  // Error containers still need diagnostic classification with a lexical logger.
-  const safe = scrubStructured(redact(value));
+  const safe = redact(value);
   // Omit whole values so a later environment redactor never receives half a secret.
   if (safe.length > 512) return "<OVERSIZED ERROR MESSAGE OMITTED>";
   if (/[\r\n]/.test(safe)) return "<MULTILINE ERROR MESSAGE OMITTED>";

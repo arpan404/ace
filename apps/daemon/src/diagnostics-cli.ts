@@ -9,7 +9,8 @@ import type { Config } from "./config.ts";
 export async function diagnosticsCli(args: string[], config: Config): Promise<boolean> {
   if (args[0] === "--") args = args.slice(1);
   if (args[0] !== "doctor" && args[0] !== "support-bundle") return false;
-  const redact = createDiagnosticRedactor({ home: homedir(), env: process.env });
+  const context = { home: homedir(), env: process.env };
+  const redact = createDiagnosticRedactor(context);
   const report = await collectDoctorReport(config, process.env, Date.now);
   if (args[0] === "doctor") {
     if (args.slice(1).some((arg) => arg !== "--json"))
@@ -49,7 +50,7 @@ export async function diagnosticsCli(args: string[], config: Config): Promise<bo
       settings: config,
       redact,
       includeThreads: args.includes("--include-threads"),
-      threads: () => recentThreadEvents(join(config.dataDir, "events.sqlite")),
+      threads: () => recentThreadEvents(join(config.dataDir, "events.sqlite"), context),
     });
   } catch (error) {
     if (created) await rm(path, { force: true });

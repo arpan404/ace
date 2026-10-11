@@ -28,7 +28,7 @@ export function supportBundleWriter(
       },
       settings: details?.settings ?? { threadsIncluded: includeThreads, providerProbesRun: false },
       includeThreads,
-      threads: () => recentThreadEvents(join(dataDir, "events.sqlite")),
+      threads: () => recentThreadEvents(join(dataDir, "events.sqlite"), context),
       redact,
       maxBytes: 16 * 1024 ** 2,
       maxInputBytes: 64 * 1024 ** 2,

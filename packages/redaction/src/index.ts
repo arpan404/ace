@@ -1,6 +1,7 @@
 import { redactOriginalText, sensitiveSpans } from "./literal-spans.ts";
 import { redactRecordEnvironment } from "./record-environment.ts";
 import { createEnvironmentMatcher, type EnvironmentMatcher } from "./environment.ts";
+import { redactEmbeddedText } from "./embedded-text.ts";
 
 export type RedactionContext = {
   workspace?: string | undefined;
@@ -188,7 +189,15 @@ export function createRedactor(
             return "<INVALID STRUCTURED DATA OMITTED>";
           }
         }
-        return scrub(value);
+        return redactEmbeddedText(
+          value,
+          scrub,
+          (record) =>
+            JSON.stringify(
+              clean(JSON.parse(redactRecordEnvironment(record, environment)), depth + 1),
+            ),
+          environment,
+        );
       }
       if (Array.isArray(value))
         return value.slice(0, remaining).map((item) => clean(item, depth + 1));
@@ -231,7 +240,13 @@ export function createRedactor(
     } catch {
       // A damaged structured record must never fall back to weaker lexical rules.
       if (/^\s*[[{"]/.test(line)) return '"<INVALID STRUCTURED DATA OMITTED>"';
-      return scrub(line);
+      return redactEmbeddedText(
+        line,
+        scrub,
+        (record) =>
+          JSON.stringify(clean(JSON.parse(redactRecordEnvironment(record, environment)), 0)),
+        environment,
+      );
     }
     try {
       return JSON.stringify(clean(value, 0));

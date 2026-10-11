@@ -4,7 +4,8 @@ import { createRedactor, createStreamingRedactor, createTextRedactor } from "@ac
 
 it("configured spans crossing records cannot erase a later credential container's classification", () => {
   const redact = createDiagnosticRedactor({ env: { CUSTOM: 'first"}bridge{"credentials":' } });
-  const evidence = '{"value":"first"}bridge{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}';
+  const evidence =
+    '{"value":"first"}bridge{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}';
   for (const input of [evidence, JSON.stringify({ stderr: evidence })]) {
     const safe = redact(input);
     expect(safe).not.toContain("OPAQUE_CONTAINER_CREDENTIAL");
@@ -83,6 +84,17 @@ it("environment values matching JSON keys cannot hide credential containers", ()
     expect(safe).toContain("<SECRET>");
     expect(safe).toContain("code");
     expect(safe).toContain("7");
+  }
+});
+
+it("the general contextual redactor classifies prose containers without an empty-context normalization pass", () => {
+  const redact = createRedactor({ env: { CUSTOM: "credentials" } });
+  const input = 'request failed: {"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}';
+  for (const evidence of [input, JSON.stringify({ message: input })]) {
+    const safe = redact(evidence);
+    expect(safe).not.toContain("OPAQUE_CONTAINER_CREDENTIAL");
+    expect(safe).toContain("request failed");
+    expect(safe).toContain("<SECRET>");
   }
 });
 

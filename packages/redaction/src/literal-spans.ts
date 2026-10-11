@@ -18,10 +18,12 @@ export function* sensitiveSpans(
     const regex = new RegExp(pattern.source, pattern.flags);
     const next = () => {
       const match = regex.exec(text);
-      return match && {
-        start: match.index + (prefix === undefined ? 0 : (match[1]?.length ?? 0) + prefix),
-        end: match.index + match[0].length - (suffix ?? 0),
-      };
+      return (
+        match && {
+          start: match.index + (prefix === undefined ? 0 : (match[1]?.length ?? 0) + prefix),
+          end: match.index + match[0].length - (suffix ?? 0),
+        }
+      );
     };
     return { next, match: next() };
   });
