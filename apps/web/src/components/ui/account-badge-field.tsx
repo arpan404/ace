@@ -42,6 +42,7 @@ export function AccountBadgeField(props: {
           className="h-8 w-16 text-center"
         />
         <AccountBadge
+          colorPreview
           account={{
             label: props.name ?? "Account",
             shortLabel: issue ? "?" : props.value,
@@ -98,6 +99,7 @@ function BadgeColours(props: {
               }}
             >
               <AccountBadge
+                colorPreview
                 decorative
                 account={{
                   label: props.name ?? "Account",

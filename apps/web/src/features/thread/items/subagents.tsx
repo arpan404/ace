@@ -1,79 +1,103 @@
-import type { ThreadKey, ThreadReader } from "@ace/client";
-import { arrayEqual, useThread } from "@ace/client-react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import type { AgentFacts } from "@/lib/agent-facts.ts";
+import { subagentStatusLine, subagentTerminal } from "@ace/ui-core";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useCallback, useId, useMemo, useState, lazy, Suspense } from "react";
-import { AgentBranch } from "./agent-row.tsx";
+import { useAgentFacts } from "@/lib/use-agent-facts.ts";
+import { useCallback, useId, useState, lazy, Suspense } from "react";
+import { useThreadLiveState } from "../lib/live-state.ts";
+import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
+import { SubagentAvatar, SubagentElapsed, SubagentRow, subagentTones } from "./subagent-row.tsx";
 
 const SubagentActions = lazy(() =>
   import("./subagent-actions.tsx").then((module) => ({ default: module.SubagentActions })),
 );
 
-/** The agents a run of spawn calls started. */
-function spawned(reader: ThreadReader, itemIds: readonly string[]): string[] {
-  const spawns = new Set(itemIds);
-  const children: string[] = [];
-  for (const id of itemIds) {
-    const item = reader.item(id);
-    if (item?.type !== "tool_call") continue;
-    if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
-      children.push(item.call.detail.childAgentId);
-  }
-  for (const agentId of reader.agentIds()) {
-    const by = reader.agent(agentId)?.spawnedBy;
-    if (by && spawns.has(by) && !children.includes(agentId)) children.push(agentId);
-  }
-  return children;
-}
-
-/**
- * "Started 2 subagents ›", expanding inline into the agents it started, one row each (their
- * own subagents under them). The parent's own state is the turn's live line, not a row here.
- */
+/** One disclosure at the first launch of a batch, with flat rows for its direct children. */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
-  const keys = useMemo<ThreadKey[]>(
-    () => ["agents", ...props.itemIds.map((id): ThreadKey => `item:${id}`)],
-    [props.itemIds],
-  );
   const read = useCallback(
-    (reader: ThreadReader) => spawned(reader, props.itemIds),
+    (facts: AgentFacts) => readSubagentGroup(facts.reader, props.itemIds, facts),
     [props.itemIds],
   );
-  const children = useThread(props.threadId, keys, read, arrayEqual) ?? [];
+  const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
   const [open, setOpen] = useState(false);
-  const tree = useId();
-  const count = Math.max(children.length, props.itemIds.length);
+  const body = useId();
+  const live = useThreadLiveState(props.threadId);
+  if (!entries.length) return null;
+  const states = entries.map((entry) => entry.state);
+  const running = states.some((state) => !subagentTerminal(state));
+  const startedAt = Math.min(...entries.map((entry) => entry.startedAt));
+  const ends = entries.flatMap((entry) => (entry.endedAt === undefined ? [] : [entry.endedAt]));
+  const endedAt = !running && ends.length === entries.length ? Math.max(...ends) : undefined;
+  const title = `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`;
+  const line = subagentStatusLine(states);
+  const tone = states.includes("human")
+    ? subagentTones.human
+    : states.includes("failed") || states.includes("unresponsive")
+      ? subagentTones.failed
+      : running
+        ? subagentTones.working
+        : "text-muted-foreground";
   return (
-    <div>
+    <section aria-label={title} className="py-1">
       <button
         type="button"
+        aria-label={title}
         aria-expanded={open}
-        aria-controls={tree}
+        aria-controls={body}
+        aria-describedby={`${body}-status`}
         onClick={() => setOpen(!open)}
-        className="-mx-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+        className="flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md px-1.5 py-2 text-left transition-colors duration-(--dur-1) hover:bg-accent focus-ring"
       >
-        Started {count} {count === 1 ? "subagent" : "subagents"}
-        <CaretRightIcon
+        <span aria-hidden className="flex shrink-0 items-center -space-x-2">
+          {entries.slice(0, 3).map((entry) => (
+            <SubagentAvatar key={entry.id} provider={entry.provider} model={entry.model} />
+          ))}
+          {entries.length > 3 && (
+            <span className="pl-3 text-xs text-subtle-foreground">+{entries.length - 3}</span>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-ui font-medium">{title}</span>
+          <span id={`${body}-status`} role="status" className={cn("block text-xs", tone)}>
+            {live.fresh || !running ? line : `Last seen: ${line}`}
+          </span>
+        </span>
+        <SubagentElapsed
+          startedAt={startedAt}
+          endedAt={endedAt}
+          running={running}
+          fresh={live.fresh}
+        />
+        <CaretDownIcon
           aria-hidden
-          size={14}
+          size={16}
           className={cn(
-            "text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
-            open && "rotate-90",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2)",
+            open && "rotate-180",
           )}
         />
       </button>
-      {open && (
-        <div id={tree} className="fx-rise-in mt-1 mb-2 ml-2.5 border-l-2 pl-2.5">
-          <div role="tree" aria-label="Subagents">
-            {children.map((child) => (
-              <AgentBranch key={child} threadId={props.threadId} agentId={child} depth={0} />
-            ))}
-          </div>
-          <Suspense fallback={null}>
-            <SubagentActions threadId={props.threadId} />
-          </Suspense>
-        </div>
-      )}
-    </div>
+      <div id={body} hidden={!open}>
+        {open && (
+          <>
+            <ul aria-label="Subagents" className="mt-1 overflow-hidden rounded-card border">
+              {entries.map((entry) => (
+                <SubagentRow
+                  key={entry.id}
+                  threadId={props.threadId}
+                  entry={entry}
+                  fresh={live.fresh}
+                />
+              ))}
+            </ul>
+            <div className="mt-1 flex justify-end">
+              <Suspense fallback={null}>
+                <SubagentActions threadId={props.threadId} />
+              </Suspense>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

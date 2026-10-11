@@ -69,7 +69,8 @@ test.each([
     const row = await (
       await rows()
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
-    expect(within(row).getByText(short, { exact: true })).toBeTruthy();
+    if (short === "Answer") expect(within(row).getByText(short, { exact: true })).toBeTruthy();
+    else expect(within(row).queryByText(short, { exact: true })).toBeNull();
     expect(row.getAttribute("aria-label")).toContain(full);
     await userEvent.hover(row);
     expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
@@ -78,13 +79,14 @@ test.each([
   },
 );
 
-test("PR state, status words and provider stay visible while changes remain in the hover card", async () => {
+test("PR state and provider move to the hover card while status remains accessible", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
-  expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
+  expect(row.getAttribute("aria-label")).toContain("Working");
+  expect(within(row).queryByRole("img", { name: "draft pull request #283" })).toBeNull();
   expect(within(row).queryByText("+24")).toBeNull();
   expect(within(row).queryByText("−6")).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Codex");
@@ -191,8 +193,7 @@ test.each([false, true])(
     if (!row.parentElement) throw new Error("No row container");
     const device = within(row.parentElement).queryByRole("img", { name: `Device: ${name}` });
     expect(device).toBeNull();
-    if (remote) expect(within(row).getByText(`· ${name}`, { exact: true })).toBeTruthy();
-    else expect(row.textContent).not.toContain(name);
+    expect(row.textContent).not.toContain(name);
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
     expect(row.getAttribute("aria-label")).toContain("Codex");

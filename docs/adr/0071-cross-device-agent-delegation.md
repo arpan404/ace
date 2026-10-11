@@ -82,6 +82,11 @@ Delivered source terminal rows expire after seven days once their root is idle;
 deleting the owner also releases them. Target outcomes and selected manifests stay
 retained until owner deletion because no target-owned acknowledgement of source
 delivery exists. Active and undelivered rows remain retained.
+Broker polls rotate up to 64 tracked identities through source-owned liveness
+checks. The source confirms removal or reconciliation expiry using the same
+eligibility rule as routing; page omissions alone never clear routing progress or
+file-import retries. The broker enables these checks after the source advertises
+support, and skips identities with an in-flight route.
 Cancellation without target acknowledgement fails after thirty seconds and
 explicitly warns that the remote task may still be running. Sealed results survive
 cancellation and failed imports. Result text is bounded to 4,096 UTF-16 units and

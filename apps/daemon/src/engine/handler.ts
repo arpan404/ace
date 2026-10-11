@@ -325,6 +325,20 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
+          if (p.type === "thread.interrupt" && p.beforeSeq !== undefined) {
+            const state = repo.requireState(threadId);
+            const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
+            if (
+              !target ||
+              repo.store
+                .statement(`SELECT 1 FROM events WHERE thread_id=? AND seq>? AND (
+              (type='run.started' AND json_extract(payload,'$.run.agentId')=?) OR
+              (type='item.created' AND json_extract(payload,'$.item.agentId')=? AND json_extract(payload,'$.item.role')='user' AND COALESCE(json_extract(payload,'$.item.synthetic'),0)=0)
+            ) LIMIT 1`)
+                .get(threadId, p.beforeSeq, target, target)
+            )
+              return fail("stale_interrupt");
+          }
           if (p.type === "thread.interrupt" && p.runId !== undefined) {
             const state = repo.requireState(threadId);
             const target =

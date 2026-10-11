@@ -14,7 +14,8 @@ import {
   type ScreenState,
   type ScreenOperation,
 } from "@ace/protocol";
-import { useConnectionState } from "@ace/client-react";
+import { useClient } from "@ace/client-react";
+import type { ClientApi } from "@ace/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useDaemonConnection, type DaemonEndpoint } from "@/boot/connection.tsx";
 
@@ -161,6 +162,7 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
   });
   client.connect(transportFor(endpoint));
   opening = false;
+  publish();
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -205,15 +207,23 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
 interface Shared {
   session: ScreenSession;
   users: number;
+  stop: () => void;
   listeners: Set<() => void>;
 }
 const shared = new WeakMap<DaemonEndpoint, Shared>();
 
-function acquire(endpoint: DaemonEndpoint): Shared {
+function acquire(endpoint: DaemonEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    entry = { session: openSession(endpoint), users: 0, listeners: new Set() };
+    entry = { session: openSession(endpoint), users: 0, stop: () => {}, listeners: new Set() };
     shared.set(endpoint, entry);
+    let wasReady = client.state === "ready";
+    entry.stop = client.connectionState().subscribe(() => {
+      const ready = client.state === "ready";
+      const arrived = ready && !wasReady;
+      wasReady = ready;
+      if (arrived && shared.get(endpoint)?.session.get().closed) reopen(endpoint);
+    });
   }
   entry.users++;
   return entry;
@@ -222,6 +232,7 @@ function acquire(endpoint: DaemonEndpoint): Shared {
 function release(endpoint: DaemonEndpoint, entry: Shared) {
   entry.users--;
   if (entry.users > 0) return;
+  entry.stop();
   entry.session.close();
   if (shared.get(endpoint) === entry) shared.delete(endpoint);
 }
@@ -244,10 +255,11 @@ const none = () => () => {};
  */
 export function useScreenSession() {
   const { endpoint } = useDaemonConnection();
+  const client = useClient();
   const [session, setSession] = useState<ScreenSession | undefined>();
   useEffect(() => {
     if (!endpoint) return;
-    const entry = acquire(endpoint);
+    const entry = acquire(endpoint, client);
     const follow = () => setSession(entry.session);
     entry.listeners.add(follow);
     follow();
@@ -256,17 +268,12 @@ export function useScreenSession() {
       release(endpoint, entry);
       setSession(undefined);
     };
-  }, [endpoint]);
+  }, [endpoint, client]);
   const snapshot = useSyncExternalStore(
     session?.subscribe ?? none,
     session?.get ?? (() => offline),
     session?.get ?? (() => offline),
   );
-  const ready = useConnectionState() === "ready";
-  const closed = snapshot.closed;
-  useEffect(() => {
-    if (ready && closed && endpoint) reopen(endpoint);
-  }, [ready, closed, endpoint]);
   return { session, snapshot, reconnect: () => endpoint && reopen(endpoint) };
 }
 

@@ -250,7 +250,7 @@ export function createMcpSession(context: SocketContext): SocketService {
               result = null;
               break;
             case "mcp.status":
-              result = await control(controls.status());
+              result = providerMcpSources(await control(controls.status()));
               break;
             case "mcp.replace":
               result = await control(controls.replace(message.servers));

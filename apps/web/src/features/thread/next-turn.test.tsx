@@ -1,3 +1,4 @@
+import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, type Command, type CommandPayload } from "@ace/protocol";
@@ -37,10 +38,9 @@ async function open(options: Parameters<typeof harness>[0] = {}) {
 
 /** Move the reasoning choices with the keyboard, as a person tabbing to it would. */
 async function effort(chip: RegExp, keys: string) {
-  const popover = await openModelControl(chip);
-  const group = within(popover).getByRole("group", { name: "Effort" });
-  within(group).getAllByRole("button")[0]?.focus();
-  await userEvent.keyboard(`${keys} `);
+  await screen.findByRole("button", { name: chip });
+  const popover = await openEffortControl();
+  await chooseEffort(popover, keys);
   await closeModelControl();
 }
 
@@ -128,12 +128,9 @@ test("a move to another provider from another device resets what its model can't
   });
   await screen.findByRole("button", { name: /^Model: GPT-5 Codex, Personal/ });
   // Minimal effort and the fast tier: both Codex's own.
-  const popover = await openModelControl(/^Model: GPT-5 Codex, Personal/);
-  within(within(popover).getByRole("group", { name: "Effort" }))
-    .getByRole("button", { name: "Minimal" })
-    .focus();
-  await userEvent.keyboard(" ");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
+  const popover = await openEffortControl();
+  await chooseEffort(popover, "{Home}");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: GPT-5 Codex, Personal, Minimal effort, fast" }),

@@ -58,8 +58,6 @@ export class TerminalSessions {
   private dirty = new Set<Attached>();
   private scheduled = false;
   private opening = new Map<string, Promise<TerminalInfo>>();
-  /** Terminals whose tab closed while the daemon couldn't be told, by id → thread. */
-  private ending = new Map<string, string>();
   private focusWanted = new Set<string>();
   private link: TerminalSource["link"];
   private frame: (flush: () => void) => void;
@@ -174,24 +172,7 @@ export class TerminalSessions {
   close(id: string, threadId?: string): Promise<void> {
     const entry = this.attached.get(id);
     if (entry) this.release(entry);
-    this.ending.delete(id);
     return this.source.close(id, threadId);
-  }
-  /**
-   * End a terminal's shell once the daemon can be told: now if connected, else after the next
-   * reconnect. For a closed tab, whose shell must not outlive it just because the socket was
-   * down at that moment.
-   */
-  end(threadId: string, id: string): void {
-    this.ending.set(id, threadId);
-    if (this.source.link === "connected") this.flushEnding();
-  }
-  private flushEnding(): void {
-    for (const [id, threadId] of this.ending)
-      this.close(id, threadId).catch(() => {
-        // Still offline: keep it for the next reconnect. Gone already: nothing to end.
-        if (this.source.link !== "connected") this.ending.set(id, threadId);
-      });
   }
   private ensure(id: string): Attached {
     let entry = this.attached.get(id);
@@ -299,6 +280,5 @@ export class TerminalSessions {
       entry.detach = undefined;
       if (link === "connected") this.attach(id, entry);
     }
-    if (link === "connected") this.flushEnding();
   }
 }

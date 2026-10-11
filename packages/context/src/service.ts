@@ -244,25 +244,10 @@ export class ContextService {
           sha256: blob.attachment.sha256,
           path: prepared[mentions.entries.length + references.length + index]?.path ?? blob.path,
         })),
-        attachments: lease.blobs.map((blob, index) => {
-          const part = projection.input[mentions.entries.length + references.length + index];
-          const file = prepared[mentions.entries.length + references.length + index];
-          const delivery: import("@ace/protocol").Attachment["delivery"] =
-            part?.type === "text"
-              ? file?.text === undefined
-                ? "file_path"
-                : file.truncated
-                  ? "inline_text_and_path"
-                  : "inline_text"
-              : part?.type === "document"
-                ? "native_pdf"
-                : part?.type === "resource"
-                  ? "native_resource"
-                  : part?.type === "file" && part.mime === "application/pdf"
-                    ? "native_pdf"
-                    : "native_image";
-          return { ...blob.attachment, delivery };
-        }),
+        attachments: lease.blobs.map((blob, index) => ({
+          ...blob.attachment,
+          delivery: projection.deliveries[mentions.entries.length + references.length + index],
+        })),
         diagnostics: [...mentions.diagnostics, ...projection.diagnostics],
         release: lease.release,
       };

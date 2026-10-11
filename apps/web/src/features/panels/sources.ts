@@ -147,6 +147,8 @@ export interface BrowserDownload {
 }
 
 export interface PreviewSource {
+  /** Retire this client owner and release its cached frames and subscriptions. */
+  dispose(): void;
   /** Bumps on every change, to any thread. */
   readonly version: number;
   /**

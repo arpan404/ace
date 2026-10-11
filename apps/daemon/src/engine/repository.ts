@@ -69,6 +69,7 @@ export class EngineRepository {
     capacity = 64,
     commandId: () => string = randomUUID,
     aceAction?: typeof import("@ace/mcp-server").aceToolAction,
+    now: () => number = Date.now,
   ) {
     this.aceAction = aceAction;
     this.capacity = capacity;
@@ -103,7 +104,7 @@ export class EngineRepository {
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
-    this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
+    this.readiness = store.atomic((_db) => new TransitionReadiness(_db, now));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
     this.admissionStatements = store.atomic((_db) => ({
       has: this.store.statement(
@@ -113,7 +114,7 @@ export class EngineRepository {
         "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
       ),
       correlated: this.store.statement(
-        `UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND command_id=? AND awaiting=1 RETURNING id`,
+        `UPDATE intents SET awaiting=0, acknowledged=1, uncertain=0, status=CASE WHEN uncertain=1 THEN 'done' ELSE status END, error=NULL WHERE thread_id=? AND command_id=? AND submitted_generation IS NOT NULL AND (awaiting=1 OR uncertain=1) RETURNING id`,
       ),
       ack: this.store
         .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
@@ -421,7 +422,7 @@ export class EngineRepository {
           .statement(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
         AND status IN ('pending','queued','running')
         UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
-        AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
+        AND (awaiting=1 OR uncertain=1) AND status NOT IN ('pending','queued','running') LIMIT ?`)
           .all(id, id, limit).length < limit,
     );
   }

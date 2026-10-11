@@ -1,7 +1,7 @@
 import { canonicalBase64 } from "./base64.ts";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { type ContextDiagnostic as Diagnostic } from "@ace/protocol";
+import { type Attachment, type ContextDiagnostic as Diagnostic } from "@ace/protocol";
 import { requireContext } from "./errors.ts";
 import { languageHint } from "./file-kind.ts";
 import { boundEncodedContext, maxEncodedContextBytes } from "./encoded-budget.ts";
@@ -79,7 +79,7 @@ export function fileUri(path: string): string {
 export function projectAttachments(
   values: readonly PreparedAttachment[],
   settings: ProjectionCapabilities,
-): Projection {
+): Projection & { deliveries: NonNullable<Attachment["delivery"]>[] } {
   const capabilities = ProjectionCapabilities.parse(settings);
   requireContext(values.length <= 256, "quota", "Too many projected attachments");
   const attachments = values.map((value) => PreparedAttachment.parse(value));
@@ -120,6 +120,29 @@ export function projectAttachments(
     if (attachment.path.startsWith("ace://")) return { type: "text", text: text(attachment) };
     return fallback(attachment);
   }
+  function selectedDeliveries(
+    input: readonly Projection["input"][number][],
+    candidates = input,
+  ): NonNullable<Attachment["delivery"]>[] {
+    return input.map((part, index) => {
+      const attachment = attachments[index];
+      requireContext(attachment, "invalid_request", "Missing prepared attachment");
+      if (part !== candidates[index] && !attachment.path.startsWith("ace://")) return "file_path";
+      if (part.type === "text")
+        return attachment.text === undefined
+          ? "file_path"
+          : attachment.truncated
+            ? "inline_text_and_path"
+            : "inline_text";
+      if (part.type === "document") return "native_pdf";
+      if (part.type === "resource")
+        return "text" in part.resource && attachment.truncated
+          ? "inline_text_and_path"
+          : "native_resource";
+      if (part.type === "file" && part.mime === "application/pdf") return "native_pdf";
+      return "native_image";
+    });
+  }
   switch (capabilities.provider) {
     case "claude": {
       const input: ClaudeInput[] = attachments.map((a) => {
@@ -152,7 +175,7 @@ export function projectAttachments(
         }
         return { type: "document", source, title: a.name, path: a.path };
       });
-      return { provider: "claude", input, diagnostics };
+      return { provider: "claude", input, deliveries: selectedDeliveries(input), diagnostics };
     }
     case "codex": {
       const input: CodexInput[] = attachments.map((a) => {
@@ -167,7 +190,7 @@ export function projectAttachments(
         }
         return { ...fallback(a), text_elements: [] };
       });
-      return { provider: "codex", input, diagnostics };
+      return { provider: "codex", input, deliveries: selectedDeliveries(input), diagnostics };
     }
     case "opencode": {
       const input: OpenCodeInput[] = attachments.map((a) => {
@@ -186,13 +209,15 @@ export function projectAttachments(
           return { type: "file", mime: a.mimeType, filename: a.name, url: fileUri(a.path) };
         return fallback(a);
       });
+      const selected = boundEncodedContext(
+        input,
+        boundedFallback,
+        capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
+      );
       return {
         provider: "opencode",
-        input: boundEncodedContext(
-          input,
-          boundedFallback,
-          capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
-        ),
+        input: selected,
+        deliveries: selectedDeliveries(selected, input),
         diagnostics,
       };
     }
@@ -222,13 +247,15 @@ export function projectAttachments(
               resource: { uri: fileUri(a.path), mimeType: a.mimeType, blob: encoded },
             };
       });
+      const selected = boundEncodedContext(
+        input,
+        boundedFallback,
+        capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
+      );
       return {
         provider: "acp",
-        input: boundEncodedContext(
-          input,
-          boundedFallback,
-          capabilities.maxEncodedBytes ?? maxEncodedContextBytes,
-        ),
+        input: selected,
+        deliveries: selectedDeliveries(selected, input),
         diagnostics,
       };
     }

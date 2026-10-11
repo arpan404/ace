@@ -5,7 +5,7 @@
 export { threadWorkspace } from "./thread-workspace.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts). */
 export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/thread-parts.ts";
-export { findRunningTerminal, useRunningTerminalNames } from "./services.ts";
+export { disposePanelServices, findRunningTerminal, useRunningTerminalNames } from "./services.ts";
 export {
   newTerminal,
   openNewTerminal,
@@ -16,8 +16,12 @@ export {
 export { useBackgroundShells } from "./terminal/use-terminals.ts";
 /** A checkout file's tab, for whatever opens a file from outside the Files tool. */
 export { fileTab } from "./files/tab-id.ts";
+export { useScriptConfigurations } from "./files/script-configurations.ts";
+export const loadCreateFile = () => import("./files/create-file.tsx");
 /** A provider's sign-in terminal, outside any thread (the sign-in dialog shows it). */
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+
+export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";

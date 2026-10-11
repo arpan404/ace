@@ -2,6 +2,8 @@ import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
+import { Button } from "@/components/ui/button.tsx";
+import { useAnswerText } from "./answer-text.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredCopyAnswer } from "./deferred-review.ts";
@@ -21,8 +23,9 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   const agent = useAgent(props.threadId, item?.agentId ?? "");
   // Text left incomplete by a turn that stopped or failed no longer streams.
   const streaming = useStreaming(props.threadId, item);
+  const answer = useAnswerText(item);
   if (item?.type !== "message") return null;
-  const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  const text = answer.text;
   const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
   return (
     <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
@@ -50,19 +53,39 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
           )
         }
       />
-      {item.complete && (
+      {answer.partial && (
+        <div className="mt-2 text-xs text-muted-foreground">
+          <p>Showing a preview of this answer.</p>
+          {streaming ? (
+            <p>Full text can be loaded once streaming stops.</p>
+          ) : answer.status === "loading" ? (
+            <p role="status">Loading full answer…</p>
+          ) : (
+            <Button size="sm" onClick={answer.load}>
+              {answer.status === "failed" ? "Try again" : "Show full answer"}
+            </Button>
+          )}
+          {answer.problem && <p role="alert">{answer.problem}</p>}
+        </div>
+      )}
+      {(item.complete || (answer.truncated && !streaming)) && (
         <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
           <Suspense fallback={null}>
-            <CopyAnswer text={text} />
+            <CopyAnswer
+              key={answer.partial ? "preview" : "answer"}
+              text={text}
+              label={answer.partial ? "Copy preview" : "Copy answer"}
+            />
           </Suspense>
-          {!name &&
+          {item.complete &&
+            !name &&
             item.nativeId &&
             (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
               <Suspense fallback={null}>
                 <RewindControl threadId={props.threadId} entryId={item.nativeId} />
               </Suspense>
             )}
-          {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+          {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
         </div>
       )}
     </div>

@@ -60,7 +60,13 @@ export const EventPayload = z.discriminatedUnion("type", [
     archivedAt: Timestamp.nullable().optional(),
   }),
   z.object({ type: z.literal("agent.created"), agent: Agent }),
-  z.object({ type: z.literal("agent.status"), agentId: AgentId, status: AgentStatus }),
+  z.object({
+    type: z.literal("agent.status"),
+    agentId: AgentId,
+    status: AgentStatus,
+    /** Whether this diagnostic or work prevents completion of its owning turn. */
+    completionRelevant: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal("agent.updated"),
     agentId: AgentId,

@@ -1,3 +1,4 @@
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import { Command, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
@@ -39,7 +40,9 @@ export function handleQueue(
         ...rest,
         input: p.input,
         ...(p.context ? { context: p.context } : {}),
-        ...(old.type === "thread.send" && p.delivery ? { delivery: p.delivery } : {}),
+        ...(old.type === "thread.send"
+          ? { delivery: hasNextTurnSelection(old) ? "queue" : (p.delivery ?? old.delivery) }
+          : {}),
       };
       const edited = Command.parse({ ...entry.command, payload });
       dependencies.repo.queue.edit(entry.id, edited);
@@ -47,27 +50,46 @@ export function handleQueue(
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+      if (["thread.resume", "queue.resume", "thread.limit"].includes(entry.command.payload.type)) {
+        dependencies.repo.pending.finishContinuation(p.threadId);
+        dependencies.repo.queue.set(
+          p.threadId,
+          { continuation: null, trigger: null },
+          dependencies.clock.now(),
+        );
+      }
     } else if (p.type === "queue.resend" && entry) {
       if (!entry.uncertain) return fail("message_not_uncertain");
       const old = entry.command.payload;
-      if (old.type !== "thread.create" && old.type !== "thread.send")
+      const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(old.type);
+      const heldContinuation = continuation && queue.paused && queue.reason !== "uncertain";
+      if (old.type !== "thread.create" && old.type !== "thread.send" && !continuation)
         return fail("invalid_queue_entry");
+      if (continuation && !heldContinuation && !dependencies.repo.reserve(p.threadId))
+        return fail("engine_capacity_exceeded");
       const replacement = Command.parse({
         ...command,
-        payload: {
-          type: "thread.send",
-          threadId: p.threadId,
-          input: old.input,
-          context: old.context,
-          origin: old.origin,
-          trigger: old.trigger,
-          delivery: old.type === "thread.send" ? old.delivery : "queue",
-        },
+        payload:
+          old.type === "thread.create" || old.type === "thread.send"
+            ? {
+                type: "thread.send",
+                threadId: p.threadId,
+                input: old.input,
+                context: old.context,
+                origin: old.origin,
+                trigger: old.trigger,
+                delivery: old.type === "thread.send" ? old.delivery : "queue",
+              }
+            : { type: "queue.resume", threadId: p.threadId, expectedRevision: queue.revision },
       });
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
-      dependencies.repo.add(replacement, p.threadId);
-      dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
+      if (continuation) dependencies.repo.pending.finishContinuation(p.threadId);
+      // The durable continuation remains available to Resume. Creating a runnable
+      // recovery intent here would bypass a later manual or Stop hold.
+      if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
+      if (!continuation)
+        dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.
       if (
         queue.reason === "uncertain" &&
@@ -142,8 +164,8 @@ export function handleQueue(
         dependencies.schedule();
         return { commandId: command.id, ok: true };
       }
-      if (dependencies.repo.pending.recovering(p.threadId)) return fail("recovery_in_progress");
       if (dependencies.repo.queue.hasUncertain(p.threadId)) return fail("uncertain_delivery");
+      if (dependencies.repo.pending.recovering(p.threadId)) return fail("recovery_in_progress");
       if (!dependencies.repo.reserve(p.threadId)) return fail("engine_capacity_exceeded");
       dependencies.repo.add(command, p.threadId);
       // Hold sends while a resume/migration is in flight, even if the source exits.

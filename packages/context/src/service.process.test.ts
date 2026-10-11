@@ -1,7 +1,7 @@
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { ContextService, type ProjectionCapabilities } from "./index.ts";
+import { ContextService, encodedContextBudget, type ProjectionCapabilities } from "./index.ts";
 import { repository, hash, png, thread } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -178,6 +178,73 @@ async function storeBytes(service: ContextService, bytes: Buffer, name: string) 
     });
   await service.uploads.handle("device", { op: "upload.commit", uploadId: begin.uploadId });
 }
+test.each(["acp", "opencode"] as const)(
+  "%s composition reports file-path delivery when the prompt budget replaces inline text",
+  async (provider) => {
+    const f = await fixture();
+    const bytes = Buffer.alloc(8 * 1024, 97);
+    await storeBytes(f.service, bytes, "notes.txt");
+    const context = { mentions: [], attachments: [{ sha256: hash(bytes) }] };
+    const settings = { ...caps, provider, embeddedContext: true, maxInlineBytes: 4 * 1024 * 1024 };
+    const inline = await f.service.compose("device", thread, context, settings);
+    try {
+      expect(JSON.stringify(inline.projection.input)).toContain(bytes.toString("utf8"));
+      expect(inline.attachments[0]?.delivery).toBe(
+        provider === "acp" ? "native_resource" : "inline_text",
+      );
+    } finally {
+      inline.release();
+    }
+    const result = await f.service.compose("device", thread, context, {
+      ...settings,
+      maxEncodedBytes: encodedContextBudget([{ type: "text", text: "p".repeat(326_000) }]),
+    });
+    try {
+      const path = result.attachmentPaths[0]?.path;
+      if (!path) throw new Error("Missing retained file path");
+      expect(result.projection.input).toEqual([
+        {
+          type: "text",
+          text: expect.stringContaining(`Read the full file at ${JSON.stringify(path)}`),
+        },
+      ]);
+      expect(JSON.stringify(result.projection.input)).not.toContain(bytes.toString("utf8"));
+      expect(result.attachments[0]?.delivery).toBe("file_path");
+      expect(await readFile(path)).toEqual(bytes);
+    } finally {
+      result.release();
+    }
+  },
+);
+test("ACP composition identifies a truncated text resource as an inline prefix with a full-file path", async () => {
+  const f = await fixture();
+  const prefix = "a".repeat(16 * 1024);
+  const tail = "b".repeat(16 * 1024);
+  const bytes = Buffer.from(prefix + tail);
+  await storeBytes(f.service, bytes, "large-notes.txt");
+  const result = await f.service.compose(
+    "device",
+    thread,
+    { mentions: [], attachments: [{ sha256: hash(bytes) }] },
+    { ...caps, provider: "acp", embeddedContext: true, maxInlineBytes: 4 * 1024 * 1024 },
+  );
+  try {
+    expect(result.projection.input).toHaveLength(1);
+    const part = result.projection.input[0];
+    if (part?.type !== "resource" || !("text" in part.resource))
+      throw new Error("Expected a text-bearing ACP resource");
+    expect(part.resource.text).toContain(`<ace-attachment>\n${prefix}\n</ace-attachment>`);
+    expect(part.resource.text).not.toContain(tail);
+    expect(part.resource.text).toContain("[Inline text truncated.]");
+    const path = result.attachmentPaths[0]?.path;
+    if (!path) throw new Error("Missing retained file path");
+    expect(part.resource.text).toContain(`Read the full file at ${JSON.stringify(path)}`);
+    expect(result.attachments[0]?.delivery).toBe("inline_text_and_path");
+    expect(await readFile(path)).toEqual(bytes);
+  } finally {
+    result.release();
+  }
+});
 test("multi-megabyte documents stay native for Claude and remain readable through ACP file fallback", async () => {
   const f = await fixture();
   const bytes = Buffer.alloc(4 * 1024 * 1024, 32);

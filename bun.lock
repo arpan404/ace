@@ -131,6 +131,7 @@
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
         "@ace/commands": "workspace:*",
+        "@ace/core": "workspace:*",
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -161,6 +162,7 @@
         "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/review": "workspace:*",
@@ -735,6 +737,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/native-session": "workspace:*",

@@ -1,3 +1,4 @@
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -96,21 +97,18 @@ export class Recovery {
     if (!isSend(command.payload)) return command;
     if (
       this.repo.queue.count(id) >= maxMessages ||
+      !this.repo.inputCapacity(id, maxMessages) ||
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
     )
       return undefined;
     const p = command.payload;
-    return p.type === "thread.send" &&
-      (p.delivery === undefined || p.model !== undefined || p.options !== undefined)
+    return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
       ? Command.parse({
           ...command,
           payload: {
             ...p,
             // A selection belongs to the next turn, never a steer into the active run.
-            delivery:
-              p.model !== undefined || p.options !== undefined
-                ? "queue"
-                : this.preferences(id).followUpBehavior,
+            delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
           },
         })
       : command;
@@ -168,10 +166,12 @@ export class Recovery {
     this.schedule();
   }
   capture(id: ThreadId): void {
+    if (this.repo.pending.uncertainContinuation(id)) return;
     const text = lostWork(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
       this.repo.backend(id),
+      this.clock.now(),
     );
     if (!text) return;
     this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
