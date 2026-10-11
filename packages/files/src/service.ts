@@ -60,11 +60,18 @@ export class FilesService {
       const safe = await SafeRoot.create(root, options.workspaceRuntime);
       roots.set(safe.root, safe);
     }
-    return new FilesService(
+    const service = new FilesService(
       await SafeRoot.create(options.workspace, options.workspaceRuntime),
       options,
       roots,
     );
+    try {
+      await service.uploads.reconcile();
+      return service;
+    } catch (error) {
+      await service.close();
+      throw error;
+    }
   }
   authorize(device: string, capability: "files.read" | "files.write"): void {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
@@ -423,6 +430,7 @@ export class FilesService {
   sweep(signal?: AbortSignal): Promise<void> {
     return this.serial(async () => {
       signal?.throwIfAborted();
+      await this.uploads.reconcile();
       await this.uploads.removeMany(
         this.catalog
           .list("upload")

@@ -1,8 +1,9 @@
+import { UploadPublication } from "./upload-publication.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { lstat, open, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
-import { Catalog, UploadRecord } from "./catalog.ts";
+import { Catalog, UploadRecord, UploadReceipt } from "./catalog.ts";
 import {
   checkedTarget,
   hashFile,
@@ -18,11 +19,26 @@ export class Uploads {
   private readonly catalog: Catalog;
   private readonly options: FilesOptions;
   private readonly exclusive: ExclusiveRename;
+  private readonly publication: UploadPublication;
   constructor(safe: SafeRoot, catalog: Catalog, options: FilesOptions, exclusive: ExclusiveRename) {
     this.safe = safe;
     this.catalog = catalog;
     this.options = options;
     this.exclusive = exclusive;
+    this.publication = new UploadPublication(safe, catalog, options.now);
+  }
+  async reconcile(): Promise<void> {
+    for (const row of this.catalog.list("upload"))
+      await this.publication.recover(UploadRecord.parse(row));
+    for (const receipt of this.catalog.list("upload.completed"))
+      if (receipt.expires <= this.options.now()) this.catalog.delete(receipt.id);
+  }
+  private receipt(id: string, device: string): UploadReceipt | undefined {
+    const row = this.catalog.get(id);
+    if (row.kind !== "upload.completed") return;
+    if (row.device !== device) throw new FileError("FORBIDDEN", "Upload belongs to another device");
+    if (row.expires <= this.options.now()) throw new FileError("EXPIRED", "Upload receipt expired");
+    return row;
   }
   private record(id: string, device: string): UploadRecord {
     const record = UploadRecord.parse(this.catalog.get(id));
@@ -33,6 +49,7 @@ export class Uploads {
     return record;
   }
   async begin(device: string, path: string, expected: string | null, size: number) {
+    await this.reconcile();
     const total = this.catalog.total("upload");
     if (
       total.count >= 32 ||
@@ -80,6 +97,9 @@ export class Uploads {
     return { uploadId: id, offset: 0, size };
   }
   async resume(device: string, id: string) {
+    await this.reconcile();
+    if (this.receipt(id, device))
+      throw new FileError("COMMITTED", "Upload was published; retry commit for its receipt");
     const record = this.record(id, device);
     const { handle, verify } = await openUpload(this.safe, record);
     try {
@@ -107,6 +127,13 @@ export class Uploads {
     }
   }
   async commit(device: string, id: string, sha256: string): Promise<string> {
+    await this.reconcile();
+    const receipt = this.receipt(id, device);
+    if (receipt) {
+      if (receipt.sha256 !== sha256)
+        throw new FileError("CHECKSUM", "Upload receipt SHA-256 mismatch");
+      return receipt.path;
+    }
     const record = this.record(id, device);
     const { handle, verify } = await openUpload(this.safe, record);
     try {
@@ -124,10 +151,11 @@ export class Uploads {
       await target.verify();
       await verify();
       const temp = join(dirname(target.path), record.temp);
+      this.catalog.publishUpload({ ...record, publishing: sha256 });
       if (record.expected === null) await this.exclusive.move(temp, target.path);
       else await rename(temp, target.path);
       await target.verify();
-      this.catalog.delete(id);
+      this.publication.complete(record, sha256);
       return record.path;
     } finally {
       await handle.close();
@@ -152,6 +180,12 @@ export class Uploads {
   /** Missing/replaced files keep their durable reservation until their inode is removed. */
   async removeMany(records: UploadRecord[], signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
+    const unresolved: UploadRecord[] = [];
+    for (const record of records) {
+      signal?.throwIfAborted();
+      if (!(await this.publication.recover(record))) unresolved.push(record);
+    }
+    records = unresolved;
     for (const record of records) this.catalog.markUploadCleanup(record.id);
     const debt = new Map(records.map((record) => [record.temp, record]));
     const removeAt = async (record: UploadRecord, destination: string): Promise<boolean> => {
