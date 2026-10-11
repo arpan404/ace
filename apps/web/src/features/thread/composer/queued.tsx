@@ -39,7 +39,7 @@ export function QueuedTray(props: {
   const [collapsed, setCollapsed] = useState(() => readJson(storage, key, collapsedSchema, false));
   const [editing, setEditing] = useState<QueuedMessage>();
   const [announcement, announce] = useState("");
-  const restoreFocus = useRef<HTMLButtonElement | undefined>(undefined);
+  const restoreFocus = useRef<{ id: string; handle: HTMLButtonElement } | undefined>(undefined);
   const drag = useRef<{ id: string; revision: number | undefined; order: string } | undefined>(
     undefined,
   );
@@ -54,12 +54,16 @@ export function QueuedTray(props: {
   const moving = queue.messages.some((message) => queue.busy(message.id));
   const uncertain = queue.messages.some((message) => message.state === "uncertain");
   useLayoutEffect(() => {
-    if (!restoreFocus.current) return;
-    if (restoreFocus.current.isConnected) restoreFocus.current.focus();
+    const target = restoreFocus.current;
+    if (!target) return;
+    if (queue.messages.some((message) => message.id === target.id) && target.handle.isConnected)
+      target.handle.focus();
     if (!moving) restoreFocus.current = undefined;
-  }, [order, moving]);
+  }, [queue.messages, moving]);
   const move = (index: number, destination: number, handle?: HTMLButtonElement) => {
+    const message = queue.messages[index];
     if (
+      !message ||
       moving ||
       uncertain ||
       index < 0 ||
@@ -69,7 +73,7 @@ export function QueuedTray(props: {
       index === destination
     )
       return;
-    restoreFocus.current = handle;
+    restoreFocus.current = handle ? { id: message.id, handle } : undefined;
     queue.moveTo(index, destination);
     announce(`Moved queued message to position ${destination + 1}.`);
   };
