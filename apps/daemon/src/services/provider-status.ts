@@ -78,6 +78,8 @@ export function startProviderStatuses(context: ServiceContext): void {
         };
       },
       async versions(row, signal) {
+        if (context.options.providerStatus?.versions)
+          return context.options.providerStatus.versions(row, signal);
         const installs = context.services.providerInstalls;
         if (!installs || row.provider === "cursor") return {};
         const plan = await installs.planner.plan(
