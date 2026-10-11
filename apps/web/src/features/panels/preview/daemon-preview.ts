@@ -401,7 +401,9 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           release(oldest);
         }
         if (client.state !== "ready") return;
-        if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
+        // Invalidation clears subscribed to request replay, but the logical subscription
+        // still owns a slot even when a hidden page cannot replay it yet.
+        void call("browser.unsubscribe", threadId).catch(() => {});
       }
     },
     view: (threadId) => views.get(threadId),

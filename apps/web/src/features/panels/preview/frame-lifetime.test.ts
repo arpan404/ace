@@ -53,9 +53,10 @@ async function setup() {
   };
   const decodes = new Map<string, ReturnType<typeof Promise.withResolvers<DecodedFrame>>>();
   const released: string[] = [];
+  let visible = true;
   const source = daemonPreview(client, {
     schedule: () => () => {},
-    visibility: { visible: () => true, watch: () => () => {} },
+    visibility: { visible: () => visible, watch: () => () => {} },
     decode: (data) => {
       if (!data.startsWith("pending-")) return Promise.resolve({ src: data, release() {} });
       const decode = Promise.withResolvers<DecodedFrame>();
@@ -89,6 +90,7 @@ async function setup() {
     await Promise.resolve();
   };
   return {
+    daemon,
     source,
     client,
     threadId,
@@ -98,12 +100,58 @@ async function setup() {
     sent,
     released,
     receive,
+    hide: () => {
+      visible = false;
+    },
     quiet: () => {
       quiet = true;
     },
     decoding: (data: string) => decodes.has(data),
   };
 }
+
+test.each(["paused", "recovering", "backend replacement"])(
+  "removing the last watcher while hidden after %s leaves room for eight later previews",
+  async (transition) => {
+    const t = await setup();
+    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    const previous = t.source.view(t.threadId);
+    t.quiet();
+    t.hide();
+    t.receive({
+      type: "browser.state",
+      state: BrowserState.parse({
+        threadId: t.threadId,
+        url: "about:blank",
+        controller: "agent",
+        closed: false,
+        activeTabId: previous?.activeTabId,
+        backend:
+          transition === "backend replacement"
+            ? previous?.backend === "embedded"
+              ? "headless"
+              : "embedded"
+            : previous?.backend,
+        status: transition === "backend replacement" ? "ready" : transition,
+      }),
+    });
+    expect(t.source.frame(t.threadId)).toBeUndefined();
+    t.stop();
+    // Drain last-watcher cleanup through the real client/daemon connection.
+    await Promise.resolve();
+    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+
+    // An abandoned subscription consumes one of the daemon's eight slots. All eight
+    // later previews must be admitted without a reconnect or detaching the client.
+    for (let index = 0; index < 8; index++) {
+      const threadId = `later-preview-${index}`;
+      t.daemon.createThread(failingSubagent(threadId).thread);
+      t.daemon.browser.drive(threadId, { url: "about:blank" });
+      const reply = await t.client.request({ type: "browser.subscribe", threadId });
+      expect(reply.ok).toBe(true);
+    }
+  },
+);
 
 test.each(["local close", "remote close", "unwatch", "disconnect"])(
   "%s fences a late frame with the same sequence as the replacement",
