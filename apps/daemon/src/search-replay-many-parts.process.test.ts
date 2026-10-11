@@ -1,4 +1,4 @@
-import { Item, ItemId, type ContentPart } from "@ace/protocol";
+import { Item, ItemId, type ContentPart, type ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { root, storeFixture } from "./long-thread-test-support.ts";
 
@@ -70,8 +70,8 @@ for (const layout of ["empty", "attachment-last", "text-last"] as const) {
     expect(Buffer.byteLength(JSON.stringify(page.events))).toBeLessThanOrEqual(524288);
     const source = {
       headSeq: () => f.store.headSeq(),
-      getThread: f.store.getThread.bind(f.store),
-      readEvents: f.store.readEvents.bind(f.store),
+      getThread: (id: ThreadId) => f.store.getThread(id),
+      readEvents: (options: { afterSeq: number; limit: number }) => f.store.readEvents(options),
       readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
         const next = f.store.readSearchPage({ ...options, limit: 1 });
         expect(next.bytes).toBeLessThanOrEqual(options.maxBytes);
@@ -81,6 +81,8 @@ for (const layout of ["empty", "attachment-last", "text-last"] as const) {
     const abort = new AbortController();
     await f.store.search.rebuild(source, {
       signal: abort.signal,
+      // Keep startup's scheduled backfill from advancing this controlled interruption.
+      yield: () => Promise.resolve(),
       onProgress(status) {
         if (status.indexedSeq >= created.seq) abort.abort();
       },

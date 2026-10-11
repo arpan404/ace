@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { open, symlink, writeFile } from "node:fs/promises";
+import { lstat, open, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
@@ -53,8 +53,9 @@ test("an untracked regular path replaced by a FIFO after Git lists it never bloc
 import { spawnSync } from "node:child_process";
 import { existsSync, renameSync } from "node:fs";
 const args = process.argv.slice(2);
+const command = args.find((arg) => !arg.startsWith("-"));
 const result = spawnSync("git", args, { maxBuffer: 1024 * 1024 });
-if (args[0] === "status" && existsSync(${JSON.stringify(fifo)})) renameSync(${JSON.stringify(fifo)}, ${JSON.stringify(victim)});
+if (command === "status" && existsSync(${JSON.stringify(fifo)})) renameSync(${JSON.stringify(fifo)}, ${JSON.stringify(victim)});
 if (result.stdout) process.stdout.write(result.stdout);
 if (result.stderr) process.stderr.write(result.stderr);
 process.exitCode = result.status ?? 1;
@@ -70,12 +71,15 @@ process.exitCode = result.status ?? 1;
   }, 60000);
   try {
     const changed = await service.changedFiles(root);
+    expect((await lstat(victim)).isFIFO(), "the listed regular file must have been replaced").toBe(
+      true,
+    );
     expect(release, "replacement must not require a FIFO writer to unblock Git").toBeUndefined();
     expect(changed.files).toEqual([
       { path: "control", status: "untracked", additions: 2, deletions: 0, binary: false },
       { path: "victim", status: "untracked", additions: 0, deletions: 0, binary: false },
     ]);
-    expect((await service.status(root)).untracked).toContain("victim");
+    expect((await service.status(root)).untracked).toContain("control");
   } finally {
     clearTimeout(watchdog);
     await release;
