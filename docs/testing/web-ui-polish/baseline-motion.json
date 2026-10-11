@@ -1,0 +1,91 @@
+{
+  "sourceRevision": "2ff93accbe02d8185b4e9f50c725a18f33740b5a",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "build": "optimized Vite fake build; baseline motion CSS, permission edits in progress",
+  "browser": "headless Chromium, no CPU or network throttling",
+  "window": "1500 ms warmup; nominal 15 s wall-clock observation (actual duration recorded)",
+  "samples": [
+    {
+      "fixture": "thread-worktree-cleanup",
+      "variant": "default",
+      "visibility": "visible",
+      "loops": 10,
+      "observationMs": 15233.900000035763,
+      "counts": {
+        "DrawFrame": 883,
+        "Paint": 39,
+        "CompositeLayers": 0
+      }
+    },
+    {
+      "fixture": "thread-worktree-cleanup",
+      "variant": "spinner-static",
+      "visibility": "visible",
+      "loops": 2,
+      "observationMs": 15104.899999976158,
+      "counts": {
+        "DrawFrame": 869,
+        "Paint": 5,
+        "CompositeLayers": 0
+      }
+    },
+    {
+      "fixture": "thread-worktree-cleanup",
+      "variant": "all-static",
+      "visibility": "visible",
+      "loops": 0,
+      "observationMs": 15243.5,
+      "counts": {
+        "DrawFrame": 2,
+        "Paint": 11,
+        "CompositeLayers": 0
+      }
+    },
+    {
+      "fixture": "thread-worktree-cleanup",
+      "variant": "all-static-no-blur",
+      "visibility": "visible",
+      "loops": 0,
+      "observationMs": 15004.800000011921,
+      "counts": {
+        "DrawFrame": 17,
+        "Paint": 11,
+        "CompositeLayers": 0
+      }
+    },
+    {
+      "fixture": "thread-sheet-rotate",
+      "variant": "default",
+      "visibility": "visible",
+      "loops": 10,
+      "observationMs": 15011.299999952316,
+      "counts": {
+        "DrawFrame": 899,
+        "Paint": 12,
+        "CompositeLayers": 0
+      }
+    },
+    {
+      "fixture": "thread-pdf-locale",
+      "variant": "default",
+      "visibility": "visible",
+      "loops": 0,
+      "observationMs": 15044.199999988079,
+      "counts": {
+        "DrawFrame": 20,
+        "Paint": 66,
+        "CompositeLayers": 0
+      }
+    }
+  ],
+  "excluded": "hidden sample reported document.visibilityState=visible, so is invalid for hidden comparison",
+  "limitations": [
+    "CSS pause variants are baseline counterfactuals, not measurements of the final source.",
+    "Native caret unfocused. Initial style changes can contribute bounded paint.",
+    "DrawFrame/Paint are event counts, not delivered FPS, battery watts or physical GPU utilization.",
+    "Final optimized visible/hidden/state/material traces stopped at the orchestrator request."
+  ]
+}
