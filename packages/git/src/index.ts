@@ -16,6 +16,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
@@ -37,6 +38,7 @@ export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
+export type { RevisionLineOptions } from "./revision-lines.ts";
 
 export class GitService {
   private readonly repository: Repository;
@@ -243,6 +245,12 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
       ),
     );
+  }
+
+  /** At most 106 lines and 8192 characters from an immutable commit or checkpoint. */
+  async readRevisionLines(options: RevisionLineOptions) {
+    const root = await this.repository.root(options.worktree);
+    return this.repository.serial(root, () => readRevisionLines(this.repository, root, options));
   }
 
   async resolveCommit(options: { worktree: string; ref: string }): Promise<string> {
