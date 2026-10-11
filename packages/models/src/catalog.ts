@@ -956,7 +956,7 @@ export class ModelCatalog implements ModelCatalogApi {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain
             // their durable slots; SQLite admission still refuses actual overflow.
             if (this.#deletions.has(state.config.id)) await this.#deletions.remove(state.config.id);
-            await this.#deletions.retry();
+            const deletions = await this.#deletions.retry();
             if (
               this.#states.get(state.config.id) !== state ||
               this.#closed ||
@@ -964,7 +964,7 @@ export class ModelCatalog implements ModelCatalogApi {
               this.#revision(state.config) !== revision
             )
               return;
-            revocationsStored = true;
+            revocationsStored = deletions.every((result) => result.status === "fulfilled");
             await this.#options.storage.replace(entry);
           } catch {
             if (
