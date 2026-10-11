@@ -77,6 +77,7 @@ export function completeTurn(
     agent: agent.key,
     nativeTurnId: turnId,
     outcome,
+    ...(!actionable ? { historical: true } : {}),
     ...(outcome === "failed"
       ? {
           error: turnError(

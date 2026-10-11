@@ -120,6 +120,8 @@ export function endTurn(
   });
   // A delayed end for an older native turn cannot terminate the current turn.
   if (active && active.id !== run.id) return;
+  if (!fact.historical && fact.error?.kind === "quota")
+    record.limited = { message: fact.error.message };
   delete record.processSettledStatus;
   delete record.activeRun;
   delete record.retry;
